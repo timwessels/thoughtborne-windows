@@ -2,4 +2,6 @@
 # Install these only if you want to use the respective features
 
 # For Soniox speech recognition API
-soniox>=1.0.0
+# Pin to 1.x: Soniox rewrote the SDK in 2.x without backward compatibility.
+# SpeechClient and transcribe_file_short exist only in 1.x (last release: 1.10.1).
+soniox>=1.10.1,<2
