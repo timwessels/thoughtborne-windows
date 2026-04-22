@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs (incl. rotated log files like thoughtborne.log.1, .log.2, ...)
+*.log
+*.log.*
+logs/
+
+# Audio archives
+voice_archive/
+text_archive/
+
+# Temporary files
+*.wav
+*.mp3
+!test_audio.mp3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_output/
+temp/
+
+# Local-only folders (not part of the published repo)
+_archive/
+_backups/
+_docs/
+_research/
+_speedtest/
+_temp-claudecode/
+_tools/
+.claude/
+
+# User personalization (Soniox context terms etc.)
+# Template: personal_settings.example.json (committed)
+personal_settings.json

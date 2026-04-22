@@ -1,0 +1,19 @@
+{
+  "_comment": "Optional user personalization for Soniox v4 / Live APIs. Copy this file to 'personal_settings.json' and customize the vocabulary block. If 'personal_settings.json' is absent, SONIOX_CONTEXT stays None and no personalization is sent. Only used by the Soniox v4 Async and Live transcribers — ignored by other APIs.",
+
+  "vocabulary": {
+    "general": [
+      {"key": "domain", "value": "Voice Typing / Dictation"},
+      {"key": "topic", "value": "Your main topics here (e.g. software development, academic writing, specific field)"}
+    ],
+
+    "terms": [
+      "Project Name",
+      "Company Name",
+      "Technical term the model often misrecognizes",
+      "Proper noun",
+      "Acronym",
+      "Foreign word commonly used in your dictation"
+    ]
+  }
+}

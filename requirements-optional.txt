@@ -1,0 +1,5 @@
+# Optional dependencies
+# Install these only if you want to use the respective features
+
+# For Soniox speech recognition API
+soniox>=1.0.0
