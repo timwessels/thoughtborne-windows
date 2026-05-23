@@ -1015,6 +1015,14 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         self._session_lock = threading.Lock()
         self._session_error = None
 
+        # Drop diagnostic: WebSocket send latency tracking.
+        # A blocking send (>100ms) is the direct indicator of TCP backpressure,
+        # which in the current single-thread architecture stalls the recording
+        # loop and causes mic drops. Reset on each new session.
+        self._send_latency_max = 0.0
+        self._send_latency_blocked_total = 0.0
+        self._send_latency_blocked_count = 0
+
         logger.info(f"Soniox Live transcriber initialized (model: {SONIOX_RT_MODEL})")
         if SONIOX_CONTEXT:
             logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms")
@@ -1071,6 +1079,11 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 self._session_error = None
                 self._session_active = True
 
+                # Reset send-latency diagnostic stats for the new session
+                self._send_latency_max = 0.0
+                self._send_latency_blocked_total = 0.0
+                self._send_latency_blocked_count = 0
+
                 # Start receiver thread
                 self._receiver_thread = threading.Thread(
                     target=self._receiver_loop,
@@ -1106,7 +1119,23 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             return
 
         try:
+            # Drop diagnostic: measure send duration. A blocking send (TCP
+            # backpressure) is the direct cause of recording-loop stalls in
+            # the current single-thread architecture.
+            send_start = time.perf_counter()
             self._ws.send(raw_data)
+            send_elapsed = time.perf_counter() - send_start
+
+            if send_elapsed > self._send_latency_max:
+                self._send_latency_max = send_elapsed
+            if send_elapsed > 0.01:  # >10ms: track as "blocked"
+                self._send_latency_blocked_total += send_elapsed
+                self._send_latency_blocked_count += 1
+            if send_elapsed > 0.1:  # >100ms: warn (likely TCP backpressure)
+                logger.warning(
+                    f"Slow WebSocket send: {send_elapsed*1000:.0f}ms "
+                    f"(TCP backpressure - recording loop is blocked while this returns)"
+                )
         except Exception as e:
             logger.error(f"Error sending audio chunk: {e}")
 
@@ -1170,6 +1199,11 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             logger.error(f"Soniox Live receiver error: {e}", exc_info=True)
             self._session_error = str(e)
         finally:
+            # Mark session inactive so send_audio_chunk() stops trying to
+            # send on a dead WebSocket. Without this, every chunk in the
+            # recording loop produced a fresh ERROR log entry after a
+            # server-side disconnect, until the user pressed Stop.
+            self._session_active = False
             self._result_ready.set()
             logger.info(f"Soniox Live receiver thread stopped "
                        f"({len(self._final_tokens)} final tokens collected)")
@@ -1242,6 +1276,15 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
     def _close_session_internal(self):
         """Close the WebSocket and clean up session state."""
+        # Log send-latency diagnostics if any traffic was measured
+        if self._send_latency_max > 0:
+            logger.info(
+                f"Session send-latency stats: "
+                f"max={self._send_latency_max*1000:.0f}ms, "
+                f"blocked-events(>10ms)={self._send_latency_blocked_count}, "
+                f"total-blocked-time={self._send_latency_blocked_total:.2f}s"
+            )
+
         self._session_active = False
 
         if self._ws is not None:

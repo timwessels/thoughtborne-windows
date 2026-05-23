@@ -14,6 +14,7 @@ Classes:
 """
 
 import os
+import time
 import wave
 import logging
 import datetime
@@ -47,6 +48,16 @@ class AudioRecorder:
         self.max_stream_errors = 5  # After 5 errors, try to reinitialize
         self._stream_lock = threading.Lock()  # Lock to prevent race conditions with stream access
         self.last_device_index = None  # Track which device was used
+
+        # Drop diagnostic: wallclock start time of current recording (set in start_recording)
+        self._recording_start_time = None
+
+        # Drop diagnostic: track consecutive exact-silence chunks to detect mic drops
+        # (PyAudio returns all-zero samples when the audio device stalls, e.g. BT
+        # profile switch or recording-loop stall on blocking _ws.send)
+        self._silence_chunks_in_row = 0
+        self._silence_logged_flag = False
+
         # NOTE: PyAudio is NOT initialized here anymore!
         # It will be initialized on-demand when recording starts (see _ensure_pyaudio_ready())
         self._ensure_directories()
@@ -252,6 +263,16 @@ class AudioRecorder:
         self.recording = True
         self.frames = []
         self.stream_error_count = 0  # Reset error count for new recording
+
+        # Reset drop diagnostic state.
+        # _recording_start_time is set on the first successful audio chunk
+        # in record_chunk(), NOT here — this excludes PyAudio init and BT
+        # warm-up latency from the gap measurement, so a non-zero gap really
+        # means audio was lost during recording, not just setup overhead.
+        self._recording_start_time = None
+        self._silence_chunks_in_row = 0
+        self._silence_logged_flag = False
+
         logger.info(f"Recording started - self.recording is now {self.recording}, frames cleared, stream_is_open={self.stream_is_open}")
         return True
 
@@ -268,6 +289,30 @@ class AudioRecorder:
         self.recording = False
         duration = self.get_audio_duration(self.frames)
         logger.info(f"Recording stopped. Duration: {duration:.1f}s, Chunks: {len(self.frames)}")
+
+        # Drop diagnostic: compare wallclock (from first received chunk) vs.
+        # audio duration. With the start time anchored to the first chunk,
+        # setup/warm-up overhead is excluded — a non-trivial gap now really
+        # means audio was lost during the recording (TCP backpressure stalls
+        # the recording loop, BT profile switch, etc.).
+        if self._recording_start_time is not None:
+            wallclock_duration = time.time() - self._recording_start_time
+            gap = wallclock_duration - duration
+            if gap > 0.3:
+                logger.warning(
+                    f"Audio gap detected: Wallclock={wallclock_duration:.2f}s "
+                    f"(from first chunk), Audio={duration:.2f}s, Gap={gap:.2f}s "
+                    f"(audio lost during recording — TCP backpressure or BT issue)"
+                )
+            else:
+                logger.debug(f"Audio/wallclock gap normal: {gap:.3f}s")
+
+        # If a silence run was still ongoing at stop, emit a closing entry
+        if self._silence_logged_flag:
+            silence_duration_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
+            logger.warning(
+                f"Audio drop ongoing at recording stop: ~{silence_duration_ms:.0f}ms exact silence"
+            )
 
         # Close stream after recording (releases headset from "headset mode")
         self._close_stream()
@@ -311,10 +356,44 @@ class AudioRecorder:
                 data = self.stream.read(CHUNK, exception_on_overflow=False)
                 self.frames.append(data)
 
+                # Mark the actual recording start on the first received chunk.
+                # This excludes PyAudio init + BT warm-up from the gap metric
+                # so that a non-zero gap is a clear sign of mid-recording loss.
+                if self._recording_start_time is None:
+                    self._recording_start_time = time.time()
+
                 # Reset error count on successful read
                 if self.stream_error_count > 0:
                     self.stream_error_count = 0
                     logger.info("Audio stream recovered, reset error count")
+
+                # Drop diagnostic: detect runs of exact-silence chunks.
+                # A normal microphone produces small but non-zero noise floor;
+                # exact all-zero samples mean PyAudio could not fetch fresh
+                # data (recording-loop stall, BT profile switch, etc.).
+                try:
+                    samples = np.frombuffer(data, dtype=np.int16)
+                    if samples.size > 0 and not np.any(samples):
+                        self._silence_chunks_in_row += 1
+                        silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
+                        if silence_ms >= 200 and not self._silence_logged_flag:
+                            logger.warning(
+                                f"Audio drop detected: exact silence ongoing >= {silence_ms:.0f}ms "
+                                f"(possible mic stall or BT issue)"
+                            )
+                            self._silence_logged_flag = True
+                    else:
+                        if self._silence_logged_flag:
+                            silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
+                            logger.warning(
+                                f"Audio drop ended: total exact-silence duration ~{silence_ms:.0f}ms"
+                            )
+                        self._silence_chunks_in_row = 0
+                        self._silence_logged_flag = False
+                except Exception as drop_diag_err:
+                    # Diagnostic must never break the recording loop
+                    logger.debug(f"Drop diagnostic error (non-fatal): {drop_diag_err}")
+
                 return True
             except Exception as e:
                 error_str = str(e)
