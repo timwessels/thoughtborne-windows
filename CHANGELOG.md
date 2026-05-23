@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Per-session send-latency summary (max latency, blocked-event count, total blocked time) logged on session close.
   - Exact-silence detection in `AudioRecorder.record_chunk`; warns on runs of all-zero samples >= 200 ms (catches microphone stalls that are not caused by send blocking).
   - Audio-gap check in `AudioRecorder.stop_recording`: compares wallclock duration (anchored to first received chunk to exclude PyAudio init and BT warm-up) against actual recorded audio duration; warns on gaps > 0.3 s, which now directly reflect mid-recording audio loss.
+- Extended audio-drop diagnostics (`AudioRecorder.record_chunk` and `stop_recording`):
+  - Per-chunk PyAudio `stream.read()` latency measurement; DEBUG entry when a read exceeds 50 ms (nominal ~23 ms at CHUNK=1024 / RATE=44100). Points at the audio source (BT profile switch, driver hiccup, internal overflow) — distinct from send-latency which points at the network.
+  - Recording-loop iteration-gap measurement (wallclock time between consecutive `record_chunk()` returns); DEBUG entry when the gap exceeds 50 ms (nominal ~33 ms = sleep + send + overhead). Captures any block OUTSIDE the read — typically slow WebSocket sends or GIL contention from the receiver thread.
+  - Per-session summary lines (read-latency stats and loop-iteration stats) logged at INFO level on `stop_recording`, complementing the existing send-latency summary. Together these three summaries triangulate where any audio loss originated (audio source / network send / loop-side blocking).
 
 ### Fixed
 

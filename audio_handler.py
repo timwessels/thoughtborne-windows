@@ -58,6 +58,28 @@ class AudioRecorder:
         self._silence_chunks_in_row = 0
         self._silence_logged_flag = False
 
+        # Drop diagnostic (Block 1.5): PyAudio read latency tracking.
+        # A slow stream.read() (>50 ms; nominal ~23 ms at CHUNK=1024 / RATE=44100)
+        # means the audio source did not deliver fresh samples in time — typically
+        # a BT profile switch, driver hiccup, or PyAudio internal stall. Distinct
+        # from send-latency (Block 1) which points at the network; read-latency
+        # points at the audio source.
+        self._read_latency_max = 0.0
+        self._read_latency_slow_count = 0
+        self._read_latency_slow_total = 0.0
+
+        # Drop diagnostic (Block 1.5): recording-loop iteration gap.
+        # Measures wallclock time BETWEEN consecutive record_chunk() returns,
+        # i.e. the caller-side time (send_audio_chunk + sleep + any other work
+        # in recording_loop_thread). Nominal ~33 ms (sleep 10 + send <1 + tiny
+        # overhead). Gaps > 50 ms mean something blocked the loop OUTSIDE the
+        # read — slow WebSocket send (Block 1 tracks those separately) or GIL
+        # contention from the receiver thread.
+        self._loop_iteration_max = 0.0
+        self._loop_iteration_slow_count = 0
+        self._loop_iteration_slow_total = 0.0
+        self._last_iteration_end_time = None
+
         # NOTE: PyAudio is NOT initialized here anymore!
         # It will be initialized on-demand when recording starts (see _ensure_pyaudio_ready())
         self._ensure_directories()
@@ -273,6 +295,15 @@ class AudioRecorder:
         self._silence_chunks_in_row = 0
         self._silence_logged_flag = False
 
+        # Reset Block-1.5 latency diagnostics for the new recording.
+        self._read_latency_max = 0.0
+        self._read_latency_slow_count = 0
+        self._read_latency_slow_total = 0.0
+        self._loop_iteration_max = 0.0
+        self._loop_iteration_slow_count = 0
+        self._loop_iteration_slow_total = 0.0
+        self._last_iteration_end_time = None
+
         logger.info(f"Recording started - self.recording is now {self.recording}, frames cleared, stream_is_open={self.stream_is_open}")
         return True
 
@@ -314,6 +345,29 @@ class AudioRecorder:
                 f"Audio drop ongoing at recording stop: ~{silence_duration_ms:.0f}ms exact silence"
             )
 
+        # Block 1.5: log per-session read-latency and loop-iteration stats.
+        # - Read-latency points at the audio source (PyAudio/BT/driver).
+        # - Loop-iteration-gap points at the caller side (send-block, GIL,
+        #   scheduling) — overlaps with Block 1's send-latency stats; a
+        #   loop-gap that is larger than the send-block sum reveals
+        #   non-send-related blocking.
+        # Together with Block 1's send-latency stats this triangulates where
+        # any audio loss originated.
+        if self._read_latency_max > 0:
+            logger.info(
+                f"Session read-latency stats: "
+                f"max={self._read_latency_max*1000:.0f}ms, "
+                f"slow-reads(>50ms)={self._read_latency_slow_count}, "
+                f"total-slow-read-time={self._read_latency_slow_total:.2f}s"
+            )
+        if self._loop_iteration_max > 0:
+            logger.info(
+                f"Session loop-iteration stats: "
+                f"max-gap={self._loop_iteration_max*1000:.0f}ms, "
+                f"large-gaps(>50ms)={self._loop_iteration_slow_count}, "
+                f"total-large-gap-time={self._loop_iteration_slow_total:.2f}s"
+            )
+
         # Close stream after recording (releases headset from "headset mode")
         self._close_stream()
 
@@ -344,6 +398,22 @@ class AudioRecorder:
             logger.debug(f"record_chunk() called but self.recording is FALSE (stream_is_open: {self.stream_is_open})")
             return False
 
+        # Drop diagnostic (Block 1.5): measure the loop-iteration gap — the
+        # wallclock time since the previous record_chunk() return. This catches
+        # blocks OUTSIDE the read (slow sends, GIL contention, scheduling).
+        iteration_start = time.perf_counter()
+        if self._last_iteration_end_time is not None:
+            iteration_gap = iteration_start - self._last_iteration_end_time
+            if iteration_gap > self._loop_iteration_max:
+                self._loop_iteration_max = iteration_gap
+            if iteration_gap > 0.05:  # > 50 ms (nominal ~33 ms)
+                self._loop_iteration_slow_count += 1
+                self._loop_iteration_slow_total += iteration_gap
+                logger.debug(
+                    f"Recording-loop iteration gap: {iteration_gap*1000:.0f}ms "
+                    f"(time outside stream.read — likely send-block or scheduling)"
+                )
+
         # Use lock to prevent race condition with _close_stream()
         # This ensures the stream can't be closed while we're reading from it
         with self._stream_lock:
@@ -353,7 +423,33 @@ class AudioRecorder:
                 return False
 
             try:
+                # Drop diagnostic (Block 1.5): measure stream.read() duration.
+                # Nominal ~23 ms (CHUNK=1024 / RATE=44100). A slow read means
+                # the audio source stalled — BT profile switch, driver hiccup,
+                # or PyAudio internal overflow. Distinct from send-latency
+                # (Block 1) which points at the network.
+                #
+                # The FIRST read of a recording always includes the BT/PyAudio
+                # warm-up (typically 0.5–1.0 s on the Jabra, HFP profile switch).
+                # We anchor read-latency tracking to the same marker that
+                # Block 1's wallclock-gap check uses — _recording_start_time,
+                # which is None on the very first read and gets set just below.
+                # So the first read is measured but excluded from stats; from
+                # the second read on, every read counts.
+                read_start = time.perf_counter()
                 data = self.stream.read(CHUNK, exception_on_overflow=False)
+                read_elapsed = time.perf_counter() - read_start
+                if self._recording_start_time is not None:
+                    if read_elapsed > self._read_latency_max:
+                        self._read_latency_max = read_elapsed
+                    if read_elapsed > 0.05:  # > 50 ms (nominal ~23 ms)
+                        self._read_latency_slow_count += 1
+                        self._read_latency_slow_total += read_elapsed
+                        logger.debug(
+                            f"Slow PyAudio read: {read_elapsed*1000:.0f}ms "
+                            f"(audio source did not deliver — BT/driver/overflow)"
+                        )
+
                 self.frames.append(data)
 
                 # Mark the actual recording start on the first received chunk.
@@ -393,6 +489,11 @@ class AudioRecorder:
                 except Exception as drop_diag_err:
                     # Diagnostic must never break the recording loop
                     logger.debug(f"Drop diagnostic error (non-fatal): {drop_diag_err}")
+
+                # Block 1.5: mark iteration end-time for the next iteration's
+                # gap measurement (set only on success — on failure paths we
+                # want the next successful read to see the full elapsed time).
+                self._last_iteration_end_time = time.perf_counter()
 
                 return True
             except Exception as e:
