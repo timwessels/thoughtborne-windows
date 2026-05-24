@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `SonioxLiveTranscriber` now uses a producer/consumer architecture for the WebSocket send path. `send_audio_chunk()` is non-blocking: it enqueues the chunk on an internal `queue.Queue` (size `SONIOX_LIVE_QUEUE_MAX_CHUNKS`, default 50 ≈ 1.16 s) and a dedicated sender thread drains the queue to the WebSocket. TCP backpressure now stalls only the sender thread, so the recording loop keeps reading PyAudio without gaps even when sends block. Under heavy backpressure beyond the queue capacity, newest chunks are dropped (WARNING on drop-mode entry, INFO on recovery, per-chunk drops at DEBUG); the MP3 archive is unaffected because frames are stored in `audio_handler` independently of the send queue. Finalize uses a sentinel-based queue drain with a timeout fallback so it can't hang on a dead sender. Three new config constants (`SONIOX_LIVE_QUEUE_MAX_CHUNKS`, `SONIOX_LIVE_SENDER_JOIN_TIMEOUT`, `SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT`).
+
+### Fixed
+
+- `SonioxLiveTranscriber.transcribe` now calls `_close_session_internal()` on the early-return path ("No active Soniox Live session to finalize") as well, so per-session send-latency and queue-drop stats are logged even when finalize hits a session that already died (e.g. from a 20-s Soniox idle timeout during prolonged TCP backpressure). Previously those exact sessions — the most diagnostically interesting ones — silently skipped the stats line.
+
 ### Added
 
 - Diagnostic logging for audio drop detection (Soniox Live):

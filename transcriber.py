@@ -19,6 +19,7 @@ import sys
 import time
 import logging
 import threading
+import queue
 import requests
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -37,6 +38,8 @@ from config import (
     SONIOX_V4_MAX_POLL_ATTEMPTS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
     SONIOX_LIVE_FINALIZE_TIMEOUT,
+    SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
+    SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT,
     SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT,
     RATE, CHANNELS,
 )
@@ -988,16 +991,31 @@ class SonioxLiveTranscriber(AbstractTranscriber):
     stops, a finalize command is sent and the server returns the final, quality-
     reviewed transcript within milliseconds.
 
-    Threading model:
-    - RecordingLoop thread (thoughtborne.py) calls send_audio_chunk() for each audio chunk
-    - Internal receiver thread reads WebSocket responses and collects final tokens
-    - transcribe() sends finalize and waits for receiver to complete
+    Threading model (Block 2 — producer/consumer):
+    - RecordingLoop thread (thoughtborne.py) calls send_audio_chunk() for each
+      audio chunk. This is a non-blocking queue.put_nowait() — the actual
+      WebSocket send happens in a dedicated sender thread, so TCP backpressure
+      never stalls the recording loop or the audio capture.
+    - Sender thread drains the queue and writes to the WebSocket.
+    - Receiver thread reads WebSocket responses and collects final tokens.
+    - transcribe() queues silence + finalize + EOS plus a drain sentinel, waits
+      for the sender to reach the sentinel, then waits for the receiver.
+
+    If the queue is full (heavy backpressure), newest chunks are dropped —
+    the live transcript gets a gap, but the MP3 archive in audio_handler is
+    unaffected because the recording loop stores frames independently of
+    this queue.
 
     Additional methods beyond AbstractTranscriber:
-    - start_session(): Open WebSocket, send config, start receiver thread
-    - send_audio_chunk(raw_data): Send PCM bytes during recording
-    - cancel_session(): Close WebSocket immediately (on recording cancel)
+    - start_session(): Open WebSocket, send config, start receiver + sender threads
+    - send_audio_chunk(raw_data): Enqueue PCM bytes for the sender thread
+    - cancel_session(): Stop sender thread, close WebSocket immediately
     """
+
+    # Sentinels distinguishable from any audio bytes / JSON string the queue
+    # can carry. Using object() guarantees identity-comparison (`is`) works.
+    _STOP_SENTINEL = object()
+    _FINALIZE_DRAIN_SENTINEL = object()
 
     def __init__(self):
         """Initialize the transcriber with API key"""
@@ -1015,13 +1033,31 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         self._session_lock = threading.Lock()
         self._session_error = None
 
-        # Drop diagnostic: WebSocket send latency tracking.
-        # A blocking send (>100ms) is the direct indicator of TCP backpressure,
-        # which in the current single-thread architecture stalls the recording
-        # loop and causes mic drops. Reset on each new session.
+        # Block 2: producer/consumer queue and sender thread.
+        # Queue is instantiated fresh in start_session() so no stale items
+        # carry over from a previous session.
+        self._send_queue = None
+        self._sender_thread = None
+        self._sender_stop = threading.Event()
+        self._finalize_drained = threading.Event()
+
+        # Drop diagnostic: WebSocket send latency tracking. Block-1 fields,
+        # now populated from the sender thread. A blocking send (>100ms) is
+        # the direct indicator of TCP backpressure — but after Block 2 it
+        # blocks only the sender thread, not the recording loop.
+        # Reset on each new session.
         self._send_latency_max = 0.0
         self._send_latency_blocked_total = 0.0
         self._send_latency_blocked_count = 0
+
+        # Block 2: queue-drop diagnostic. When TCP backpressure outlasts the
+        # queue buffer, send_audio_chunk() drops new chunks. We log the
+        # transition into and out of drop mode (instead of per-chunk WARNINGs
+        # which would spam the log under sustained backpressure).
+        self._drop_warned = False
+        self._drop_start_time = None
+        self._drop_count_current = 0
+        self._drop_count_total = 0
 
         logger.info(f"Soniox Live transcriber initialized (model: {SONIOX_RT_MODEL})")
         if SONIOX_CONTEXT:
@@ -1084,6 +1120,19 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 self._send_latency_blocked_total = 0.0
                 self._send_latency_blocked_count = 0
 
+                # Reset queue-drop diagnostic stats for the new session
+                self._drop_warned = False
+                self._drop_start_time = None
+                self._drop_count_current = 0
+                self._drop_count_total = 0
+
+                # Block 2: fresh queue + sender thread for this session.
+                # A new Queue avoids any stale items carrying over from a
+                # previous session that ended uncleanly.
+                self._send_queue = queue.Queue(maxsize=SONIOX_LIVE_QUEUE_MAX_CHUNKS)
+                self._sender_stop.clear()
+                self._finalize_drained.clear()
+
                 # Start receiver thread
                 self._receiver_thread = threading.Thread(
                     target=self._receiver_loop,
@@ -1091,6 +1140,14 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                     name="SonioxLive-Receiver"
                 )
                 self._receiver_thread.start()
+
+                # Start sender thread (Block 2)
+                self._sender_thread = threading.Thread(
+                    target=self._sender_loop,
+                    daemon=True,
+                    name="SonioxLive-Sender"
+                )
+                self._sender_thread.start()
 
                 logger.info("Soniox Live session started")
                 return True
@@ -1107,37 +1164,135 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 return False
 
     def send_audio_chunk(self, raw_data: bytes):
-        """Send raw PCM audio bytes to the WebSocket.
+        """Hand off an audio chunk to the sender thread via queue (non-blocking).
 
-        Called from recording_loop_thread() for each record_chunk().
-        Thread-safe: called from RecordingLoop thread while receiver runs.
+        Called from recording_loop_thread() for each record_chunk(). The actual
+        WebSocket send happens in the sender thread, so this call returns
+        immediately even when TCP backpressure stalls the send. That is the
+        whole point of Block 2: keep the recording loop free of network I/O
+        so PyAudio can drain its buffer without gaps.
+
+        Drop behaviour: if the queue is full (sender can't keep up under heavy
+        backpressure), the new chunk is dropped via put_nowait(). The MP3
+        archive is unaffected because the recording loop stores frames in
+        audio_handler independently of this queue; only the live transcript
+        loses the dropped window.
 
         Args:
             raw_data: Raw PCM bytes (16-bit signed LE, mono, 44100 Hz)
         """
-        if not self._session_active or self._ws is None:
+        # Hold a local reference so a concurrent _close_session_internal()
+        # (which sets self._send_queue = None) can't turn this into an
+        # AttributeError between the None-check and put_nowait.
+        q = self._send_queue
+        if not self._session_active or q is None:
             return
 
         try:
-            # Drop diagnostic: measure send duration. A blocking send (TCP
-            # backpressure) is the direct cause of recording-loop stalls in
-            # the current single-thread architecture.
-            send_start = time.perf_counter()
-            self._ws.send(raw_data)
-            send_elapsed = time.perf_counter() - send_start
-
-            if send_elapsed > self._send_latency_max:
-                self._send_latency_max = send_elapsed
-            if send_elapsed > 0.01:  # >10ms: track as "blocked"
-                self._send_latency_blocked_total += send_elapsed
-                self._send_latency_blocked_count += 1
-            if send_elapsed > 0.1:  # >100ms: warn (likely TCP backpressure)
-                logger.warning(
-                    f"Slow WebSocket send: {send_elapsed*1000:.0f}ms "
-                    f"(TCP backpressure - recording loop is blocked while this returns)"
+            q.put_nowait(raw_data)
+            # If we were in drop-mode before, log the recovery.
+            if self._drop_warned:
+                drop_duration = time.time() - self._drop_start_time if self._drop_start_time else 0.0
+                logger.info(
+                    f"Queue recovered after dropping {self._drop_count_current} "
+                    f"chunks over {drop_duration:.1f}s"
                 )
+                self._drop_warned = False
+                self._drop_count_current = 0
+                self._drop_start_time = None
+        except queue.Full:
+            # Sender can't drain fast enough — heavy backpressure.
+            # Log WARNING only on transition into drop mode to avoid log spam
+            # under sustained backpressure; per-chunk drops go to DEBUG.
+            if not self._drop_warned:
+                logger.warning(
+                    "Send queue full, dropping new chunks "
+                    "(live transcript will have a gap, MP3 archive unaffected)"
+                )
+                self._drop_warned = True
+                self._drop_start_time = time.time()
+                self._drop_count_current = 0
+            self._drop_count_current += 1
+            self._drop_count_total += 1
+            logger.debug(
+                f"Dropped chunk #{self._drop_count_current} in current drop window"
+            )
+
+    def _sender_loop(self):
+        """Sender thread: drains the audio queue and writes to the WebSocket.
+
+        Block 2 decouples this from the recording loop. TCP backpressure now
+        blocks only this thread; the recording loop keeps reading PyAudio
+        without gaps.
+
+        Items in the queue can be:
+        - bytes:  raw PCM audio chunk → _ws.send(bytes)
+        - str:    JSON command (e.g. {"type":"finalize"}) or "" (EOS) → _ws.send(str)
+        - _FINALIZE_DRAIN_SENTINEL: marker that everything before it has been
+          sent — triggers the _finalize_drained event so transcribe() can move
+          on to waiting for the receiver.
+        - _STOP_SENTINEL: hard stop, exit immediately (sent by _close_session_internal).
+        """
+        logger.info("Soniox Live sender thread started")
+
+        try:
+            while not self._sender_stop.is_set():
+                try:
+                    item = self._send_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+
+                # Drain marker — release any transcribe() that is waiting for
+                # the queue to flush, then continue (don't exit).
+                if item is self._FINALIZE_DRAIN_SENTINEL:
+                    self._finalize_drained.set()
+                    continue
+
+                # Hard stop sentinel — exit immediately.
+                if item is self._STOP_SENTINEL:
+                    break
+
+                # If the session has already been marked inactive (e.g. the
+                # receiver detected a server-side disconnect), silently drop
+                # remaining items. Don't break — sentinels still need to flow.
+                if not self._session_active or self._ws is None:
+                    continue
+
+                try:
+                    send_start = time.perf_counter()
+                    self._ws.send(item)
+                    send_elapsed = time.perf_counter() - send_start
+
+                    if send_elapsed > self._send_latency_max:
+                        self._send_latency_max = send_elapsed
+                    if send_elapsed > 0.01:  # >10ms: track as "blocked"
+                        self._send_latency_blocked_total += send_elapsed
+                        self._send_latency_blocked_count += 1
+                    if send_elapsed > 0.1:  # >100ms: warn
+                        logger.warning(
+                            f"Slow WebSocket send: {send_elapsed*1000:.0f}ms "
+                            f"(sender-thread backpressure, recording loop unaffected)"
+                        )
+                except Exception as e:
+                    logger.error(f"Error sending from Soniox Live sender thread: {e}")
+                    # Mark session inactive so send_audio_chunk() stops growing
+                    # the queue. Analogous to the Block-1 receiver fix that
+                    # stopped the recording-loop spam after a server disconnect.
+                    self._session_active = False
+                    break
         except Exception as e:
-            logger.error(f"Error sending audio chunk: {e}")
+            logger.error(f"Soniox Live sender loop crashed: {e}", exc_info=True)
+            self._session_active = False
+        finally:
+            # Always release any waiter on finalize-drain so transcribe()
+            # doesn't hang forever if the sender exited before reaching the
+            # sentinel (server-side disconnect, WS already closed, etc.).
+            self._finalize_drained.set()
+            remaining = self._send_queue.qsize() if self._send_queue is not None else 0
+            logger.info(
+                f"Soniox Live sender thread stopped "
+                f"(queue size at exit: {remaining})"
+            )
 
     def cancel_session(self):
         """Cancel the live session immediately.
@@ -1228,38 +1383,66 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         logger.info(f"Soniox Live: finalizing session "
                     f"(duration: {duration_seconds:.1f}s, audio archived at: {audio_file_path})")
 
-        if not self._session_active or self._ws is None:
+        if not self._session_active or self._ws is None or self._send_queue is None:
             logger.warning("No active Soniox Live session to finalize")
+            # Block-1-Lücke fix: ensure stats are logged and threads cleaned
+            # up even when finalize hits the early-return path (e.g. when the
+            # 20-s Soniox idle timeout killed the session during recording).
+            # _close_session_internal is idempotent and tolerates a dead session.
+            self._close_session_internal()
             return ""
 
         start_time = time.time()
 
         try:
-            # Step 1: Send silence before finalize (helps model accuracy)
+            # Step 1: queue silence before finalize (helps model accuracy)
             silence_samples = int(RATE * SONIOX_LIVE_FINALIZE_DELAY)
             silence_bytes = b'\x00' * (silence_samples * 2)  # 16-bit = 2 bytes per sample
-            self._ws.send(silence_bytes)
-            logger.debug(f"Sent {len(silence_bytes)} bytes of silence")
 
-            # Step 2: Send finalize command
-            self._ws.send(json.dumps({"type": "finalize"}))
-            logger.debug("Sent finalize command")
+            # We use put() with a short timeout instead of put_nowait() because
+            # the finalize items MUST reach the sender; a queue that is briefly
+            # full from prior backpressure should be waited on for up to 1 s.
+            # If the sender is dead the puts will time out — _finalize_drained
+            # will then time out below and the receiver wait will resolve via
+            # _result_ready (which is set in the receiver's finally block).
+            try:
+                self._send_queue.put(silence_bytes, timeout=1.0)
+                self._send_queue.put(json.dumps({"type": "finalize"}), timeout=1.0)
+                self._send_queue.put("", timeout=1.0)
+                logger.debug("Queued finalize sequence (silence + command + EOS)")
+            except queue.Full:
+                logger.warning(
+                    "Could not enqueue finalize sequence within 1s "
+                    "(sender thread may have stalled or died)"
+                )
 
-            # Step 3: Send empty string (end-of-stream)
-            self._ws.send("")
-            logger.debug("Sent end-of-stream")
+            # Step 2: queue drain sentinel and wait for sender to reach it.
+            # When the sender hits the sentinel it sets _finalize_drained.
+            # If the sender is already dead, its finally block also sets the
+            # event so we don't hang here.
+            self._finalize_drained.clear()
+            try:
+                self._send_queue.put(self._FINALIZE_DRAIN_SENTINEL, timeout=1.0)
+            except queue.Full:
+                logger.warning("Could not enqueue finalize drain sentinel within 1s")
 
-            # Step 4: Wait for receiver to finish
+            if not self._finalize_drained.wait(timeout=SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT):
+                logger.warning(
+                    f"Sender did not reach drain sentinel within "
+                    f"{SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT}s — proceeding to wait for receiver"
+                )
+
+            # Step 3: Wait for receiver to finish
             if not self._result_ready.wait(timeout=SONIOX_LIVE_FINALIZE_TIMEOUT):
                 logger.error(f"Soniox Live finalize timeout after {SONIOX_LIVE_FINALIZE_TIMEOUT}s")
                 return ""
 
-            # Step 5: Check for errors
+            # Step 4: Check for errors
             if self._session_error:
                 logger.error(f"Soniox Live session had error: {self._session_error}")
                 return ""
 
-            # Step 6: Assemble text from final tokens
+            # Step 5: Assemble text from final tokens
             text = "".join(self._final_tokens).strip()
 
             elapsed = time.time() - start_time
@@ -1275,7 +1458,11 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             self._close_session_internal()
 
     def _close_session_internal(self):
-        """Close the WebSocket and clean up session state."""
+        """Close the WebSocket, stop sender thread, clean up session state.
+
+        Idempotent: safe to call multiple times (e.g. on a session that has
+        already been torn down by a server-side disconnect).
+        """
         # Log send-latency diagnostics if any traffic was measured
         if self._send_latency_max > 0:
             logger.info(
@@ -1285,8 +1472,22 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 f"total-blocked-time={self._send_latency_blocked_total:.2f}s"
             )
 
+        # Block 2: log queue-drop diagnostics
+        if self._drop_count_total > 0:
+            logger.info(
+                f"Session queue-drop stats: "
+                f"total-chunks-dropped={self._drop_count_total} "
+                f"(live transcript had gaps, MP3 archive unaffected)"
+            )
+
         self._session_active = False
 
+        # Close WebSocket FIRST so any in-flight _ws.send() in the sender
+        # thread raises ConnectionClosed immediately and the sender breaks
+        # out instead of waiting for a TCP timeout. In the normal-stop path
+        # the sender has already finished (drained the queue) before we get
+        # here, so this is just cleanup; in the cancel/disconnect path it
+        # actively unblocks a stalled sender.
         if self._ws is not None:
             try:
                 self._ws.close()
@@ -1294,6 +1495,23 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             except Exception as e:
                 logger.debug(f"Error closing WebSocket: {e}")
             self._ws = None
+
+        # Signal sender to stop and wait for it. Also push a STOP sentinel so
+        # the sender wakes up immediately even if it was idle in queue.get().
+        self._sender_stop.set()
+        if self._sender_thread is not None and self._sender_thread.is_alive():
+            if self._send_queue is not None:
+                try:
+                    self._send_queue.put_nowait(self._STOP_SENTINEL)
+                except queue.Full:
+                    # Queue is full of stale items; the 0.5s get-timeout in
+                    # the sender will still let it notice _sender_stop.
+                    pass
+            self._sender_thread.join(timeout=SONIOX_LIVE_SENDER_JOIN_TIMEOUT)
+            if self._sender_thread.is_alive():
+                logger.warning("Soniox Live sender thread did not stop in time")
+        self._sender_thread = None
+        self._send_queue = None
 
         # Wait for receiver thread to finish
         if self._receiver_thread is not None and self._receiver_thread.is_alive():

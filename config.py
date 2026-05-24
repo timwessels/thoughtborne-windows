@@ -93,6 +93,24 @@ SONIOX_RT_MODEL = "stt-rt-v4"
 SONIOX_LIVE_FINALIZE_DELAY = 0.2    # Seconds of silence to send before finalize
 SONIOX_LIVE_FINALIZE_TIMEOUT = 10.0  # Max seconds to wait for finalize response
 
+# Block 2: Producer-Consumer queue between recording loop and WebSocket send.
+# Audio chunks are handed off to a dedicated sender thread via this queue so
+# TCP backpressure on _ws.send() never blocks the recording loop (and never
+# stalls PyAudio capture or the BT pipeline). When the queue is full (sender
+# can't drain fast enough), new chunks are dropped — the live transcript gets
+# a gap, but the MP3 archive is unaffected because frames are kept in the
+# recording loop independently of this queue.
+#
+# Default 50 ≈ 1.16 s buffer (CHUNK=1024 / RATE=44100 → ~23 ms per chunk).
+# Larger values absorb longer TCP stalls but increase the chance of a Soniox
+# "prolonged buffering" disconnect when the burst eventually flushes.
+SONIOX_LIVE_QUEUE_MAX_CHUNKS = 50
+# Max seconds _close_session_internal() waits for the sender thread to exit.
+SONIOX_LIVE_SENDER_JOIN_TIMEOUT = 3.0
+# Max seconds transcribe() waits for the sender to drain queued finalize items
+# (silence + finalize command + EOS) before falling through to receiver wait.
+SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT = 5.0
+
 # ===== SONIOX SHARED V4 SETTINGS =====
 # Language and context settings used by both v4 Async and Live APIs
 SONIOX_LANGUAGE_HINTS = ["de"]
