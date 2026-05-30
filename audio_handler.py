@@ -59,7 +59,7 @@ class AudioRecorder:
         self._silence_logged_flag = False
 
         # Drop diagnostic (Block 1.5): PyAudio read latency tracking.
-        # A slow stream.read() (>50 ms; nominal ~23 ms at CHUNK=1024 / RATE=44100)
+        # A slow stream.read() (>100 ms; nominal ~64 ms at CHUNK=1024 / RATE=16000)
         # means the audio source did not deliver fresh samples in time — typically
         # a BT profile switch, driver hiccup, or PyAudio internal stall. Distinct
         # from send-latency (Block 1) which points at the network; read-latency
@@ -357,7 +357,7 @@ class AudioRecorder:
             logger.info(
                 f"Session read-latency stats: "
                 f"max={self._read_latency_max*1000:.0f}ms, "
-                f"slow-reads(>50ms)={self._read_latency_slow_count}, "
+                f"slow-reads(>100ms)={self._read_latency_slow_count}, "
                 f"total-slow-read-time={self._read_latency_slow_total:.2f}s"
             )
         if self._loop_iteration_max > 0:
@@ -424,7 +424,7 @@ class AudioRecorder:
 
             try:
                 # Drop diagnostic (Block 1.5): measure stream.read() duration.
-                # Nominal ~23 ms (CHUNK=1024 / RATE=44100). A slow read means
+                # Nominal ~64 ms (CHUNK=1024 / RATE=16000). A slow read means
                 # the audio source stalled — BT profile switch, driver hiccup,
                 # or PyAudio internal overflow. Distinct from send-latency
                 # (Block 1) which points at the network.
@@ -442,7 +442,7 @@ class AudioRecorder:
                 if self._recording_start_time is not None:
                     if read_elapsed > self._read_latency_max:
                         self._read_latency_max = read_elapsed
-                    if read_elapsed > 0.05:  # > 50 ms (nominal ~23 ms)
+                    if read_elapsed > 0.1:  # > 100 ms (nominal ~64 ms)
                         self._read_latency_slow_count += 1
                         self._read_latency_slow_total += read_elapsed
                         logger.debug(

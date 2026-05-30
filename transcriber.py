@@ -1179,7 +1179,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         loses the dropped window.
 
         Args:
-            raw_data: Raw PCM bytes (16-bit signed LE, mono, 44100 Hz)
+            raw_data: Raw PCM bytes (16-bit signed LE, mono, 16000 Hz)
         """
         # Hold a local reference so a concurrent _close_session_internal()
         # (which sets self._send_queue = None) can't turn this into an

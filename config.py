@@ -30,7 +30,7 @@ TEXT_ARCHIVE_FOLDER = SCRIPT_DIR / "text_archive"
 CHUNK = 1024
 FORMAT = 16  # pyaudio.paInt16
 CHANNELS = 1
-RATE = 44100
+RATE = 16000
 WAV_OUTPUT_FILENAME = "output.wav"
 
 # ===== AUDIO PREPROCESSING =====
@@ -101,7 +101,7 @@ SONIOX_LIVE_FINALIZE_TIMEOUT = 10.0  # Max seconds to wait for finalize response
 # a gap, but the MP3 archive is unaffected because frames are kept in the
 # recording loop independently of this queue.
 #
-# Default 50 ≈ 1.16 s buffer (CHUNK=1024 / RATE=44100 → ~23 ms per chunk).
+# Default 50 ≈ 3.2 s buffer (CHUNK=1024 / RATE=16000 → ~64 ms per chunk).
 # Larger values absorb longer TCP stalls but increase the chance of a Soniox
 # "prolonged buffering" disconnect when the burst eventually flushes.
 SONIOX_LIVE_QUEUE_MAX_CHUNKS = 50
