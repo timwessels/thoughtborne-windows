@@ -16,6 +16,18 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 - **CHANGELOG.md:** For any non-trivial change, add an entry under `## [Unreleased]` using Keep-a-Changelog categories (`### Added` / `### Changed` / `### Fixed` / `### Removed`). When a release tag is cut, that block becomes the versioned entry.
 - **Branches:** Direct commits on `main` are fine for routine work. Feature branches only for experimental or risky changes.
 
+## Issue tracking
+
+Planned work and the backlog live as GitHub Issues:
+`github.com/timwessels/thoughtborne-windows/issues`. Each issue is written to
+stand on its own — problem, spec, acceptance — so the issue is the source of
+truth for what to build.
+
+- **Labels:** `bug` / `enhancement`; add `backlog` for someday/maybe items
+  outside the active focus.
+- **Commits:** when a change addresses an issue, reference it in the message
+  (e.g. `(#1)`); close the issue once the change fully resolves it.
+
 ## Language
 
 English for code, inline comments, commit messages, and all public documentation (README, CHANGELOG, LICENSE, CLAUDE.md).
