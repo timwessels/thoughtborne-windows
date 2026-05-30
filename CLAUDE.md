@@ -9,24 +9,16 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 - **Repo:** `github.com/timwessels/thoughtborne-windows`, default branch `main`.
 - **Mac port:** `github.com/timwessels/thoughtborne-macos` — three APIs instead of six, otherwise analogous. Useful as a reference for commit style, README tone, and porting decisions.
 
-## Workflow
+## GitHub workflow
 
-- **Commits:** Only on explicit request. Match the style in `git log` — short, descriptive, English, imperative mood.
-- **Push:** Only on explicit request.
-- **CHANGELOG.md:** For any non-trivial change, add an entry under `## [Unreleased]` using Keep-a-Changelog categories (`### Added` / `### Changed` / `### Fixed` / `### Removed`). When a release tag is cut, that block becomes the versioned entry.
-- **Branches:** Direct commits on `main` are fine for routine work. Feature branches only for experimental or risky changes.
+Claude owns commits, pushes, and issues. The default pattern is **decide → say what's next → do it** — not "ask permission first". The user can always intervene; the announce-then-act sequence is what gives that opportunity.
 
-## Issue tracking
-
-Planned work and the backlog live as GitHub Issues:
-`github.com/timwessels/thoughtborne-windows/issues`. Each issue is written to
-stand on its own — problem, spec, acceptance — so the issue is the source of
-truth for what to build.
-
-- **Labels:** `bug` / `enhancement`; add `backlog` for someday/maybe items
-  outside the active focus.
-- **Commits:** when a change addresses an issue, reference it in the message
-  (e.g. `(#1)`); close the issue once the change fully resolves it.
+- **Commits.** After a coherent change, announce ("I'll commit X and push") and proceed. Hold off when the working tree mixes unrelated changes, work is mid-stream, or the change is experimental and not yet vetted.
+- **Push.** Default is: commit → push. Don't accumulate unpushed commits without a stated reason.
+- **Commit messages.** Match `git log` style — short, imperative English. Reference issues with `(#N)`. Detailed body only when the change isn't self-evident.
+- **Issues.** Planned work and the backlog live as GitHub Issues (`github.com/timwessels/thoughtborne-windows/issues`). Open one when something is worth tracking (bug surface, deferred design decision, follow-up that doesn't fit the current scope). Each issue stands on its own — problem, spec, acceptance — so the issue is the source of truth for what to build. Close when resolved, referencing the resolving commit. Labels: `bug` / `enhancement` / `backlog` (someday/maybe outside the active focus).
+- **Branches.** Direct on `main` for routine work. Feature branches only for risky/experimental things.
+- **CHANGELOG.md.** Non-trivial changes get an entry under `## [Unreleased]` (Keep-a-Changelog categories: `### Added` / `### Changed` / `### Fixed` / `### Removed`). On a release tag, that block becomes the versioned entry.
 
 ## Language
 
