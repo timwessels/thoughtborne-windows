@@ -642,7 +642,9 @@ class ThoughtborneApp:
         if not self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
             logger.info(f"Recording started ({hotkey_display})")
+            logger.debug("on_start_recording: marker A - before stdout print")
             print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording started...")
+            logger.debug("on_start_recording: marker B - after stdout print")
 
             # DEBUG: Check if recording loop thread is alive
             if self.recording_thread and self.recording_thread.is_alive():
@@ -652,11 +654,13 @@ class ThoughtborneApp:
                 print("ERROR: Recording loop thread has died. Please restart the application.")
                 return
 
+            logger.debug("on_start_recording: marker C - before audio_recorder.start_recording()")
             # Start recording (this also opens the audio stream)
             if not self.audio_recorder.start_recording():
                 logger.error("Failed to start recording - audio stream could not be opened")
                 print("ERROR: Could not open audio stream. Check audio device connection.")
                 return
+            logger.debug("on_start_recording: marker D - audio_recorder.start_recording() returned OK")
 
             # Start live streaming session if transcriber supports it
             if self.transcriber.is_live:
@@ -665,6 +669,7 @@ class ThoughtborneApp:
                     logger.error("Failed to start live streaming session")
                     print("WARNING: Live session failed to start")
                     self._active_live_transcriber = None
+            logger.debug("on_start_recording: marker E - callback complete, returning to listener message pump")
         else:
             # Already recording - check if this is a mis-trigger (keyboard library bug)
             # where a stop hotkey was pressed but start_recording was triggered instead

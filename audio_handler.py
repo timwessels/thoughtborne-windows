@@ -99,21 +99,25 @@ class AudioRecorder:
         Returns:
             True if successful, False otherwise
         """
+        logger.debug("_ensure_pyaudio_ready: entry")
         try:
             # Terminate old PyAudio instance if exists
             if self.p is not None:
                 try:
+                    logger.debug("_ensure_pyaudio_ready: about to terminate old PyAudio instance")
                     self.p.terminate()
                     logger.debug("Old PyAudio instance terminated")
                 except Exception as e:
                     logger.warning(f"Error terminating old PyAudio: {e}")
 
             # Initialize new PyAudio instance
+            logger.debug("_ensure_pyaudio_ready: about to call pyaudio.PyAudio()")
             self.p = pyaudio.PyAudio()
             logger.info("PyAudio reinitialized to detect current default device")
 
             # Get and log current default input device
             try:
+                logger.debug("_ensure_pyaudio_ready: about to query default input device")
                 default_device = self.p.get_default_input_device_info()
                 device_name = default_device.get('name', 'Unknown')
                 device_index = default_device.get('index', -1)
@@ -130,6 +134,7 @@ class AudioRecorder:
             except Exception as e:
                 logger.warning(f"Could not get default input device info: {e}")
 
+            logger.debug("_ensure_pyaudio_ready: returning True")
             return True
 
         except Exception as e:
