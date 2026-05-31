@@ -36,11 +36,17 @@ from logging.handlers import RotatingFileHandler
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    GROQ_MODEL, LANGUAGE, SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS
+    GROQ_MODEL, LANGUAGE, SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS,
+    SHORT_AUDIO_THRESHOLD,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed
 from audio_handler import AudioRecorder
-from transcriber import create_transcriber
+from transcriber import (
+    create_transcriber,
+    SonioxLiveTranscriber,
+    SonioxTranscriber,
+    SonioxV4Transcriber,
+)
 from output_handler import OutputManager, TranscriptionTask
 
 # ===== LOGGING SETUP =====
@@ -190,6 +196,19 @@ class ThoughtborneApp:
         # Live transcriber reference (for sending audio chunks during recording)
         self._active_live_transcriber = None
 
+        # Fallback transcribers for empty Soniox Live transcripts (Issue #1).
+        # Lazy singletons so we don't pay the SDK / env-var probe cost when the
+        # fallback never fires. The init lock guards the "check + create + assign"
+        # race that opens when several Class-B disconnects hit at once: without
+        # it, three concurrent worker threads could each construct a new
+        # transcriber, of which only one wins the slot. The lock protects
+        # creation only; the transcriber.transcribe() calls themselves are
+        # thread-safe (V2 opens a fresh SpeechClient per call, V4 uses a fresh
+        # httpx request per call) and run outside the lock.
+        self._fallback_v2: Optional[SonioxTranscriber] = None
+        self._fallback_v4: Optional[SonioxV4Transcriber] = None
+        self._fallback_init_lock = threading.Lock()
+
         # Hotkey manager (initialized in _register_hotkeys)
         self.hotkey_manager = None
 
@@ -242,6 +261,19 @@ class ThoughtborneApp:
             print(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
             transcript = transcriber.transcribe(mp3_path, duration)
             transcript = transcript.rstrip('\n')
+
+            # Issue #1: empty live transcript -> file-based fallback on the
+            # already-archived MP3. Restricted to SonioxLiveTranscriber: empty
+            # results from V2/V4-async/Modal/HuggingFace/Groq already mean the
+            # file-based path was tried and failed, so a second pass would not
+            # help. Runs before cleanup_temp_files so mp3_path still exists.
+            if not transcript and isinstance(transcriber, SonioxLiveTranscriber):
+                transcript = self._run_empty_transcript_fallback(
+                    mp3_path=mp3_path,
+                    duration=duration,
+                    sequence_number=sequence_number,
+                    thread_name=thread_name,
+                )
 
             # Save transcript
             if transcript:
@@ -327,6 +359,171 @@ class ThoughtborneApp:
         logger.info(f"New processing thread started: {thread.name} (Seq: {sequence_number}) using {transcriber.get_name()}")
         print(f"[Seq: {sequence_number}] Processing started with {transcriber.get_name()}")
         return True
+
+    def _run_empty_transcript_fallback(self, mp3_path: str, duration: float,
+                                       sequence_number: int, thread_name: str) -> str:
+        """Fall back to a file-based Soniox API when SonioxLive returned empty.
+
+        Triggered from process_recording_thread when SonioxLiveTranscriber yields
+        an empty transcript -- typically a Class-B failure: the WebSocket was
+        closed by the server (e.g. 1011 keepalive ping timeout under sustained
+        TCP backpressure) before the stop hotkey, so the live transcript is
+        empty even though the MP3 is fully archived. Issue #1.
+
+        Choice of fallback API depends on recording duration:
+          - duration < SHORT_AUDIO_THRESHOLD (58 s) -> SonioxTranscriber (V2
+            sync, ~2-3 s for 30 s audio); if V2 fails (exception or empty
+            result), fall through to SonioxV4Transcriber. This second hop also
+            covers the case where V2 (legacy gRPC) is shut down by Soniox.
+          - duration >= SHORT_AUDIO_THRESHOLD       -> SonioxV4Transcriber (V4
+            async polling, ~10-60 s; only option past V2's 60 s hard limit).
+
+        Note: this assumes SHORT_AUDIO_THRESHOLD < 60 s, because
+        SonioxTranscriber.transcribe uses the same threshold internally to pick
+        sync vs async, and Soniox's sync path has a 60 s hard limit. Raising
+        SHORT_AUDIO_THRESHOLD above 60 would make V2 attempt the sync path on
+        recordings it can't handle; the fallthrough to V4 would still recover
+        the transcript, but the fast-path latency advertised above is gone.
+
+        All fallback transcribers are lazily instantiated on first use and
+        cached as singletons on the app instance. The fallback is not
+        interruptible: Ctrl+Alt+X is a no-op here because audio recording has
+        already stopped.
+
+        Args:
+            mp3_path: Path to the (still-existing) temp MP3.
+            duration: Recording duration in seconds.
+            sequence_number: For console / log correlation.
+            thread_name: For log correlation.
+
+        Returns:
+            Transcript string (empty if every available fallback failed -- the
+            caller then routes through the existing is_error path).
+        """
+        try_v2_first = duration < SHORT_AUDIO_THRESHOLD
+        primary_label = "Soniox V2 (sync)" if try_v2_first else "Soniox V4 (async)"
+
+        logger.info(
+            f"[{thread_name}] Empty live transcript for sequence {sequence_number} "
+            f"(duration: {duration:.1f}s) -- falling back to {primary_label}"
+        )
+
+        # Clearly framed console block so Tim sees the fallback kick in without
+        # having to scan the log. Printed before the attempt so it is visible
+        # even if the lazy init below raises.
+        print("")
+        print("=" * 60)
+        print(f"[Seq: {sequence_number}] FALLBACK ACTIVE -- live transcript empty")
+        print(f"  Duration: {duration:.1f}s -> {primary_label}")
+        print(f"  (Class-B: live WebSocket likely disconnected mid-recording)")
+        print("=" * 60)
+
+        # Short recordings: try V2, fall through to V4 on failure / empty.
+        # Long recordings: V4 is the only option (V2 has a 60 s hard limit).
+        if try_v2_first:
+            transcript = self._try_fallback(
+                kind="v2",
+                mp3_path=mp3_path,
+                duration=duration,
+                sequence_number=sequence_number,
+                thread_name=thread_name,
+            )
+            if transcript:
+                return transcript
+
+            # V2 failed or returned empty. Spec #1 requires we still try V4
+            # so that "Empty transcription" only surfaces when both fail (and
+            # so the tool keeps working if V2 is ever shut down by Soniox).
+            logger.info(
+                f"[{thread_name}] V2 fallback unproductive for sequence "
+                f"{sequence_number} -- falling through to Soniox V4 (async)"
+            )
+            print(f"[Seq: {sequence_number}] V2 unproductive -- falling through to Soniox V4 (async)")
+
+        transcript = self._try_fallback(
+            kind="v4",
+            mp3_path=mp3_path,
+            duration=duration,
+            sequence_number=sequence_number,
+            thread_name=thread_name,
+        )
+
+        if not transcript:
+            # Every file-based API we tried also returned nothing on top of
+            # the empty Live result. For short recordings that means Live +
+            # V2 + V4 all failed (triple failure); for long recordings V2 is
+            # skipped because of its 60 s hard limit, so it's Live + V4 only.
+            stages = "Live + V2 + V4" if try_v2_first else "Live + V4"
+            logger.error(
+                f"[{thread_name}] All fallbacks exhausted for sequence "
+                f"{sequence_number} ({stages} all empty / failed)"
+            )
+            print(f"[Seq: {sequence_number}] All fallbacks exhausted ({stages} all failed)")
+
+        return transcript
+
+    def _try_fallback(self, kind: str, mp3_path: str, duration: float,
+                      sequence_number: int, thread_name: str) -> str:
+        """Run a single fallback transcriber attempt. Helper for _run_empty_transcript_fallback.
+
+        Lazily instantiates the requested transcriber (V2 or V4) under the init
+        lock, then runs transcribe() outside the lock so parallel fallbacks
+        don't serialize on the network call. Any exception is caught and logged
+        -- this method always returns a string, never raises.
+
+        Args:
+            kind: "v2" or "v4".
+            mp3_path: Path to the temp MP3.
+            duration: Recording duration in seconds.
+            sequence_number: For console / log correlation.
+            thread_name: For log correlation.
+
+        Returns:
+            Transcript string, or "" if this attempt failed (exception) or
+            returned empty.
+        """
+        label = "Soniox V2 (sync)" if kind == "v2" else "Soniox V4 (async)"
+
+        try:
+            with self._fallback_init_lock:
+                if kind == "v2" and self._fallback_v2 is None:
+                    self._fallback_v2 = SonioxTranscriber()
+                    logger.info("Soniox V2 fallback transcriber initialized")
+                elif kind == "v4" and self._fallback_v4 is None:
+                    self._fallback_v4 = SonioxV4Transcriber()
+                    logger.info("Soniox V4 fallback transcriber initialized")
+
+            fallback = self._fallback_v2 if kind == "v2" else self._fallback_v4
+
+            start = time.time()
+            transcript = fallback.transcribe(mp3_path, duration).rstrip('\n')
+            elapsed = time.time() - start
+
+            if transcript:
+                logger.info(
+                    f"[{thread_name}] Fallback ({label}) succeeded for "
+                    f"sequence {sequence_number} in {elapsed:.2f}s "
+                    f"({len(transcript)} chars)"
+                )
+                print(f"[Seq: {sequence_number}] Fallback succeeded "
+                      f"({elapsed:.1f}s, {len(transcript)} chars)")
+            else:
+                logger.warning(
+                    f"[{thread_name}] Fallback ({label}) returned empty for "
+                    f"sequence {sequence_number} after {elapsed:.2f}s"
+                )
+                print(f"[Seq: {sequence_number}] Fallback ({label}) returned empty")
+
+            return transcript
+
+        except Exception as e:
+            logger.error(
+                f"[{thread_name}] Fallback ({label}) raised for "
+                f"sequence {sequence_number}: {e}",
+                exc_info=True
+            )
+            print(f"ERROR: [Seq: {sequence_number}] Fallback ({label}) failed: {e}")
+            return ""
 
     def handle_test_transcription(self):
         """Handle test transcription request"""
