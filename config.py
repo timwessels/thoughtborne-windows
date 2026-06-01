@@ -136,6 +136,11 @@ LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
 LOG_BACKUP_COUNT = 3
 LOG_FORMAT = '%(asctime)s - %(levelname)s - [%(threadName)s] %(funcName)s - %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+# Bounded queue between the hotkey-listener-side logging call and the QueueListener
+# thread that writes to the cmd console (#11). Sized for several seconds of sustained
+# log bursts in normal use; when the cmd window stays in Mark-Mode longer than the
+# queue can absorb, the newest console records are dropped (the file log keeps all).
+LOG_CONSOLE_QUEUE_MAX = 200
 
 # ===== UI SETTINGS =====
 STATUS_UPDATE_INTERVAL = 5  # seconds

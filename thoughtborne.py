@@ -25,16 +25,18 @@ Windows Adaptations:
 import os
 import sys
 import time
+import queue
 import logging
 import threading
 import datetime
 from pathlib import Path
 from typing import List, Optional
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 # Import our modules
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
+    LOG_CONSOLE_QUEUE_MAX,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     GROQ_MODEL, LANGUAGE, SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS,
     SHORT_AUDIO_THRESHOLD,
@@ -48,6 +50,20 @@ from transcriber import (
     SonioxV4Transcriber,
 )
 from output_handler import OutputManager, TranscriptionTask
+
+
+class DroppingQueueHandler(QueueHandler):
+    """QueueHandler that drops the newest record when the queue is full instead
+    of letting the base emit() fall into handleError(), which writes a traceback
+    to the (blockable) console stderr. That keeps the listener thread from ever
+    blocking on console I/O even under a cmd Mark-Mode stall (#11). The file
+    handler keeps every record regardless."""
+    def enqueue(self, record):
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            pass
+
 
 # ===== LOGGING SETUP =====
 logger = logging.getLogger('Thoughtborne')
@@ -68,12 +84,33 @@ file_handler.setLevel(logging.DEBUG)  # File: everything
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Console handler (shows logs in terminal)
-# Terminal only shows INFO and above (no DEBUG)
+# Console output is wrapped behind a QueueHandler so a Windows cmd Mark/Quick-Edit
+# selection can never block the hotkey-listener thread (#11). The listener thread
+# only enqueues records (non-blocking); a dedicated daemon thread (QueueListener)
+# drains the queue and writes to stderr. If cmd blocks the write, only that daemon
+# stalls -- the listener and the synchronous file handler are unaffected.
+# Order matters: this StreamHandler binds to the *current* sys.stderr (the real cmd
+# stderr) and must be constructed BEFORE the StreamToLogger redirect below, or its
+# emit() would recurse through the redirected stream.
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)  # Terminal: INFO, WARNING, ERROR only (no DEBUG)
 console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+
+# Bounded queue: a full queue drops the newest console records (DroppingQueueHandler
+# swallows queue.Full instead of routing to handleError) so the listener thread never
+# blocks even when the drain stalls. The file handler keeps the complete record either
+# way.
+_console_log_queue: queue.Queue = queue.Queue(maxsize=LOG_CONSOLE_QUEUE_MAX)
+_console_queue_handler = DroppingQueueHandler(_console_log_queue)
+_console_queue_handler.setLevel(logging.INFO)  # Filter DEBUG before the queue
+logger.addHandler(_console_queue_handler)
+
+_console_queue_listener = QueueListener(
+    _console_log_queue,
+    console_handler,
+    respect_handler_level=True,
+)
+_console_queue_listener.start()
 
 
 # ===== STDOUT/STDERR REDIRECT TO LOG =====
@@ -335,8 +372,7 @@ class ThoughtborneApp:
 
         # Check limit
         if len(self.active_threads) >= MAX_PARALLEL_TRANSCRIPTIONS:
-            logger.warning(f"Maximum parallel transcriptions reached ({MAX_PARALLEL_TRANSCRIPTIONS})")
-            print(f"WARNING: Maximum parallel processing reached! Please wait.")
+            logger.warning(f"Maximum parallel transcriptions reached ({MAX_PARALLEL_TRANSCRIPTIONS}) -- please wait")
             return False
 
         # Get sequence number and timestamp
@@ -357,7 +393,6 @@ class ThoughtborneApp:
         self.active_threads.append(thread)
 
         logger.info(f"New processing thread started: {thread.name} (Seq: {sequence_number}) using {transcriber.get_name()}")
-        print(f"[Seq: {sequence_number}] Processing started with {transcriber.get_name()}")
         return True
 
     def _run_empty_transcript_fallback(self, mp3_path: str, duration: float,
@@ -536,19 +571,14 @@ class ThoughtborneApp:
 
         if test_file.exists():
             logger.info(f"Testing with file: {test_file}")
-            print(f"\n=== TEST MODE ===")
-            print(f"Testing with file: {test_file}")
 
             # Test transcription
             result = self.transcriber.test_transcription(str(test_file))
 
             if result:
                 self.output_manager.update_last_transcript(result)
-                print(f"[TEST] Transcription successful!")
-                print(f"[TEST] Text ({len(result)} chars):")
-                print("-" * 50)
-                print(result[:200] + "..." if len(result) > 200 else result)
-                print("-" * 50)
+                preview = result[:200] + "..." if len(result) > 200 else result
+                logger.info(f"Test transcription successful ({len(result)} chars): {preview}")
 
                 # Add to output queue with negative sequence number
                 test_task = TranscriptionTask(
@@ -560,15 +590,14 @@ class ThoughtborneApp:
                 )
                 self.output_manager.add_task(test_task)
 
-                print("[TEST] Text will be inserted...")
+                logger.info("Test text will be inserted...")
             else:
-                print("[TEST] No transcription received")
+                logger.warning("Test: no transcription received")
 
-            print("=== TEST COMPLETED ===\n")
+            logger.info("Test completed")
         else:
             logger.error(f"Test file not found: {test_file}")
-            print("ERROR: Test file not found!")
-            print("Please place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
+            logger.error("Place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
 
     def switch_api(self):
         """Switch between available transcription APIs"""
@@ -591,13 +620,10 @@ class ThoughtborneApp:
 
             except Exception as e:
                 logger.error(f"Failed to switch to {next_api}: {e}")
-                print(f"\nERROR: Failed to switch to {next_api}")
-                print(f"Reason: {e}")
-                print(f"Continuing with: {self.transcriber.get_name()}")
+                logger.info(f"Continuing with: {self.transcriber.get_name()}")
 
         except Exception as e:
             logger.error(f"Error in API switch: {e}", exc_info=True)
-            print(f"\nERROR: API switch failed: {e}")
 
     # ===== HOTKEY CALLBACKS =====
 
@@ -631,7 +657,6 @@ class ThoughtborneApp:
             if is_key_pressed(key_char):
                 logger.warning(f"Mis-trigger detected: start_recording triggered but '{key_char.upper()}' is pressed")
                 logger.info(f"Correcting to {action_name}")
-                print(f"[CORRECTED] {key_char.upper()} detected -> executing {action_name}")
                 action_func()
                 return True
 
@@ -642,23 +667,22 @@ class ThoughtborneApp:
         if not self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
             logger.info(f"Recording started ({hotkey_display})")
-            logger.debug("on_start_recording: marker A - before stdout print")
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording started...")
-            logger.debug("on_start_recording: marker B - after stdout print")
+            logger.debug("on_start_recording: marker A - after info log line")
+            logger.debug("on_start_recording: marker B - before loop-alive check")
 
             # DEBUG: Check if recording loop thread is alive
             if self.recording_thread and self.recording_thread.is_alive():
                 logger.debug("Recording loop thread is ALIVE")
             else:
                 logger.error("Recording loop thread is DEAD!")
-                print("ERROR: Recording loop thread has died. Please restart the application.")
+                logger.error("Recording loop thread has died. Please restart the application.")
                 return
 
             logger.debug("on_start_recording: marker C - before audio_recorder.start_recording()")
             # Start recording (this also opens the audio stream)
             if not self.audio_recorder.start_recording():
                 logger.error("Failed to start recording - audio stream could not be opened")
-                print("ERROR: Could not open audio stream. Check audio device connection.")
+                logger.error("Could not open audio stream. Check audio device connection.")
                 return
             logger.debug("on_start_recording: marker D - audio_recorder.start_recording() returned OK")
 
@@ -667,7 +691,7 @@ class ThoughtborneApp:
                 self._active_live_transcriber = self.transcriber
                 if not self._active_live_transcriber.start_session():
                     logger.error("Failed to start live streaming session")
-                    print("WARNING: Live session failed to start")
+                    logger.warning("Live session failed to start")
                     self._active_live_transcriber = None
             logger.debug("on_start_recording: marker E - callback complete, returning to listener message pump")
         else:
@@ -687,7 +711,6 @@ class ThoughtborneApp:
         if self.audio_recorder.is_recording:
             # Stop recording
             logger.info(f"Recording stopped ({hotkey_display})")
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording stopped, starting processing...")
 
             frames, duration = self.audio_recorder.stop_recording()
             self.just_finished_recording_a = True
@@ -697,13 +720,13 @@ class ThoughtborneApp:
             recording_transcriber = self._active_live_transcriber or self.transcriber
             self._active_live_transcriber = None
 
-            print(f"Recording duration: {duration:.1f} seconds")
+            logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing with wait for key release
             if self.start_processing_thread(frames, duration, wait_for_keys=['ctrl', 'alt', 'a'],
                                             transcriber_override=recording_transcriber):
-                print("Processing in background...")
-                print(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background...")
+                logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
         elif not self.just_finished_recording_a:
             # Insert last text
@@ -718,7 +741,6 @@ class ThoughtborneApp:
         if self.audio_recorder.is_recording:
             # Stop recording (clipboard mode)
             logger.info(f"Recording stopped ({hotkey_display} - clipboard mode)")
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording stopped, starting processing (clipboard mode)...")
 
             frames, duration = self.audio_recorder.stop_recording()
             self.just_finished_recording_d = True
@@ -728,13 +750,13 @@ class ThoughtborneApp:
             recording_transcriber = self._active_live_transcriber or self.transcriber
             self._active_live_transcriber = None
 
-            print(f"Recording duration: {duration:.1f} seconds")
+            logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing with clipboard flag and wait for key release
             if self.start_processing_thread(frames, duration, use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'd'],
                                             transcriber_override=recording_transcriber):
-                print("Processing in background (clipboard mode)...")
-                print(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background (clipboard mode)...")
+                logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
         elif not self.just_finished_recording_d:
             # Insert last text via clipboard
@@ -754,7 +776,6 @@ class ThoughtborneApp:
         if self.audio_recorder.is_recording:
             # Stop recording
             logger.info(f"Recording stopped ({hotkey_display}) - will send after transcription")
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording stopped, will send message...")
 
             frames, duration = self.audio_recorder.stop_recording()
             self.just_finished_recording_d = True
@@ -764,14 +785,14 @@ class ThoughtborneApp:
             recording_transcriber = self._active_live_transcriber or self.transcriber
             self._active_live_transcriber = None
 
-            print(f"Recording duration: {duration:.1f} seconds")
+            logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing with clipboard AND send_after_insert, wait for key release
             if self.start_processing_thread(frames, duration, use_clipboard=True, send_after_insert=True,
                                             wait_for_keys=['ctrl', 'alt'],
                                             transcriber_override=recording_transcriber):
-                print("Processing in background (will send)...")
-                print(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background (will send)...")
+                logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
         elif not self.just_finished_recording_d:
             # Insert last text and send
@@ -791,7 +812,6 @@ class ThoughtborneApp:
         if self.audio_recorder.is_recording:
             # Stop recording
             logger.info(f"Recording stopped ({hotkey_display}) - process only, no auto-insert")
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Recording stopped, processing (no auto-insert)...")
 
             frames, duration = self.audio_recorder.stop_recording()
 
@@ -799,13 +819,13 @@ class ThoughtborneApp:
             recording_transcriber = self._active_live_transcriber or self.transcriber
             self._active_live_transcriber = None
 
-            print(f"Recording duration: {duration:.1f} seconds")
+            logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing WITHOUT auto-insert
             if self.start_processing_thread(frames, duration, use_clipboard=False, auto_insert=False,
                                             transcriber_override=recording_transcriber):
-                print("Processing in background (no auto-insert)...")
-                print(f"Press A or D to insert later, or {start_hotkey_display} for new recording")
+                logger.info("Processing in background (no auto-insert)...")
+                logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording")
                 self.print_ready_status()
 
     def on_cancel_recording(self):
@@ -813,7 +833,6 @@ class ThoughtborneApp:
         if self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['cancel_recording'][0])
             logger.info(f"Recording cancelled ({hotkey_display})")
-            print("Recording cancelled")
 
             # Cancel live session if active
             if self._active_live_transcriber is not None:
@@ -838,7 +857,6 @@ class ThoughtborneApp:
     def stop_program(self):
         """Stop the program"""
         logger.info("Program exit requested")
-        print("\nExiting program...")
 
         # Set running flag to false
         self.running = False
@@ -852,7 +870,7 @@ class ThoughtborneApp:
 
         # Wait for active threads
         if self.active_threads:
-            print(f"Waiting for {len(self.active_threads)} active processing...")
+            logger.info(f"Waiting for {len(self.active_threads)} active processing...")
             for thread in self.active_threads:
                 if thread.is_alive():
                     thread.join(timeout=5)
@@ -956,10 +974,10 @@ class ThoughtborneApp:
 
         if is_ready_to_insert:
             # Y-Taste: Text verarbeitet, bereit zum Einfuegen - DEUTLICH mit READY
-            print(f"\nREADY! Text processed ({char_count} chars) - Press A or D | {emoji} {self.transcriber.get_name()}\n")
+            logger.info(f"READY! Text processed ({char_count} chars) - Press A or D | {emoji} {self.transcriber.get_name()}")
         else:
             # Normales Einfuegen: Nur Modell-Status
-            print(f"\n{emoji} {self.transcriber.get_name()}")
+            logger.info(f"{emoji} {self.transcriber.get_name()}")
 
     def _register_hotkeys(self):
         """Register all hotkeys using Win32 RegisterHotKey API"""
@@ -1060,6 +1078,16 @@ class ThoughtborneApp:
 
         logger.info("Program ended")
         logger.info("=" * 60)
+
+        # Drain and stop the console QueueListener last, so the two lines above
+        # still reach the terminal. stop() enqueues a sentinel via put_nowait; if
+        # cmd Mark-Mode has filled the queue at exit this raises queue.Full -- swallow
+        # it, the daemon listener dies with the process and the file log is already
+        # complete.
+        try:
+            _console_queue_listener.stop()
+        except Exception:
+            pass
 
 
 def main():

@@ -125,7 +125,6 @@ class AudioRecorder:
                 # Check if device changed
                 if self.last_device_index is not None and self.last_device_index != device_index:
                     logger.info(f"Audio device changed! Now using: [{device_index}] {device_name}")
-                    print(f"Audio device changed to: {device_name}")
                 else:
                     logger.info(f"Using audio input device: [{device_index}] {device_name}")
 
