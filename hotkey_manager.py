@@ -269,6 +269,14 @@ class HotkeyManager:
         # Send WM_QUIT to the message pump thread
         PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
 
+        # If stop() runs on the listener thread itself (an exit hotkey's callback
+        # executes here), we cannot join ourselves -- RuntimeError. The WM_QUIT
+        # above unwinds the pump when the callback returns; run()'s finally then
+        # calls stop() again from the main thread to do the real join.
+        if threading.current_thread() is self._thread:
+            logger.debug("stop() on listener thread; deferring join to main thread")
+            return
+
         # Wait for thread to finish
         self._thread.join(timeout=5.0)
         if self._thread.is_alive():
