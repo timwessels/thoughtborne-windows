@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from pathlib import Path
 
-from groq import Groq
+from groq import Groq, AuthenticationError
 
 from config import (
     GROQ_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
@@ -58,6 +58,20 @@ class AbstractTranscriber(ABC):
         """Create text archive directory if it doesn't exist"""
         TEXT_ARCHIVE_FOLDER.mkdir(exist_ok=True)
         logger.info(f"Text archive folder ready: {TEXT_ARCHIVE_FOLDER}")
+
+    def _report_auth_failure(self, env_var: str, detail: str = "") -> None:
+        """Emit one uniform, actionable console line for a rejected API key.
+
+        The full stack trace is logged separately by the caller; this is the
+        short, human-facing line. It goes through logger.error so it rides the
+        same non-blocking console path as the rest of the module (no raw print
+        from worker or receiver threads).
+        """
+        suffix = f" ({detail})" if detail else ""
+        logger.error(
+            f"[AUTH] {self.get_name()}: API key rejected{suffix}. "
+            f"Check {env_var} in .env, then restart Thoughtborne."
+        )
 
     @property
     def is_live(self) -> bool:
@@ -371,10 +385,16 @@ class GroqTranscriber(AbstractTranscriber):
             
             return text
             
+        except AuthenticationError as e:
+            # body['code'] is None in groq 0.29; detect expired vs invalid via str(e)
+            detail = "expired" if "expired_api_key" in str(e) else "invalid"
+            self._report_auth_failure("GROQ_API_KEY", detail)
+            logger.error(f"Error during GROQ transcription: {e}", exc_info=True)
+            return ""
         except Exception as e:
             logger.error(f"Error during GROQ transcription: {e}", exc_info=True)
             return ""
-    
+
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """
         Test transcription with a specific file
@@ -504,6 +524,7 @@ class SonioxTranscriber(AbstractTranscriber):
         
         try:
             # Import Soniox modules
+            import grpc
             from soniox.speech_service import SpeechClient
             from soniox.transcribe_file import transcribe_file_short, transcribe_file_async
             
@@ -608,9 +629,15 @@ class SonioxTranscriber(AbstractTranscriber):
                                     pass
                                 return ""
                             
+                        except grpc.RpcError as e:
+                            # Re-raise auth failures so the outer handler reports
+                            # them once instead of looping for the full timeout.
+                            if e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                                raise
+                            logger.error(f"Error checking status (attempt {attempt}): {e}", exc_info=True)
                         except Exception as e:
                             logger.error(f"Error checking status (attempt {attempt}): {e}", exc_info=True)
-                        
+
                         time.sleep(1)
                         attempt += 1
                     
@@ -629,10 +656,15 @@ class SonioxTranscriber(AbstractTranscriber):
                     except Exception as e:
                         logger.warning(f"Error closing Soniox async client: {e}")
                 
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                self._report_auth_failure("SONIOX_API_KEY")
+            logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
+            return ""
         except Exception as e:
             logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
             return ""
-    
+
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """
         Test transcription with a specific file
@@ -745,6 +777,8 @@ class HuggingFaceTranscriber(AbstractTranscriber):
             # Check for errors
             if response.status_code != 200:
                 logger.error(f"HuggingFace API error: {response.status_code} - {response.text}")
+                if response.status_code == 401:
+                    self._report_auth_failure("HUGGINGFACE_API_KEY")
                 return ""
 
             # Parse response
@@ -931,6 +965,11 @@ class SonioxV4Transcriber(AbstractTranscriber):
 
             return text
 
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                self._report_auth_failure("SONIOX_API_KEY")
+            logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+            return ""
         except Exception as e:
             logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
             return ""
@@ -1333,6 +1372,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 if msg.get("error_code"):
                     error_msg = msg.get("error_message", "Unknown error")
                     logger.error(f"Soniox Live error: {msg['error_code']} - {error_msg}")
+                    if msg.get("error_code") == 401:
+                        self._report_auth_failure("SONIOX_API_KEY")
                     self._session_error = error_msg
                     break
 
