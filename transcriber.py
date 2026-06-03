@@ -1111,10 +1111,16 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         """This transcriber supports live audio streaming."""
         return True
 
-    def start_session(self) -> bool:
+    def start_session(self, sample_rate_override: Optional[int] = None) -> bool:
         """Open WebSocket connection and start receiver thread.
 
         Called from on_start_recording() when this transcriber is active.
+
+        Args:
+            sample_rate_override: Sample rate to announce to Soniox. Defaults to
+                config.RATE (the production live-capture rate). The file-replay
+                self-test passes the test file's actual rate so Soniox decodes
+                the bytes at the rate they were authored at (#12).
 
         Returns:
             True if session started successfully
@@ -1138,7 +1144,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                     "model": SONIOX_RT_MODEL,
                     "audio_format": "pcm_s16le",
                     "num_channels": CHANNELS,
-                    "sample_rate": RATE,
+                    "sample_rate": sample_rate_override if sample_rate_override is not None else RATE,
                     "language_hints": SONIOX_LANGUAGE_HINTS,
                     "enable_endpoint_detection": True,
                 }
@@ -1578,8 +1584,9 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
             logger.info(f"Testing Soniox Live with file: {test_file_path} ({duration:.1f}s)")
 
-            # Start session
-            if not self.start_session():
+            # Start session — announce the file's real rate so Soniox decodes
+            # the bytes correctly even when it differs from config.RATE (#12).
+            if not self.start_session(sample_rate_override=samplerate):
                 logger.error("Failed to start Soniox Live test session")
                 return None
 
@@ -1591,7 +1598,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             for i in range(0, len(audio_bytes), bytes_per_chunk):
                 chunk = audio_bytes[i:i + bytes_per_chunk]
                 self.send_audio_chunk(chunk)
-                time.sleep(CHUNK / RATE)  # Approximate real-time pacing
+                time.sleep(CHUNK / samplerate)  # Real-time pacing at the file's rate
 
             # Finalize
             text = self.transcribe(test_file_path, duration)
