@@ -22,6 +22,16 @@ Claude owns commits, pushes, and issues. The default pattern is **decide → say
 - **Branches.** Direct on `main` for routine work. Feature branches only for risky/experimental things.
 - **CHANGELOG.md.** Non-trivial changes get an entry under `## [Unreleased]` (Keep-a-Changelog categories: `### Added` / `### Changed` / `### Fixed` / `### Removed`). On a release tag, that block becomes the versioned entry.
 
+## Autonomous issue runs (meta-orchestration)
+
+The standard mode for working several issues with little supervision — typically an overnight run. Three layers, each delegating downward so no single context fills up:
+
+- **Meta-orchestrator** — this instance, and the only one the user talks to. Holds the project picture (direction, intent, rough code layout) but doesn't dig into issues itself. Per issue it opens a tmux session (surfaces as a tab for the user; tmux mechanics live in the `tmux-session` skill), briefs it, reviews what comes back, answers its questions, and sees each through to closed.
+- **Issue instance** — one Claude Code session per issue, run under the `thoughtborne-orchestrate` skill (`fundierte-recherche` for spikes). It loads enough code to understand and judge, but delegates the actual work; when unsure it sends an agent to find out rather than guessing. It rarely writes code itself — good delegation is the point.
+- **Agents** — the subagents doing the concrete work (write, research, verify).
+
+**Autonomy is the goal at every layer.** When there's a call to make, think it through and make it rather than waiting on the user; when there's something to verify, take it as far as automated checks reach — human testing is the exception, not the gate. Where the test tooling falls short, improving it so a run can self-verify is itself worthwhile, and a run that hits that wall is worth flagging back to the user ("here's what I'd need to test X automatically"). When a hands-on test genuinely can't be avoided, park it in a dedicated test issue for the user to run later rather than blocking the run, and raise it through the meta-orchestrator — never straight from an issue instance.
+
 ## Language
 
 English for code, inline comments, commit messages, and all public documentation (README, CHANGELOG, LICENSE, CLAUDE.md).
