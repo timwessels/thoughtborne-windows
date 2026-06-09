@@ -276,8 +276,10 @@ class OutputManager:
             # Delay after insertion
             time.sleep(CLIPBOARD_RESTORE_DELAY)
 
-            # Try to restore original clipboard content
-            if original_clipboard is not None:
+            # Restore prior clipboard only when real text was saved; an empty
+            # string means non-text/empty content, and copy("") would wipe the
+            # transcript ~100 ms after Ctrl+V before it lands (#23).
+            if original_clipboard:
                 try:
                     pyperclip.copy(original_clipboard)
                     logger.debug("Original clipboard content restored")
