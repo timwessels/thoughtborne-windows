@@ -252,6 +252,71 @@ def _diag_text_length(hwnd):
         return None
 
 
+def _window_class(hwnd) -> str:
+    """Window class name, or '' if unavailable."""
+    if not hwnd:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(64)
+        _diag_user32.GetClassNameW(hwnd, buf, 64)
+        return buf.value
+    except Exception:
+        return ""
+
+
+# ===== NOTEPAD++ STALE-PASTE-GATE WORKAROUND (#29) =====
+# Notepad++ caches its paste-enabled state (checkClipboard -> SCI_CANPASTE ->
+# enableCommand(IDM_EDIT_PASTE)) and registers no clipboard listener. With an
+# image or copied file on the clipboard the cached state is "paste disabled";
+# our pyperclip text copy goes unnoticed, and since Ctrl+V is an accelerator
+# on that menu command, Win32 swallows the keystroke entirely (disabled menu
+# item => no WM_COMMAND, no beep). Known upstream as notepad-plus-plus#16456;
+# the v8.8 fix covers only N++-internal copy/cut. Full analysis with sources:
+# _research/2026-06_npp-paste-gate-clipboard/.
+#
+# The cure N++ itself uses on window activation: SCI_SETXOFFSET triggers an
+# unconditional SCN_UPDATEUI, whose handler re-runs checkClipboard(). Setting
+# the offset to its current value is therefore a side-effect-free nudge that
+# re-enables paste now that our text is on the clipboard.
+
+_SCI_SETXOFFSET = 2397
+_SCI_GETXOFFSET = 2398
+
+# Classes whose WM_GETTEXTLENGTH answer reflects the real document, making
+# "length unchanged" trustworthy evidence that a paste did not land. Custom-
+# rendered targets (browsers etc.) fall through to DefWindowProc and answer
+# with the (constant) window-title length — never retry on those, a landed
+# paste would be invisible and the retry would paste twice.
+_TEXT_CONTROL_CLASSES = frozenset({
+    "Scintilla", "Edit", "RichEdit20W", "RichEdit20A", "RICHEDIT50W",
+    "RichEditD2DPT",
+})
+
+
+def _nudge_scintilla_updateui(hwnd) -> None:
+    """Re-trigger the target Scintilla's SCN_UPDATEUI (hang-safe, no-op on error)."""
+    try:
+        offset = ctypes.c_size_t(0)
+        ok = _diag_user32.SendMessageTimeoutW(
+            hwnd, _SCI_GETXOFFSET, 0, 0, _SMTO_ABORTIFHUNG, 100,
+            ctypes.byref(offset),
+        )
+        if not ok:
+            logger.debug("Scintilla nudge skipped: SCI_GETXOFFSET unanswered")
+            return
+        dummy = ctypes.c_size_t(0)
+        _diag_user32.SendMessageTimeoutW(
+            hwnd, _SCI_SETXOFFSET, offset.value, 0, _SMTO_ABORTIFHUNG, 100,
+            ctypes.byref(dummy),
+        )
+        logger.debug(
+            f"Scintilla nudge sent (SCI_SETXOFFSET {offset.value}) to "
+            f"{_describe_hwnd(hwnd)} so the target re-checks the clipboard (#29)"
+        )
+    except Exception as e:
+        logger.debug(f"Scintilla nudge failed: {e}")
+
+
 @dataclass
 class TranscriptionTask:
     """Represents a transcription task in the output queue"""
@@ -465,6 +530,14 @@ class OutputManager:
             logger.debug(f"Text copied to clipboard ({len(text)} chars): '{text[:50]}{'...' if len(text) > 50 else ''}'")
             _clipboard_diag("post-copy")
 
+            # Stale-paste-gate workaround (#29): after non-text content the
+            # target may still cache "paste disabled" and swallow our Ctrl+V.
+            # Nudge it before the wait below, so its UpdateUI runs during it.
+            focus_hwnd = _diag_focus_window()
+            focus_class = _window_class(focus_hwnd)
+            if clipboard_had_non_text and focus_class == "Scintilla":
+                _nudge_scintilla_updateui(focus_hwnd)
+
             # Delay to ensure clipboard is updated - longer if non-text was in clipboard
             if clipboard_had_non_text:
                 logger.debug("Non-text clipboard detected, using longer delay for compatibility")
@@ -486,7 +559,6 @@ class OutputManager:
 
             # Ground truth for #29: text length of the focused control before
             # and after the paste tells whether it actually landed.
-            focus_hwnd = _diag_focus_window()
             len_before = _diag_text_length(focus_hwnd)
             logger.debug(
                 f"[CLIPDIAG focus] {_describe_hwnd(focus_hwnd)} "
@@ -504,6 +576,45 @@ class OutputManager:
             _diag_sample_window("post-paste", CLIPBOARD_RESTORE_DELAY)
             _clipboard_diag("post-paste")
 
+            # Verified single retry (#29): only on the non-text path (the
+            # text path has never been observed to fail), only for control
+            # classes whose WM_GETTEXTLENGTH answer is trustworthy, only when
+            # the length provably did not change, and only while the focus is
+            # still on the same control. Residual double-paste risk is
+            # confined to two narrow cases: a paste that replaced a selection
+            # of exactly equal length, and a target in a nested message loop
+            # that answers sent messages while the V keydown still waits in
+            # its input queue. Must run BEFORE the restore below, while the
+            # clipboard still holds the transcript.
+            len_after = _diag_text_length(focus_hwnd)
+            if (
+                clipboard_had_non_text
+                and focus_class in _TEXT_CONTROL_CLASSES
+                and len_before is not None
+                and len_after == len_before
+            ):
+                # Re-measure once before retrying: a busy target may process
+                # the paste a moment after our first measurement.
+                time.sleep(0.25)
+                len_after = _diag_text_length(focus_hwnd)
+                if len_after == len_before and _diag_focus_window() == focus_hwnd:
+                    logger.warning(
+                        f"Paste did not land in {focus_class} target "
+                        f"(text length unchanged at {len_before}); "
+                        f"nudging and retrying once"
+                    )
+                    if focus_class == "Scintilla":
+                        _nudge_scintilla_updateui(focus_hwnd)
+                        time.sleep(0.1)
+                    # A failed retry send is deliberately not propagated: the
+                    # first Ctrl+V did go out, so the function's contract
+                    # ("insertion attempted") still holds; the verdict below
+                    # records the outcome either way.
+                    paste_success = self._paste_via_hotkey()
+                    if paste_success:
+                        time.sleep(CLIPBOARD_RESTORE_DELAY)
+                        len_after = _diag_text_length(focus_hwnd)
+
             # Restore prior clipboard only when real text was saved; an empty
             # string means non-text/empty content, and copy("") would wipe the
             # transcript ~100 ms after Ctrl+V before it lands (#23).
@@ -517,18 +628,23 @@ class OutputManager:
             # #29 diagnosis window: keep watching while the target app may
             # still be processing the paste, then record the verdict.
             _diag_sample_window("post-restore", 0.4)
-            len_after = _diag_text_length(focus_hwnd)
-            if len_before is not None and len_after is not None:
-                delta = len_after - len_before
-                verdict = "PASTE LANDED" if delta > 0 else "PASTE DID NOT LAND"
-                logger.debug(
-                    f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
-                    f"(delta {delta:+d}, pasted text was {len(text)} chars): {verdict}"
-                )
-            else:
+            if len_before is None or len_after is None:
                 logger.debug(
                     f"[CLIPDIAG verdict] text length unavailable "
                     f"(before={len_before}, after={len_after})"
+                )
+            else:
+                final_len = _diag_text_length(focus_hwnd)
+                if final_len is not None:
+                    len_after = final_len
+                delta = len_after - len_before
+                # A negative delta means the paste replaced a longer
+                # selection — that is a landed paste, not a failure.
+                verdict = "PASTE LANDED" if delta != 0 else "PASTE DID NOT LAND"
+                log = logger.warning if delta == 0 and focus_class in _TEXT_CONTROL_CLASSES else logger.debug
+                log(
+                    f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
+                    f"(delta {delta:+d}, pasted text was {len(text)} chars): {verdict}"
                 )
 
             return True
