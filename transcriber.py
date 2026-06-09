@@ -265,7 +265,9 @@ class GroqTranscriber(AbstractTranscriber):
             # body['code'] is None in groq 0.29; detect expired vs invalid via str(e)
             detail = "expired" if "expired_api_key" in str(e) else "invalid"
             self._report_auth_failure("GROQ_API_KEY", detail)
-            logger.error(f"Error during GROQ transcription: {e}", exc_info=True)
+            # DEBUG keeps the trace file-only so the [AUTH] line stands alone
+            # on the console (#32)
+            logger.debug(f"Error during GROQ transcription: {e}", exc_info=True)
             return ""
         except Exception as e:
             logger.error(f"Error during GROQ transcription: {e}", exc_info=True)
@@ -535,7 +537,11 @@ class SonioxTranscriber(AbstractTranscriber):
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.UNAUTHENTICATED:
                 self._report_auth_failure("SONIOX_API_KEY")
-            logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
+                # DEBUG keeps the trace file-only so the [AUTH] line stands
+                # alone on the console (#32)
+                logger.debug(f"Error during Soniox transcription: {e}", exc_info=True)
+            else:
+                logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
             return ""
         except Exception as e:
             logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
@@ -697,7 +703,11 @@ class SonioxV4Transcriber(AbstractTranscriber):
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
                 self._report_auth_failure("SONIOX_API_KEY")
-            logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+                # DEBUG keeps the trace file-only so the [AUTH] line stands
+                # alone on the console (#32)
+                logger.debug(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+            else:
+                logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
             return ""
         except Exception as e:
             logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
@@ -800,6 +810,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         self._result_ready = threading.Event()
         self._session_lock = threading.Lock()
         self._session_error = None
+        self._session_auth_error = False
 
         # Block 2: producer/consumer queue and sender thread.
         # Queue is instantiated fresh in start_session() so no stale items
@@ -887,6 +898,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 self._final_tokens = []
                 self._result_ready.clear()
                 self._session_error = None
+                self._session_auth_error = False
                 self._session_active = True
 
                 # Reset send-latency diagnostic stats for the new session
@@ -1048,7 +1060,12 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                             f"(sender-thread backpressure, recording loop unaffected)"
                         )
                 except Exception as e:
-                    logger.error(f"Error sending from Soniox Live sender thread: {e}")
+                    if self._session_auth_error:
+                        # Server closed the WS right after a 401; the [AUTH]
+                        # line already covers it on the console (#32)
+                        logger.debug(f"Error sending from Soniox Live sender thread: {e}")
+                    else:
+                        logger.error(f"Error sending from Soniox Live sender thread: {e}")
                     # Mark session inactive so send_audio_chunk() stops growing
                     # the queue. Analogous to the Block-1 receiver fix that
                     # stopped the recording-loop spam after a server disconnect.
@@ -1106,9 +1123,15 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 # Check for error
                 if msg.get("error_code"):
                     error_msg = msg.get("error_message", "Unknown error")
-                    logger.error(f"Soniox Live error: {msg['error_code']} - {error_msg}")
                     if msg.get("error_code") == 401:
                         self._report_auth_failure("SONIOX_API_KEY")
+                        # Flag for finalization; DEBUG keeps the 401 detail
+                        # file-only so the [AUTH] line stands alone on the
+                        # console (#32)
+                        self._session_auth_error = True
+                        logger.debug(f"Soniox Live error: {msg['error_code']} - {error_msg}")
+                    else:
+                        logger.error(f"Soniox Live error: {msg['error_code']} - {error_msg}")
                     self._session_error = error_msg
                     break
 
@@ -1215,7 +1238,12 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
             # Step 4: Check for errors
             if self._session_error:
-                logger.error(f"Soniox Live session had error: {self._session_error}")
+                if self._session_auth_error:
+                    # Auth failure already surfaced as the [AUTH] console
+                    # line; repeating it at ERROR would bury that line (#32)
+                    logger.debug(f"Soniox Live session had error: {self._session_error}")
+                else:
+                    logger.error(f"Soniox Live session had error: {self._session_error}")
                 return ""
 
             # Step 5: Assemble text from final tokens
