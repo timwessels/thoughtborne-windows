@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Dropped the `modal` (Parakeet) and `huggingface` (Primeline Whisper) transcription APIs, trimming the runtime set from six to four (#3). `AVAILABLE_APIS` is now `["soniox-live", "soniox", "groq", "soniox-v4"]` and the `Ctrl+Alt+L` carousel cycles in that order; `DEFAULT_API` stays `soniox-live`. Removed the `ModalParakeetTranscriber` and `HuggingFaceTranscriber` classes, their `create_transcriber()` branches, the now-dead top-level `import requests` (used only by those two classes), the `HUGGINGFACE_*`/`MODAL_*` config settings and getenvs, the `modal_parakeet/` deployment folder, and the matching `.env.example` keys and README entries. The live Modal app `parakeet-german` is left running/idle (scales to zero) and its deploy code remains in git history; this change only unwires the API from the app.
+
 ### Changed
 
 - Live audio sample rate dropped from 44.1 kHz to 16 kHz mono (`config.RATE = 16000`, #2). Soniox V4 operates internally at 16 kHz and downsamples everything above it server-side; all six transcription APIs (Soniox V2/V4-async/Live, Modal Parakeet, HuggingFace Whisper, Groq Whisper) work natively at 16 kHz, so this is pure bandwidth saving with no recognition-quality loss. Live upload drops from ~705 kbps to ~256 kbps (-64 %), the root-cause counterpart to the Block-2 sender-thread fix that treated TCP-backpressure symptoms only. New MP3s in `voice_archive/` are 16 kHz mono; existing recordings stay 44.1 kHz. Diagnostic threshold for slow PyAudio `stream.read()` raised from 50 ms to 100 ms to match the new nominal chunk time (~64 ms at CHUNK=1024 / RATE=16000); the loop-iteration-gap threshold stays at 50 ms because it measures wallclock outside the read and is sample-rate-independent.

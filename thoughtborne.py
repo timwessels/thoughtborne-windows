@@ -7,9 +7,8 @@ It orchestrates the audio recording, transcription, and text output
 using hotkey controls.
 
 The application uses:
-- Multiple transcription APIs (Soniox v2/v4/Live, Modal Parakeet, HuggingFace, GROQ)
+- Multiple transcription APIs (Soniox v2/v4/Live, GROQ)
 - Soniox Live (WebSocket real-time streaming) as default API at startup
-- Modal Parakeet-primeline for strong German transcription
 - Soniox for high-quality transcription
 - GROQ Whisper Large V3 Turbo for fast transcription
 - Parallel processing for multiple recordings
@@ -301,7 +300,7 @@ class ThoughtborneApp:
 
             # Issue #1: empty live transcript -> file-based fallback on the
             # already-archived MP3. Restricted to SonioxLiveTranscriber: empty
-            # results from V2/V4-async/Modal/HuggingFace/Groq already mean the
+            # results from V2/V4-async/Groq already mean the
             # file-based path was tried and failed, so a second pass would not
             # help. Runs before cleanup_temp_files so mp3_path still exists.
             if not transcript and isinstance(transcriber, SonioxLiveTranscriber):
@@ -942,7 +941,7 @@ class ThoughtborneApp:
         print("     Use Y to process without inserting. Insert later with A or D.")
         print("\nCtrl+Alt+D uses clipboard for faster insertion!")
         print("Texts are always inserted in recording order!")
-        print("\nAPI Models: [SONIOX] v2 precise | [SONv4] v4 async | [LIVE] v4 stream | [PARA] best German | [PRIME] German | [GROQ] fast")
+        print("\nAPI Models: [SONIOX] v2 precise | [SONv4] v4 async | [LIVE] v4 stream | [GROQ] fast")
         print("=========================================\n")
 
     def _get_api_emoji(self):
@@ -952,10 +951,6 @@ class ThoughtborneApp:
             return '[SONv4]'  # Soniox v4 Async REST
         elif 'live' in api_name:
             return '[LIVE]'  # Soniox Live WebSocket RT
-        elif 'parakeet' in api_name:
-            return '[PARA]'  # Best German fast (parakeet-primeline on Modal)
-        elif 'primeline' in api_name:
-            return '[PRIME]'  # Best German (primeline/whisper-large-v3-turbo-german)
         elif 'groq' in api_name:
             return '[GROQ]'  # Fast
         elif 'soniox' in api_name:

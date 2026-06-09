@@ -3,15 +3,12 @@ Transcriber Module
 
 This module handles speech-to-text transcription using multiple APIs.
 It provides a clean interface for transcribing audio files using
-Modal (Parakeet-primeline), GROQ (Whisper Large V3 Turbo), Soniox,
-or HuggingFace Inference Endpoints.
+GROQ (Whisper Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
 
 Classes:
     AbstractTranscriber: Base class for all transcriber implementations
-    ModalParakeetTranscriber: Handles transcription using Modal-hosted parakeet-primeline
     GroqTranscriber: Handles transcription using GROQ API
     SonioxTranscriber: Handles transcription using Soniox API
-    HuggingFaceTranscriber: Handles transcription using HuggingFace Inference Endpoints
 """
 
 import os
@@ -20,7 +17,6 @@ import time
 import logging
 import threading
 import queue
-import requests
 from abc import ABC, abstractmethod
 from typing import Optional
 from pathlib import Path
@@ -31,9 +27,6 @@ from config import (
     GROQ_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
     GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL,
     SHORT_AUDIO_THRESHOLD,
-    HUGGINGFACE_API_KEY, HUGGINGFACE_ENDPOINT_URL,
-    HUGGINGFACE_SCALE_UP_TIMEOUT, HUGGINGFACE_REQUEST_TIMEOUT,
-    MODAL_ENDPOINT_URL, MODAL_REQUEST_TIMEOUT,
     SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
     SONIOX_V4_MAX_POLL_ATTEMPTS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
@@ -138,123 +131,6 @@ class AbstractTranscriber(ABC):
             
         except Exception as e:
             logger.error(f"Failed to save transcript: {e}")
-            return None
-
-
-class ModalParakeetTranscriber(AbstractTranscriber):
-    """Handles transcription using Modal-hosted parakeet-primeline model.
-
-    Parakeet-primeline: 600M parameter NeMo model, 4.11% WER on Tuda-De
-    (spontaneous German). Hosted serverless on Modal.com with GPU memory
-    snapshots for fast cold starts.
-    """
-
-    def __init__(self):
-        """Initialize the transcriber with endpoint URL"""
-        super().__init__()
-        self.endpoint_url = self._get_endpoint_url()
-        self.headers = {"Content-Type": "application/octet-stream"}
-        logger.info(f"Modal Parakeet transcriber initialized with endpoint: {self.endpoint_url[:50]}...")
-        logger.info(f"Request timeout: {MODAL_REQUEST_TIMEOUT}s")
-
-    def _get_endpoint_url(self) -> str:
-        """Get endpoint URL from environment"""
-        if not MODAL_ENDPOINT_URL:
-            logger.error("MODAL_ENDPOINT_URL not found in environment variables!")
-            raise ValueError("MODAL_ENDPOINT_URL is required for Modal Parakeet transcriber")
-        return MODAL_ENDPOINT_URL
-
-    def get_name(self) -> str:
-        """Get the name of this transcriber"""
-        return "Parakeet (deutsch)"
-
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
-        """Transcribe an audio file using Modal parakeet-primeline endpoint.
-
-        Args:
-            audio_file_path: Path to the audio file
-            duration_seconds: Duration of the audio in seconds
-
-        Returns:
-            Transcribed text
-        """
-        logger.info(f"Starting Modal Parakeet transcription: {audio_file_path} (Duration: {duration_seconds:.1f}s)")
-
-        try:
-            start_time = time.time()
-
-            with open(audio_file_path, "rb") as audio_file:
-                audio_data = audio_file.read()
-
-            response = requests.post(
-                self.endpoint_url,
-                headers=self.headers,
-                data=audio_data,
-                timeout=MODAL_REQUEST_TIMEOUT
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Modal API error: {response.status_code} - {response.text}")
-                return ""
-
-            result = response.json()
-            elapsed = time.time() - start_time
-
-            # Log server-side error if present (Modal returns HTTP 200 with error field)
-            if result.get("error"):
-                logger.error(f"Modal server error: {result['error']}")
-                return ""
-
-            text = result.get("text", "")
-            text = text.strip()
-
-            logger.info(f"Modal Parakeet transcription successful in {elapsed:.2f}s")
-            logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
-
-            return text
-
-        except requests.exceptions.Timeout:
-            logger.error(f"Modal API timeout after {MODAL_REQUEST_TIMEOUT}s - "
-                        f"endpoint may be cold starting")
-            return ""
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Modal API request error: {e}", exc_info=True)
-            return ""
-        except Exception as e:
-            logger.error(f"Error during Modal Parakeet transcription: {e}", exc_info=True)
-            return ""
-
-    def test_transcription(self, test_file_path: str) -> Optional[str]:
-        """Test transcription with a specific file.
-
-        Args:
-            test_file_path: Path to test audio file
-
-        Returns:
-            Transcribed text or None if failed
-        """
-        if not os.path.exists(test_file_path):
-            logger.error(f"Test file not found: {test_file_path}")
-            return None
-
-        try:
-            import soundfile as sf
-            data, samplerate = sf.read(test_file_path)
-            duration = len(data) / samplerate
-
-            logger.info(f"Testing Modal Parakeet with file: {test_file_path} ({duration:.1f}s)")
-
-            text = self.transcribe(test_file_path, duration)
-
-            if text:
-                logger.info(f"Modal Parakeet test transcription successful: {len(text)} chars")
-                return text
-            else:
-                logger.warning("Modal Parakeet test transcription returned empty text")
-                return None
-
-        except Exception as e:
-            logger.error(f"Modal Parakeet test transcription failed: {e}", exc_info=True)
             return None
 
 
@@ -699,153 +575,6 @@ class SonioxTranscriber(AbstractTranscriber):
                 
         except Exception as e:
             logger.error(f"Soniox test transcription failed: {e}", exc_info=True)
-            return None
-
-
-class HuggingFaceTranscriber(AbstractTranscriber):
-    """Handles transcription using HuggingFace Inference Endpoints
-
-    Uses the primeline/whisper-large-v3-turbo-german model which achieves
-    2.6% WER on German speech - significantly better than standard Whisper.
-    """
-
-    def __init__(self):
-        """Initialize the transcriber with API key and endpoint URL"""
-        super().__init__()
-        self.api_key = self._get_api_key()
-        self.endpoint_url = self._get_endpoint_url()
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "audio/mpeg",
-            # X-Scale-Up-Timeout: Proxy holds request until endpoint is ready (cold start handling)
-            # Without this header, requests during scale-up would fail with 503
-            "X-Scale-Up-Timeout": str(HUGGINGFACE_SCALE_UP_TIMEOUT)
-        }
-        logger.info(f"HuggingFace transcriber initialized with endpoint: {self.endpoint_url[:50]}...")
-        logger.info(f"Scale-up timeout: {HUGGINGFACE_SCALE_UP_TIMEOUT}s, Request timeout: {HUGGINGFACE_REQUEST_TIMEOUT}s")
-
-    def _get_api_key(self) -> str:
-        """Get API key from environment"""
-        if not HUGGINGFACE_API_KEY:
-            logger.error("HUGGINGFACE_API_KEY not found in environment variables!")
-            raise ValueError("HUGGINGFACE_API_KEY is required for HuggingFace transcriber")
-
-        logger.info("Using HuggingFace API key from environment")
-        return HUGGINGFACE_API_KEY
-
-    def _get_endpoint_url(self) -> str:
-        """Get endpoint URL from environment"""
-        if not HUGGINGFACE_ENDPOINT_URL:
-            logger.error("HUGGINGFACE_ENDPOINT_URL not found in environment variables!")
-            raise ValueError("HUGGINGFACE_ENDPOINT_URL is required for HuggingFace transcriber")
-
-        return HUGGINGFACE_ENDPOINT_URL
-
-    def get_name(self) -> str:
-        """Get the name of this transcriber"""
-        return "Primeline Whisper (deutsch)"
-
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
-        """
-        Transcribe an audio file using HuggingFace Inference Endpoint
-
-        Args:
-            audio_file_path: Path to the audio file
-            duration_seconds: Duration of the audio in seconds
-
-        Returns:
-            Transcribed text
-        """
-        logger.info(f"Starting HuggingFace transcription: {audio_file_path} (Duration: {duration_seconds:.1f}s)")
-
-        try:
-            start_time = time.time()
-
-            # Read audio file as binary
-            with open(audio_file_path, "rb") as audio_file:
-                audio_data = audio_file.read()
-
-            # Send request to HuggingFace endpoint
-            # Timeout includes potential scale-up time (cold start) + transcription time
-            response = requests.post(
-                self.endpoint_url,
-                headers=self.headers,
-                data=audio_data,
-                timeout=HUGGINGFACE_REQUEST_TIMEOUT
-            )
-
-            # Check for errors
-            if response.status_code != 200:
-                logger.error(f"HuggingFace API error: {response.status_code} - {response.text}")
-                if response.status_code == 401:
-                    self._report_auth_failure("HUGGINGFACE_API_KEY")
-                return ""
-
-            # Parse response
-            result = response.json()
-            elapsed = time.time() - start_time
-
-            # Extract text from response
-            # HuggingFace Whisper endpoints typically return {"text": "..."}
-            if isinstance(result, dict):
-                text = result.get("text", "")
-            elif isinstance(result, str):
-                text = result
-            else:
-                logger.warning(f"Unexpected response format: {type(result)}")
-                text = str(result)
-
-            text = text.strip()
-            logger.info(f"HuggingFace transcription successful in {elapsed:.2f}s")
-            logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
-
-            return text
-
-        except requests.exceptions.Timeout:
-            logger.error(f"HuggingFace API timeout after {HUGGINGFACE_REQUEST_TIMEOUT}s - "
-                        f"endpoint may still be starting up (scale-up timeout was {HUGGINGFACE_SCALE_UP_TIMEOUT}s)")
-            return ""
-        except requests.exceptions.RequestException as e:
-            logger.error(f"HuggingFace API request error: {e}", exc_info=True)
-            return ""
-        except Exception as e:
-            logger.error(f"Error during HuggingFace transcription: {e}", exc_info=True)
-            return ""
-
-    def test_transcription(self, test_file_path: str) -> Optional[str]:
-        """
-        Test transcription with a specific file
-
-        Args:
-            test_file_path: Path to test audio file
-
-        Returns:
-            Transcribed text or None if failed
-        """
-        if not os.path.exists(test_file_path):
-            logger.error(f"Test file not found: {test_file_path}")
-            return None
-
-        try:
-            # Get audio duration
-            import soundfile as sf
-            data, samplerate = sf.read(test_file_path)
-            duration = len(data) / samplerate
-
-            logger.info(f"Testing HuggingFace with file: {test_file_path} ({duration:.1f}s)")
-
-            # Transcribe
-            text = self.transcribe(test_file_path, duration)
-
-            if text:
-                logger.info(f"HuggingFace test transcription successful: {len(text)} chars")
-                return text
-            else:
-                logger.warning("HuggingFace test transcription returned empty text")
-                return None
-
-        except Exception as e:
-            logger.error(f"HuggingFace test transcription failed: {e}", exc_info=True)
             return None
 
 
@@ -1621,8 +1350,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     Factory function to create transcriber instances
 
     Args:
-        api_name: Name of the API to use ('modal', 'huggingface', 'groq', 'soniox',
-                  'soniox-v4', or 'soniox-live')
+        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq', or 'soniox-v4')
 
     Returns:
         Transcriber instance
@@ -1630,11 +1358,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     Raises:
         ValueError: If api_name is not supported
     """
-    if api_name == "modal":
-        return ModalParakeetTranscriber()
-    elif api_name == "huggingface":
-        return HuggingFaceTranscriber()
-    elif api_name == "groq":
+    if api_name == "groq":
         return GroqTranscriber()
     elif api_name == "soniox":
         return SonioxTranscriber()
@@ -1643,4 +1367,4 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()
     else:
-        raise ValueError(f"Unknown API: {api_name}. Supported: modal, huggingface, groq, soniox, soniox-v4, soniox-live")
+        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq, soniox-v4")

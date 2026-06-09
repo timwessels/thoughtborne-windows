@@ -4,10 +4,10 @@ Project-specific notes for Claude Code. Loaded automatically when working in thi
 
 ## About
 
-Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Python. Recording is started with `Ctrl+Alt+W`; one of `A` / `D` / `H` / `Y` (held with `Ctrl+Alt`) ends it and inserts the transcript at the cursor position in whatever Windows app is active. Six transcription APIs are switchable at runtime; the default is `soniox-live`.
+Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Python. Recording is started with `Ctrl+Alt+W`; one of `A` / `D` / `H` / `Y` (held with `Ctrl+Alt`) ends it and inserts the transcript at the cursor position in whatever Windows app is active. Four transcription APIs are switchable at runtime; the default is `soniox-live`.
 
 - **Repo:** `github.com/timwessels/thoughtborne-windows`, default branch `main`.
-- **Mac port:** `github.com/timwessels/thoughtborne-macos` — three APIs instead of six, otherwise analogous. Useful as a reference for commit style, README tone, and porting decisions.
+- **Mac port:** `github.com/timwessels/thoughtborne-macos` — three APIs instead of four, otherwise analogous. Useful as a reference for commit style, README tone, and porting decisions.
 
 ## GitHub workflow
 
@@ -55,6 +55,5 @@ Flipping the repo to public, force-pushing `main`, destructive branch deletion, 
 
 - **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`.
 - **Windows launcher:** `Thoughtborne.bat`.
-- **Modal deployment:** `modal_parakeet/deploy.py` (production app `parakeet-german`), `modal_parakeet/test_endpoint.py`.
 - **Public docs:** `README.md`, `CHANGELOG.md`, `LICENSE`, `.env.example`, `personal_settings.example.json`.
 - **Local workspaces** (gitignored): see list above under "Do not touch".

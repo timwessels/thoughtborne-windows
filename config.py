@@ -44,31 +44,13 @@ LANGUAGE = "de"  # "de" for German, "en" for English, None for auto-detect
 MAX_PARALLEL_TRANSCRIPTIONS = 3
 
 # ===== API SELECTION =====
-DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise, modal = best German fast)
-AVAILABLE_APIS = ["soniox", "soniox-v4", "soniox-live", "modal", "huggingface", "groq"]  # Carousel order (Ctrl+Alt+L)
+DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
+AVAILABLE_APIS = ["soniox-live", "soniox", "groq", "soniox-v4"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API KEYS =====
 # Load from environment variable or .env file
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 SONIOX_API_KEY = os.getenv('SONIOX_API_KEY')
-HUGGINGFACE_API_KEY = os.getenv('HUGGINGFACE_API_KEY')
-HUGGINGFACE_ENDPOINT_URL = os.getenv('HUGGINGFACE_ENDPOINT_URL')
-MODAL_ENDPOINT_URL = os.getenv('MODAL_ENDPOINT_URL')
-
-# ===== HUGGINGFACE INFERENCE ENDPOINT SETTINGS =====
-# HuggingFace Inference Endpoints with "Scale to Zero" shut down after inactivity.
-# On first request after shutdown, the endpoint needs ~30 seconds to start up.
-# During this time, the proxy returns 503 (Service Unavailable).
-#
-# X-Scale-Up-Timeout: The proxy holds the request until the endpoint is ready
-# (or until the timeout is reached). This avoids 503 errors on cold start.
-HUGGINGFACE_SCALE_UP_TIMEOUT = 60   # Seconds to wait for endpoint to scale up
-HUGGINGFACE_REQUEST_TIMEOUT = 180   # Total request timeout (scale-up + transcription)
-
-# ===== MODAL PARAKEET ENDPOINT SETTINGS =====
-# Modal serverless GPU endpoint for parakeet-primeline (NeMo-based, 600M params)
-# Cold start can take 10-20s (2-5s with GPU memory snapshots), warm container <1s
-MODAL_REQUEST_TIMEOUT = 120
 
 # ===== SONIOX API SETTINGS =====
 SONIOX_MODEL = "de_v2"  # Language model: "de_v2" for German, "en_v2" for English
