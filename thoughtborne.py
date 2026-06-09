@@ -29,7 +29,7 @@ import logging
 import threading
 import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, NamedTuple
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 # Import our modules
@@ -38,7 +38,7 @@ from config import (
     LOG_CONSOLE_QUEUE_MAX,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     GROQ_MODEL, LANGUAGE, SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS,
-    SHORT_AUDIO_THRESHOLD,
+    SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed
 from audio_handler import AudioRecorder
@@ -49,6 +49,18 @@ from transcriber import (
     SonioxV4Transcriber,
 )
 from output_handler import OutputManager, TranscriptionTask
+
+
+class _FailedRecording(NamedTuple):
+    """Immutable record of a failed transcription, retryable via Ctrl+Alt+R (#24).
+
+    Holds just enough to re-transcribe the archived MP3 as a fresh dictation:
+    the deterministic archive path, the duration (to pick the V2/V4 fallback
+    tier), and the origin timestamp for log correlation. Immutable so the slot
+    can be compared by identity (see _resolve_failed_slot)."""
+    archived_mp3_path: str
+    duration: float
+    origin_timestamp: str
 
 
 class DroppingQueueHandler(QueueHandler):
@@ -245,6 +257,16 @@ class ThoughtborneApp:
         self._fallback_v4: Optional[SonioxV4Transcriber] = None
         self._fallback_init_lock = threading.Lock()
 
+        # Retry slot (Issue #24): a single reference to the most recent recording
+        # whose transcription failed inside the software, so Ctrl+Alt+R can
+        # re-transcribe its archived MP3. Written from worker threads at the two
+        # failure sites in process_recording_thread / retry_recording_thread,
+        # read from the listener thread in on_retry_last_failed. Held in memory
+        # only (no persistence across restarts). The lock guards a single
+        # reference swap; never held across transcribe work.
+        self._last_failed: Optional[_FailedRecording] = None
+        self._last_failed_lock = threading.Lock()
+
         # Hotkey manager (initialized in _register_hotkeys)
         self.hotkey_manager = None
 
@@ -257,6 +279,38 @@ class ThoughtborneApp:
         with self.timestamp_lock:
             self.timestamp_counter += 1
             return f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{self.timestamp_counter:03d}"
+
+    def _record_failed_slot(self, timestamp: str, duration: float):
+        """Mark a recording as the most recent failed transcription (Issue #24).
+
+        Called from worker threads at the two failure sites. Reconstructs the
+        deterministic archive path (audio_handler.save_recording writes
+        ARCHIVE_FOLDER / voice_<ts>.mp3) and stores it in the retry slot --
+        newest failure wins. Skips when the archive is missing: an exception
+        before save_recording leaves nothing to retry, so do not park an
+        unretryable pointer."""
+        archived_mp3 = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
+        if not archived_mp3.exists():
+            logger.warning(f"Not arming retry slot -- archive missing for {timestamp}: {archived_mp3}")
+            return
+        rec = _FailedRecording(
+            archived_mp3_path=str(archived_mp3),
+            duration=duration,
+            origin_timestamp=timestamp,
+        )
+        with self._last_failed_lock:
+            self._last_failed = rec
+        logger.info(f"Retry slot armed: failed recording from {timestamp} (Ctrl+Alt+R to retry)")
+
+    def _resolve_failed_slot(self, rec: '_FailedRecording'):
+        """Clear the retry slot after a successful retry of rec (Issue #24).
+
+        Identity check: only clear if the slot still points at the recording we
+        just retried. A different recording may have failed and overwritten the
+        slot while this (long) retry ran -- that newer failure must survive."""
+        with self._last_failed_lock:
+            if self._last_failed is rec:
+                self._last_failed = None
 
     def process_recording_thread(self, frames: List[bytes], duration: float,
                                 sequence_number: int, timestamp: str,
@@ -327,6 +381,7 @@ class ThoughtborneApp:
                 logger.warning(f"[{thread_name}] Empty transcription for sequence {sequence_number}")
                 task.is_error = True
                 task.is_complete = True
+                self._record_failed_slot(timestamp, duration)
 
             # Add to output queue
             self.output_manager.add_task(task)
@@ -341,6 +396,7 @@ class ThoughtborneApp:
             # Mark task as error
             task.is_error = True
             task.is_complete = True
+            self._record_failed_slot(timestamp, duration)
             self.output_manager.add_task(task)
 
         finally:
@@ -841,6 +897,116 @@ class ThoughtborneApp:
             self.audio_recorder.cancel_recording()
             self.print_ready_status()
 
+    def on_retry_last_failed(self):
+        """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).
+
+        Runs on the listener thread, so it must only read the slot and spawn a
+        worker -- never transcribe inline (that would freeze Stop/Cancel/Exit).
+        A user cancel never reaches a worker, so it can never become the retry
+        target; no cancel-guard needed here."""
+        hotkey_display = self._format_hotkey(HOTKEYS['retry_last_failed'])
+
+        with self._last_failed_lock:
+            rec = self._last_failed  # atomic local copy of the reference
+        if rec is None:
+            logger.info(f"{hotkey_display} pressed but no failed transcription to retry")
+            return
+        if not Path(rec.archived_mp3_path).exists():
+            # Archive gone (manually cleared, never written). Leave the slot
+            # as-is so a repeated R just no-ops rather than silently forgetting.
+            logger.warning(f"Retry target missing on disk: {rec.archived_mp3_path}")
+            return
+
+        # Mirror start_processing_thread's bookkeeping on the same thread.
+        self.active_threads = [t for t in self.active_threads if t.is_alive()]
+        if len(self.active_threads) >= MAX_PARALLEL_TRANSCRIPTIONS:
+            logger.warning(f"Maximum parallel transcriptions reached ({MAX_PARALLEL_TRANSCRIPTIONS}) "
+                           f"-- retry deferred, press R again")
+            return
+
+        sequence_number = self.output_manager.get_next_sequence_number()
+        thread = threading.Thread(
+            target=self.retry_recording_thread,
+            args=(rec, sequence_number),
+            name=f"Retry-{sequence_number}-{datetime.datetime.now().strftime('%H%M%S%f')}"
+        )
+        thread.daemon = True
+        thread.start()
+        self.active_threads.append(thread)
+
+        logger.info(f"Retry started ({hotkey_display}) for recording from "
+                    f"{rec.origin_timestamp} (Seq: {sequence_number})")
+
+    def retry_recording_thread(self, rec: '_FailedRecording', sequence_number: int):
+        """Worker: re-transcribe an archived MP3 via the file-fallback chain and
+        insert at the cursor like a fresh dictation (Issue #24).
+
+        Reuses _run_empty_transcript_fallback (duration-gated Soniox V2/V4 file
+        path) regardless of which API originally failed -- a Live failure can't
+        re-stream a file, so the retry is uniformly the file-capable chain.
+        A successful retry resolves the slot; a failed retry keeps it retryable."""
+        thread_name = threading.current_thread().name
+        timestamp = self.get_unique_timestamp()
+
+        with self.processing_lock:
+            self.processing_counter += 1
+            current_count = self.processing_counter
+        logger.info(f"[{thread_name}] Retrying recording from {rec.origin_timestamp} "
+                    f"as sequence {sequence_number} (active: {current_count})")
+
+        # Mirror the keyboard stop hotkey: the user is holding Ctrl+Alt+R when
+        # this fires, so the output worker must wait for those modifiers to
+        # release before typing -- otherwise the insert misfires as shortcuts.
+        task = TranscriptionTask(
+            sequence_number=sequence_number,
+            timestamp=timestamp,
+            use_clipboard=False,
+            auto_insert=True,
+            wait_for_key_release=True,
+            trigger_keys=['ctrl', 'alt', 'r'],
+        )
+
+        try:
+            print(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
+            transcript = self._run_empty_transcript_fallback(
+                mp3_path=rec.archived_mp3_path,
+                duration=rec.duration,
+                sequence_number=sequence_number,
+                thread_name=thread_name,
+            ).rstrip('\n')
+
+            if transcript:
+                # save_transcript is base-class file I/O, so any current
+                # transcriber instance is fine -- it's not API-specific.
+                self.transcriber.save_transcript(transcript, timestamp)
+                self.output_manager.update_last_transcript(transcript)
+                task.transcript = transcript
+                task.is_complete = True
+                self._resolve_failed_slot(rec)
+                logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready")
+                print(f"[Seq: {sequence_number}] Retry completed, waiting for output...")
+            else:
+                logger.warning(f"[{thread_name}] Retry still empty for sequence {sequence_number} "
+                               f"-- recording from {rec.origin_timestamp} stays retryable")
+                task.is_error = True
+                task.is_complete = True
+                # Failed retry: slot already points at rec, leave it retryable.
+
+            self.output_manager.add_task(task)
+
+        except Exception as e:
+            logger.error(f"[{thread_name}] Error retrying sequence {sequence_number}: {e}", exc_info=True)
+            print(f"ERROR: [Seq: {sequence_number}] Retry error: {e}")
+            task.is_error = True
+            task.is_complete = True
+            self.output_manager.add_task(task)
+
+        finally:
+            with self.processing_lock:
+                self.processing_counter -= 1
+                current_count = self.processing_counter
+            logger.info(f"[{thread_name}] Retry for sequence {sequence_number} finished (active: {current_count})")
+
     def on_test_transcription(self):
         """Callback for test transcription hotkey"""
         self.handle_test_transcription()
@@ -933,6 +1099,7 @@ class ThoughtborneApp:
         print("- Ctrl+Alt+D: Stop recording / Insert last text (clipboard)")
         print("- Ctrl+Alt+H: Stop recording / Insert & SEND (press Enter)")
         print("- Ctrl+Alt+Y: Stop recording / Process only (insert later with A/D)")
+        print("- Ctrl+Alt+R: Retry last failed transcription")
         print("- Ctrl+Alt+X: Cancel recording")
         print("- Ctrl+Alt+L: Switch transcription API")
         print("- Ctrl+Alt+Ü: TEST - Transcribe file 'test_audio.mp3'")
@@ -987,6 +1154,7 @@ class ThoughtborneApp:
             'stop_recording_clipboard': self.on_stop_recording_clipboard,
             'stop_recording_send': self.on_stop_recording_send,
             'stop_recording_no_insert': self.on_stop_recording_no_insert,
+            'retry_last_failed': self.on_retry_last_failed,
             'test_transcription': self.on_test_transcription,
             'switch_api': self.on_switch_api,
         }

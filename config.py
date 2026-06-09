@@ -142,6 +142,7 @@ HOTKEYS = {
     'stop_recording_clipboard': 'ctrl+alt+d',  # D = Stop & insert (clipboard paste)
     'stop_recording_send': 'ctrl+alt+h',       # H = Stop & insert & SEND (press Enter)
     'stop_recording_no_insert': 'ctrl+alt+y',  # Y = Stop & process only (insert later) - NEW!
+    'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
     'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
     'switch_api': 'ctrl+alt+l',                # L = Switch API (GROQ <-> Soniox)
