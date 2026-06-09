@@ -130,28 +130,126 @@ def _clipboard_diag(tag: str) -> None:
         logger.debug(f"[CLIPDIAG {tag}] diagnostics failed: {e}")
 
 
-def _diag_sampled_sleep(total_seconds: float) -> None:
-    """Sleep in ~50 ms steps, logging any window holding the clipboard open.
+def _diag_sample_window(label: str, duration_seconds: float) -> None:
+    """Busy-sample holder/foreground/seq for `duration_seconds` in ~5 ms steps,
+    logging changes only.
 
-    Transient holders (clipboard-history ingestion, the previous owner
-    reacting to WM_DESTROYCLIPBOARD) are only visible mid-wait; a single
-    snapshot before/after the sleep would miss them.
+    Round-1 diagnostics showed clean snapshots at every fixed measuring point
+    even on failing pastes, so whatever interferes must be transient within
+    the windows between them. Effective resolution is bounded by the OS sleep
+    granularity (~1-15 ms); total duration is kept exact via the deadline.
     """
-    deadline = time.time() + total_seconds
+    try:
+        prev_holder = _diag_user32.GetOpenClipboardWindow()
+        prev_fg = _diag_user32.GetForegroundWindow()
+        prev_seq = _diag_user32.GetClipboardSequenceNumber()
+    except Exception:
+        time.sleep(duration_seconds)
+        return
+    start = time.perf_counter()
+    deadline = start + duration_seconds
+    changes = 0
     while True:
-        remaining = deadline - time.time()
+        remaining = deadline - time.perf_counter()
         if remaining <= 0:
-            return
-        time.sleep(min(0.05, remaining))
+            break
+        time.sleep(min(0.005, remaining))
         try:
             holder = _diag_user32.GetOpenClipboardWindow()
-            if holder:
-                logger.debug(
-                    f"[CLIPDIAG mid-wait] clipboard held open by "
-                    f"{_describe_hwnd(holder)}"
-                )
+            fg = _diag_user32.GetForegroundWindow()
+            seq = _diag_user32.GetClipboardSequenceNumber()
         except Exception:
-            return
+            break
+        offset_ms = (time.perf_counter() - start) * 1000
+        if holder != prev_holder:
+            logger.debug(
+                f"[CLIPDIAG {label} +{offset_ms:.0f}ms] "
+                f"holder -> {_describe_hwnd(holder)}"
+            )
+            prev_holder = holder
+            changes += 1
+        if fg != prev_fg:
+            logger.debug(
+                f"[CLIPDIAG {label} +{offset_ms:.0f}ms] "
+                f"foreground -> {_describe_hwnd(fg)}"
+            )
+            prev_fg = fg
+            changes += 1
+        if seq != prev_seq:
+            logger.debug(
+                f"[CLIPDIAG {label} +{offset_ms:.0f}ms] seq {prev_seq} -> {seq}"
+            )
+            prev_seq = seq
+            changes += 1
+    if changes == 0:
+        logger.debug(
+            f"[CLIPDIAG {label}] no holder/foreground/seq change "
+            f"in {duration_seconds * 1000:.0f}ms window"
+        )
+
+
+class _GUITHREADINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hwndActive", wintypes.HWND),
+        ("hwndFocus", wintypes.HWND),
+        ("hwndCapture", wintypes.HWND),
+        ("hwndMenuOwner", wintypes.HWND),
+        ("hwndMoveSize", wintypes.HWND),
+        ("hwndCaret", wintypes.HWND),
+        ("rcCaret", wintypes.RECT),
+    ]
+
+
+_diag_user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(_GUITHREADINFO)]
+_diag_user32.SendMessageTimeoutW.argtypes = [
+    wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t),
+]
+_diag_user32.SendMessageTimeoutW.restype = ctypes.c_size_t
+
+_WM_GETTEXTLENGTH = 0x000E
+_SMTO_ABORTIFHUNG = 0x0002
+
+
+def _diag_focus_window():
+    """hwnd that actually has keyboard focus in the foreground GUI thread.
+
+    GetForegroundWindow only names the top-level window; the keystroke lands
+    in this child (e.g. the Scintilla control inside Notepad++).
+    """
+    try:
+        info = _GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(_GUITHREADINFO)
+        if _diag_user32.GetGUIThreadInfo(0, ctypes.byref(info)):
+            return info.hwndFocus
+    except Exception:
+        pass
+    return None
+
+
+def _diag_text_length(hwnd):
+    """Text length of a window via WM_GETTEXTLENGTH, or None.
+
+    SendMessageTimeout with SMTO_ABORTIFHUNG so an unresponsive target
+    cannot stall the output thread. Edit controls, RichEdit and Scintilla
+    all answer this; before/after comparison is ground truth for whether
+    a paste actually landed (#29).
+    """
+    if not hwnd:
+        return None
+    try:
+        result = ctypes.c_size_t(0)
+        ok = _diag_user32.SendMessageTimeoutW(
+            hwnd, _WM_GETTEXTLENGTH, 0, 0, _SMTO_ABORTIFHUNG, 100,
+            ctypes.byref(result),
+        )
+        if not ok:
+            return None
+        return result.value
+    except Exception:
+        return None
 
 
 @dataclass
@@ -370,9 +468,9 @@ class OutputManager:
             # Delay to ensure clipboard is updated - longer if non-text was in clipboard
             if clipboard_had_non_text:
                 logger.debug("Non-text clipboard detected, using longer delay for compatibility")
-                _diag_sampled_sleep(0.2)  # 200ms for apps like Notepad++ to recognize change
+                _diag_sample_window("pre-paste-wait", 0.2)  # 200ms for apps like Notepad++ to recognize change
             else:
-                _diag_sampled_sleep(0.1)
+                _diag_sample_window("pre-paste-wait", 0.1)
 
             # Verify clipboard content
             try:
@@ -386,6 +484,15 @@ class OutputManager:
 
             _clipboard_diag("pre-paste")
 
+            # Ground truth for #29: text length of the focused control before
+            # and after the paste tells whether it actually landed.
+            focus_hwnd = _diag_focus_window()
+            len_before = _diag_text_length(focus_hwnd)
+            logger.debug(
+                f"[CLIPDIAG focus] {_describe_hwnd(focus_hwnd)} "
+                f"text_length_before={len_before}"
+            )
+
             # Send Ctrl+V to the ACTIVE application
             paste_success = self._paste_via_hotkey()
 
@@ -394,7 +501,7 @@ class OutputManager:
                 return False
 
             # Delay after insertion
-            time.sleep(CLIPBOARD_RESTORE_DELAY)
+            _diag_sample_window("post-paste", CLIPBOARD_RESTORE_DELAY)
             _clipboard_diag("post-paste")
 
             # Restore prior clipboard only when real text was saved; an empty
@@ -406,6 +513,23 @@ class OutputManager:
                     logger.debug("Original clipboard content restored")
                 except Exception as e:
                     logger.warning(f"Could not restore clipboard: {e}")
+
+            # #29 diagnosis window: keep watching while the target app may
+            # still be processing the paste, then record the verdict.
+            _diag_sample_window("post-restore", 0.4)
+            len_after = _diag_text_length(focus_hwnd)
+            if len_before is not None and len_after is not None:
+                delta = len_after - len_before
+                verdict = "PASTE LANDED" if delta > 0 else "PASTE DID NOT LAND"
+                logger.debug(
+                    f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
+                    f"(delta {delta:+d}, pasted text was {len(text)} chars): {verdict}"
+                )
+            else:
+                logger.debug(
+                    f"[CLIPDIAG verdict] text length unavailable "
+                    f"(before={len_before}, after={len_after})"
+                )
 
             return True
 
