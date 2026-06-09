@@ -23,6 +23,8 @@ import time
 import queue
 import logging
 import threading
+import ctypes
+from ctypes import wintypes
 import keyboard
 import pyperclip
 from hotkey_manager import is_key_pressed
@@ -37,6 +39,119 @@ from config import (
 )
 
 logger = logging.getLogger('Thoughtborne.OutputHandler')
+
+
+# ===== CLIPBOARD/FOCUS DIAGNOSTICS (#29) =====
+# Observation only, DEBUG/file-only. Private WinDLL instances so the
+# argtypes/restype below can't interfere with the cached ctypes.windll
+# function objects that pyperclip / keyboard / pyautogui configure.
+_diag_user32 = ctypes.WinDLL("user32", use_last_error=True)
+_diag_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+_diag_user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+_diag_user32.GetClipboardOwner.restype = wintypes.HWND
+_diag_user32.GetOpenClipboardWindow.restype = wintypes.HWND
+_diag_user32.GetForegroundWindow.restype = wintypes.HWND
+_diag_user32.CountClipboardFormats.restype = ctypes.c_int
+_diag_user32.IsClipboardFormatAvailable.argtypes = [wintypes.UINT]
+_diag_user32.GetClassNameW.argtypes = [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]
+_diag_user32.GetWindowTextW.argtypes = [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]
+_diag_user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+_diag_kernel32.OpenProcess.restype = wintypes.HANDLE
+_diag_kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+_diag_kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE, wintypes.DWORD, ctypes.c_wchar_p, ctypes.POINTER(wintypes.DWORD)
+]
+_diag_kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+# Formats worth distinguishing: text vs image (BITMAP/DIB synthesized pair)
+# vs copied files (HDROP)
+_DIAG_CF_CHECKS = ((13, "UNICODETEXT"), (2, "BITMAP"), (8, "DIB"), (15, "HDROP"))
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+
+def _describe_hwnd(hwnd) -> str:
+    """Best-effort 'class|title|process' description of a window handle.
+
+    Cross-process GetWindowTextW reads the cached title (no SendMessage),
+    so this cannot hang on an unresponsive window.
+    """
+    if not hwnd:
+        return "none"
+    try:
+        cls_buf = ctypes.create_unicode_buffer(64)
+        _diag_user32.GetClassNameW(hwnd, cls_buf, 64)
+        title_buf = ctypes.create_unicode_buffer(64)
+        _diag_user32.GetWindowTextW(hwnd, title_buf, 64)
+        pid = wintypes.DWORD()
+        _diag_user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        exe = "?"
+        hproc = _diag_kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value
+        )
+        if hproc:
+            try:
+                path_buf = ctypes.create_unicode_buffer(260)
+                size = wintypes.DWORD(260)
+                if _diag_kernel32.QueryFullProcessImageNameW(
+                    hproc, 0, path_buf, ctypes.byref(size)
+                ):
+                    exe = path_buf.value.rsplit("\\", 1)[-1]
+            finally:
+                _diag_kernel32.CloseHandle(hproc)
+        title = title_buf.value[:30]
+        return f"[{cls_buf.value}|{title}|{exe}]"
+    except Exception:
+        return "[?]"
+
+
+def _clipboard_diag(tag: str) -> None:
+    """Log one clipboard/focus snapshot line. Never raises.
+
+    All queries are non-invasive: none of them open the clipboard, so the
+    diagnostics cannot themselves contribute to an ownership race.
+    """
+    try:
+        seq = _diag_user32.GetClipboardSequenceNumber()
+        owner = _describe_hwnd(_diag_user32.GetClipboardOwner())
+        holder = _describe_hwnd(_diag_user32.GetOpenClipboardWindow())
+        fg = _describe_hwnd(_diag_user32.GetForegroundWindow())
+        fmt_count = _diag_user32.CountClipboardFormats()
+        fmts = ",".join(
+            name for cf, name in _DIAG_CF_CHECKS
+            if _diag_user32.IsClipboardFormatAvailable(cf)
+        )
+        logger.debug(
+            f"[CLIPDIAG {tag}] seq={seq} formats={fmt_count}({fmts}) "
+            f"owner={owner} held_open_by={holder} foreground={fg}"
+        )
+    except Exception as e:
+        logger.debug(f"[CLIPDIAG {tag}] diagnostics failed: {e}")
+
+
+def _diag_sampled_sleep(total_seconds: float) -> None:
+    """Sleep in ~50 ms steps, logging any window holding the clipboard open.
+
+    Transient holders (clipboard-history ingestion, the previous owner
+    reacting to WM_DESTROYCLIPBOARD) are only visible mid-wait; a single
+    snapshot before/after the sleep would miss them.
+    """
+    deadline = time.time() + total_seconds
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.05, remaining))
+        try:
+            holder = _diag_user32.GetOpenClipboardWindow()
+            if holder:
+                logger.debug(
+                    f"[CLIPDIAG mid-wait] clipboard held open by "
+                    f"{_describe_hwnd(holder)}"
+                )
+        except Exception:
+            return
 
 
 @dataclass
@@ -231,6 +346,8 @@ class OutputManager:
                 logger.error("Cannot insert via clipboard - modifiers still pressed after timeout")
                 return False
 
+            _clipboard_diag("pre-read")
+
             # Save current clipboard content
             original_clipboard = None
             clipboard_had_non_text = False
@@ -248,13 +365,14 @@ class OutputManager:
             # Copy text to clipboard
             pyperclip.copy(text)
             logger.debug(f"Text copied to clipboard ({len(text)} chars): '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            _clipboard_diag("post-copy")
 
             # Delay to ensure clipboard is updated - longer if non-text was in clipboard
             if clipboard_had_non_text:
                 logger.debug("Non-text clipboard detected, using longer delay for compatibility")
-                time.sleep(0.2)  # 200ms for apps like Notepad++ to recognize change
+                _diag_sampled_sleep(0.2)  # 200ms for apps like Notepad++ to recognize change
             else:
-                time.sleep(0.1)
+                _diag_sampled_sleep(0.1)
 
             # Verify clipboard content
             try:
@@ -266,6 +384,8 @@ class OutputManager:
             except Exception as e:
                 logger.warning(f"Could not verify clipboard: {e}")
 
+            _clipboard_diag("pre-paste")
+
             # Send Ctrl+V to the ACTIVE application
             paste_success = self._paste_via_hotkey()
 
@@ -275,6 +395,7 @@ class OutputManager:
 
             # Delay after insertion
             time.sleep(CLIPBOARD_RESTORE_DELAY)
+            _clipboard_diag("post-paste")
 
             # Restore prior clipboard only when real text was saved; an empty
             # string means non-text/empty content, and copy("") would wipe the
