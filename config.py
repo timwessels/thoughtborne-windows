@@ -146,7 +146,7 @@ HOTKEYS = {
     'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
     'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
-    'switch_api': 'ctrl+alt+l',                # L = Switch API (GROQ <-> Soniox)
+    'switch_api': 'ctrl+alt+l',                # L = Switch API (Groq <-> Soniox)
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 

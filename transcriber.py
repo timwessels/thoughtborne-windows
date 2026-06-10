@@ -3,11 +3,11 @@ Transcriber Module
 
 This module handles speech-to-text transcription using multiple APIs.
 It provides a clean interface for transcribing audio files using
-GROQ (Whisper Large V3 / Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
+Groq (Whisper Large V3 / Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
 
 Classes:
     AbstractTranscriber: Base class for all transcriber implementations
-    GroqTranscriber: Handles transcription using GROQ API
+    GroqTranscriber: Handles transcription using Groq API
     SonioxTranscriber: Handles transcription using Soniox API
 """
 
@@ -135,14 +135,14 @@ class AbstractTranscriber(ABC):
 
 
 class GroqTranscriber(AbstractTranscriber):
-    """Handles transcription using GROQ Whisper API.
+    """Handles transcription using Groq Whisper API.
 
     Serves both Whisper variants ('groq' = Large V3 Turbo, 'groq-large' =
     full Large V3, #36): same endpoint, same auth, same hallucination
     artifact class — so one class parameterized by model instead of a subclass.
     """
 
-    def __init__(self, model: str = GROQ_MODEL, display_name: str = "GROQ (schnell)"):
+    def __init__(self, model: str = GROQ_MODEL, display_name: str = "Groq (schnell)"):
         """Initialize the transcriber with API key"""
         super().__init__()
         self.model = model
@@ -155,18 +155,18 @@ class GroqTranscriber(AbstractTranscriber):
         """Get API key from environment"""
         if not GROQ_API_KEY:
             logger.error("GROQ_API_KEY not found in environment variables!")
-            raise ValueError("GROQ_API_KEY is required for GROQ transcriber")
+            raise ValueError("GROQ_API_KEY is required for Groq transcriber")
 
-        logger.info("Using GROQ API key from environment")
+        logger.info("Using Groq API key from environment")
         return GROQ_API_KEY
     
     def _initialize_client(self):
-        """Initialize GROQ client"""
+        """Initialize Groq client"""
         try:
             self.client = Groq(api_key=self.api_key)
-            logger.info("GROQ client initialized successfully")
+            logger.info("Groq client initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize GROQ client: {e}")
+            logger.error(f"Failed to initialize Groq client: {e}")
             raise
     
     def get_name(self) -> str:
@@ -175,9 +175,9 @@ class GroqTranscriber(AbstractTranscriber):
     
     def _clean_groq_hallucinations(self, transcript: str) -> str:
         """
-        Remove common hallucination patterns from GROQ transcriptions
+        Remove common hallucination patterns from Groq transcriptions
 
-        GROQ (Whisper v3 Turbo) often adds "Vielen Dank" or similar phrases
+        Groq (Whisper v3 Turbo) often adds "Vielen Dank" or similar phrases
         at the end of German transcriptions without context.
         Also removes incomplete word fragments similar to Soniox.
         """
@@ -203,7 +203,7 @@ class GroqTranscriber(AbstractTranscriber):
             if transcript.rstrip().endswith(pattern):
                 cleaned = transcript.rstrip()[:-len(pattern)].rstrip()
                 if cleaned and len(cleaned) > 10:
-                    logger.debug(f"Removed GROQ hallucination: '{pattern}' at end")
+                    logger.debug(f"Removed Groq hallucination: '{pattern}' at end")
                     logger.debug(f"Original ending: ...'{original[-50:] if len(original) > 50 else original}'")
                     logger.debug(f"Cleaned to: ...'{cleaned[-50:] if len(cleaned) > 50 else cleaned}'")
                     return cleaned
@@ -222,7 +222,7 @@ class GroqTranscriber(AbstractTranscriber):
         for pattern in fragment_patterns:
             if transcript.endswith(pattern):
                 transcript = transcript[:-len(pattern)]
-                logger.debug(f"Removed GROQ hallucination: '{pattern}' at end")
+                logger.debug(f"Removed Groq hallucination: '{pattern}' at end")
                 break
 
         if transcript != original:
@@ -233,7 +233,7 @@ class GroqTranscriber(AbstractTranscriber):
     
     def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
         """
-        Transcribe an audio file using GROQ Whisper API
+        Transcribe an audio file using Groq Whisper API
         
         Args:
             audio_file_path: Path to the audio file
@@ -242,7 +242,7 @@ class GroqTranscriber(AbstractTranscriber):
         Returns:
             Transcribed text
         """
-        logger.info(f"Starting GROQ transcription ({self.model}): {audio_file_path} (Duration: {duration_seconds:.1f}s)")
+        logger.info(f"Starting Groq transcription ({self.model}): {audio_file_path} (Duration: {duration_seconds:.1f}s)")
         
         try:
             start_time = time.time()
@@ -257,9 +257,9 @@ class GroqTranscriber(AbstractTranscriber):
                 )
             
             elapsed = time.time() - start_time
-            logger.info(f"GROQ transcription successful in {elapsed:.2f}s")
+            logger.info(f"Groq transcription successful in {elapsed:.2f}s")
             
-            # GROQ returns text directly when response_format="text"
+            # Groq returns text directly when response_format="text"
             text = transcription.strip()
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
             
@@ -274,10 +274,10 @@ class GroqTranscriber(AbstractTranscriber):
             self._report_auth_failure("GROQ_API_KEY", detail)
             # DEBUG keeps the trace file-only so the [AUTH] line stands alone
             # on the console (#32)
-            logger.debug(f"Error during GROQ transcription: {e}", exc_info=True)
+            logger.debug(f"Error during Groq transcription: {e}", exc_info=True)
             return ""
         except Exception as e:
-            logger.error(f"Error during GROQ transcription: {e}", exc_info=True)
+            logger.error(f"Error during Groq transcription: {e}", exc_info=True)
             return ""
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
@@ -300,20 +300,20 @@ class GroqTranscriber(AbstractTranscriber):
             data, samplerate = sf.read(test_file_path)
             duration = len(data) / samplerate
             
-            logger.info(f"Testing GROQ with file: {test_file_path} ({duration:.1f}s)")
+            logger.info(f"Testing Groq with file: {test_file_path} ({duration:.1f}s)")
             
             # Transcribe
             text = self.transcribe(test_file_path, duration)
             
             if text:
-                logger.info(f"GROQ test transcription successful: {len(text)} chars")
+                logger.info(f"Groq test transcription successful: {len(text)} chars")
                 return text
             else:
-                logger.warning("GROQ test transcription returned empty text")
+                logger.warning("Groq test transcription returned empty text")
                 return None
                 
         except Exception as e:
-            logger.error(f"GROQ test transcription failed: {e}", exc_info=True)
+            logger.error(f"Groq test transcription failed: {e}", exc_info=True)
             return None
 
 
@@ -1396,7 +1396,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     if api_name == "groq":
         return GroqTranscriber()
     elif api_name == "groq-large":
-        return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name="GROQ Large (genauer)")
+        return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name="Groq Large (genauer)")
     elif api_name == "soniox":
         return SonioxTranscriber()
     elif api_name == "soniox-v4":

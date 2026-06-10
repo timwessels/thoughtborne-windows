@@ -46,7 +46,7 @@ fully right:
   built from three years of annotating my own transcriptions.
 - **Pay for usage, not a subscription.** You bring your own API keys and pay
   cents. My own last half-year of heavy use — on the order of 150 hours of
-  transcription — cost me roughly $10–15. A free path exists too (GROQ's
+  transcription — cost me roughly $10–15. A free path exists too (Groq's
   free tier), so you can try the tool without paying anyone.
 
 The day a commercial product does all of this better, I'll happily switch.
@@ -176,7 +176,7 @@ outside users and contributors explicitly welcome, frames the current work:
   being a GUI. (This is about what the terminal surfaces; the log file
   keeps its diagnostic depth.)
 - **A free way in:** since Soniox now requires prepayment before any use,
-  the free GROQ path matters for trying the tool out. Adding Whisper Large
+  the free Groq path matters for trying the tool out. Adding Whisper Large
   V3 (not just Turbo) gives the free tier a better-quality option.
 - **Fewer "you just have to know that" moments:** the small known quirks and
   rough edges should go away; the tool should feel smooth, not folkloric.
