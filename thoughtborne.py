@@ -10,7 +10,7 @@ The application uses:
 - Multiple transcription APIs (Soniox v2/v4/Live, GROQ)
 - Soniox Live (WebSocket real-time streaming) as default API at startup
 - Soniox for high-quality transcription
-- GROQ Whisper Large V3 Turbo for fast transcription
+- GROQ Whisper Large V3 Turbo (fast) and Large V3 (higher accuracy) transcription
 - Parallel processing for multiple recordings
 - Sequential output queue for maintaining order
 - Clipboard or keyboard insertion options
@@ -1108,7 +1108,7 @@ class ThoughtborneApp:
         print("     Use Y to process without inserting. Insert later with A or D.")
         print("\nCtrl+Alt+D uses clipboard for faster insertion!")
         print("Texts are always inserted in recording order!")
-        print("\nAPI Models: [SONIOX] v2 precise | [SONv4] v4 async | [LIVE] v4 stream | [GROQ] fast")
+        print("\nAPI Models: [SONIOX] v2 precise | [SONv4] v4 async | [LIVE] v4 stream | [GROQ-L] accurate | [GROQ] fast")
         print("=========================================\n")
 
     def _get_api_emoji(self):
@@ -1118,6 +1118,8 @@ class ThoughtborneApp:
             return '[SONv4]'  # Soniox v4 Async REST
         elif 'live' in api_name:
             return '[LIVE]'  # Soniox Live WebSocket RT
+        elif 'groq large' in api_name:
+            return '[GROQ-L]'  # Large V3 (higher accuracy)
         elif 'groq' in api_name:
             return '[GROQ]'  # Fast
         elif 'soniox' in api_name:

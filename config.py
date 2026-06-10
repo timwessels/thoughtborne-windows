@@ -39,13 +39,14 @@ AUDIO_TRIM_END_MS = 300       # Milliseconds to trim from end (removes hotkey cl
 AUDIO_SILENCE_PADDING_MS = 1000  # Milliseconds of silence to add at end (helps API detect end of speech)
 
 # ===== GROQ API SETTINGS =====
-GROQ_MODEL = "whisper-large-v3-turbo"
+GROQ_MODEL = "whisper-large-v3-turbo"  # 'groq' carousel entry (fastest)
+GROQ_LARGE_MODEL = "whisper-large-v3"  # 'groq-large' carousel entry (higher accuracy, #36)
 LANGUAGE = "de"  # "de" for German, "en" for English, None for auto-detect
 MAX_PARALLEL_TRANSCRIPTIONS = 3
 
 # ===== API SELECTION =====
 DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
-AVAILABLE_APIS = ["soniox-live", "soniox", "groq", "soniox-v4"]  # Carousel order (Ctrl+Alt+L)
+AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq", "soniox-v4"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API KEYS =====
 # Load from environment variable or .env file

@@ -3,7 +3,7 @@ Transcriber Module
 
 This module handles speech-to-text transcription using multiple APIs.
 It provides a clean interface for transcribing audio files using
-GROQ (Whisper Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
+GROQ (Whisper Large V3 / Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
 
 Classes:
     AbstractTranscriber: Base class for all transcriber implementations
@@ -24,7 +24,7 @@ from pathlib import Path
 from groq import Groq, AuthenticationError
 
 from config import (
-    GROQ_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
+    GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
     GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL,
     SHORT_AUDIO_THRESHOLD,
     SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
@@ -135,11 +135,18 @@ class AbstractTranscriber(ABC):
 
 
 class GroqTranscriber(AbstractTranscriber):
-    """Handles transcription using GROQ Whisper API"""
-    
-    def __init__(self):
+    """Handles transcription using GROQ Whisper API.
+
+    Serves both Whisper variants ('groq' = Large V3 Turbo, 'groq-large' =
+    full Large V3, #36): same endpoint, same auth, same hallucination
+    artifact class — so one class parameterized by model instead of a subclass.
+    """
+
+    def __init__(self, model: str = GROQ_MODEL, display_name: str = "GROQ (schnell)"):
         """Initialize the transcriber with API key"""
         super().__init__()
+        self.model = model
+        self.display_name = display_name
         self.api_key = self._get_api_key()
         self.client = None
         self._initialize_client()
@@ -164,7 +171,7 @@ class GroqTranscriber(AbstractTranscriber):
     
     def get_name(self) -> str:
         """Get the name of this transcriber"""
-        return "GROQ (schnell)"
+        return self.display_name
     
     def _clean_groq_hallucinations(self, transcript: str) -> str:
         """
@@ -235,7 +242,7 @@ class GroqTranscriber(AbstractTranscriber):
         Returns:
             Transcribed text
         """
-        logger.info(f"Starting GROQ transcription: {audio_file_path} (Duration: {duration_seconds:.1f}s)")
+        logger.info(f"Starting GROQ transcription ({self.model}): {audio_file_path} (Duration: {duration_seconds:.1f}s)")
         
         try:
             start_time = time.time()
@@ -244,7 +251,7 @@ class GroqTranscriber(AbstractTranscriber):
             with open(audio_file_path, "rb") as audio_file:
                 transcription = self.client.audio.transcriptions.create(
                     file=audio_file,
-                    model=GROQ_MODEL,
+                    model=self.model,
                     language=LANGUAGE,
                     response_format="text"
                 )
@@ -1378,7 +1385,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     Factory function to create transcriber instances
 
     Args:
-        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq', or 'soniox-v4')
+        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq-large', 'groq', or 'soniox-v4')
 
     Returns:
         Transcriber instance
@@ -1388,6 +1395,8 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     """
     if api_name == "groq":
         return GroqTranscriber()
+    elif api_name == "groq-large":
+        return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name="GROQ Large (genauer)")
     elif api_name == "soniox":
         return SonioxTranscriber()
     elif api_name == "soniox-v4":
@@ -1395,4 +1404,4 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()
     else:
-        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq, soniox-v4")
+        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq-large, groq, soniox-v4")
