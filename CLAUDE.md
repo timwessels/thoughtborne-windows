@@ -8,6 +8,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 
 - **Repo:** `github.com/timwessels/thoughtborne-windows`, default branch `main`.
 - **Mac port:** `github.com/timwessels/thoughtborne-macos` — three APIs instead of four, otherwise analogous. Useful as a reference for commit style, README tone, and porting decisions.
+- **Vision & direction:** `VISION.md` — why the tool exists, the quality bar (*good enough to send to LLMs unread*), who it's for, decision principles, and non-goals. Calibrate judgment calls — scope, trade-offs, priorities — against it. Stability is principle #1; the quality floor and the no-training-on-user-data rule are hard gates.
 
 ## GitHub workflow
 
@@ -45,7 +46,7 @@ If `thoughtborne.py` is currently running (check whether `thoughtborne.log` was 
 - **Hallucination-filter patterns** in `transcriber.py` (`_clean_transcript_hallucinations`, `_clean_groq_hallucinations`) are **data**, not prose. Never translate, paraphrase, or "improve" them.
 - **`Ctrl+Alt+Ü` hotkey** uses the German QWERTZ umlaut key and triggers the test transcription. Intentional, do not change.
 - **Gitignored `_*` folders** (`_backups/`, `_archive/`, `_docs/`, `_research/`, `_speedtest/`, `_tools/`, `_temp-claudecode/`) are local-only workspaces. Never auto-delete, never "clean up", never remove duplicates. Deletion only on explicit instruction. See `_backups/BACKUP_README.md`.
-- **This repo is in maintenance mode**, not rewrite mode. Do not refactor working code without a stated reason.
+- **Be conservative with working code.** Do not refactor or rewrite without a stated reason — "clean code is a feature" (`VISION.md`) justifies keeping code legible *while changing it for a reason*, not standalone rewrites. Direction and ambition live in `VISION.md`; this rule caps code churn, it is not a feature freeze.
 
 ## Hard to undo — always ask first
 
