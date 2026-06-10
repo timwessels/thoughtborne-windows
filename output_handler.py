@@ -633,6 +633,22 @@ class OutputManager:
                     f"[CLIPDIAG verdict] text length unavailable "
                     f"(before={len_before}, after={len_after})"
                 )
+            elif focus_class not in _TEXT_CONTROL_CLASSES:
+                # WM_GETTEXTLENGTH outside the trusted classes falls through
+                # to DefWindowProc, which answers with the window-title
+                # length — so the delta is meaningless as paste evidence
+                # here, regardless of its sign. Record the raw numbers for
+                # forensics but don't pretend we know whether it landed
+                # (#33).
+                final_len = _diag_text_length(focus_hwnd)
+                if final_len is not None:
+                    len_after = final_len
+                delta = len_after - len_before
+                logger.debug(
+                    f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
+                    f"(delta {delta:+d}, pasted text was {len(text)} chars): "
+                    f"INCONCLUSIVE (untrusted length source)"
+                )
             else:
                 final_len = _diag_text_length(focus_hwnd)
                 if final_len is not None:
@@ -641,7 +657,9 @@ class OutputManager:
                 # A negative delta means the paste replaced a longer
                 # selection — that is a landed paste, not a failure.
                 verdict = "PASTE LANDED" if delta != 0 else "PASTE DID NOT LAND"
-                log = logger.warning if delta == 0 and focus_class in _TEXT_CONTROL_CLASSES else logger.debug
+                # Untrusted classes were routed to the elif above; this
+                # branch is trusted-only, so a zero delta is a genuine miss.
+                log = logger.warning if delta == 0 else logger.debug
                 log(
                     f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
                     f"(delta {delta:+d}, pasted text was {len(text)} chars): {verdict}"
