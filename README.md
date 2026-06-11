@@ -5,7 +5,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 ## Features
 
 - **Hotkey-Steuerung**: Globale Tastenkombinationen, funktionieren in jeder Anwendung
-- **Fünf APIs**: Soniox Live (WebSocket Streaming, Default), Soniox v2 (präzise), Soniox v4 (async REST), Groq Large (genauer, kostenlos nutzbar), Groq (am schnellsten, kostenlos nutzbar) – umschaltbar per Hotkey
+- **Vier APIs**: Soniox Live (WebSocket Streaming, Default), Soniox (Datei-Upload: kurze Aufnahmen präzise via v2 sync, lange via v4 async – mit automatischem v4-Fallback), Groq Large (genauer, kostenlos nutzbar), Groq (am schnellsten, kostenlos nutzbar) – umschaltbar per Hotkey
 - **Parallele Verarbeitung**: Neue Aufnahme starten während vorherige noch transkribiert wird
 - **Sequentielle Ausgabe**: Texte werden in Aufnahme-Reihenfolge eingefügt
 - **Zwei Einfügemethoden**: Keyboard-Simulation oder Clipboard (schneller)
@@ -23,7 +23,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 | `Ctrl+Alt+H` | Stopp + Text einfügen + Enter (für Chats) |
 | `Ctrl+Alt+Y` | Stopp + nur verarbeiten (später mit A/D einfügen) |
 | `Ctrl+Alt+X` | Aufnahme abbrechen |
-| `Ctrl+Alt+L` | API wechseln (Soniox Live → Soniox v2 → Groq Large → Groq → Soniox v4) |
+| `Ctrl+Alt+L` | API wechseln (Soniox Live → Soniox → Groq Large → Groq) |
 | `Ctrl+Alt+Ü` | Test mit `test_audio.mp3` |
 | `Ctrl+Alt+4` | Programm beenden |
 
@@ -61,7 +61,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 
 4. **Optional: Eigene Begriffe für die Spracherkennung hinterlegen**
 
-   Soniox v4 und Soniox Live unterstützen einen "Context"-Mechanismus: Fachbegriffe, Eigennamen, häufig genutzte Wörter werden dem Modell als Hinweis mitgegeben. Das verbessert die Erkennung spürbar.
+   Soniox Live und der v4-Pfad des Soniox-Upload-Slots (lange Aufnahmen, Fallback) unterstützen einen "Context"-Mechanismus: Fachbegriffe, Eigennamen, häufig genutzte Wörter werden dem Modell als Hinweis mitgegeben. Das verbessert die Erkennung spürbar.
 
    ```bash
    cp personal_settings.example.json personal_settings.json
@@ -83,7 +83,7 @@ Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.13
 py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-optional.txt   # Soniox-SDK (für die Soniox-v2-API)
+pip install -r requirements-optional.txt   # Soniox-SDK (schneller v2-sync-Pfad, siehe Dependencies)
 python thoughtborne.py
 ```
 
@@ -121,7 +121,7 @@ In `config.py` anpassbar:
 
 | Setting | Default | Beschreibung |
 |---------|---------|--------------|
-| `DEFAULT_API` | `"soniox-live"` | Start-API (soniox/soniox-v4/soniox-live/groq/groq-large) |
+| `DEFAULT_API` | `"soniox-live"` | Start-API (soniox-live/soniox/groq-large/groq) |
 | `LANGUAGE` | `"de"` | Sprache für Transkription |
 | `MAX_PARALLEL_TRANSCRIPTIONS` | `3` | Max. parallele Verarbeitungen |
 | `AUDIO_TRIM_END_MS` | `300` | Millisekunden am Ende trimmen (entfernt Hotkey-Klick) |
@@ -147,7 +147,8 @@ websockets>=15.0.0
 
 **Optional** (im uv-Weg automatisch enthalten):
 ```
-soniox>=1.10.1,<2    # Soniox-SDK, nur für die Soniox-v2-API (2.x ist inkompatibel)
+soniox>=1.10.1,<2    # Soniox-SDK für den schnellen v2-sync-Pfad des Soniox-Slots (2.x ist inkompatibel);
+                     # ohne SDK läuft der Slot vollständig über v4 async (funktioniert, aber langsamer)
 ```
 
 ## Systemanforderungen
@@ -159,16 +160,18 @@ soniox>=1.10.1,<2    # Soniox-SDK, nur für die Soniox-v2-API (2.x ist inkompati
 
 ## API-Vergleich
 
-| | Soniox v2 | Soniox v4 | Soniox Live | Groq Large | Groq |
-|--|-----------|-----------|-------------|------------|------|
-| **Geschwindigkeit** | ~4-6s | ~4-6s | ~0.5s nach Stop | ~1s | ~0.7s |
-| **Genauigkeit** | Sehr gut | Sehr gut | Sehr gut | Gut–Sehr gut | Gut |
-| **Geeignet für** | Fachbegriffe (Default) | Datei-Upload | Schnellstes Ergebnis | Kostenloser Einstieg | Schnelle Notizen |
-| **Modell** | de_v2 (gRPC) | stt-async-v4 | stt-rt-v4 | Whisper Large V3 | Whisper Large V3 Turbo |
-| **Hosting** | Soniox Cloud | Soniox Cloud | Soniox Cloud | Groq Cloud | Groq Cloud |
-| **Context** | Nein | Ja | Ja | Nein | Nein |
+| | Soniox | Soniox Live | Groq Large | Groq |
+|--|--------|-------------|------------|------|
+| **Geschwindigkeit** | ~4-6s (kurz) / ~10-40s (lang, async) | ~0.5s nach Stop | ~1s | ~0.7s |
+| **Genauigkeit** | Sehr gut | Sehr gut | Gut–Sehr gut | Gut |
+| **Geeignet für** | Fachbegriffe, polierter Text | Schnellstes Ergebnis (Default) | Kostenloser Einstieg | Schnelle Notizen |
+| **Modell** | de_v2 (gRPC) + stt-async-v4 | stt-rt-v4 | Whisper Large V3 | Whisper Large V3 Turbo |
+| **Hosting** | Soniox Cloud | Soniox Cloud | Groq Cloud | Groq Cloud |
+| **Context** | Nein (kurz) / Ja (lang) | Ja | Nein | Nein |
 
 **Default ist Soniox Live** – umschaltbar mit `Ctrl+Alt+L`.
+
+Der Soniox-Slot arbeitet zweistufig: Aufnahmen unter 58 Sekunden laufen über die schnelle, synchrone v2-API; Aufnahmen ab 58 Sekunden sowie der automatische Fallback bei einem v2-Ausfall laufen über die v4-async-REST-API. Welcher Pfad lief, steht im Log – fürs Diktieren muss man den Unterschied nicht kennen.
 
 **Kostenlos testen:** Beide Groq-Modelle laufen im kostenlosen Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) – damit lässt sich Thoughtborne ohne Bezahlung ausprobieren; Groq Large ist dabei die genauere, Groq die schnellste Option. Wer nur einen Groq-Key hat, stellt dazu in `config.py` `DEFAULT_API` auf `"groq-large"` oder `"groq"` um – mit dem Default `"soniox-live"` bricht der Start ohne `SONIOX_API_KEY` ab. Soniox erfordert eine Guthaben-Aufladung vor der ersten Nutzung.
 

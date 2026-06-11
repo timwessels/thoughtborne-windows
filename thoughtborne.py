@@ -461,19 +461,25 @@ class ThoughtborneApp:
         empty even though the MP3 is fully archived. Issue #1.
 
         Choice of fallback API depends on recording duration:
-          - duration < SHORT_AUDIO_THRESHOLD (58 s) -> SonioxTranscriber (V2
-            sync, ~2-3 s for 30 s audio); if V2 fails (exception or empty
-            result), fall through to SonioxV4Transcriber. This second hop also
-            covers the case where V2 (legacy gRPC) is shut down by Soniox.
+          - duration < SHORT_AUDIO_THRESHOLD (58 s) -> raw Soniox V2 sync
+            (SonioxTranscriber._transcribe_v2_sync, ~2-3 s for 30 s audio); if
+            V2 fails (exception or empty result), fall through to
+            SonioxV4Transcriber. This second hop also covers the case where V2
+            (legacy gRPC) is shut down by Soniox.
           - duration >= SHORT_AUDIO_THRESHOLD       -> SonioxV4Transcriber (V4
             async polling, ~10-60 s; only option past V2's 60 s hard limit).
 
-        Note: this assumes SHORT_AUDIO_THRESHOLD < 60 s, because
-        SonioxTranscriber.transcribe uses the same threshold internally to pick
-        sync vs async, and Soniox's sync path has a 60 s hard limit. Raising
-        SHORT_AUDIO_THRESHOLD above 60 would make V2 attempt the sync path on
-        recordings it can't handle; the fallthrough to V4 would still recover
-        the transcript, but the fast-path latency advertised above is gone.
+        Since #31 the 'soniox' slot runs the same V2 -> V4 fallback internally
+        (on exceptions only); the cascade therefore calls the raw V2 primitive
+        so its own V2 -> V4 hop -- which also covers empty results -- stays in
+        one place up here.
+
+        Note: this assumes SHORT_AUDIO_THRESHOLD < 60 s, because the V2 stage
+        runs the sync path unconditionally and Soniox's sync API has a 60 s
+        hard limit. Raising SHORT_AUDIO_THRESHOLD above 60 would make V2
+        attempt the sync path on recordings it can't handle; the fallthrough
+        to V4 would still recover the transcript, but the fast-path latency
+        advertised above is gone.
 
         All fallback transcribers are lazily instantiated on first use and
         cached as singletons on the app instance. The fallback is not
@@ -557,9 +563,9 @@ class ThoughtborneApp:
         """Run a single fallback transcriber attempt. Helper for _run_empty_transcript_fallback.
 
         Lazily instantiates the requested transcriber (V2 or V4) under the init
-        lock, then runs transcribe() outside the lock so parallel fallbacks
-        don't serialize on the network call. Any exception is caught and logged
-        -- this method always returns a string, never raises.
+        lock, then runs the transcription call outside the lock so parallel
+        fallbacks don't serialize on the network call. Any exception is caught
+        and logged -- this method always returns a string, never raises.
 
         Args:
             kind: "v2" or "v4".
@@ -586,7 +592,13 @@ class ThoughtborneApp:
             fallback = self._fallback_v2 if kind == "v2" else self._fallback_v4
 
             start = time.time()
-            transcript = fallback.transcribe(mp3_path, duration).rstrip('\n')
+            if kind == "v2":
+                # Raw V2 sync, without the slot's internal V4 fallback -- the
+                # cascade does its own V2 -> V4 hop (incl. on empty results)
+                # one level up (#31).
+                transcript = fallback._transcribe_v2_sync(mp3_path, duration).rstrip('\n')
+            else:
+                transcript = fallback.transcribe(mp3_path, duration).rstrip('\n')
             elapsed = time.time() - start
 
             if transcript:
@@ -607,6 +619,15 @@ class ThoughtborneApp:
             return transcript
 
         except Exception as e:
+            if kind == "v2" and SonioxTranscriber._is_auth_error(e):
+                # The V4 stage that follows surfaces the single [AUTH] line
+                # (#32); an ERROR here would just duplicate it on the console.
+                logger.debug(
+                    f"[{thread_name}] Fallback ({label}) auth failure for "
+                    f"sequence {sequence_number}: {e}",
+                    exc_info=True
+                )
+                return ""
             logger.error(
                 f"[{thread_name}] Fallback ({label}) raised for "
                 f"sequence {sequence_number}: {e}",
@@ -1108,22 +1129,20 @@ class ThoughtborneApp:
         print("     Use Y to process without inserting. Insert later with A or D.")
         print("\nCtrl+Alt+D uses clipboard for faster insertion!")
         print("Texts are always inserted in recording order!")
-        print("\nAPI Models: [SONIOX] v2 precise | [SONv4] v4 async | [LIVE] v4 stream | [Groq-L] accurate | [Groq] fast")
+        print("\nAPI Models: [SONIOX] v2+v4 upload | [LIVE] v4 stream | [Groq-L] accurate | [Groq] fast")
         print("=========================================\n")
 
     def _get_api_emoji(self):
         """Get emoji for current API"""
         api_name = self.transcriber.get_name().lower()
-        if 'v4' in api_name:
-            return '[SONv4]'  # Soniox v4 Async REST
-        elif 'live' in api_name:
+        if 'live' in api_name:
             return '[LIVE]'  # Soniox Live WebSocket RT
         elif 'groq large' in api_name:
             return '[Groq-L]'  # Large V3 (higher accuracy)
         elif 'groq' in api_name:
             return '[Groq]'  # Fast
         elif 'soniox' in api_name:
-            return '[SONIOX]'  # Soniox v2 Legacy (precision)
+            return '[SONIOX]'  # Soniox upload slot (v2 sync + v4 async)
         return ''
 
     def print_ready_status(self, is_ready_to_insert=False, char_count=0):

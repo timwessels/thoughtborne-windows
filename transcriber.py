@@ -12,6 +12,7 @@ Classes:
 """
 
 import os
+import re
 import sys
 import time
 import logging
@@ -318,13 +319,17 @@ class GroqTranscriber(AbstractTranscriber):
 
 
 class SonioxTranscriber(AbstractTranscriber):
-    """Handles transcription using Soniox API"""
-    
+    """Soniox file-upload slot: V2 sync for short recordings with automatic
+    V4 async REST fallback; V4 async REST for long recordings (#31)."""
+
     def __init__(self):
         """Initialize the transcriber with API key"""
         super().__init__()
         self.api_key = self._get_api_key()
-        self._check_soniox_availability()
+        self._v2_available = self._check_soniox_availability()
+        # Eager init is safe: the V4 constructor only builds a header dict,
+        # and _get_api_key() above already raised if the key is missing.
+        self._v4 = SonioxV4Transcriber()
     
     def _get_api_key(self) -> str:
         """Get API key from environment"""
@@ -335,16 +340,25 @@ class SonioxTranscriber(AbstractTranscriber):
         logger.info("Using Soniox API key from environment")
         return SONIOX_API_KEY
     
-    def _check_soniox_availability(self):
-        """Check if Soniox library is available"""
+    def _check_soniox_availability(self) -> bool:
+        """Probe for the legacy Soniox 1.x SDK (V2 sync path).
+
+        A missing SDK is no longer fatal (#31): the slot then serves every
+        recording via the V4 async REST engine -- slower start-to-text,
+        but functional.
+        """
         try:
             from soniox.speech_service import SpeechClient
-            from soniox.transcribe_file import transcribe_file_short, transcribe_file_async
+            from soniox.transcribe_file import transcribe_file_short
             logger.info("Soniox library available")
+            return True
         except ImportError:
-            logger.error("Soniox library not installed!")
-            logger.error("Please install with: pip install soniox")
-            raise ImportError("Soniox library required but not installed")
+            logger.warning(
+                "Soniox SDK not installed -- 'soniox' uses V4 async REST for "
+                "all recordings (install the 'soniox' package for the fast "
+                "sync path)"
+            )
+            return False
     
     def get_name(self) -> str:
         """Get the name of this transcriber"""
@@ -394,165 +408,112 @@ class SonioxTranscriber(AbstractTranscriber):
 
         return transcript
     
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+    def _transcribe_v2_sync(self, audio_file_path: str, duration_seconds: float) -> str:
+        """V2 sync attempt (gRPC, transcribe_file_short). Raises on any failure.
+
+        Module-internal contract: also called directly by the empty-live
+        fallback cascade in thoughtborne.py, which needs the raw V2 result
+        without the slot's V4 fallback wrapped around it (#31).
         """
-        Transcribe an audio file using Soniox API
-        
+        if not self._v2_available:
+            raise RuntimeError("Soniox SDK not installed")
+
+        from soniox.speech_service import SpeechClient
+        from soniox.transcribe_file import transcribe_file_short
+
+        logger.info("Using synchronous Soniox transcription")
+
+        # Create new client for each transcription to avoid connection issues
+        logger.debug("Creating new SpeechClient for synchronous transcription")
+        client = SpeechClient()
+
+        try:
+            start_time = time.time()
+
+            result = transcribe_file_short(
+                audio_file_path,
+                client,
+                model=SONIOX_MODEL,
+            )
+
+            elapsed = time.time() - start_time
+            logger.info(f"Soniox synchronous transcription successful in {elapsed:.2f}s")
+
+            text = "".join(word.text for word in result.words)
+            logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
+
+            # Clean hallucinations
+            text = self._clean_transcript_hallucinations(text)
+
+            return text.strip()
+
+        finally:
+            # Close client
+            try:
+                client.close()
+                logger.debug("Soniox synchronous client closed")
+            except Exception as e:
+                logger.warning(f"Error closing Soniox sync client: {e}")
+
+    @staticmethod
+    def _is_auth_error(e: Exception) -> bool:
+        """True if e is a gRPC UNAUTHENTICATED error from the V2 SDK."""
+        try:
+            import grpc
+        except ImportError:
+            return False
+        return isinstance(e, grpc.RpcError) and e.code() == grpc.StatusCode.UNAUTHENTICATED
+
+    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+        """Transcribe an audio file via the hybrid V2-sync/V4-async slot (#31).
+
+        Recordings under SHORT_AUDIO_THRESHOLD run V2 sync exactly as before
+        and fall back to V4 async REST when V2 raises (except on auth errors).
+        Long recordings, and every recording when the V2 SDK is missing, go
+        straight to V4 async REST.
+
         Args:
             audio_file_path: Path to the audio file
             duration_seconds: Duration of the audio in seconds
-            
+
         Returns:
             Transcribed text
         """
-        logger.info(f"Starting Soniox transcription: {audio_file_path} (Duration: {duration_seconds:.1f}s)")
-        
-        try:
-            # Import Soniox modules
-            import grpc
-            from soniox.speech_service import SpeechClient
-            from soniox.transcribe_file import transcribe_file_short, transcribe_file_async
-            
-            if duration_seconds < SHORT_AUDIO_THRESHOLD:
-                logger.info(f"Using synchronous Soniox transcription")
-                
-                # Create new client for each transcription to avoid connection issues
-                logger.debug("Creating new SpeechClient for synchronous transcription")
-                client = SpeechClient()
-                
-                try:
-                    start_time = time.time()
-                    
-                    result = transcribe_file_short(
-                        audio_file_path,
-                        client,
-                        model=SONIOX_MODEL,
-                    )
-                    
-                    elapsed = time.time() - start_time
-                    logger.info(f"Soniox synchronous transcription successful in {elapsed:.2f}s")
-                    
-                    text = "".join(word.text for word in result.words)
-                    logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
-                    
-                    # Clean hallucinations
-                    text = self._clean_transcript_hallucinations(text)
-                    
-                    return text.strip()
-                    
-                finally:
-                    # Close client
-                    try:
-                        client.close()
-                        logger.debug("Soniox synchronous client closed")
-                    except Exception as e:
-                        logger.warning(f"Error closing Soniox sync client: {e}")
-                
-            else:
-                logger.info(f"Using asynchronous Soniox transcription")
-                
-                # Create new client for long transcriptions
-                logger.debug("Creating new SpeechClient for asynchronous transcription")
-                client = SpeechClient()
-                
-                try:
-                    # Upload file
-                    start_time = time.time()
-                    file_id = transcribe_file_async(
-                        audio_file_path,
-                        client,
-                        model=SONIOX_MODEL,
-                        reference_name=f"voice_{time.strftime('%Y%m%d_%H%M%S')}"
-                    )
-                    upload_time = time.time() - start_time
-                    logger.info(f"File uploaded in {upload_time:.2f}s, ID: {file_id}")
-                    
-                    # Check status
-                    max_attempts = 300  # Max 5 minutes wait
-                    attempt = 0
-                    
-                    while attempt < max_attempts:
-                        try:
-                            status = client.GetTranscribeAsyncStatus(file_id)
-                            
-                            # Status is a string
-                            current_status = status.status if hasattr(status, 'status') else "UNKNOWN"
-                            
-                            if attempt % 10 == 0:  # Log every 10 seconds
-                                logger.info(f"Status after {attempt}s: {current_status}")
-                            
-                            if current_status == "COMPLETED":
-                                # Get result
-                                logger.info("Transcription completed, fetching result...")
-                                result = client.GetTranscribeAsyncResult(file_id)
-                                
-                                # Delete file
-                                try:
-                                    client.DeleteTranscribeAsyncFile(file_id)
-                                    logger.info("Temporary file deleted from server")
-                                except Exception as e:
-                                    logger.warning(f"Could not delete file: {e}")
-                                
-                                total_time = time.time() - start_time
-                                logger.info(f"Soniox async transcription successful in {total_time:.2f}s")
-                                
-                                text = "".join(word.text for word in result.words)
-                                logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
-                                
-                                # Clean hallucinations
-                                text = self._clean_transcript_hallucinations(text)
-                                
-                                return text.strip()
-                                
-                            elif current_status == "FAILED":
-                                error_msg = getattr(status, 'error_message', 'Unknown error')
-                                logger.error(f"Transcription failed: {error_msg}")
-                                
-                                try:
-                                    client.DeleteTranscribeAsyncFile(file_id)
-                                except:
-                                    pass
-                                return ""
-                            
-                        except grpc.RpcError as e:
-                            # Re-raise auth failures so the outer handler reports
-                            # them once instead of looping for the full timeout.
-                            if e.code() == grpc.StatusCode.UNAUTHENTICATED:
-                                raise
-                            logger.error(f"Error checking status (attempt {attempt}): {e}", exc_info=True)
-                        except Exception as e:
-                            logger.error(f"Error checking status (attempt {attempt}): {e}", exc_info=True)
+        logger.info(f"Starting Soniox transcription: {audio_file_path} "
+                    f"(Duration: {duration_seconds:.1f}s)")
 
-                        time.sleep(1)
-                        attempt += 1
-                    
-                    logger.error(f"Timeout after {attempt} seconds for async transcription")
-                    try:
-                        client.DeleteTranscribeAsyncFile(file_id)
-                    except:
-                        pass
+        if self._v2_available and duration_seconds < SHORT_AUDIO_THRESHOLD:
+            try:
+                # An empty V2 result without an exception (usually silence) is
+                # returned as-is -- no V4 hop on the slot path. The empty-live
+                # cascade in thoughtborne.py keeps its own empty -> V4
+                # fall-through one level up (#31).
+                return self._transcribe_v2_sync(audio_file_path, duration_seconds)
+            except Exception as e:
+                if self._is_auth_error(e):
+                    # V4 uses the same SONIOX_API_KEY, so a fallback would just
+                    # produce a second 401 and a duplicate [AUTH] line (#32).
+                    self._report_auth_failure("SONIOX_API_KEY")
+                    logger.debug(f"Error during Soniox transcription: {e}", exc_info=True)
                     return ""
-                    
-                finally:
-                    # Close client
-                    try:
-                        client.close()
-                        logger.info("Soniox async client closed")
-                    except Exception as e:
-                        logger.warning(f"Error closing Soniox async client: {e}")
-                
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.UNAUTHENTICATED:
-                self._report_auth_failure("SONIOX_API_KEY")
-                # DEBUG keeps the trace file-only so the [AUTH] line stands
-                # alone on the console (#32)
-                logger.debug(f"Error during Soniox transcription: {e}", exc_info=True)
-            else:
-                logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
-            return ""
-        except Exception as e:
-            logger.error(f"Error during Soniox transcription: {e}", exc_info=True)
-            return ""
+                try:
+                    reason = e.code().name  # grpc.RpcError carries the status
+                except Exception:
+                    reason = type(e).__name__
+                logger.warning(
+                    f"[FALLBACK] Soniox V2 sync failed ({reason}) -- "
+                    f"retrying with Soniox V4 (async REST, slower)"
+                )
+                # DEBUG keeps the trace file-only so the [FALLBACK] line stands
+                # alone on the console; V4's own handlers log ERROR if the
+                # fallback fails too.
+                logger.debug(f"V2 sync failure detail: {e}", exc_info=True)
+                return self._v4.transcribe(audio_file_path, duration_seconds)
+
+        if duration_seconds >= SHORT_AUDIO_THRESHOLD:
+            logger.info(f"Long recording ({duration_seconds:.1f}s >= "
+                        f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)")
+        return self._v4.transcribe(audio_file_path, duration_seconds)
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """
@@ -613,6 +574,78 @@ class SonioxV4Transcriber(AbstractTranscriber):
     def get_name(self) -> str:
         """Get the name of this transcriber"""
         return "Soniox v4 (async)"
+
+    def _clean_v4_fillers(self, transcript: str) -> str:
+        """Remove spoken fillers that stt-async-v4 transcribes verbatim (#31).
+
+        Corpus-derived, additions-only counterpart to the V2/Groq end-artifact
+        filters (which stay untouched). The #31 quality gate
+        (_research/2026-06_soniox-v2async-vs-v4-quality/, 13 real dictation
+        samples / 41.9 min) found 172 inline fillers on the V4 path --
+        exclusively the forms "ähm"/"äh" (V2-async: 0). The model delimits
+        them with a following comma (163), rarely an ellipsis (5) or period
+        (3), and capitalizes sentence-initial ones (44, of which 39 carry the
+        capitalization that belongs to the next word). Removal mirrors exactly
+        that: drop the filler plus its immediately following delimiter and
+        spacing, re-capitalize the next word when a capitalized filler
+        preceded a lowercase one, and trim a comma left dangling at the very
+        end. Deliberately not filtered: any other form -- "eh" is a real
+        German word, and the corpus' single "hm" is no pattern.
+        """
+        if not transcript:
+            return transcript
+
+        original = transcript
+        # Word-boundary matching is load-bearing: umlauts are \w in Python's
+        # unicode re, so "ähm" inside "Lähmung" or "äh" inside "ähnlich"
+        # cannot match.
+        filler_re = re.compile(r"\b(?:ähm|äh)\b", re.IGNORECASE)
+        # Delimiter the model attaches to the filler itself (corpus-exact:
+        # comma, three-dot ellipsis, or period) plus the gluing whitespace.
+        trail_re = re.compile(r"(?:\.{3}|[.,])?[ \t]*")
+
+        out = []
+        pos = 0
+        removed = 0
+        ends_at_eos = False
+        cap_pending = False
+        for m in filler_re.finditer(transcript):
+            if m.start() < pos:
+                continue
+            if transcript[pos:m.start()]:
+                # Real text in between -- a pending capitalization from an
+                # earlier filler chain cannot reach across it.
+                cap_pending = False
+            end = trail_re.match(transcript, m.end()).end()
+            out.append(transcript[pos:m.start()])
+            removed += 1
+            logger.debug(f"Removed V4 filler: '{transcript[m.start():end]}' at {m.start()}")
+            cap_pending = cap_pending or m.group(0)[0].isupper()
+            if (cap_pending and end < len(transcript) and transcript[end].islower()
+                    and not filler_re.match(transcript, end)):
+                # The sentence-initial filler (or filler chain, "Äh, ähm, ...")
+                # carried the capitalization -- move it to the word that now
+                # starts the sentence. When another filler follows directly,
+                # defer the move until the chain ends, so the flip never eats
+                # the next filler's first letter.
+                out.append(transcript[end].upper())
+                end += 1
+                cap_pending = False
+            pos = end
+            ends_at_eos = pos >= len(transcript)
+        if not removed:
+            return transcript
+
+        out.append(transcript[pos:])
+        text = "".join(out)
+        if ends_at_eos:
+            # A filler removed at the very end can leave ", " dangling.
+            text = text.rstrip()
+            if text.endswith(","):
+                text = text[:-1].rstrip()
+
+        logger.debug(f"Removed {removed} V4 filler(s): {len(original)} -> {len(text)} chars")
+        return text
 
     def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
         """Transcribe an audio file using Soniox v4 Async REST API.
@@ -704,6 +737,9 @@ class SonioxV4Transcriber(AbstractTranscriber):
             elapsed = time.time() - start_time
             logger.info(f"Soniox v4 transcription successful in {elapsed:.2f}s")
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
+
+            # Clean fillers
+            text = self._clean_v4_fillers(text)
 
             return text
 
@@ -1385,7 +1421,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     Factory function to create transcriber instances
 
     Args:
-        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq-large', 'groq', or 'soniox-v4')
+        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq-large', or 'groq')
 
     Returns:
         Transcriber instance
@@ -1399,9 +1435,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
         return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name="Groq Large (genauer)")
     elif api_name == "soniox":
         return SonioxTranscriber()
-    elif api_name == "soniox-v4":
-        return SonioxV4Transcriber()
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()
     else:
-        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq-large, groq, soniox-v4")
+        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq-large, groq")

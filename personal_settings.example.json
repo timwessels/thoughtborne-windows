@@ -1,5 +1,5 @@
 {
-  "_comment": "Optional user personalization for Soniox v4 / Live APIs. Copy this file to 'personal_settings.json' and customize the vocabulary block. If 'personal_settings.json' is absent, SONIOX_CONTEXT stays None and no personalization is sent. Only used by the Soniox v4 Async and Live transcribers — ignored by other APIs.",
+  "_comment": "Optional user personalization for the Soniox v4 engines. Copy this file to 'personal_settings.json' and customize the vocabulary block. If 'personal_settings.json' is absent, SONIOX_CONTEXT stays None and no personalization is sent. Only used by the Soniox Live transcriber and the v4 path of the Soniox upload slot (long recordings / V2-failure fallback) — the short-recording v2 sync path and the Groq APIs ignore it.",
 
   "vocabulary": {
     "general": [

@@ -46,7 +46,7 @@ MAX_PARALLEL_TRANSCRIPTIONS = 3
 
 # ===== API SELECTION =====
 DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
-AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq", "soniox-v4"]  # Carousel order (Ctrl+Alt+L)
+AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API KEYS =====
 # Load from environment variable or .env file
@@ -62,7 +62,9 @@ SONIOX_MODEL = "de_v2"  # Language model: "de_v2" for German, "en_v2" for Englis
 SHORT_AUDIO_THRESHOLD = 58
 
 # ===== SONIOX V4 ASYNC REST API SETTINGS =====
-# New REST-based API (replaces gRPC). File upload → transcription → polling → result.
+# V4 async REST engine: used by the 'soniox' slot for long recordings and as
+# automatic fallback when V2 sync fails (#31). File upload → transcription →
+# polling → result.
 SONIOX_V4_API_BASE = "https://api.soniox.com"
 SONIOX_V4_MODEL = "stt-async-v4"
 SONIOX_V4_POLL_INTERVAL = 0.5   # Seconds between polling attempts
@@ -146,7 +148,7 @@ HOTKEYS = {
     'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
     'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
-    'switch_api': 'ctrl+alt+l',                # L = Switch API (Groq <-> Soniox)
+    'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 
