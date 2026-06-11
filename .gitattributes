@@ -1,0 +1,5 @@
+# Batch files must reach the working tree with CRLF: cmd.exe mis-parses
+# goto/call labels in LF-only files. "text eol=crlf" stores the blob
+# LF-normalized but guarantees CRLF on checkout (and in git archive /
+# GitHub ZIP downloads), regardless of anyone's core.autocrlf setting.
+*.bat text eol=crlf

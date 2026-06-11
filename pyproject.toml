@@ -1,0 +1,50 @@
+# Thoughtborne runs as a plain script from the cloned folder. This file exists
+# for dependency management with uv (`uv run thoughtborne.py`) -- there is
+# deliberately no [build-system]: the project is never built or installed as a
+# package (config.py resolves all paths relative to the script directory).
+#
+# Keep `dependencies` in sync with requirements.txt (pip fallback) and the
+# `soniox` group in sync with requirements-optional.txt.
+
+[project]
+name = "thoughtborne"
+version = "0.1.0"
+description = "Hotkey-driven voice-to-text tool for Windows"
+# Upper bound < 3.14: PyAudio 0.2.14 ships Windows wheels only up to cp313
+# (checked 2026-06-11). On 3.14, installation falls back to a source build
+# that fails without MSVC + PortAudio. Raise the bound only when PyAudio
+# (or a successor) provides cp314 wheels.
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "groq>=0.4.0",
+    "pyaudio>=0.2.11",
+    "keyboard>=0.13.5",
+    "soundfile>=0.12.1",
+    "numpy>=1.21.0",
+    "pyperclip>=1.8.2",
+    "python-dotenv>=1.0.0",
+    "pyautogui>=0.9.54",
+    "httpx>=0.28.0",
+    "websockets>=15.0.0",
+]
+
+[dependency-groups]
+# The Soniox SDK is needed only by the Soniox V2 (gRPC) transcriber; Live and
+# V4 talk to Soniox via websockets/httpx directly. Installed by default for uv
+# users (see default-groups below) so the Ctrl+Alt+L carousel and the
+# live->V2->V4 fallback chain work out of the box.
+# Pin to 1.x: Soniox rewrote the SDK in 2.x without backward compatibility.
+# SpeechClient and transcribe_file_short exist only in 1.x (last release: 1.10.1).
+soniox = [
+    "soniox>=1.10.1,<2",
+]
+
+[tool.uv]
+# Dependency management only -- never build/install the project itself.
+package = false
+default-groups = ["soniox"]
+# Thoughtborne is Windows-only (Win32 hotkeys, clipboard, SendInput). Restricting
+# resolution to Windows keeps uv.lock free of platforms we never run (e.g.
+# PyAudio has no Linux wheels) and makes an accidental `uv sync` on another OS
+# fail with a clear message instead of a source-build error.
+environments = ["sys_platform == 'win32'"]

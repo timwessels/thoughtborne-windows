@@ -29,15 +29,25 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 
 ## Installation
 
-1. **Dependencies installieren**
-   ```bash
-   pip install -r requirements.txt
+1. **uv installieren** (einmalig)
 
-   # Optional: Soniox (für hohe Genauigkeit)
-   pip install soniox
+   Thoughtborne nutzt [uv](https://docs.astral.sh/uv/) als Python-Projektmanager: uv lädt automatisch ein passendes Python und alle Dependencies in ein lokales `.venv` – ein vorinstalliertes Python ist nicht nötig.
+
+   ```bash
+   winget install --id=astral-sh.uv -e
    ```
 
-2. **API-Keys einrichten**
+   Ohne winget: [uv-Installationsanleitung](https://docs.astral.sh/uv/getting-started/installation/)
+
+2. **Repository holen**
+
+   ```bash
+   git clone https://github.com/timwessels/thoughtborne-windows.git
+   cd thoughtborne-windows
+   ```
+   Oder das ZIP von GitHub herunterladen und entpacken.
+
+3. **API-Keys einrichten**
 
    `.env` Datei erstellen/bearbeiten:
    ```
@@ -49,7 +59,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
    - Groq: https://console.groq.com/keys
    - Soniox: https://soniox.com
 
-3. **Optional: Eigene Begriffe für die Spracherkennung hinterlegen**
+4. **Optional: Eigene Begriffe für die Spracherkennung hinterlegen**
 
    Soniox v4 und Soniox Live unterstützen einen "Context"-Mechanismus: Fachbegriffe, Eigennamen, häufig genutzte Wörter werden dem Modell als Hinweis mitgegeben. Das verbessert die Erkennung spürbar.
 
@@ -58,11 +68,24 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
    ```
    Datei öffnen und eigene Terms im `vocabulary`-Block eintragen. Fehlt die Datei, läuft das Tool ohne Personalisierung.
 
-4. **Starten**
+5. **Starten**
+
    ```bash
-   python thoughtborne.py
+   uv run thoughtborne.py
    ```
-   Oder per `Thoughtborne.bat` (Windows).
+   Oder Doppelklick auf `Thoughtborne.bat` – sie startet das Tool über uv und bietet die uv-Installation an, falls uv fehlt. Beim ersten Start lädt uv einmalig Python und alle Dependencies (Internetverbindung nötig). Danach hält uv alles automatisch aktuell – auch nach einem `git pull` mit neuen Dependencies sind keine manuellen Schritte nötig.
+
+### Alternative: klassisch mit pip + venv
+
+Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.13, nicht 3.14** – PyAudio liefert für 3.14 noch keine vorgebauten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
+
+```bash
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -r requirements-optional.txt   # Soniox-SDK (für die Soniox-v2-API)
+python thoughtborne.py
+```
 
 ## Projektstruktur
 
@@ -75,7 +98,9 @@ Thoughtborne/
 ├── config.py               # Konfiguration, Hotkeys, API-Settings
 ├── hotkey_manager.py       # Win32 RegisterHotKey API
 ├── .env                    # API-Keys (nicht in Git)
-├── requirements.txt        # Python Dependencies
+├── pyproject.toml          # Projekt-Metadaten + Dependencies (uv)
+├── uv.lock                 # Gepinnte Dependency-Versionen (uv)
+├── requirements.txt        # Python Dependencies (pip-Fallback)
 ├── requirements-optional.txt
 ├── Thoughtborne.bat             # Windows-Starter
 ├── thoughtborne-spec.md         # Projekt-Spezifikation
@@ -83,6 +108,7 @@ Thoughtborne/
 ├── voice_archive/          # Archivierte Aufnahmen (auto-erstellt)
 ├── text_archive/           # Archivierte Transkripte (auto-erstellt)
 ├── thoughtborne.log       # Log-Datei (auto-erstellt)
+├── .venv/                  # Python-Umgebung (auto-erstellt von uv)
 │
 ├── _backups/               # Code-Backups (siehe _backups/BACKUP_README.md)
 ├── _research/              # STT-Recherchen (siehe _research/README.md)
@@ -103,6 +129,8 @@ In `config.py` anpassbar:
 
 ## Dependencies
 
+Mit uv werden alle Dependencies automatisch installiert und über `uv.lock` auf reproduzierbare Versionen gepinnt – inklusive des Soniox-SDKs. Die folgenden Listen beschreiben den pip-Weg:
+
 **Erforderlich:**
 ```
 groq>=0.4.0
@@ -117,15 +145,15 @@ httpx>=0.28.0
 websockets>=15.0.0
 ```
 
-**Optional:**
+**Optional** (im uv-Weg automatisch enthalten):
 ```
-soniox>=1.0.0    # Für Soniox API (höhere Genauigkeit)
+soniox>=1.10.1,<2    # Soniox-SDK, nur für die Soniox-v2-API (2.x ist inkompatibel)
 ```
 
 ## Systemanforderungen
 
 - **Plattform**: Windows
-- **Python**: 3.7+
+- **Python**: 3.10–3.13 (mit uv automatisch – uv lädt ein passendes Python; 3.14 wird noch nicht unterstützt, da PyAudio dafür keine Wheels liefert)
 - **Mikrofon**: Zugriff erforderlich
 - **Internet**: Für API-Zugriff
 
@@ -146,11 +174,9 @@ soniox>=1.0.0    # Für Soniox API (höhere Genauigkeit)
 
 ## Troubleshooting
 
-**PyAudio Installation (Windows):**
-```bash
-pip install pipwin
-pipwin install pyaudio
-```
+**PyAudio-Installation schlägt fehl (pip-Weg):**
+
+PyAudio liefert offizielle Windows-Wheels für Python 3.10–3.13 – `pip install pyaudio` braucht dort keinen Compiler. Bricht die Installation mit einem Build-Fehler ab, läuft vermutlich Python 3.14: auf Python 3.13 wechseln oder den uv-Weg nutzen (uv wählt automatisch ein passendes Python).
 
 **Kein Audio-Input:**
 - Mikrofon-Berechtigungen prüfen
