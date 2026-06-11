@@ -337,6 +337,8 @@ class SonioxTranscriber(AbstractTranscriber):
         """Initialize the transcriber with API key"""
         super().__init__()
         self.api_key = self._get_api_key()
+        # Module-internal contract: thoughtborne.py's _try_fallback reads this
+        # flag to skip the empty-live cascade's V2 stage when the SDK is missing.
         self._v2_available = self._check_soniox_availability()
         # Eager init is safe: the V4 constructor only builds a header dict,
         # and _get_api_key() above already raised if the key is missing.

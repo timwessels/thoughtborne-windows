@@ -599,6 +599,16 @@ class ThoughtborneApp:
 
             fallback = self._fallback_v2 if kind == "v2" else self._fallback_v4
 
+            # SDK-less is an expected, configuration-side state: skip the V2
+            # stage with one INFO line instead of letting _transcribe_v2_sync
+            # raise into the ERROR-plus-traceback path below.
+            if kind == "v2" and not fallback._v2_available:
+                logger.info(
+                    f"[{thread_name}] V2 fallback stage skipped for sequence "
+                    f"{sequence_number} (Soniox SDK not installed)"
+                )
+                return ""
+
             start = time.time()
             if kind == "v2":
                 # Raw V2 sync, without the slot's internal V4 fallback -- the
