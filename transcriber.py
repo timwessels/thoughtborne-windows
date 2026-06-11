@@ -41,6 +41,17 @@ from config import (
 logger = logging.getLogger('Thoughtborne.Transcriber')
 
 
+class MissingAPIKeyError(ValueError):
+    """Raised at transcriber construction when the required API key env var
+    is not set (#40). Subclasses ValueError so existing handlers keep working;
+    carries the env var name so callers (carousel skip, startup fallback) can
+    say precisely which key is missing."""
+
+    def __init__(self, env_var: str, transcriber_label: str):
+        self.env_var = env_var
+        super().__init__(f"{env_var} is required for {transcriber_label}")
+
+
 class AbstractTranscriber(ABC):
     """Abstract base class for all transcriber implementations"""
     
@@ -155,8 +166,8 @@ class GroqTranscriber(AbstractTranscriber):
     def _get_api_key(self) -> str:
         """Get API key from environment"""
         if not GROQ_API_KEY:
-            logger.error("GROQ_API_KEY not found in environment variables!")
-            raise ValueError("GROQ_API_KEY is required for Groq transcriber")
+            logger.debug("GROQ_API_KEY not found in environment variables!")
+            raise MissingAPIKeyError("GROQ_API_KEY", "Groq transcriber")
 
         logger.info("Using Groq API key from environment")
         return GROQ_API_KEY
@@ -334,8 +345,8 @@ class SonioxTranscriber(AbstractTranscriber):
     def _get_api_key(self) -> str:
         """Get API key from environment"""
         if not SONIOX_API_KEY:
-            logger.error("SONIOX_API_KEY not found in environment variables!")
-            raise ValueError("SONIOX_API_KEY is required for Soniox transcriber")
+            logger.debug("SONIOX_API_KEY not found in environment variables!")
+            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox transcriber")
         
         logger.info("Using Soniox API key from environment")
         return SONIOX_API_KEY
@@ -564,7 +575,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
         """Initialize the transcriber with API key"""
         super().__init__()
         if not SONIOX_API_KEY:
-            raise ValueError("SONIOX_API_KEY is required for Soniox v4 transcriber")
+            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox v4 transcriber")
         self.api_key = SONIOX_API_KEY
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
         logger.info(f"Soniox v4 transcriber initialized (model: {SONIOX_V4_MODEL})")
@@ -842,7 +853,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         """Initialize the transcriber with API key"""
         super().__init__()
         if not SONIOX_API_KEY:
-            raise ValueError("SONIOX_API_KEY is required for Soniox Live transcriber")
+            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox Live transcriber")
         self.api_key = SONIOX_API_KEY
 
         # Session state

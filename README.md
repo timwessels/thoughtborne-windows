@@ -173,7 +173,7 @@ soniox>=1.10.1,<2    # Soniox-SDK für den schnellen v2-sync-Pfad des Soniox-Slo
 
 Der Soniox-Slot arbeitet zweistufig: Aufnahmen unter 58 Sekunden laufen über die schnelle, synchrone v2-API; Aufnahmen ab 58 Sekunden sowie der automatische Fallback bei einem v2-Ausfall laufen über die v4-async-REST-API. Welcher Pfad lief, steht im Log – fürs Diktieren muss man den Unterschied nicht kennen.
 
-**Kostenlos testen:** Beide Groq-Modelle laufen im kostenlosen Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) – damit lässt sich Thoughtborne ohne Bezahlung ausprobieren; Groq Large ist dabei die genauere, Groq die schnellste Option. Wer nur einen Groq-Key hat, stellt dazu in `config.py` `DEFAULT_API` auf `"groq-large"` oder `"groq"` um – mit dem Default `"soniox-live"` bricht der Start ohne `SONIOX_API_KEY` ab. Soniox erfordert eine Guthaben-Aufladung vor der ersten Nutzung.
+**Kostenlos testen:** Beide Groq-Modelle laufen im kostenlosen Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) – damit lässt sich Thoughtborne ohne Bezahlung ausprobieren; Groq Large ist dabei die genauere, Groq die schnellste Option. Wer nur einen Groq-Key hat, muss nichts umstellen: Thoughtborne startet automatisch auf der ersten API, deren Key vorhanden ist, und nennt die übersprungenen Einträge beim Start. Wer ohne diese Hinweise direkt auf Groq starten will, stellt in `config.py` `DEFAULT_API` auf `"groq-large"` oder `"groq"` um. Soniox erfordert eine Guthaben-Aufladung vor der ersten Nutzung.
 
 ## Troubleshooting
 

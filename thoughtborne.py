@@ -44,6 +44,7 @@ from hotkey_manager import HotkeyManager, is_key_pressed
 from audio_handler import AudioRecorder
 from transcriber import (
     create_transcriber,
+    MissingAPIKeyError,
     SonioxLiveTranscriber,
     SonioxTranscriber,
     SonioxV4Transcriber,
@@ -61,6 +62,13 @@ class _FailedRecording(NamedTuple):
     archived_mp3_path: str
     duration: float
     origin_timestamp: str
+
+
+def _describe_construction_failure(error: Exception) -> str:
+    """One-line, human-readable reason for a failed transcriber construction (#40)."""
+    if isinstance(error, MissingAPIKeyError):
+        return f"{error.env_var} missing"
+    return f"{type(error).__name__}: {error}"
 
 
 class DroppingQueueHandler(QueueHandler):
@@ -210,8 +218,8 @@ class ThoughtborneApp:
         # Initialize components
         try:
             self.audio_recorder = AudioRecorder()
-            self.current_api = DEFAULT_API
-            self.transcriber = create_transcriber(self.current_api)
+            self._startup_fallback_note = None  # set when startup lands off DEFAULT_API (#40)
+            self.current_api, self.transcriber = self._create_startup_transcriber()
             self.output_manager = OutputManager(on_task_complete_callback=self.print_ready_status)
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}", exc_info=True)
@@ -675,28 +683,118 @@ class ThoughtborneApp:
             logger.error(f"Test file not found: {test_file}")
             logger.error("Place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
 
-    def switch_api(self):
-        """Switch between available transcription APIs"""
+    def _create_startup_transcriber(self):
+        """Construct the startup transcriber, falling through the carousel (#40).
+
+        Tries DEFAULT_API first, then the remaining AVAILABLE_APIS entries in
+        carousel order. Returns (api_name, transcriber). When no entry is
+        constructible (typically a newcomer without any key), prints an
+        actionable error block and exits cleanly -- API keys are read once at
+        import (config.py), so a restart after editing .env is required either
+        way. Runs on the main thread before hotkeys exist, so print() is safe.
+        """
         try:
-            # Determine next API
-            current_index = AVAILABLE_APIS.index(self.current_api)
-            next_index = (current_index + 1) % len(AVAILABLE_APIS)
-            next_api = AVAILABLE_APIS[next_index]
+            start_index = AVAILABLE_APIS.index(DEFAULT_API)
+            candidates = [AVAILABLE_APIS[(start_index + step) % len(AVAILABLE_APIS)]
+                          for step in range(len(AVAILABLE_APIS))]
+        except ValueError:
+            # DEFAULT_API was edited to something unknown (config.py): try it
+            # first anyway -- the factory's "Unknown API" error then shows up
+            # as a skip line naming it -- and fall through to the real entries.
+            candidates = [DEFAULT_API] + list(AVAILABLE_APIS)
 
-            logger.info(f"Switching API from {self.current_api} to {next_api}")
-
-            # Try to create new transcriber
+        failures = []  # (api_name, exception) in attempt order
+        for api_name in candidates:
             try:
-                new_transcriber = create_transcriber(next_api)
+                transcriber = create_transcriber(api_name)
+            except Exception as e:
+                failures.append((api_name, e))
+                logger.warning(f"Skipped {api_name} ({_describe_construction_failure(e)})")
+                logger.debug(f"Construction failed for {api_name}: {e}", exc_info=True)
+                continue
+
+            if api_name != DEFAULT_API:
+                missing = sorted({err.env_var for _, err in failures
+                                  if isinstance(err, MissingAPIKeyError)})
+                reason = (f"{' / '.join(missing)} missing" if missing
+                          else f"default API '{DEFAULT_API}' unavailable")
+                self._startup_fallback_note = (
+                    f"{reason} -> started on {api_name} (default: {DEFAULT_API})")
+                logger.warning(self._startup_fallback_note)
+            return api_name, transcriber
+
+        self._print_no_api_error_block(failures)
+        print("Press Enter to exit...")
+        input()
+        sys.exit(1)
+
+    @staticmethod
+    def _print_no_api_error_block(failures):
+        """Actionable console block when no transcription API is constructible (#40)."""
+        by_key = {}   # env var -> [api names]
+        other = []    # (api name, reason) for non-key construction failures
+        for api_name, error in failures:
+            if isinstance(error, MissingAPIKeyError):
+                by_key.setdefault(error.env_var, []).append(api_name)
+            else:
+                other.append((api_name, f"{type(error).__name__}: {error}"))
+
+        logger.error("No transcription API could be constructed -- tried: "
+                     + ", ".join(api for api, _ in failures))
+        print("")
+        print("=" * 60)
+        print("ERROR: No transcription API available")
+        print("=" * 60)
+        for env_var, apis in by_key.items():
+            print(f"  {env_var} is missing  (needed for: {', '.join(apis)})")
+        for api_name, reason in other:
+            print(f"  {api_name} failed: {reason}")
+        print("")
+        print("  Thoughtborne needs at least one API key in the .env file")
+        print("  in the project folder (copy .env.example to .env first):")
+        print("      GROQ_API_KEY    - free tier, no payment needed")
+        print("      SONIOX_API_KEY  - prepaid, best German accuracy")
+        print("  Where to get the keys: see .env.example or the README.")
+        print("  Then start Thoughtborne again.")
+        print("=" * 60)
+
+    def switch_api(self):
+        """Switch to the next constructible transcription API (#40).
+
+        Skips entries whose transcriber construction fails (typically a
+        missing API key) with one console line per skip. If the loop comes
+        full circle, stays on the current transcriber and names the missing
+        keys. Runs on the hotkey-listener thread: console output must go
+        through logger.* (#11), never print().
+        """
+        try:
+            current_index = AVAILABLE_APIS.index(self.current_api)
+            skipped = []  # (api_name, exception) in attempt order
+
+            for step in range(1, len(AVAILABLE_APIS)):
+                next_api = AVAILABLE_APIS[(current_index + step) % len(AVAILABLE_APIS)]
+                try:
+                    new_transcriber = create_transcriber(next_api)
+                except Exception as e:
+                    skipped.append((next_api, e))
+                    logger.warning(f"Skipped {next_api} ({_describe_construction_failure(e)})")
+                    logger.debug(f"Construction failed for {next_api}: {e}", exc_info=True)
+                    continue
+
+                logger.info(f"Switching API from {self.current_api} to {next_api}")
                 self.transcriber = new_transcriber
                 self.current_api = next_api
-
                 logger.info(f"Successfully switched to {self.transcriber.get_name()}")
                 self.print_ready_status()
+                return
 
-            except Exception as e:
-                logger.error(f"Failed to switch to {next_api}: {e}")
-                logger.info(f"Continuing with: {self.transcriber.get_name()}")
+            # Full circle: no other entry is constructible -- stay put.
+            missing = sorted({e.env_var for _, e in skipped
+                              if isinstance(e, MissingAPIKeyError)})
+            logger.error(f"No other API available -- staying on {self.transcriber.get_name()}")
+            if missing:
+                logger.error(f"Missing API key(s): {', '.join(missing)} -- add them to "
+                             f".env (see README), then restart Thoughtborne.")
 
         except Exception as e:
             logger.error(f"Error in API switch: {e}", exc_info=True)
@@ -1111,6 +1209,8 @@ class ThoughtborneApp:
         emoji = self._get_api_emoji()
         print(f"\n=== Thoughtborne running (Windows version) ===")
         print(f"Current API: {emoji} {self.transcriber.get_name()}")
+        if self._startup_fallback_note:
+            print(f"NOTE: {self._startup_fallback_note}")
         print(f"Available APIs: {', '.join(AVAILABLE_APIS)}")
         print(f"Log file: {LOG_FILE}")
         print(f"Max parallel processing: {MAX_PARALLEL_TRANSCRIPTIONS}")
