@@ -8,8 +8,10 @@
 
 [project]
 name = "thoughtborne"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hotkey-driven voice-to-text tool for Windows"
+license = "MIT"
+authors = [{ name = "Tim Wessels" }]
 # Upper bound < 3.14: PyAudio 0.2.14 ships Windows wheels only up to cp313
 # (checked 2026-06-11). On 3.14, installation falls back to a source build
 # that fails without MSVC + PortAudio. Raise the bound only when PyAudio
@@ -27,6 +29,10 @@ dependencies = [
     "httpx>=0.28.0",
     "websockets>=15.0.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/timwessels/thoughtborne-windows"
+Changelog = "https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 # The Soniox SDK is needed only by the Soniox V2 (gRPC) transcriber; Live and

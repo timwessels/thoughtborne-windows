@@ -2,6 +2,10 @@
 
 Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Echtzeit transkribiert und der Text direkt an der Cursor-Position eingefügt – in jeder Anwendung.
 
+> **Note:** This README is currently German-only — Thoughtborne is a German-first dictation tool, and an English README is planned. For the project's purpose and direction in English, see [VISION.md](VISION.md).
+
+> **macOS:** Es gibt einen Schwester-Port: [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos) – drei statt vier Transkriptions-APIs, sonst analog.
+
 ## Features
 
 - **Hotkey-Steuerung**: Globale Tastenkombinationen, funktionieren in jeder Anwendung
@@ -23,6 +27,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 | `Ctrl+Alt+H` | Stopp + Text einfügen + Enter (für Chats) |
 | `Ctrl+Alt+Y` | Stopp + nur verarbeiten (später mit A/D einfügen) |
 | `Ctrl+Alt+X` | Aufnahme abbrechen |
+| `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen |
 | `Ctrl+Alt+L` | API wechseln (Soniox Live → Soniox → Groq Large → Groq) |
 | `Ctrl+Alt+Ü` | Test mit `test_audio.mp3` |
 | `Ctrl+Alt+4` | Programm beenden |
@@ -49,7 +54,7 @@ Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Ec
 
 3. **API-Keys einrichten**
 
-   `.env` Datei erstellen/bearbeiten:
+   Die Vorlage `.env.example` als `.env` kopieren und die Keys eintragen:
    ```
    GROQ_API_KEY=dein_groq_key
    SONIOX_API_KEY=dein_soniox_key
@@ -103,16 +108,12 @@ Thoughtborne/
 ├── requirements.txt        # Python Dependencies (pip-Fallback)
 ├── requirements-optional.txt
 ├── Thoughtborne.bat             # Windows-Starter
-├── thoughtborne-spec.md         # Projekt-Spezifikation
+├── test_audio.mp3               # Beispiel-Audio für den Selbsttest (Ctrl+Alt+Ü)
 │
 ├── voice_archive/          # Archivierte Aufnahmen (auto-erstellt)
 ├── text_archive/           # Archivierte Transkripte (auto-erstellt)
 ├── thoughtborne.log       # Log-Datei (auto-erstellt)
-├── .venv/                  # Python-Umgebung (auto-erstellt von uv)
-│
-├── _backups/               # Code-Backups (siehe _backups/BACKUP_README.md)
-├── _research/              # STT-Recherchen (siehe _research/README.md)
-└── _archive/               # Alte/obsolete Dateien
+└── .venv/                  # Python-Umgebung (auto-erstellt von uv)
 ```
 
 ## Konfiguration
@@ -200,7 +201,7 @@ Recherche und Batch-Vergleiche (249 Dateien, Feb 2026) zeigen die Stärken der v
 | Whisper Large V3 (Standard) | ~5.0% | Breite Sprachunterstützung |
 | Soniox de_v2 | ~7.0% | Zuverlässigste Fachbegriff-/Namenerkennung |
 
-Details: `_research/README.md`
+(Interne Batch-Vergleiche; die ausführlichen Ergebnisse sind nicht Teil des Repos.)
 
 ## Architektur
 
@@ -213,3 +214,7 @@ Hotkey → Audio-Aufnahme → Transkription (Thread) → Output-Queue → Text-E
 ```
 
 Thread-Sicherheit durch Locks und atomare Operationen. Parallele Transkription möglich, Ausgabe erfolgt sequentiell in Aufnahme-Reihenfolge.
+
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE).

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-12
+
+First public release.
+
 ### Removed
 
 - `soniox-v4` carousel slot — folded into the now-hybrid `soniox` slot (#31, see Changed). `AVAILABLE_APIS` is now `["soniox-live", "soniox", "groq-large", "groq"]` and the `Ctrl+Alt+L` carousel cycles four entries; `SonioxV4Transcriber` stays in the codebase as the slot's async engine (and the empty-live cascade's V4 stage) but is no longer user-facing: its `create_transcriber()` branch, the `[SONv4]` banner segment, and the `_get_api_emoji` branch are gone. No migration needed — the API selection was never persisted; a manually set `DEFAULT_API = "soniox-v4"` now surfaces at startup as a skip line quoting the factory's ValueError (listing the four supported names), after which startup falls through to the first constructible carousel entry (#40).

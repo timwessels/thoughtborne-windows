@@ -39,7 +39,7 @@ English for code, inline comments, commit messages, and all public documentation
 
 ## When the tool is running
 
-If `thoughtborne.py` is currently running (check whether `thoughtborne.log` was written to very recently), do not modify code, rename files, or otherwise disturb the working directory. Ask the user to stop it with `Ctrl+Alt+4` first. The user may be dictating into the same Claude session that is being asked to edit — the hotkey exit is the clean handoff.
+If `thoughtborne.py` is currently running, do not modify code, rename files, or otherwise disturb the working directory. Reliable check: a Windows python process whose command line contains `thoughtborne.py` (e.g. via `powershell.exe Get-CimInstance Win32_Process`). The log's mtime alone misleads — a clean shutdown writes `Program ended` as its final lines and still looks recently touched. Ask the user to stop it with `Ctrl+Alt+4` first. The user may be dictating into the same Claude session that is being asked to edit — the hotkey exit is the clean handoff.
 
 ## Do not touch
 
@@ -56,5 +56,5 @@ Flipping the repo to public, force-pushing `main`, destructive branch deletion, 
 
 - **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`.
 - **Windows launcher:** `Thoughtborne.bat`.
-- **Public docs:** `README.md`, `CHANGELOG.md`, `LICENSE`, `.env.example`, `personal_settings.example.json`.
+- **Public docs:** `README.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `.env.example`, `personal_settings.example.json`.
 - **Local workspaces** (gitignored): see list above under "Do not touch".
