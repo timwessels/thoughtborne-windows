@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import queue
+import signal
 import logging
 import threading
 import datetime
@@ -41,7 +42,7 @@ from config import (
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed
-from audio_handler import AudioRecorder
+from audio_handler import AudioRecorder, recover_partial_files
 from transcriber import (
     create_transcriber,
     MissingAPIKeyError,
@@ -275,6 +276,13 @@ class ThoughtborneApp:
         self._last_failed: Optional[_FailedRecording] = None
         self._last_failed_lock = threading.Lock()
 
+        # Exit-salvage state (#49 layer 1): flag + lock make the salvage
+        # idempotent across its callers -- the exit hotkey on the listener
+        # thread and cleanup() on the main thread (Ctrl+C / Ctrl+Break) can
+        # both fire for one shutdown.
+        self._salvage_done = False
+        self._salvage_lock = threading.Lock()
+
         # Hotkey manager (initialized in _register_hotkeys)
         self.hotkey_manager = None
 
@@ -324,7 +332,7 @@ class ThoughtborneApp:
                                 sequence_number: int, timestamp: str,
                                 use_clipboard: bool = False, auto_insert: bool = True,
                                 send_after_insert: bool = False, wait_for_keys: List[str] = None,
-                                transcriber=None):
+                                transcriber=None, sidecar=None):
         """Process a recording in a separate thread"""
         thread_name = threading.current_thread().name
 
@@ -353,6 +361,11 @@ class ThoughtborneApp:
         try:
             # Save recording
             wav_path, mp3_path = self.audio_recorder.save_recording(frames, timestamp)
+            # Archive copy exists -- the crash-safety sidecar has done its job
+            # (#49). On the exception path below it is deliberately NOT
+            # discarded, so the next start recovers what this save lost.
+            if sidecar is not None:
+                sidecar.discard()
             print(f"[Seq: {sequence_number}] Audio saved and archived")
 
             # Transcribe with the fixed transcriber
@@ -417,7 +430,7 @@ class ThoughtborneApp:
     def start_processing_thread(self, frames: List[bytes], duration: float,
                                use_clipboard: bool = False, auto_insert: bool = True,
                                send_after_insert: bool = False, wait_for_keys: List[str] = None,
-                               transcriber_override=None) -> bool:
+                               transcriber_override=None, sidecar=None) -> bool:
         """
         Start a new processing thread
 
@@ -429,6 +442,11 @@ class ThoughtborneApp:
             send_after_insert: Press Enter after inserting (for sending messages)
             transcriber_override: Use this transcriber instead of self.transcriber
                                   (needed for live transcribers that hold session state)
+            sidecar: SidecarHandle of this recording's crash-safety file (#49);
+                     the worker discards it once the archive MP3 exists. On a
+                     False return (parallel limit reached) the handle stays
+                     undiscarded on purpose -- the .partial is then the only
+                     surviving copy and the next start recovers it.
         """
         # Clean up finished threads
         self.active_threads = [t for t in self.active_threads if t.is_alive()]
@@ -448,7 +466,7 @@ class ThoughtborneApp:
         # Start new thread with the selected transcriber
         thread = threading.Thread(
             target=self.process_recording_thread,
-            args=(frames, duration, sequence_number, timestamp, use_clipboard, auto_insert, send_after_insert, wait_for_keys, transcriber),
+            args=(frames, duration, sequence_number, timestamp, use_clipboard, auto_insert, send_after_insert, wait_for_keys, transcriber, sidecar),
             name=f"Transcription-{sequence_number}-{datetime.datetime.now().strftime('%H%M%S%f')}"
         )
         thread.daemon = True
@@ -897,6 +915,7 @@ class ThoughtborneApp:
             logger.info(f"Recording stopped ({hotkey_display})")
 
             frames, duration = self.audio_recorder.stop_recording()
+            sidecar = self.audio_recorder.take_finished_sidecar()
             self.just_finished_recording_a = True
             self.recording_finished_time_a = time.time()
 
@@ -908,7 +927,8 @@ class ThoughtborneApp:
 
             # Start processing with wait for key release
             if self.start_processing_thread(frames, duration, wait_for_keys=['ctrl', 'alt', 'a'],
-                                            transcriber_override=recording_transcriber):
+                                            transcriber_override=recording_transcriber,
+                                            sidecar=sidecar):
                 logger.info("Processing in background...")
                 logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
@@ -927,6 +947,7 @@ class ThoughtborneApp:
             logger.info(f"Recording stopped ({hotkey_display} - clipboard mode)")
 
             frames, duration = self.audio_recorder.stop_recording()
+            sidecar = self.audio_recorder.take_finished_sidecar()
             self.just_finished_recording_d = True
             self.recording_finished_time_d = time.time()
 
@@ -938,7 +959,8 @@ class ThoughtborneApp:
 
             # Start processing with clipboard flag and wait for key release
             if self.start_processing_thread(frames, duration, use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'd'],
-                                            transcriber_override=recording_transcriber):
+                                            transcriber_override=recording_transcriber,
+                                            sidecar=sidecar):
                 logger.info("Processing in background (clipboard mode)...")
                 logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
@@ -962,6 +984,7 @@ class ThoughtborneApp:
             logger.info(f"Recording stopped ({hotkey_display}) - will send after transcription")
 
             frames, duration = self.audio_recorder.stop_recording()
+            sidecar = self.audio_recorder.take_finished_sidecar()
             self.just_finished_recording_d = True
             self.recording_finished_time_d = time.time()
 
@@ -974,7 +997,8 @@ class ThoughtborneApp:
             # Start processing with clipboard AND send_after_insert, wait for key release
             if self.start_processing_thread(frames, duration, use_clipboard=True, send_after_insert=True,
                                             wait_for_keys=['ctrl', 'alt'],
-                                            transcriber_override=recording_transcriber):
+                                            transcriber_override=recording_transcriber,
+                                            sidecar=sidecar):
                 logger.info("Processing in background (will send)...")
                 logger.info(f"You can start a new recording with {start_hotkey_display}!")
 
@@ -998,6 +1022,7 @@ class ThoughtborneApp:
             logger.info(f"Recording stopped ({hotkey_display}) - process only, no auto-insert")
 
             frames, duration = self.audio_recorder.stop_recording()
+            sidecar = self.audio_recorder.take_finished_sidecar()
 
             # Capture live transcriber reference before clearing
             recording_transcriber = self._active_live_transcriber or self.transcriber
@@ -1007,7 +1032,8 @@ class ThoughtborneApp:
 
             # Start processing WITHOUT auto-insert
             if self.start_processing_thread(frames, duration, use_clipboard=False, auto_insert=False,
-                                            transcriber_override=recording_transcriber):
+                                            transcriber_override=recording_transcriber,
+                                            sidecar=sidecar):
                 logger.info("Processing in background (no auto-insert)...")
                 logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording")
                 self.print_ready_status()
@@ -1148,9 +1174,62 @@ class ThoughtborneApp:
         """Callback for exit program"""
         self.stop_program()
 
+    def _salvage_active_recording(self, reason: str) -> Optional[str]:
+        """Stop an in-flight recording and persist it via the normal archive
+        path, WITHOUT transcription (#49 layer 1). Returns the archive path,
+        or None when there was nothing to salvage or the save failed.
+
+        Thread-safe and idempotent: callable from the listener thread (exit
+        hotkey) and the main thread (cleanup after Ctrl+C / Ctrl+Break); the
+        flag keeps a second caller from double-saving. Runs on the listener
+        thread in the hotkey case, so console output goes through logger.*
+        only (#11). No call in here blocks unbounded: cancel_session() has a
+        hard join budget (~6 s worst case) and save_recording() is local file
+        I/O plus MP3 encode.
+        """
+        with self._salvage_lock:
+            if self._salvage_done or not self.audio_recorder.is_recording:
+                return None
+            self._salvage_done = True
+
+        # Frames first (stop capture, sidecar writer gets its stop signal),
+        # then tear down the live session -- minimizes the time the audio
+        # lives in RAM only.
+        frames, duration = self.audio_recorder.stop_recording()
+        sidecar = self.audio_recorder.take_finished_sidecar()
+        live = self._active_live_transcriber
+        self._active_live_transcriber = None
+        if live is not None:
+            live.cancel_session()
+
+        if not frames:
+            if sidecar is not None:
+                sidecar.discard()
+            return None
+
+        timestamp = self.get_unique_timestamp()
+        try:
+            wav_path, mp3_path = self.audio_recorder.save_recording(frames, timestamp)
+            self.audio_recorder.cleanup_temp_files(wav_path, mp3_path)
+            archive = str(ARCHIVE_FOLDER / f"voice_{timestamp}.mp3")
+            logger.warning(f"Recording was still running ({reason}) -- audio saved "
+                           f"({duration:.1f}s, not transcribed): {archive}")
+            if sidecar is not None:
+                sidecar.discard()  # only after the archive write succeeded
+            return archive
+        except Exception as e:
+            kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
+                    if sidecar is not None else "")
+            logger.error(f"Could not save the running recording ({reason}): {e}.{kept}")
+            return None
+
     def stop_program(self):
         """Stop the program"""
         logger.info("Program exit requested")
+
+        # Salvage an in-flight recording before any teardown (#49): exiting
+        # mid-recording used to discard the audio -- the original incident.
+        self._salvage_active_recording("exit hotkey")
 
         # Set running flag to false
         self.running = False
@@ -1203,6 +1282,19 @@ class ThoughtborneApp:
                         self.audio_recorder.frames[-1]
                     )
 
+            elif self.audio_recorder.recording_aborted:
+                # Device-loss endgame (#49 layer 4): record_chunk() gave up
+                # (mic gone, reinit failed). Consume the flag once and turn
+                # the former zombie state into a saved recording.
+                self.audio_recorder.recording_aborted = False
+                try:
+                    self._handle_recording_abort()
+                except Exception as abort_err:
+                    # Abort handling must never break the recording loop --
+                    # without it the app cannot record again until restart.
+                    logger.error(f"Device-loss abort handling failed: {abort_err}",
+                                 exc_info=True)
+
             # Reset just_finished flags after timeout
             if self.just_finished_recording_a and time.time() - self.recording_finished_time_a > 2:
                 self.just_finished_recording_a = False
@@ -1213,6 +1305,74 @@ class ThoughtborneApp:
             time.sleep(0.01)  # Small delay to prevent high CPU usage
 
         logger.info("Recording loop thread STOPPED")
+
+    def _handle_recording_abort(self):
+        """Handle the device-loss endgame on the recording-loop thread (#49).
+
+        Before this layer, a recording whose microphone died for good left a
+        zombie state: is_recording False with the frames still in RAM, the
+        next stop hotkey typing the PREVIOUS transcript and the next start
+        wiping the frames. Now: end the live session, persist the captured
+        audio via a short-lived worker (so the loop is free again if the user
+        immediately starts a new recording), and arm the retry slot.
+
+        Console output via logger.* -- this thread's pace matters whenever a
+        new recording is already running.
+        """
+        logger.error("Microphone connection lost and could not be recovered -- recording ended.")
+
+        # Don't touch a NEW session's live state: if the user already started
+        # the next recording, _active_live_transcriber belongs to it; the old
+        # session dies via Soniox's idle timeout / the next start_session().
+        if not self.audio_recorder.is_recording:
+            live = self._active_live_transcriber
+            self._active_live_transcriber = None
+            if live is not None:
+                live.cancel_session()
+
+        frames = self.audio_recorder.take_aborted_frames()
+        sidecar = self.audio_recorder.take_aborted_sidecar()
+        duration = self.audio_recorder.get_audio_duration(frames)
+
+        if not frames:
+            if sidecar is not None:
+                sidecar.discard()
+            logger.error("No audio had been captured yet.")
+            return
+
+        thread = threading.Thread(
+            target=self._salvage_aborted_recording_thread,
+            args=(frames, duration, sidecar),
+            name=f"Salvage-{datetime.datetime.now().strftime('%H%M%S%f')}"
+        )
+        thread.daemon = True
+        thread.start()
+        self.active_threads.append(thread)  # so stop_program joins it on exit
+
+    def _salvage_aborted_recording_thread(self, frames: List[bytes], duration: float, sidecar):
+        """Worker for the device-loss endgame (#49): persist the salvaged
+        frames via the normal archive path, drop the sidecar once archived,
+        arm the retry slot and say plainly how to continue."""
+        timestamp = self.get_unique_timestamp()
+        try:
+            # trim_end=False: no stop hotkey ended this recording, so there is
+            # no click to cut -- the tail is real dictation (the startup
+            # recovery skips the trim for the same reason).
+            wav_path, mp3_path = self.audio_recorder.save_recording(frames, timestamp,
+                                                                    trim_end=False)
+            self.audio_recorder.cleanup_temp_files(wav_path, mp3_path)
+            if sidecar is not None:
+                sidecar.discard()
+            archive = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
+            self._record_failed_slot(timestamp, duration)
+            # ERROR level on purpose: this IS an error state and must stand out.
+            logger.error(f"Audio captured so far was saved ({duration:.1f}s): {archive}")
+            logger.error(f"Reconnect your microphone, then press "
+                         f"{self._format_hotkey(HOTKEYS['retry_last_failed'])} to transcribe it.")
+        except Exception as e:
+            kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
+                    if sidecar is not None else "")
+            logger.error(f"Could not save the aborted recording: {e}.{kept}")
 
     def print_instructions(self):
         """Print usage instructions"""
@@ -1330,6 +1490,45 @@ class ThoughtborneApp:
         # Print instructions
         self.print_instructions()
 
+        # Convert sidecars left over from a crash (#49 layer 3). Placed
+        # before hotkey registration on purpose: no recording can start
+        # while this converts, the recovery lines sit at the bottom of the
+        # startup block, and the retry slot is armed before the first
+        # keypress is possible. print() is fine here (main thread, no
+        # hotkeys yet). A recovery failure must never block the start.
+        try:
+            try:
+                # Best-effort probe: a file vanishing between glob and stat
+                # (e.g. a second instance recovering it) must only cost this
+                # hint line, never the recovery below.
+                if any(p.stat().st_size > 10 * 1024 * 1024
+                       for p in ARCHIVE_FOLDER.glob("voice_*.partial")):
+                    print("Recovering unsaved recording, this may take a moment...")
+            except OSError:
+                pass
+            recovered = recover_partial_files()
+        except Exception as e:
+            logger.error(f"Startup recovery failed: {e}", exc_info=True)
+            recovered = []
+        if recovered:
+            for path, duration, ts in recovered:
+                print(f"RECOVERED: unsaved recording from "
+                      f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}:{ts[13:15]} "
+                      f"({duration:.0f}s) -> {Path(path).name}")
+            # Arm the retry slot with the newest recovered file (single-slot
+            # semantics of #24: any later real failure simply overwrites it).
+            # Built directly instead of via _record_failed_slot, whose path
+            # reconstruction doesn't know the _recovered naming.
+            newest = recovered[-1]
+            with self._last_failed_lock:
+                self._last_failed = _FailedRecording(
+                    archived_mp3_path=newest[0],
+                    duration=newest[1],
+                    origin_timestamp=newest[2],
+                )
+            print(f"Press {self._format_hotkey(HOTKEYS['retry_last_failed'])} "
+                  f"to transcribe the recovered audio.")
+
         # Register hotkeys
         self._register_hotkeys()
 
@@ -1364,6 +1563,11 @@ class ThoughtborneApp:
         logger.info("Cleaning up...")
         print("Cleaning up...")
 
+        # Salvage an in-flight recording (#49): covers Ctrl+C / Ctrl+Break,
+        # where this is the first shutdown code that runs. After an
+        # exit-hotkey shutdown the idempotency flag makes it a no-op.
+        self._salvage_active_recording("shutdown")
+
         # Stop output manager
         self.output_manager.stop()
 
@@ -1386,6 +1590,14 @@ class ThoughtborneApp:
 
 def main():
     """Main entry point"""
+    # Map Ctrl+Break to KeyboardInterrupt instead of instant process death so
+    # the run()-finally -> cleanup() path can salvage an active recording
+    # (#49). SIGBREAK exists on Windows only, hence the AttributeError guard.
+    try:
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
+    except AttributeError:
+        pass
+
     try:
         app = ThoughtborneApp()
         app.run()

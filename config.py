@@ -38,6 +38,14 @@ WAV_OUTPUT_FILENAME = "output.wav"
 AUDIO_TRIM_END_MS = 300       # Milliseconds to trim from end (removes hotkey click sound)
 AUDIO_SILENCE_PADDING_MS = 1000  # Milliseconds of silence to add at end (helps API detect end of speech)
 
+# ===== CRASH-SAFETY SIDECAR (#49) =====
+# During recording, an observer thread appends the captured audio to a raw-PCM
+# .partial file in ARCHIVE_FOLDER every SIDECAR_FLUSH_SECONDS (flush + fsync per
+# batch), so a hard kill / crash / BSOD loses at most this many seconds of
+# dictation. Guide value, not gospel: smaller shrinks the loss window, larger
+# reduces disk traffic. The write runs off the capture hot path either way.
+SIDECAR_FLUSH_SECONDS = 5
+
 # ===== GROQ API SETTINGS =====
 GROQ_MODEL = "whisper-large-v3-turbo"  # 'groq' carousel entry (fastest)
 GROQ_LARGE_MODEL = "whisper-large-v3"  # 'groq-large' carousel entry (higher accuracy, #36)
