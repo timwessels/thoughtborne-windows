@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Agent entry points for the public repo (#46): `AGENTS.md` — the tool-agnostic agent guide (what the tool is, how to run and verify it, conventions, and guardrails such as never committing `.env`, treating the hallucination-filter patterns as data, and leaving gitignored `_*` folders alone) — and `llms-install.md`, a guided agent-led setup (environment checks first, the WSL2 trap, uv-first install with pip fallback, per-provider API-key onboarding with Groq as the free path and Soniox marked prepaid, personalization as ask-the-user steps, known failure modes, and a strict never-list). The README gains a "Setup mit einem KI-Coding-Agenten" section with a paste-prompt.
+
+### Changed
+
+- The checked-in `CLAUDE.md` is now a thin bridge importing `AGENTS.md` (Claude Code does not read `AGENTS.md` natively, anthropics/claude-code#6235); the maintainer-workflow content that previously lived there moved to the maintainer's local, gitignored layer. Contributor-relevant rules stay public via `AGENTS.md` (#46).
+
 ## [1.0.0] - 2026-06-12
 
 First public release.

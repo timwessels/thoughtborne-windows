@@ -92,6 +92,16 @@ pip install -r requirements-optional.txt   # Soniox-SDK (schneller v2-sync-Pfad,
 python thoughtborne.py
 ```
 
+### Setup mit einem KI-Coding-Agenten
+
+Wer mit einem KI-Coding-Agenten arbeitet (Claude Code, Cursor, Codex …), kann ihm das Setup übergeben – [`llms-install.md`](llms-install.md) führt den Agenten Schritt für Schritt durch Installation, API-Key-Einrichtung und Selbsttest. Im geklonten Repo dem Agenten einfach sagen:
+
+```text
+Read llms-install.md and guide me through the setup. Ask before running commands.
+```
+
+`llms-install.md` ist gewöhnliches, menschenlesbares Markdown – wer mag, liest vorher selbst hinein.
+
 ## Projektstruktur
 
 ```
