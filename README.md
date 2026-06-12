@@ -1,230 +1,192 @@
+<!-- logo slot (#48): insert logo image here, above the title -->
 # Thoughtborne
 
-Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Sprachaufnahmen werden in Echtzeit transkribiert und der Text direkt an der Cursor-Position eingefügt – in jeder Anwendung.
+**[Deutsche Version](README.de.md)**
 
-> **Note:** This README is currently German-only — Thoughtborne is a German-first dictation tool, and an English README is planned. For the project's purpose and direction in English, see [VISION.md](VISION.md).
+Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — and the transcript lands at the cursor in whatever app is active, as if you had typed it. Optimized for German, built first and foremost for one job: talking to AI.
 
-> **macOS:** Es gibt einen Schwester-Port: [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos) – drei statt vier Transkriptions-APIs, sonst analog.
+The quality bar is simple: transcripts must be **good enough to send to an LLM unread** — no proofreading pass. Why the tool exists, what guides its decisions, and what it deliberately is not (a polished GUI product, a cross-platform app, a subscription service) is in [VISION.md](VISION.md). You bring your own API keys and pay per use — or take the free path (see [the model lineup](#the-model-lineup)).
 
-## Features
+<!-- screenshot slot (#37): glanceable console screenshot drops in here -->
 
-- **Hotkey-Steuerung**: Globale Tastenkombinationen, funktionieren in jeder Anwendung
-- **Vier APIs**: Soniox Live (WebSocket Streaming, Default), Soniox (Datei-Upload: kurze Aufnahmen präzise via v2 sync, lange via v4 async – mit automatischem v4-Fallback), Groq Large (genauer, kostenlos nutzbar), Groq (am schnellsten, kostenlos nutzbar) – umschaltbar per Hotkey
-- **Parallele Verarbeitung**: Neue Aufnahme starten während vorherige noch transkribiert wird
-- **Sequentielle Ausgabe**: Texte werden in Aufnahme-Reihenfolge eingefügt
-- **Zwei Einfügemethoden**: Keyboard-Simulation oder Clipboard (schneller)
-- **Send-Funktion**: Text einfügen und automatisch Enter drücken (für Chat-Eingaben)
-- **Audio-Archivierung**: Alle Aufnahmen und Transkripte werden automatisch gespeichert
-- **Deutsch als Default**: Optimiert für deutsche Sprache
+## The model lineup
 
-## Hotkeys
+Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup follows what tests best for German in hands-on use, re-evaluated every few months ([VISION.md](VISION.md)). Two jobs are deliberately kept side by side: verbatim transcripts that are ready the instant you stop, and polished ones that read like writing ([the two modes](VISION.md#two-modes-two-jobs-verbatim-vs-polished)).
 
-| Hotkey | Funktion |
-|--------|----------|
-| `Ctrl+Alt+W` | Aufnahme starten |
-| `Ctrl+Alt+A` | Stopp + Text einfügen (Keyboard) |
-| `Ctrl+Alt+D` | Stopp + Text einfügen (Clipboard, schneller) |
-| `Ctrl+Alt+H` | Stopp + Text einfügen + Enter (für Chats) |
-| `Ctrl+Alt+Y` | Stopp + nur verarbeiten (später mit A/D einfügen) |
-| `Ctrl+Alt+X` | Aufnahme abbrechen |
-| `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen |
-| `Ctrl+Alt+L` | API wechseln (Soniox Live → Soniox → Groq Large → Groq) |
-| `Ctrl+Alt+Ü` | Test mit `test_audio.mp3` |
-| `Ctrl+Alt+4` | Programm beenden |
+| API | In short | What it does | Speed | Key & cost |
+|-----|----------|--------------|-------|------------|
+| **Soniox Live** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, fillers and all; ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
+| **Soniox** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~4–6 s (short) / ~10–40 s (long) | Soniox (prepaid) |
+| **Groq Large** | accurate · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
+| **Groq** | fast · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
+
+**The free path:** both Groq entries run on Groq's free tier (as of June 2026: per model, 20 requests/min, 2,000 requests/day, 7,200 audio-seconds/hour, 28,800 audio-seconds/day) — you can try Thoughtborne without paying anyone. Soniox has no free tier (as of June 2026): you top up a small prepaid balance before the API works; pricing is usage-based ([soniox.com/pricing](https://soniox.com/pricing)). For scale: half a year of heavy personal use — on the order of 150 hours of transcription — cost roughly $10–15 ([VISION.md](VISION.md)).
+
+Engines, for the curious: `stt-rt-v4` (Soniox Live) · `de_v2` + `stt-async-v4` (Soniox — short recordings run the sync v2 engine, long ones and the automatic fallback run v4 async; you don't need to care which ran) · `whisper-large-v3` (Groq Large) · `whisper-large-v3-turbo` (Groq).
+
+## Requirements
+
+- **Windows.** The tool is Windows-only by design (global hotkeys, audio capture, and text insertion are Win32); a macOS sister port exists (see [Project & links](#project--links)).
+- **A microphone**, with Windows microphone access allowed (Settings > Privacy & security > Microphone).
+- **At least one API key** — Groq (free) or Soniox (prepaid); see [API keys](#api-keys).
+- **Internet.** Transcription runs through the APIs; the first start also downloads Python and the dependencies once.
+- **No Python needed** on the standard path — uv downloads a suitable one automatically. (pip fallback: Python 3.10–3.13, not 3.14.)
 
 ## Installation
 
-1. **uv installieren** (einmalig)
+<!-- quick-start slot (#51): a guided setup path drops in here as the first option, when it exists -->
 
-   Thoughtborne nutzt [uv](https://docs.astral.sh/uv/) als Python-Projektmanager: uv lädt automatisch ein passendes Python und alle Dependencies in ein lokales `.venv` – ein vorinstalliertes Python ist nicht nötig.
+Three ways in — pick one. The commands work in PowerShell and cmd alike.
 
-   ```bash
+### Standard setup (uv)
+
+Thoughtborne uses [uv](https://docs.astral.sh/uv/) as its Python project manager: uv downloads a suitable Python and all dependencies into a local `.venv` automatically — no pre-installed Python required.
+
+1. **Install uv** (one-time):
+
+   ```
    winget install --id=astral-sh.uv -e
    ```
 
-   Ohne winget: [uv-Installationsanleitung](https://docs.astral.sh/uv/getting-started/installation/)
+   Then open a fresh terminal — a window that was already open does not see winget's PATH update (`Thoughtborne.bat` finds uv on its own either way).
 
-2. **Repository holen**
+   No winget? Use the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
 
-   ```bash
+2. **Get the code:**
+
+   ```
    git clone https://github.com/timwessels/thoughtborne-windows.git
    cd thoughtborne-windows
    ```
-   Oder das ZIP von GitHub herunterladen und entpacken.
 
-3. **API-Keys einrichten**
+   Or download and unpack the ZIP from GitHub — it unpacks as `thoughtborne-windows-main`, so adjust the `cd`.
 
-   Die Vorlage `.env.example` als `.env` kopieren und die Keys eintragen:
+3. **Set up API keys:** copy `.env.example` to `.env` and enter at least one key — where to get the keys is in [API keys](#api-keys).
+
    ```
-   GROQ_API_KEY=dein_groq_key
-   SONIOX_API_KEY=dein_soniox_key
+   copy .env.example .env
+   notepad .env
    ```
 
-   API-Keys erhältlich bei:
-   - Groq: https://console.groq.com/keys
-   - Soniox: https://soniox.com
+4. **Start:**
 
-4. **Optional: Eigene Begriffe für die Spracherkennung hinterlegen**
-
-   Soniox Live und der v4-Pfad des Soniox-Upload-Slots (lange Aufnahmen, Fallback) unterstützen einen "Context"-Mechanismus: Fachbegriffe, Eigennamen, häufig genutzte Wörter werden dem Modell als Hinweis mitgegeben. Das verbessert die Erkennung spürbar.
-
-   ```bash
-   cp personal_settings.example.json personal_settings.json
    ```
-   Datei öffnen und eigene Terms im `vocabulary`-Block eintragen. Fehlt die Datei, läuft das Tool ohne Personalisierung.
-
-5. **Starten**
-
-   ```bash
    uv run thoughtborne.py
    ```
-   Oder Doppelklick auf `Thoughtborne.bat` – sie startet das Tool über uv und bietet die uv-Installation an, falls uv fehlt. Beim ersten Start lädt uv einmalig Python und alle Dependencies (Internetverbindung nötig). Danach hält uv alles automatisch aktuell – auch nach einem `git pull` mit neuen Dependencies sind keine manuellen Schritte nötig.
 
-### Alternative: klassisch mit pip + venv
+   Or double-click `Thoughtborne.bat` — it starts the tool via uv and offers to install uv if it is missing. The first start downloads Python and the dependencies once; after that, uv keeps everything up to date automatically — even after a `git pull` with new dependencies, no manual steps are needed.
 
-Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.13, nicht 3.14** – PyAudio liefert für 3.14 noch keine vorgebauten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
+### Setup with an AI coding agent
 
-```bash
-py -3.13 -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-optional.txt   # Soniox-SDK (schneller v2-sync-Pfad, siehe Dependencies)
-python thoughtborne.py
-```
-
-### Setup mit einem KI-Coding-Agenten
-
-Wer mit einem KI-Coding-Agenten arbeitet (Claude Code, Cursor, Codex …), kann ihm das Setup übergeben – [`llms-install.md`](llms-install.md) führt den Agenten Schritt für Schritt durch Installation, API-Key-Einrichtung und Selbsttest. Im geklonten Repo dem Agenten einfach sagen:
+Working with an AI coding agent (Claude Code, Cursor, Codex …)? Hand it the setup — [`llms-install.md`](llms-install.md) walks the agent through installation, API keys, and the self-test. In the cloned repo, just tell it:
 
 ```text
 Read llms-install.md and guide me through the setup. Ask before running commands.
 ```
 
-`llms-install.md` ist gewöhnliches, menschenlesbares Markdown – wer mag, liest vorher selbst hinein.
+`llms-install.md` is ordinary, human-readable Markdown — feel free to read it yourself.
 
-## Projektstruktur
+### Classic pip + venv (fallback)
+
+Without uv, the classic way still works. Important: **Python 3.10–3.13, not 3.14** — PyAudio ships no pre-built wheels for 3.14 yet, so installation fails there with a build error.
 
 ```
-Thoughtborne/
-├── thoughtborne.py              # Hauptprogramm, Hotkey-Handling
-├── audio_handler.py        # Audio-Aufnahme, WAV/MP3-Konvertierung
-├── transcriber.py          # API-Abstraktion (Soniox, Groq)
-├── output_handler.py       # Text-Ausgabe, Clipboard-Operationen
-├── config.py               # Konfiguration, Hotkeys, API-Settings
-├── hotkey_manager.py       # Win32 RegisterHotKey API
-├── .env                    # API-Keys (nicht in Git)
-├── pyproject.toml          # Projekt-Metadaten + Dependencies (uv)
-├── uv.lock                 # Gepinnte Dependency-Versionen (uv)
-├── requirements.txt        # Python Dependencies (pip-Fallback)
-├── requirements-optional.txt
-├── Thoughtborne.bat             # Windows-Starter
-├── test_audio.mp3               # Beispiel-Audio für den Selbsttest (Ctrl+Alt+Ü)
-│
-├── voice_archive/          # Archivierte Aufnahmen (auto-erstellt)
-├── text_archive/           # Archivierte Transkripte (auto-erstellt)
-├── thoughtborne.log       # Log-Datei (auto-erstellt)
-└── .venv/                  # Python-Umgebung (auto-erstellt von uv)
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -r requirements-optional.txt
+python thoughtborne.py
 ```
 
-## Konfiguration
+The optional file installs the Soniox SDK. Without it, the `soniox` slot runs entirely on the v4 engine — it works, just slower for short recordings. (On the uv path the SDK is included automatically.)
 
-In `config.py` anpassbar:
+## API keys
 
-| Setting | Default | Beschreibung |
-|---------|---------|--------------|
-| `DEFAULT_API` | `"soniox-live"` | Start-API (soniox-live/soniox/groq-large/groq) |
-| `LANGUAGE` | `"de"` | Sprache für Transkription |
-| `MAX_PARALLEL_TRANSCRIPTIONS` | `3` | Max. parallele Verarbeitungen |
-| `AUDIO_TRIM_END_MS` | `300` | Millisekunden am Ende trimmen (entfernt Hotkey-Klick) |
-| `HOTKEYS` | siehe config.py | Alle Tastenkombinationen |
+The keys are your own — you sign up directly with the providers. Audio goes to the transcription API you chose, and nowhere beyond that; recordings and transcripts are archived locally, nowhere else. Every integrated API must offer at least an opt-out from training on user data ([VISION.md](VISION.md)). At least one key is required — without any key, the tool refuses to start and names exactly which keys are missing.
 
-## Dependencies
+**Groq** (free): sign up at [console.groq.com](https://console.groq.com) → API Keys page ([console.groq.com/keys](https://console.groq.com/keys)) → create a key and copy it immediately (it is shown only once) → put it into the `GROQ_API_KEY=` line of `.env`.
 
-Mit uv werden alle Dependencies automatisch installiert und über `uv.lock` auf reproduzierbare Versionen gepinnt – inklusive des Soniox-SDKs. Die folgenden Listen beschreiben den pip-Weg:
+**Soniox** (prepaid): sign up at [soniox.com](https://soniox.com) → in the console ([console.soniox.com](https://console.soniox.com)), top up a small prepaid balance (required before the API works) → create and copy a key → put it into the `SONIOX_API_KEY=` line of `.env`.
 
-**Erforderlich:**
+Only a Groq key? Nothing to configure: startup automatically skips the Soniox entries, says so, and starts on the first available API. To start on Groq silently instead, set `DEFAULT_API = "groq-large"` in `config.py`.
+
+## First run
+
+Start the tool — double-click `Thoughtborne.bat` or run `uv run thoughtborne.py`. A console window opens with a startup banner showing the active API and the hotkey list; details go to `thoughtborne.log`.
+
+Then dictate:
+
+1. Focus any text field (plain Notepad works well).
+2. Press `Ctrl+Alt+W` and say a sentence — the console confirms that the recording is running.
+3. Press `Ctrl+Alt+A` — the transcript appears at the cursor.
+
+**Self-test:** `Ctrl+Alt+Ü` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
+
+Your data stays with you: recordings go to `voice_archive/` (MP3), transcripts to `text_archive/`, both created automatically in the project folder. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording.
+
+`Ctrl+Alt+4` exits the tool.
+
+## Hotkeys
+
+| Hotkey | Action |
+|--------|--------|
+| `Ctrl+Alt+W` | Start recording (works while a previous recording is still transcribing) |
+| `Ctrl+Alt+A` | Stop + insert at the cursor (simulated typing) |
+| `Ctrl+Alt+D` | Stop + insert at the cursor (clipboard paste — faster) |
+| `Ctrl+Alt+H` | Stop + insert + press Enter (one-press send, for chats) |
+| `Ctrl+Alt+Y` | Stop + transcribe only — insert later with `A` or `D` |
+| `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
+| `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
+| `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Large → Groq) |
+| `Ctrl+Alt+Ü` | Self-test: transcribe the bundled `test_audio.mp3` |
+| `Ctrl+Alt+4` | Exit |
+
+Transcripts are always inserted in recording order, even when several recordings are processing in parallel.
+
+**`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, remap the combination in the `HOTKEYS` dict in `config.py` — the entries there show the format.
+
+## Customization
+
+**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by Soniox Live and the v4 path of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
+
 ```
-groq>=0.4.0
-pyaudio>=0.2.11
-keyboard>=0.13.5
-soundfile>=0.12.1
-numpy>=1.21.0
-pyperclip>=1.8.2
-python-dotenv>=1.0.0
-pyautogui>=0.9.54
-httpx>=0.28.0
-websockets>=15.0.0
+copy personal_settings.example.json personal_settings.json
 ```
 
-**Optional** (im uv-Weg automatisch enthalten):
-```
-soniox>=1.10.1,<2    # Soniox-SDK für den schnellen v2-sync-Pfad des Soniox-Slots (2.x ist inkompatibel);
-                     # ohne SDK läuft der Slot vollständig über v4 async (funktioniert, aber langsamer)
-```
+**Settings in `config.py`:** the configuration is deliberately plain constants with comments. The ones most users touch:
 
-## Systemanforderungen
+- `DEFAULT_API` — the API at startup (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`).
+- `LANGUAGE` — default `"de"`. English works (`"en"`), but the artifact filters and tuning target German — honest expectations ([VISION.md](VISION.md)).
+- `HOTKEYS` — all key combinations. If one collides with another program, change it here; avoid special characters like `#` and non-ASCII letters (the established `ü` is the known-good exception).
 
-- **Plattform**: Windows
-- **Python**: 3.10–3.13 (mit uv automatisch – uv lädt ein passendes Python; 3.14 wird noch nicht unterstützt, da PyAudio dafür keine Wheels liefert)
-- **Mikrofon**: Zugriff erforderlich
-- **Internet**: Für API-Zugriff
+More settings (parallel transcriptions, audio trimming, …) are documented as comments in `config.py` itself.
 
-## API-Vergleich
-
-| | Soniox | Soniox Live | Groq Large | Groq |
-|--|--------|-------------|------------|------|
-| **Geschwindigkeit** | ~4-6s (kurz) / ~10-40s (lang, async) | ~0.5s nach Stop | ~1s | ~0.7s |
-| **Genauigkeit** | Sehr gut | Sehr gut | Gut–Sehr gut | Gut |
-| **Geeignet für** | Fachbegriffe, polierter Text | Schnellstes Ergebnis (Default) | Kostenloser Einstieg | Schnelle Notizen |
-| **Modell** | de_v2 (gRPC) + stt-async-v4 | stt-rt-v4 | Whisper Large V3 | Whisper Large V3 Turbo |
-| **Hosting** | Soniox Cloud | Soniox Cloud | Groq Cloud | Groq Cloud |
-| **Context** | Nein (kurz) / Ja (lang) | Ja | Nein | Nein |
-
-**Default ist Soniox Live** – umschaltbar mit `Ctrl+Alt+L`.
-
-Der Soniox-Slot arbeitet zweistufig: Aufnahmen unter 58 Sekunden laufen über die schnelle, synchrone v2-API; Aufnahmen ab 58 Sekunden sowie der automatische Fallback bei einem v2-Ausfall laufen über die v4-async-REST-API. Welcher Pfad lief, steht im Log – fürs Diktieren muss man den Unterschied nicht kennen.
-
-**Kostenlos testen:** Beide Groq-Modelle laufen im kostenlosen Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) – damit lässt sich Thoughtborne ohne Bezahlung ausprobieren; Groq Large ist dabei die genauere, Groq die schnellste Option. Wer nur einen Groq-Key hat, muss nichts umstellen: Thoughtborne startet automatisch auf der ersten API, deren Key vorhanden ist, und nennt die übersprungenen Einträge beim Start. Wer ohne diese Hinweise direkt auf Groq starten will, stellt in `config.py` `DEFAULT_API` auf `"groq-large"` oder `"groq"` um. Soniox erfordert eine Guthaben-Aufladung vor der ersten Nutzung.
+**Or tell your coding agent.** The project's configurability strategy is readable code rather than a sprawling settings surface ([VISION.md](VISION.md)): describe the change you want to your AI coding agent — [`AGENTS.md`](AGENTS.md) gives it the ground rules for working in this repo.
 
 ## Troubleshooting
 
-**PyAudio-Installation schlägt fehl (pip-Weg):**
+**PyAudio installation fails (pip path).** PyAudio ships official Windows wheels for Python 3.10–3.13 — `pip install` needs no compiler there. A build error usually means Python 3.14: switch to 3.13 or use the uv path (uv picks a suitable Python automatically).
 
-PyAudio liefert offizielle Windows-Wheels für Python 3.10–3.13 – `pip install pyaudio` braucht dort keinen Compiler. Bricht die Installation mit einem Build-Fehler ab, läuft vermutlich Python 3.14: auf Python 3.13 wechseln oder den uv-Weg nutzen (uv wählt automatisch ein passendes Python).
+**`python` opens the Microsoft Store.** That is the Store alias stub on a machine without Python — use the `py` launcher (as in the pip commands above) or the uv path.
 
-**Kein Audio-Input:**
-- Mikrofon-Berechtigungen prüfen
-- Standard-Audiogerät in Windows prüfen
-- `thoughtborne.log` auf Geräteliste prüfen
+**`winget` not found.** Install uv via the [official installer instructions](https://docs.astral.sh/uv/getting-started/installation/), or use the pip path.
 
-**API-Fehler:**
-- API-Keys in `.env` prüfen
-- Internetverbindung prüfen
-- API-Limits beachten
+**The tool starts, but no audio / empty transcripts.** Check Windows microphone permission (Settings > Privacy & security > Microphone) and the default input device; `thoughtborne.log` records which input device was used.
 
-## Forschung: Bessere deutsche Modelle
+**A hotkey does not register** (a `FAILED:` line in the startup log). Another program already owns that combination — global hotkeys are exclusive in Windows. Change the combo in the `HOTKEYS` dict in `config.py`.
 
-Recherche und Batch-Vergleiche (249 Dateien, Feb 2026) zeigen die Stärken der verschiedenen Modelle:
+**Insertion does nothing in one specific window.** The target app runs elevated (as administrator), and Windows blocks simulated input from non-elevated processes. Run Thoughtborne elevated too, or dictate into non-elevated apps.
 
-| Modell | WER Deutsch | Stärken |
-|--------|-------------|---------|
-| Whisper Large V3 (Standard) | ~5.0% | Breite Sprachunterstützung |
-| Soniox de_v2 | ~7.0% | Zuverlässigste Fachbegriff-/Namenerkennung |
+**First start is very slow, or fails offline.** uv downloads Python and the dependencies once; it needs internet that one time.
 
-(Interne Batch-Vergleiche; die ausführlichen Ergebnisse sind nicht Teil des Repos.)
+**API errors.** Check the keys in `.env` and your internet connection; on the free tier, mind the [rate limits](#the-model-lineup).
 
-## Architektur
+## Project & links
 
-```
-Hotkey → Audio-Aufnahme → Transkription (Thread) → Output-Queue → Text-Einfügung
-              ↓                    ↓
-         voice_archive/      text_archive/
+- [VISION.md](VISION.md) — why the tool exists, the quality bar, what guides decisions.
+- [CHANGELOG.md](CHANGELOG.md) — what changed, release by release.
+- [LICENSE](LICENSE) — MIT.
+- For AI coding agents: [AGENTS.md](AGENTS.md) (working in this repo) · [llms-install.md](llms-install.md) (guided setup).
+- **macOS:** a sister port exists — [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos): three transcription APIs instead of four, otherwise analogous; available as-is.
 
-[Soniox Live: Audio wird parallel zur Aufnahme per WebSocket gestreamt]
-```
-
-Thread-Sicherheit durch Locks und atomare Operationen. Parallele Transkription möglich, Ausgabe erfolgt sequentiell in Aufnahme-Reihenfolge.
-
-## Lizenz
-
-MIT – siehe [LICENSE](LICENSE).
+Issues and contributions are welcome. Thoughtborne has been the maintainer's daily tool for years and is actively maintained.

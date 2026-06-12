@@ -23,7 +23,7 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 ## Conventions
 
 - **Language:** English for code, inline comments, commit messages, and all public documentation.
-- **Bilingual README:** when both `README.md` and `README.de.md` exist, they must stay content-equivalent — a change to one is mirrored in the other.
+- **Bilingual README:** `README.md` (English) and `README.de.md` (German) are content-equivalent twins — a change to one is mirrored in the other.
 - **Commit messages:** short, imperative English; reference issues with `(#N)`.
 - **CHANGELOG.md:** non-trivial changes get an entry under `## [Unreleased]` (Keep-a-Changelog categories: `### Added` / `### Changed` / `### Fixed` / `### Removed`).
 
@@ -39,5 +39,5 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 
 - **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`.
 - **Windows launcher:** `Thoughtborne.bat`.
-- **Public docs:** `README.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
+- **Public docs:** `README.md`, `README.de.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
 - **User data** (created at runtime, gitignored): `voice_archive/`, `text_archive/`, `thoughtborne.log` — the user's data, never delete.
