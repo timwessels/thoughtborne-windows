@@ -122,7 +122,7 @@ Then dictate:
 
 **Self-test:** `Ctrl+Alt+Ü` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
-Your data stays with you: recordings go to `voice_archive/` (MP3), transcripts to `text_archive/`, both created automatically in the project folder. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording.
+Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording.
 
 `Ctrl+Alt+4` exits the tool.
 
@@ -138,6 +138,7 @@ Your data stays with you: recordings go to `voice_archive/` (MP3), transcripts t
 | `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
 | `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Large → Groq) |
+| `Ctrl+Alt+6` | Open the recordings & transcripts folder (`history/`) in Explorer |
 | `Ctrl+Alt+Ü` | Self-test: transcribe the bundled `test_audio.mp3` |
 | `Ctrl+Alt+4` | Exit |
 

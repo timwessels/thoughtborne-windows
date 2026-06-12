@@ -39,7 +39,10 @@ env/
 *.log.*
 logs/
 
-# Audio archives
+# Recording & transcript history. history/ is the current layout (#50);
+# voice_archive/ + text_archive/ are the pre-#50 legacy layout, kept so
+# stale checkouts stay ignored.
+history/
 voice_archive/
 text_archive/
 

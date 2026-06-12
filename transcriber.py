@@ -61,7 +61,7 @@ class AbstractTranscriber(ABC):
     
     def _ensure_directories(self):
         """Create text archive directory if it doesn't exist"""
-        TEXT_ARCHIVE_FOLDER.mkdir(exist_ok=True)
+        TEXT_ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
         logger.info(f"Text archive folder ready: {TEXT_ARCHIVE_FOLDER}")
 
     def _report_auth_failure(self, env_var: str, detail: str = "") -> None:

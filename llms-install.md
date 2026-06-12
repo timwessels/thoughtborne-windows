@@ -125,7 +125,7 @@ After two or three failed attempts at the same step, stop and report to the user
 **Never:**
 
 - commit, echo, or log `.env` contents or API keys;
-- delete or recreate `voice_archive/`, `text_archive/`, or any other user data;
+- delete or recreate `history/`, `voice_archive/`, `text_archive/`, or any other user data;
 - modify project code beyond the documented configuration surfaces (`config.py` settings, `personal_settings.json`);
 - uninstall or globally alter existing Python installations;
 - disable Windows security features to make a step pass;

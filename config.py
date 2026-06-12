@@ -3,6 +3,8 @@ Configuration Module for Thoughtborne
 
 This module contains all configuration constants and settings.
 It handles loading environment variables and provides default values.
+It also owns the legacy archive-layout migration (#50), kept next to the
+path constants it serves.
 """
 
 import json
@@ -23,8 +25,87 @@ _config_logger = logging.getLogger('Thoughtborne.Config')
 # ===== PATHS =====
 SCRIPT_DIR = Path(__file__).parent.absolute()
 LOG_FILE = SCRIPT_DIR / "thoughtborne.log"
-ARCHIVE_FOLDER = SCRIPT_DIR / "voice_archive"
-TEXT_ARCHIVE_FOLDER = SCRIPT_DIR / "text_archive"
+# Unified history layout (#50): one folder to open, audio and transcripts as
+# timestamp-paired siblings. Pre-#50 layouts (voice_archive/ + text_archive/)
+# are migrated by migrate_legacy_archives() below.
+HISTORY_FOLDER = SCRIPT_DIR / "history"
+ARCHIVE_FOLDER = HISTORY_FOLDER / "audio"
+TEXT_ARCHIVE_FOLDER = HISTORY_FOLDER / "transcripts"
+
+
+def migrate_legacy_archives(base_dir=None) -> list:
+    """Move the pre-#50 archive folders into the unified history/ layout (#50).
+
+    voice_archive/ -> history/audio/ and text_archive/ -> history/transcripts/,
+    each pair handled independently, via an atomic same-volume directory rename
+    (no copying -- years of recordings move as one metadata operation, and the
+    #49 .partial sidecars travel along, so the startup recovery finds them at
+    the new location).
+
+    MUST run before anything creates or scans the new folders: before
+    AudioRecorder / transcriber construction (their mkdir calls) and before
+    recover_partial_files(). main() calls it first thing.
+
+    Never deletes user data, and never raises -- any failure degrades to a
+    WARNING and leaves the old folder untouched for the next start. The only
+    thing it ever removes is a truly EMPTY new-side folder (rmdir), which is
+    what heals the "migration failed once, mkdir then created empty new
+    folders" state.
+
+    base_dir parameterizes the layout root for tests; production uses
+    SCRIPT_DIR. Returns the list of user-facing event strings (also logged
+    here) so a test driver can assert on outcomes.
+    """
+    base = base_dir if base_dir is not None else SCRIPT_DIR
+    pairs = [
+        (base / "voice_archive", base / "history" / "audio"),
+        (base / "text_archive", base / "history" / "transcripts"),
+    ]
+    events = []
+    for old, new in pairs:
+        try:
+            if not old.is_dir():
+                continue  # nothing legacy here: fresh start or already migrated
+            if new.is_dir():
+                try:
+                    # Only succeeds on a truly empty directory -- inherently
+                    # safe. Heals the failed-first-attempt state where a later
+                    # mkdir created the new folder empty.
+                    new.rmdir()
+                except OSError:
+                    msg = (f"Old and new archive folders BOTH exist -- touching "
+                           f"neither. Old: {old}  New: {new}  To resolve: move "
+                           f"the files from the old folder into the new one "
+                           f"while Thoughtborne is not running, then delete the "
+                           f"emptied old folder.")
+                    _config_logger.warning(msg)
+                    events.append(msg)
+                    continue
+            new.parent.mkdir(parents=True, exist_ok=True)
+            n_files = sum(1 for f in old.rglob("*") if f.is_file())
+            old.rename(new)  # os.rename underneath: atomic on the same volume
+            msg = (f"Archive migrated to the new layout: {old.name} -> "
+                   f"{new.relative_to(base)} ({n_files} files)")
+            _config_logger.info(msg)
+            events.append(msg)
+        except OSError as e:
+            if not old.exists() and new.is_dir():
+                # Benign race: a second instance migrated this pair first.
+                _config_logger.info(f"{old.name} was already migrated by another instance")
+                continue
+            msg = (f"Could not migrate {old} -> {new} ({e}). Your files are "
+                   f"untouched in {old}; the next start retries the migration "
+                   f"(or explains how to resolve it).")
+            _config_logger.warning(msg)
+            events.append(msg)
+        except Exception as e:
+            # A rescue/maintenance path must never block the start (#50).
+            msg = (f"Unexpected error migrating {old} -> {new} ({e}). Your "
+                   f"files are untouched in {old}; the next start retries the "
+                   f"migration (or explains how to resolve it).")
+            _config_logger.error(msg, exc_info=True)
+            events.append(msg)
+    return events
 
 # ===== AUDIO SETTINGS =====
 CHUNK = 1024
@@ -157,6 +238,7 @@ HOTKEYS = {
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
     'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
     'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
+    'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 

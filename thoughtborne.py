@@ -39,7 +39,8 @@ from config import (
     LOG_CONSOLE_QUEUE_MAX,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS,
-    SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER,
+    SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
+    migrate_legacy_archives,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed
 from audio_handler import AudioRecorder, recover_partial_files
@@ -1170,6 +1171,20 @@ class ThoughtborneApp:
         """Callback for switch API hotkey"""
         self.switch_api()
 
+    def on_open_history(self):
+        """Open the unified history folder in Explorer (#50).
+
+        Runs on the listener thread -> logger.* only (#11). os.startfile is
+        non-blocking. The folder is (re)created first so the hotkey also works
+        if the user deleted it mid-session.
+        """
+        try:
+            HISTORY_FOLDER.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(HISTORY_FOLDER))
+            logger.info(f"Opened history folder: {HISTORY_FOLDER}")
+        except OSError as e:
+            logger.error(f"Could not open the history folder {HISTORY_FOLDER}: {e}")
+
     def on_exit_program(self):
         """Callback for exit program"""
         self.stop_program()
@@ -1383,6 +1398,7 @@ class ThoughtborneApp:
             print(f"NOTE: {self._startup_fallback_note}")
         print(f"Available APIs: {', '.join(AVAILABLE_APIS)}")
         print(f"Log file: {LOG_FILE}")
+        print(f"Your recordings & transcripts: {HISTORY_FOLDER}")
         print(f"Max parallel processing: {MAX_PARALLEL_TRANSCRIPTIONS}")
         print("\nControls (Windows - using Ctrl+Alt):")
         print("- Ctrl+Alt+W: Start recording (can be pressed during processing)")
@@ -1393,6 +1409,7 @@ class ThoughtborneApp:
         print("- Ctrl+Alt+R: Retry last failed transcription")
         print("- Ctrl+Alt+X: Cancel recording")
         print("- Ctrl+Alt+L: Switch transcription API")
+        print("- Ctrl+Alt+6: Open the recordings & transcripts folder")
         print("- Ctrl+Alt+Ü: TEST - Transcribe file 'test_audio.mp3'")
         print("- Ctrl+Alt+4: Exit program")
         print("\nCtrl+Alt+H sends message after transcription - perfect for chatbots!")
@@ -1448,6 +1465,7 @@ class ThoughtborneApp:
             'retry_last_failed': self.on_retry_last_failed,
             'test_transcription': self.on_test_transcription,
             'switch_api': self.on_switch_api,
+            'open_history': self.on_open_history,
         }
 
         for hotkey_name, callback in single_hotkeys.items():
@@ -1515,6 +1533,7 @@ class ThoughtborneApp:
                 print(f"RECOVERED: unsaved recording from "
                       f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}:{ts[13:15]} "
                       f"({duration:.0f}s) -> {Path(path).name}")
+            print(f"Recovered audio is in: {ARCHIVE_FOLDER}")
             # Arm the retry slot with the newest recovered file (single-slot
             # semantics of #24: any later real failure simply overwrites it).
             # Built directly instead of via _record_failed_slot, whose path
@@ -1599,6 +1618,7 @@ def main():
         pass
 
     try:
+        migrate_legacy_archives()  # legacy voice_archive/ + text_archive/ -> history/ (#50)
         app = ThoughtborneApp()
         app.run()
     except KeyboardInterrupt:

@@ -40,4 +40,4 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 - **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`.
 - **Windows launcher:** `Thoughtborne.bat`.
 - **Public docs:** `README.md`, `README.de.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
-- **User data** (created at runtime, gitignored): `voice_archive/`, `text_archive/`, `thoughtborne.log` — the user's data, never delete.
+- **User data** (created at runtime, gitignored): `history/` (recordings in `audio/`, transcripts in `transcripts/`), `thoughtborne.log` — the user's data, never delete. Older checkouts may still carry the legacy `voice_archive/` + `text_archive/` folders (auto-migrated into `history/` at startup) — never delete those either.

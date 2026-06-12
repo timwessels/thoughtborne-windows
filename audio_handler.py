@@ -336,7 +336,7 @@ class AudioRecorder:
 
     def _ensure_directories(self):
         """Create archive directories if they don't exist"""
-        ARCHIVE_FOLDER.mkdir(exist_ok=True)
+        ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
         logger.info(f"Archive folder ready: {ARCHIVE_FOLDER}")
 
     def _ensure_pyaudio_ready(self) -> bool:
