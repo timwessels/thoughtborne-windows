@@ -26,7 +26,7 @@ from groq import Groq, AuthenticationError
 
 from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
-    GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL,
+    GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY,
     SHORT_AUDIO_THRESHOLD,
     SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
     SONIOX_V4_MAX_POLL_ATTEMPTS,
@@ -154,7 +154,7 @@ class GroqTranscriber(AbstractTranscriber):
     artifact class — so one class parameterized by model instead of a subclass.
     """
 
-    def __init__(self, model: str = GROQ_MODEL, display_name: str = "Groq (schnell)"):
+    def __init__(self, model: str = GROQ_MODEL, display_name: str = API_DISPLAY["groq"]["label"]):
         """Initialize the transcriber with API key"""
         super().__init__()
         self.model = model
@@ -375,7 +375,7 @@ class SonioxTranscriber(AbstractTranscriber):
     
     def get_name(self) -> str:
         """Get the name of this transcriber"""
-        return "Soniox (genau)"
+        return API_DISPLAY["soniox"]["label"]
     
     def _clean_transcript_hallucinations(self, transcript: str) -> str:
         """
@@ -900,7 +900,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
     def get_name(self) -> str:
         """Get the name of this transcriber"""
-        return "Soniox Live (stream)"
+        return API_DISPLAY["soniox-live"]["label"]
 
     @property
     def is_live(self) -> bool:
@@ -1445,7 +1445,7 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     if api_name == "groq":
         return GroqTranscriber()
     elif api_name == "groq-large":
-        return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name="Groq Large (genauer)")
+        return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name=API_DISPLAY["groq-large"]["label"])
     elif api_name == "soniox":
         return SonioxTranscriber()
     elif api_name == "soniox-live":

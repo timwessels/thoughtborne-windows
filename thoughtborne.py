@@ -38,7 +38,7 @@ from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS,
+    SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives,
 )
@@ -86,6 +86,16 @@ class DroppingQueueHandler(QueueHandler):
             pass
 
 
+class ConsoleFormatter(logging.Formatter):
+    """Standard log format for normal records; verbatim passthrough for records
+    flagged raw_console (the pre-composed status blocks, #37). Normal log lines
+    are formatted exactly as before -- only flagged records skip the prefix."""
+    def format(self, record):
+        if getattr(record, 'raw_console', False):
+            return record.getMessage()
+        return super().format(record)
+
+
 # ===== LOGGING SETUP =====
 logger = logging.getLogger('Thoughtborne')
 logger.setLevel(logging.DEBUG)
@@ -115,7 +125,7 @@ logger.addHandler(file_handler)
 # emit() would recurse through the redirected stream.
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)  # Terminal: INFO, WARNING, ERROR only (no DEBUG)
-console_handler.setFormatter(formatter)
+console_handler.setFormatter(ConsoleFormatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
 
 # Bounded queue: a full queue drops the newest console records (DroppingQueueHandler
 # swallows queue.Full instead of routing to handleError) so the listener thread never
@@ -133,6 +143,16 @@ _console_queue_listener = QueueListener(
 )
 _console_queue_listener.start()
 
+# Console-only surface for the status block (#37): rides the same bounded
+# queue as all console logging (#11 -- non-blocking from every thread,
+# serialized by the single QueueListener), but never reaches the file log
+# (propagate=False keeps it away from the parent's file handler). Per block,
+# one DEBUG breadcrumb on the main logger carries the event into the file.
+console_logger = logging.getLogger('Thoughtborne.console')
+console_logger.setLevel(logging.INFO)
+console_logger.propagate = False
+console_logger.addHandler(_console_queue_handler)
+
 
 # ===== STDOUT/STDERR REDIRECT TO LOG =====
 class StreamToLogger:
@@ -140,11 +160,13 @@ class StreamToLogger:
     Redirect stdout/stderr to logger while still showing in console.
     This captures ALL output including print() and external library warnings.
     """
-    def __init__(self, logger, log_level=logging.INFO, original_stream=None):
+    def __init__(self, logger, log_level=logging.INFO, original_stream=None,
+                 prefix=''):
         self.logger = logger
         self.log_level = log_level
         self.linebuf = ''
         self.original_stream = original_stream
+        self.prefix = prefix  # greppable marker per logged line (e.g. "[stderr] ", #39)
 
     def write(self, buf):
         # Write to original stream (so it still shows in terminal)
@@ -154,7 +176,7 @@ class StreamToLogger:
 
         # Also log it
         for line in buf.rstrip().splitlines():
-            self.logger.log(self.log_level, line.rstrip())
+            self.logger.log(self.log_level, self.prefix + line.rstrip())
 
     def flush(self):
         if self.original_stream:
@@ -196,14 +218,83 @@ def cleanup_old_logs(log_file, max_age_days=30):
         logger.warning(f"Error during log cleanup: {e}")
 
 
-# Redirect stdout and stderr to logger (while keeping console output)
+# Redirect stdout and stderr to logger (while keeping console output).
+# The redirect logs to a file-only child logger (#39): the raw passthrough to
+# the real console is the single visible copy. Logging to the main logger used
+# to classify every library stderr write as WARNING, which passed the console
+# queue's INFO gate and printed each line a second time, formatted. Severity
+# is now INFO with a greppable "[stderr] " prefix instead of the blanket
+# WARNING; the file log still records every line.
 original_stdout = sys.stdout
 original_stderr = sys.stderr
-sys.stdout = StreamToLogger(logger, logging.DEBUG, original_stdout)
-sys.stderr = StreamToLogger(logger, logging.WARNING, original_stderr)
+_stdio_logger = logging.getLogger('Thoughtborne.stdio')
+_stdio_logger.setLevel(logging.DEBUG)
+_stdio_logger.propagate = False
+_stdio_logger.addHandler(file_handler)
+sys.stdout = StreamToLogger(_stdio_logger, logging.DEBUG, original_stdout)
+sys.stderr = StreamToLogger(_stdio_logger, logging.INFO, original_stderr, prefix="[stderr] ")
 
 # Clean up old log backups on startup
 cleanup_old_logs(LOG_FILE, max_age_days=30)
+
+
+# ===== STATUS BLOCK STYLING (#37) =====
+def _enable_vt_mode() -> bool:
+    """Enable ANSI escape processing on the attached console (Windows 10+).
+
+    Returns True when status-block styling may use color/bold; False means
+    plain text (redirected output, very old Windows, or no console). Uses
+    ctypes SetConsoleMode directly -- no new dependency, no shell spawn."""
+    try:
+        if not original_stderr.isatty():  # console_handler writes to stderr
+            return False
+        if os.name != 'nt':
+            return True
+        import ctypes
+        # Private WinDLL instance on purpose (same pattern as the #29
+        # diagnostics): never touch the shared ctypes.windll function objects
+        # that pyperclip/keyboard/pyautogui configure.
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        # Full signatures: without restype ctypes assumes c_int and would
+        # truncate a 64-bit HANDLE.
+        kernel32.GetStdHandle.restype = ctypes.c_void_p  # HANDLE
+        kernel32.GetStdHandle.argtypes = (ctypes.c_uint32,)  # DWORD
+        kernel32.GetConsoleMode.restype = ctypes.c_int  # BOOL
+        kernel32.GetConsoleMode.argtypes = (ctypes.c_void_p,
+                                            ctypes.POINTER(ctypes.c_uint32))
+        kernel32.SetConsoleMode.restype = ctypes.c_int  # BOOL
+        kernel32.SetConsoleMode.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        handle = kernel32.GetStdHandle(-12)  # STD_ERROR_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        if mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+            return True
+        return bool(kernel32.SetConsoleMode(
+            handle, ctypes.c_uint32(mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)))
+    except Exception:
+        return False
+
+
+_ANSI_ENABLED = _enable_vt_mode()
+
+# SGR codes for _style -- palette kept deliberately minimal (#37)
+_BOLD = "1"
+_RED = "31"
+_GREEN = "32"
+_CYAN = "36"
+
+# Status-block separator: '-' on purpose, distinct from the '=' framing of
+# event blocks (FALLBACK ACTIVE, no-API error) so the two stay tellable apart.
+_SEP = "-" * 60
+
+
+def _style(text: str, *codes: str) -> str:
+    """Wrap text in ANSI SGR codes; plain passthrough when styling is disabled."""
+    if not _ANSI_ENABLED or not codes:
+        return text
+    return f"\x1b[{';'.join(codes)}m{text}\x1b[0m"
 
 
 class ThoughtborneApp:
@@ -222,7 +313,7 @@ class ThoughtborneApp:
             self.audio_recorder = AudioRecorder()
             self._startup_fallback_note = None  # set when startup lands off DEFAULT_API (#40)
             self.current_api, self.transcriber = self._create_startup_transcriber()
-            self.output_manager = OutputManager(on_task_complete_callback=self.print_ready_status)
+            self.output_manager = OutputManager(on_task_complete_callback=self._on_output_event)
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}", exc_info=True)
             print(f"ERROR: Initialization error: {e}")
@@ -706,11 +797,27 @@ class ThoughtborneApp:
                 logger.info("Test text will be inserted...")
             else:
                 logger.warning("Test: no transcription received")
+                # No task exists on this path, so the OutputManager funnel never
+                # sees it -- emit the failure block directly (#37). Runs on the
+                # listener thread: show_status_block only enqueues (#11).
+                self.show_status_block(
+                    'self-test-failed',
+                    _style("FAILED Self-test failed -- no transcription received",
+                           _BOLD, _RED),
+                    action=(f"check your API key in .env and the log: {LOG_FILE.name}",
+                            f"(.env is in {SCRIPT_DIR})"),
+                )
 
             logger.info("Test completed")
         else:
             logger.error(f"Test file not found: {test_file}")
             logger.error("Place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
+            self.show_status_block(
+                'self-test-failed',
+                _style("FAILED Self-test failed -- no test audio file found",
+                       _BOLD, _RED),
+                action="place 'test_audio.wav' or 'test_audio.mp3' in the project folder, then retry",
+            )
 
     def _create_startup_transcriber(self):
         """Construct the startup transcriber, falling through the carousel (#40).
@@ -814,7 +921,12 @@ class ThoughtborneApp:
                 self.transcriber = new_transcriber
                 self.current_api = next_api
                 logger.info(f"Successfully switched to {self.transcriber.get_name()}")
-                self.print_ready_status()
+                self.show_status_block(
+                    'switched',
+                    _style("SWITCHED", _BOLD, _CYAN)
+                    + f" Now transcribing with: {self.transcriber.get_name()}",
+                    show_lineup=True,
+                )
                 return
 
             # Full circle: no other entry is constructible -- stay put.
@@ -824,6 +936,13 @@ class ThoughtborneApp:
             if missing:
                 logger.error(f"Missing API key(s): {', '.join(missing)} -- add them to "
                              f".env (see README), then restart Thoughtborne.")
+            self.show_status_block(
+                'switch-failed',
+                _style(f"FAILED No other API available -- staying on "
+                       f"{self.transcriber.get_name()}", _BOLD, _RED),
+                action="add the missing key(s) to .env (see README), then restart",
+                show_lineup=True,
+            )
 
         except Exception as e:
             logger.error(f"Error in API switch: {e}", exc_info=True)
@@ -1037,7 +1156,6 @@ class ThoughtborneApp:
                                             sidecar=sidecar):
                 logger.info("Processing in background (no auto-insert)...")
                 logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording")
-                self.print_ready_status()
 
     def on_cancel_recording(self):
         """Callback for cancel recording"""
@@ -1051,7 +1169,6 @@ class ThoughtborneApp:
                 self._active_live_transcriber = None
 
             self.audio_recorder.cancel_recording()
-            self.print_ready_status()
 
     def on_retry_last_failed(self):
         """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).
@@ -1384,73 +1501,219 @@ class ThoughtborneApp:
             logger.error(f"Audio captured so far was saved ({duration:.1f}s): {archive}")
             logger.error(f"Reconnect your microphone, then press "
                          f"{self._format_hotkey(HOTKEYS['retry_last_failed'])} to transcribe it.")
+            self.show_status_block(
+                'device-loss',
+                _style(f"FAILED Microphone lost -- recording ended and saved "
+                       f"({duration:.0f}s, not transcribed)", _BOLD, _RED),
+                action=f"reconnect your microphone, then press "
+                       f"{self._format_hotkey(HOTKEYS['retry_last_failed'])} to transcribe it",
+            )
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
                     if sidecar is not None else "")
             logger.error(f"Could not save the aborted recording: {e}.{kept}")
 
     def print_instructions(self):
-        """Print usage instructions"""
-        emoji = self._get_api_emoji()
+        """Print the startup banner (main thread, before hotkeys -- print() is
+        safe here). Deliberately slim since #37: the essentials (active API,
+        hotkeys, history path, what to press now) repeat in every status block;
+        the full hotkey reference lives in the README."""
         print(f"\n=== Thoughtborne running (Windows version) ===")
-        print(f"Current API: {emoji} {self.transcriber.get_name()}")
-        if self._startup_fallback_note:
-            print(f"NOTE: {self._startup_fallback_note}")
-        print(f"Available APIs: {', '.join(AVAILABLE_APIS)}")
         print(f"Log file: {LOG_FILE}")
-        print(f"Your recordings & transcripts: {HISTORY_FOLDER}")
         print(f"Max parallel processing: {MAX_PARALLEL_TRANSCRIPTIONS}")
-        print("\nControls (Windows - using Ctrl+Alt):")
-        print("- Ctrl+Alt+W: Start recording (can be pressed during processing)")
-        print("- Ctrl+Alt+A: Stop recording / Insert last text (keyboard)")
-        print("- Ctrl+Alt+D: Stop recording / Insert last text (clipboard)")
-        print("- Ctrl+Alt+H: Stop recording / Insert & SEND (press Enter)")
-        print("- Ctrl+Alt+Y: Stop recording / Process only (insert later with A/D)")
-        print("- Ctrl+Alt+R: Retry last failed transcription")
-        print("- Ctrl+Alt+X: Cancel recording")
-        print("- Ctrl+Alt+L: Switch transcription API")
-        print("- Ctrl+Alt+6: Open the recordings & transcripts folder")
-        print("- Ctrl+Alt+Ü: TEST - Transcribe file 'test_audio.mp3'")
-        print("- Ctrl+Alt+4: Exit program")
+        print(f"Self-test: {self._format_hotkey(HOTKEYS['test_transcription'])} "
+              f"transcribes 'test_audio.mp3'")
         print("\nCtrl+Alt+H sends message after transcription - perfect for chatbots!")
         print("     Use Y to process without inserting. Insert later with A or D.")
         print("\nCtrl+Alt+D uses clipboard for faster insertion!")
         print("Texts are always inserted in recording order!")
-        print("\nAPI Models: [SONIOX] v2+v4 upload | [LIVE] v4 stream | [Groq-L] accurate | [Groq] fast")
         print("=========================================\n")
 
-    def _get_api_emoji(self):
-        """Get emoji for current API"""
-        api_name = self.transcriber.get_name().lower()
-        if 'live' in api_name:
-            return '[LIVE]'  # Soniox Live WebSocket RT
-        elif 'groq large' in api_name:
-            return '[Groq-L]'  # Large V3 (higher accuracy)
-        elif 'groq' in api_name:
-            return '[Groq]'  # Fast
-        elif 'soniox' in api_name:
-            return '[SONIOX]'  # Soniox upload slot (v2 sync + v4 async)
-        return ''
+    # ===== GLANCEABLE STATUS BLOCK (#37) =====
 
-    def print_ready_status(self, is_ready_to_insert=False, char_count=0):
-        """
-        Print ready status with current API info
+    def show_status_block(self, event, headline, action=(), show_lineup=False,
+                          extra_lines=(), detail=""):
+        """Compose and print the glanceable status block (#37).
+
+        The block is ONE pre-composed string emitted through the console-only
+        logger: it rides the same bounded queue as all console logging (#11 --
+        non-blocking from every thread, serialized by the single QueueListener,
+        and written in a single write() so concurrent prints can never land
+        inside it). It never reaches the file log; one DEBUG breadcrumb on the
+        main logger carries the event into the file instead. Never raises: a
+        broken status block must never break an insert or a switch
+        (stability #1).
 
         Args:
-            is_ready_to_insert: If True, this is a Y-task ready for insertion (show READY)
-            char_count: Number of characters in the text (only for Y-task)
+            event: Short event id for the file-log breadcrumb.
+            headline: Block headline including its styled tag (OK/FAILED/
+                      READY/SWITCHED), built by the caller via _style.
+            action: "What now" line(s) -- a string or a sequence of strings;
+                    follow-up lines align under the first.
+            show_lineup: True renders the full API lineup (startup + switch);
+                         False the one-line active-API summary.
+            extra_lines: Lines right below the headline (startup notes).
+            detail: Extra text for the breadcrumb (e.g. "seq=12 chars=184").
         """
-        emoji = self._get_api_emoji()
+        try:
+            lines = ["", _SEP, " " + headline]
+            lines.extend(" " + extra for extra in extra_lines)
+            if isinstance(action, str):
+                action = (action,)
+            for i, action_line in enumerate(action):
+                if i == 0:
+                    lines.append(" " + _style("What now: " + action_line, _BOLD))
+                else:
+                    lines.append(" " + " " * len("What now: ") + action_line)
+            lines.extend(self._compose_api_lines(show_lineup))
+            lines.append(self._compose_hotkey_line())
+            lines.append(f" History: {HISTORY_FOLDER}   "
+                         f"(open: {self._format_hotkey(HOTKEYS['open_history'])})")
+            lines.append(_SEP)
+            console_logger.info("\n".join(lines), extra={'raw_console': True})
+            logger.debug(f"Status block: event={event} api={self.current_api}"
+                         + (f" {detail}" if detail else ""))
+        except Exception as e:
+            logger.debug(f"Status block suppressed ({event}): {e}")
 
-        if is_ready_to_insert:
-            # Y-Taste: Text verarbeitet, bereit zum Einfuegen - DEUTLICH mit READY
-            logger.info(f"READY! Text processed ({char_count} chars) - Press A or D | {emoji} {self.transcriber.get_name()}")
+    def _compose_api_lines(self, show_lineup):
+        """API section of the status block: the full lineup (startup, switch)
+        or a one-line summary of the active API. Labels and descriptors come
+        from config.API_DISPLAY (#30), order from AVAILABLE_APIS; '(default)'
+        follows config.DEFAULT_API at runtime."""
+        switch_combo = self._format_hotkey(HOTKEYS['switch_api'])
+
+        def display(api_name):
+            entry = API_DISPLAY.get(api_name)
+            if entry is None:  # custom config edit -- degrade, don't lose the block
+                return api_name, ""
+            return entry["label"], entry["descriptor"]
+
+        if not show_lineup:
+            label, descriptor = display(self.current_api)
+            described = f"{label} - {descriptor}" if descriptor else label
+            if self.current_api == DEFAULT_API:
+                described += " (default)"
+            left = f" API: {described}"
+            return [left + " " * max(3, 55 - len(left)) + f"switch: {switch_combo}"]
+
+        lines = [f" API (switch: {switch_combo}):"]
+        width = max(len(display(api_name)[0]) for api_name in AVAILABLE_APIS)
+        for api_name in AVAILABLE_APIS:
+            label, descriptor = display(api_name)
+            marker = ">" if api_name == self.current_api else " "
+            line = f"   {marker} {label.ljust(width)}"
+            if descriptor:
+                line += f" - {descriptor}"
+            if api_name == DEFAULT_API:
+                line += "   (default)"
+            if api_name == self.current_api:
+                line = _style(line, _BOLD)
+            lines.append(line)
+        return lines
+
+    def _compose_hotkey_line(self):
+        """One-line core-hotkey summary for the status block, derived from
+        config.HOTKEYS so remapped combos show the user's real keys. The shared
+        modifier prefix is factored out ("Ctrl+Alt + W record | ...") when all
+        listed combos use the same one; otherwise full combos are printed."""
+        def split_combo(combo):
+            mods, _, key = combo.rpartition('+')
+            return mods, (key or combo)
+
+        combos = {
+            'record': HOTKEYS['start_recording'],
+            'stop_kb': HOTKEYS['stop_recording_keyboard'],
+            'stop_clip': HOTKEYS['stop_recording_clipboard'],
+            'send': HOTKEYS['stop_recording_send'],
+            'keep': HOTKEYS['stop_recording_no_insert'],
+            'cancel': HOTKEYS['cancel_recording'][0],
+            'exit': HOTKEYS['exit_program'][0],
+        }
+        prefixes = {split_combo(combo)[0] for combo in combos.values()}
+        if len(prefixes) == 1 and '' not in prefixes:
+            lead = f"{self._format_hotkey(prefixes.pop())} + "
+            def show(combo):
+                return self._format_hotkey(split_combo(combo)[1])
         else:
-            # Normales Einfuegen: Nur Modell-Status
-            logger.info(f"{emoji} {self.transcriber.get_name()}")
+            lead = ""
+            show = self._format_hotkey
+        return (f" Hotkeys: {lead}"
+                f"{show(combos['record'])} record | "
+                f"{show(combos['stop_kb'])}/{show(combos['stop_clip'])} stop+insert | "
+                f"{show(combos['send'])} insert+send | "
+                f"{show(combos['keep'])} keep | "
+                f"{show(combos['cancel'])} cancel | "
+                f"{show(combos['exit'])} exit")
 
-    def _register_hotkeys(self):
-        """Register all hotkeys using Win32 RegisterHotKey API"""
+    def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False):
+        """Map OutputManager completion events onto status blocks (#37).
+
+        This is the on_task_complete callback (see OutputManager.__init__ for
+        the contract). Runs on the OutputManager thread; the block emission
+        only enqueues (#11). Defensive like show_status_block: never raises
+        into the output loop.
+
+        Events:
+            'inserted' -- transcript inserted; sent=True for the H flow.
+            'ready'    -- Y flow: processed, waiting for a manual insert.
+            'failed'   -- kind='transcription' or kind='insertion'.
+        """
+        try:
+            insert_combos = (
+                f"{self._format_hotkey(HOTKEYS['stop_recording_keyboard'])} (type) or "
+                f"{self._format_hotkey(HOTKEYS['stop_recording_clipboard'])} (paste)")
+            # Negative sequence numbers are internal (immediate tasks: self-test,
+            # insert-last) -- omit them from the user-facing headline.
+            seq_known = seq is not None and seq >= 0
+
+            if event == 'inserted':
+                what = ("Inserted at the cursor + sent" if sent
+                        else "Inserted at the cursor")
+                seq_part = f"seq {seq}, " if seq_known else ""
+                self.show_status_block(
+                    'inserted',
+                    _style("OK", _BOLD, _GREEN) + f" {what} ({seq_part}{chars} chars)",
+                    detail=f"seq={seq} chars={chars} sent={sent}",
+                )
+            elif event == 'ready':
+                self.show_status_block(
+                    'ready',
+                    _style("READY", _BOLD, _GREEN)
+                    + f" Transcript waiting ({chars} chars) -- not inserted yet",
+                    action=f"insert at the cursor with {insert_combos}",
+                    detail=f"seq={seq} chars={chars}",
+                )
+            elif event == 'failed' and kind == 'insertion':
+                seq_part = f" (seq {seq})" if seq_known else ""
+                self.show_status_block(
+                    'insert-failed',
+                    _style(f"FAILED Could not insert{seq_part} -- the transcript is kept",
+                           _BOLD, _RED),
+                    action=f"insert the last transcript with {insert_combos}",
+                    detail=f"seq={seq}",
+                )
+            elif event == 'failed':
+                seq_part = f" (seq {seq})" if seq_known else ""
+                self.show_status_block(
+                    'transcription-failed',
+                    _style(f"FAILED Transcription failed{seq_part} -- nothing was inserted",
+                           _BOLD, _RED),
+                    action=(f"retry this recording with "
+                            f"{self._format_hotkey(HOTKEYS['retry_last_failed'])}",
+                            "(if an [AUTH] line is shown above: fix the key in .env, "
+                            "then restart)",
+                            f"(.env is in {SCRIPT_DIR})"),
+                    detail=f"seq={seq}",
+                )
+        except Exception as e:
+            logger.debug(f"Status block dispatch failed ({event}): {e}")
+
+    def _register_hotkeys(self) -> bool:
+        """Register all hotkeys using Win32 RegisterHotKey API.
+
+        Returns True when the hotkey listener is up; run() gates its
+        success messaging on this."""
         logger.info("Registering hotkeys via RegisterHotKey...")
 
         self.hotkey_manager = HotkeyManager()
@@ -1483,9 +1746,10 @@ class ThoughtborneApp:
         if not self.hotkey_manager.start():
             logger.error("Failed to start HotkeyManager")
             print("ERROR: Could not register hotkeys. Another instance may be running.")
-            return
+            return False
 
         logger.info("All hotkeys registered successfully via RegisterHotKey")
+        return True
 
     def run(self):
         """Main application loop"""
@@ -1549,12 +1813,42 @@ class ThoughtborneApp:
                   f"to transcribe the recovered audio.")
 
         # Register hotkeys
-        self._register_hotkeys()
+        hotkeys_ok = self._register_hotkeys()
 
-        print("Global hotkeys registered. Press any hotkey to begin.")
+        if hotkeys_ok:
+            print("Global hotkeys registered. Press any hotkey to begin.")
 
-        # Show current API prominently (same format as after API switch)
-        self.print_ready_status()
+            # First glanceable status block (#37): READY headline, the optional
+            # startup notes (#40 fallback, #49 recovery), the full API lineup,
+            # the hotkey one-liner and the history path.
+            extra_lines = []
+            if self._startup_fallback_note:
+                extra_lines.append(f"NOTE: {self._startup_fallback_note}")
+            if recovered:
+                retry_combo = self._format_hotkey(HOTKEYS['retry_last_failed'])
+                if len(recovered) == 1:
+                    extra_lines.append(f"RECOVERED: unsaved recording saved -- "
+                                       f"transcribe it: {retry_combo}")
+                else:
+                    extra_lines.append(f"RECOVERED: {len(recovered)} unsaved recordings "
+                                       f"saved -- transcribe the newest: {retry_combo}")
+            self.show_status_block(
+                'startup',
+                _style("READY", _BOLD, _GREEN)
+                + f" -- press {self._format_hotkey(HOTKEYS['start_recording'])} "
+                  f"and start talking",
+                show_lineup=True,
+                extra_lines=extra_lines,
+            )
+        else:
+            # No READY invitation after a failed registration -- the tool keeps
+            # running without hotkeys (status quo), but the block must say so.
+            self.show_status_block(
+                'hotkeys-failed',
+                _style("FAILED Hotkeys could not be registered -- the tool "
+                       "cannot react to key presses", _BOLD, _RED),
+                action="close any other running Thoughtborne instance, then restart",
+            )
 
         try:
             # Main loop - wait until running flag is set to False

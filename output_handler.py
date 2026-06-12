@@ -341,7 +341,16 @@ class OutputManager:
         Initialize the output manager
 
         Args:
-            on_task_complete_callback: Optional callback function called after task completion
+            on_task_complete_callback: Optional event callback, invoked from the
+                output thread when a task finishes (#37). Keyword contract:
+                  callback(event='inserted', seq=..., chars=..., sent=...)
+                      -- transcript inserted; sent=True when Enter was pressed
+                         afterwards (the H flow)
+                  callback(event='ready', seq=..., chars=...)
+                      -- Y flow: processed but NOT inserted, waiting for the user
+                  callback(event='failed', kind='transcription'|'insertion', seq=...)
+                      -- nothing was inserted
+                Must not block: it runs inline in the sequential output loop.
         """
         self.output_queue: Dict[int, TranscriptionTask] = {}
         self.output_queue_lock = threading.Lock()
@@ -750,10 +759,11 @@ class OutputManager:
                     # Check if auto-insert is disabled (text only saved for later)
                     if not task.auto_insert:
                         logger.debug(f"Text for sequence {task.sequence_number} processed but NOT inserted (auto_insert=False)")
-                        # Call completion callback FIRST to show model status inline
+                        # Surface the READY state on the console (#37)
                         if self.on_task_complete:
-                            # Pass a flag so print_ready_status knows this is a Y-task
-                            self.on_task_complete(is_ready_to_insert=True, char_count=len(task.transcript))
+                            self.on_task_complete(event='ready',
+                                                  seq=task.sequence_number,
+                                                  chars=len(task.transcript))
                         # Continue to next task (don't insert)
                         continue
 
@@ -777,10 +787,17 @@ class OutputManager:
 
                                 # Call completion callback if registered
                                 if self.on_task_complete:
-                                    self.on_task_complete()
+                                    self.on_task_complete(event='inserted',
+                                                          seq=task.sequence_number,
+                                                          chars=len(task.transcript),
+                                                          sent=task.send_after_insert)
                             else:
                                 logger.error("Clipboard insertion failed")
                                 print(f"ERROR: Clipboard insertion failed (Seq: {task.sequence_number})")
+                                if self.on_task_complete:
+                                    self.on_task_complete(event='failed',
+                                                          kind='insertion',
+                                                          seq=task.sequence_number)
                         else:
                             # Keyboard typing using keyboard.write()
                             logger.debug("Typing text into active application using keyboard.write()")
@@ -788,6 +805,13 @@ class OutputManager:
                             # Wait until user has released all modifier keys
                             if not self._ensure_no_modifiers_pressed():
                                 logger.error(f"Cannot insert sequence {task.sequence_number} - modifiers still pressed after timeout")
+                                # Same root cause surfaces as a failed insert on
+                                # the clipboard path (False return above), so
+                                # report it here too (#37)
+                                if self.on_task_complete:
+                                    self.on_task_complete(event='failed',
+                                                          kind='insertion',
+                                                          seq=task.sequence_number)
                                 continue
 
                             with self.keyboard_lock:
@@ -808,14 +832,25 @@ class OutputManager:
 
                             # Call completion callback if registered
                             if self.on_task_complete:
-                                self.on_task_complete()
+                                self.on_task_complete(event='inserted',
+                                                      seq=task.sequence_number,
+                                                      chars=len(task.transcript),
+                                                      sent=task.send_after_insert)
 
                     except Exception as e:
                         logger.error(f"Error during insertion: {e}")
                         print(f"ERROR: Text insertion failed (Seq: {task.sequence_number}) - {e}")
+                        if self.on_task_complete:
+                            self.on_task_complete(event='failed',
+                                                  kind='insertion',
+                                                  seq=task.sequence_number)
                 elif task.is_error:
                     logger.info(f"Skipping errored sequence {task.sequence_number}")
                     print(f"ERROR: Transcription failed (Seq: {task.sequence_number})")
+                    if self.on_task_complete:
+                        self.on_task_complete(event='failed',
+                                              kind='transcription',
+                                              seq=task.sequence_number)
 
             except Exception as e:
                 logger.error(f"Error in output manager: {e}", exc_info=True)

@@ -137,6 +137,19 @@ MAX_PARALLEL_TRANSCRIPTIONS = 3
 DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
 AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
 
+# ===== API DISPLAY (single source of truth, #30/#37) =====
+# One label set for everything user-facing: the status block, the API lineup,
+# and the transcribers' get_name(). Labels and descriptors match the README
+# model-lineup wording (#47); if this wording ever changes, change README.md
+# and README.de.md in the same commit (bilingual rule in AGENTS.md).
+# AVAILABLE_APIS above stays the only ordering source.
+API_DISPLAY = {
+    "soniox-live": {"label": "Soniox Live", "descriptor": "verbatim, instant"},
+    "soniox":      {"label": "Soniox",      "descriptor": "polished, takes longer"},
+    "groq-large":  {"label": "Groq Large",  "descriptor": "accurate, free"},
+    "groq":        {"label": "Groq",        "descriptor": "fast, free"},
+}
+
 # ===== API KEYS =====
 # Load from environment variable or .env file
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
