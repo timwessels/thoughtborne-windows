@@ -208,6 +208,27 @@ SONIOX_LANGUAGE_HINTS = ["de"]
 # and therefore kept out of the repository. When the file is missing, invalid,
 # or has no "vocabulary" block, SONIOX_CONTEXT stays None and no personalization
 # is sent to the Soniox API.
+# ===== PUSH-TO-TALK (#66) =====
+# Opt-in, DEFAULT OFF. The gesture is: tap the trigger modifier, release, then
+# press-and-HOLD it; recording runs while held, releasing inserts. Built on
+# GetAsyncKeyState polling (no low-level keyboard hook -- the hook was removed
+# in early 2026 because Modern Standby silently invalidated it). These are the
+# defaults; the optional "push_to_talk" block of personal_settings.json (same
+# file as the vocabulary above) overrides any of them. Bad values warn and keep
+# the default. thoughtborne.py imports the (already-overridden) values.
+PTT_ENABLED = False          # master switch; default off (the gesture reads every trigger press)
+PTT_TRIGGER = "lctrl"        # lctrl (default) | rctrl | lalt
+PTT_INSERT = "type"          # type (default) | clipboard | send | no_insert
+PTT_TAP_WINDOW_S = 0.30      # max gap from first release to second press
+PTT_MIN_HOLD_S = 0.20        # second press must be held this long before recording starts
+PTT_RELEASE_TAIL_S = 0.15    # keep recording this long after release (anti-clip)
+
+# Allowed trigger names -> raw VK code. lctrl is the spike's recommended primary
+# (bottom-left, blind-reachable); rctrl is the AltGr-safe fallback; lalt is
+# offered for owner adaptability despite its Alt-menu-flash quirk.
+_PTT_TRIGGER_VK = {"lctrl": 0xA2, "rctrl": 0xA3, "lalt": 0xA4}
+PTT_TRIGGER_VK = _PTT_TRIGGER_VK[PTT_TRIGGER]
+
 SONIOX_CONTEXT = None
 _personal_settings_path = SCRIPT_DIR / "personal_settings.json"
 if _personal_settings_path.exists():
@@ -215,6 +236,50 @@ if _personal_settings_path.exists():
         with open(_personal_settings_path, 'r', encoding='utf-8') as _f:
             _settings = json.load(_f)
         SONIOX_CONTEXT = _settings.get("vocabulary")
+
+        # Push-to-talk override (#66): read from the same _settings dict so the
+        # file is parsed once. Absent block or any invalid field -> the default
+        # beside the constant above stays in force.
+        _ptt_cfg = _settings.get("push_to_talk", {})
+        if isinstance(_ptt_cfg, dict):
+            # Honor "enabled" only as a real JSON boolean: bool("false") is True
+            # in Python, so a quoted-string value would silently switch on this
+            # off-by-default feature that reads every trigger press.
+            _en = _ptt_cfg.get("enabled", PTT_ENABLED)
+            if isinstance(_en, bool):
+                PTT_ENABLED = _en
+            else:
+                _config_logger.warning(
+                    f"push_to_talk.enabled '{_en}' invalid (need a JSON boolean true/false); "
+                    f"using {PTT_ENABLED}")
+
+            _trig = str(_ptt_cfg.get("trigger", PTT_TRIGGER)).lower()
+            if _trig in _PTT_TRIGGER_VK:
+                PTT_TRIGGER, PTT_TRIGGER_VK = _trig, _PTT_TRIGGER_VK[_trig]
+            else:
+                _config_logger.warning(
+                    f"push_to_talk.trigger '{_trig}' unknown; using '{PTT_TRIGGER}'")
+
+            _ins = str(_ptt_cfg.get("insert", PTT_INSERT)).lower()
+            if _ins in ("type", "clipboard", "send", "no_insert"):
+                PTT_INSERT = _ins
+            else:
+                _config_logger.warning(
+                    f"push_to_talk.insert '{_ins}' unknown; using '{PTT_INSERT}'")
+
+            # Thresholds: accept positive numbers only; reject 0, negatives,
+            # bools, and non-numbers (a stray double-tap firing a 0 s recording
+            # is exactly what the min-hold guards against).
+            for _name, _key in (("PTT_TAP_WINDOW_S", "tap_window_s"),
+                                 ("PTT_MIN_HOLD_S", "min_hold_s"),
+                                 ("PTT_RELEASE_TAIL_S", "release_tail_s")):
+                _v = _ptt_cfg.get(_key)
+                if isinstance(_v, (int, float)) and not isinstance(_v, bool) and _v > 0:
+                    globals()[_name] = float(_v)
+                elif _v is not None:
+                    _config_logger.warning(
+                        f"push_to_talk.{_key} '{_v}' invalid (need a positive number); "
+                        f"using {globals()[_name]}")
     except (json.JSONDecodeError, OSError) as _e:
         _config_logger.warning(f"Could not load {_personal_settings_path.name}: {_e}")
 

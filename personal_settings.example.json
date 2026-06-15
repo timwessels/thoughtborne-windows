@@ -15,5 +15,15 @@
       "Acronym",
       "Foreign word commonly used in your dictation"
     ]
+  },
+
+  "push_to_talk": {
+    "_comment": "Opt-in push-to-talk (Issue #66): tap the trigger key, release, then press-and-HOLD it; recording runs while held, releasing inserts the transcript. DEFAULT OFF -- set enabled to true to use it (the gesture then reads every trigger press). On German QWERTZ, AltGr (Ctrl+Alt) is filtered out, so typing @ \\ { } [ ] | euro ~ never triggers it. trigger: lctrl (default, bottom-left) | rctrl (AltGr-safe) | lalt. insert: type (default, simulated typing like Ctrl+Alt+A) | clipboard | send | no_insert. The three thresholds are seconds (positive numbers): tap_window_s = first release to second press, min_hold_s = how long the second press is held before recording starts, release_tail_s = extra time kept after release so word-ends are not clipped.",
+    "enabled": false,
+    "trigger": "lctrl",
+    "insert": "type",
+    "tap_window_s": 0.30,
+    "min_hold_s": 0.20,
+    "release_tail_s": 0.15
   }
 }

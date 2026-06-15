@@ -41,8 +41,11 @@ from config import (
     SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives,
+    PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
+    PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S,
 )
-from hotkey_manager import HotkeyManager, is_key_pressed
+from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
+from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import AudioRecorder, recover_partial_files
 from transcriber import (
     create_transcriber,
@@ -52,6 +55,47 @@ from transcriber import (
     SonioxV4Transcriber,
 )
 from output_handler import OutputManager, TranscriptionTask
+
+
+def _build_ptt_foreign_vks() -> frozenset:
+    """Curated set of virtual-key codes that DISARM the push-to-talk gesture (#66).
+
+    "Foreign" = any key the user might press as part of a real chord (Ctrl+C,
+    Ctrl+S, ...) or that simply means "this is not a bare trigger tap". Polled
+    one by one with GetAsyncKeyState during the brief arming window only --
+    GetAsyncKeyState is live/async (it is the project's standby-safe primitive),
+    unlike GetKeyboardState which lags on a thread that does not pump messages
+    (the recording loop does not).
+
+    The base set EXCLUDES the keys that must never count as foreign on any
+    configuration: the combined and both side-specific Ctrl codes (0x11/0xA2/
+    0xA3 -- a bare Left-Ctrl press also sets the combined bit) and Right-Alt
+    (0xA5, handled separately as the AltGr blocker). The ACTIVE trigger VK is
+    additionally removed per instance in _ptt_foreign_key_down(), so a bare
+    trigger press never reads as its own foreign key -- this matters when the
+    trigger is Left-Alt (0xA4), which is in this base set. Everything else --
+    letters, digits, the other modifiers, OEM punctuation, space, the
+    nav/function block -- disarms.
+    """
+    vks = set()
+    vks.update(range(0x41, 0x5B))   # A-Z
+    vks.update(range(0x30, 0x3A))   # 0-9
+    vks.update({0x10, 0x5B, 0x5C})  # Shift (combined), Left/Right Win
+    vks.add(0xA0); vks.add(0xA1)    # Left/Right Shift (side-specific)
+    vks.add(0xA4)                   # Left-Alt (removed per-instance when it is the trigger)
+    vks.add(0x20)                   # Space
+    vks.update({0x08, 0x09, 0x0D, 0x1B})  # Backspace, Tab, Enter, Esc
+    vks.update(range(0x21, 0x2F))   # PageUp/Down, End, Home, arrows, Ins, Del, ...
+    vks.update(range(0x70, 0x88))   # F1-F24
+    vks.update(range(0xBA, 0xC1))   # OEM ; = , - . / `
+    vks.update(range(0xDB, 0xE0))   # OEM [ \ ] '
+    # Never treat the Ctrl trio or Right-Alt as foreign (see docstring).
+    vks.discard(0x11); vks.discard(0xA2); vks.discard(0xA3); vks.discard(0xA5)
+    return frozenset(vks)
+
+
+# Module-level so it is built once, not per tick.
+_PTT_FOREIGN_VKS = _build_ptt_foreign_vks()
 
 
 class _FailedRecording(NamedTuple):
@@ -377,6 +421,37 @@ class ThoughtborneApp:
 
         # Hotkey manager (initialized in _register_hotkeys)
         self.hotkey_manager = None
+
+        # Push-to-talk (#66): opt-in, DEFAULT OFF. The detector is a pure state
+        # machine fed a Win32 keyboard snapshot from the recording loop thread;
+        # _ptt_owns_recording records that the CURRENT recording was started by
+        # PTT (vs Ctrl+Alt+W), so only a trigger release stops it -- A/D/H/Y do
+        # not. While disabled (_ptt is None) the running app never calls into any
+        # PTT code, which is the stability guarantee: shipping the feature cannot
+        # change the existing flow for anyone who has not opted in.
+        self._ptt = None                  # PttDetector when enabled, else None
+        # No lock guards the recording state across the two start paths, and none
+        # is needed. The detector reaches START only on a BARE trigger (no Alt, no
+        # foreign key) -- but firing Ctrl+Alt+W requires Alt held, which vetoes the
+        # gesture, so the detector can never be mid-START at the instant a W chord
+        # registers. The two start paths are thus mutually exclusive by the gesture
+        # rules, not merely by timing. Beyond that: PTT lives solely on the
+        # recording-loop thread (serializes against itself), starts only when not
+        # is_recording, stops only a recording it owns, resets to inert every tick
+        # a non-owned recording is active, and both start/stop re-check is_recording.
+        self._ptt_owns_recording = False  # True from PTT start until its stop
+        self._ptt_trigger_vk = PTT_TRIGGER_VK
+        self._ptt_insert = PTT_INSERT
+        # Per-instance foreign-key set: the base curated set minus the active
+        # trigger VK, so a bare trigger press never reads as its own foreign key
+        # (load-bearing when the trigger is Left-Alt, which is in the base set).
+        self._ptt_foreign_vks = _PTT_FOREIGN_VKS - {PTT_TRIGGER_VK}
+        if PTT_ENABLED:
+            self._ptt = PttDetector(PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S)
+            logger.info(
+                f"Push-to-talk ENABLED (#66): trigger_vk=0x{PTT_TRIGGER_VK:02X}, "
+                f"insert={PTT_INSERT}, tap_window={PTT_TAP_WINDOW_S}s, "
+                f"min_hold={PTT_MIN_HOLD_S}s, release_tail={PTT_RELEASE_TAIL_S}s")
 
         logger.info(f"Configuration: Default API={DEFAULT_API}, Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}")
         logger.info(f"Current transcriber: {self.transcriber.get_name()}")
@@ -1170,6 +1245,119 @@ class ThoughtborneApp:
 
             self.audio_recorder.cancel_recording()
 
+    # ===== Push-to-talk (#66) =====
+    # Opt-in double-tap-and-hold gesture, driven from the recording loop thread.
+    # These methods only ever CALL the same public audio_recorder /
+    # start_processing_thread entry points the W-flow callbacks use; they do not
+    # touch any existing callback. All of this is dead code unless PTT is enabled
+    # (self._ptt is None otherwise), so the default-off feature cannot affect the
+    # existing flow. The polling design is also structurally immune to the
+    # self-injection recursion that plagues low-level keyboard hooks: there are no
+    # key events to recurse, only physical-state reads.
+
+    def _ptt_tick(self):
+        """One push-to-talk detector step, run on the recording loop thread.
+
+        PTT stays inert while a recording is active that it does NOT own (a
+        Ctrl+Alt+W session): the detector is reset and we bail, so PTT can never
+        start a second session or steal an in-flight W recording. When PTT owns
+        the recording, the detector drives the stop on trigger release.
+        """
+        if self._ptt is None:
+            return
+
+        if self.audio_recorder.is_recording and not self._ptt_owns_recording:
+            # A foreign (W-owned) recording is in progress -> stay inert.
+            self._ptt.reset()
+            return
+
+        trig = is_vk_pressed(self._ptt_trigger_vk)
+        blocker = is_vk_pressed(VK_RMENU)
+        # The foreign-key scan only matters while arming; skip it in the steady
+        # states (IDLE / RECORDING) to keep the per-tick cost negligible.
+        foreign = self._ptt_foreign_key_down() if self._ptt.needs_foreign_scan() else False
+
+        action = self._ptt.update(
+            KeyboardSnapshot(trig, blocker, foreign), time.monotonic())
+
+        if action is PttAction.START:
+            self._ptt_start_recording()
+        elif action is PttAction.STOP:
+            self._ptt_stop_and_insert()
+
+    def _ptt_foreign_key_down(self) -> bool:
+        """True if any curated key other than the trigger / Ctrl pair / Right-Alt
+        is physically down (#66). Bounded poll via GetAsyncKeyState, called only
+        during the arming window. This is what keeps Ctrl+C -> Ctrl+V and other
+        chords from ever firing PTT: the content key disarms the gesture."""
+        for vk in self._ptt_foreign_vks:
+            if is_vk_pressed(vk):
+                return True
+        return False
+
+    def _ptt_start_recording(self):
+        """Start a recording owned by push-to-talk. Mirrors on_start_recording's
+        sequence minus the loop-thread liveness check (we ARE on that thread, so
+        it is alive by definition)."""
+        if self.audio_recorder.is_recording:
+            return  # belt-and-suspenders: never start a second session
+        logger.info("Recording started (push-to-talk)")
+        if not self.audio_recorder.start_recording():
+            logger.error("Failed to start recording (push-to-talk) - audio stream could not be opened")
+            self._ptt.reset()
+            return
+        self._ptt_owns_recording = True
+
+        # Start live streaming session if the transcriber supports it (same as W).
+        if self.transcriber.is_live:
+            self._active_live_transcriber = self.transcriber
+            if not self._active_live_transcriber.start_session():
+                logger.error("Failed to start live streaming session (push-to-talk)")
+                self._active_live_transcriber = None
+
+    def _ptt_stop_and_insert(self):
+        """Stop a PTT-owned recording and start processing, using the configured
+        insert path. Mirrors the stop-hotkey callbacks. Does NOT set the
+        just_finished_recording_a/d flags: those guard the A/D HOTKEYS from
+        double-firing a stop-then-insert on the same chord; PTT's stop is a key
+        RELEASE that cannot double-fire a stop hotkey, so the flags are
+        irrelevant and left untouched to avoid perturbing the W-flow's state."""
+        if not self.audio_recorder.is_recording:
+            # A stop hotkey (or cancel) already ended this recording through its
+            # own door -- just clear ownership and no-op.
+            self._ptt_owns_recording = False
+            return
+        logger.info("Recording stopped (push-to-talk)")
+
+        frames, duration = self.audio_recorder.stop_recording()
+        sidecar = self.audio_recorder.take_finished_sidecar()
+
+        recording_transcriber = self._active_live_transcriber or self.transcriber
+        self._active_live_transcriber = None
+        self._ptt_owns_recording = False
+
+        logger.info(f"Recording duration: {duration:.1f} seconds")
+
+        kwargs = self._ptt_insert_kwargs()
+        if self.start_processing_thread(frames, duration,
+                                        transcriber_override=recording_transcriber,
+                                        sidecar=sidecar, **kwargs):
+            logger.info("Processing in background (push-to-talk)...")
+
+    def _ptt_insert_kwargs(self) -> dict:
+        """Map the configured PTT insert path to start_processing_thread kwargs,
+        mirroring the four stop callbacks. wait_for_keys=['ctrl'] only guards
+        against a too-fast trigger re-press -- at PTT stop the trigger is already
+        released, so the wait loop clears within a tick (no added latency)."""
+        trig = ['ctrl']
+        if self._ptt_insert == 'clipboard':
+            return dict(use_clipboard=True, wait_for_keys=trig)
+        if self._ptt_insert == 'send':
+            return dict(use_clipboard=True, send_after_insert=True, wait_for_keys=trig)
+        if self._ptt_insert == 'no_insert':
+            return dict(use_clipboard=False, auto_insert=False)
+        return dict(wait_for_keys=trig)  # 'type' (default), mirrors the A hotkey
+
     def on_retry_last_failed(self):
         """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).
 
@@ -1396,6 +1584,18 @@ class ThoughtborneApp:
 
         while self.running:
             loop_counter += 1
+
+            # Push-to-talk gesture step (#66). Placed before the audio branch so a
+            # START this tick begins capturing on this very iteration. No-op when
+            # PTT is disabled. Guarded like the device-loss abort below: a buggy
+            # PTT path must degrade to "PTT off", never kill the recording loop
+            # (which would take the whole W-flow down -- VISION principle #1).
+            try:
+                self._ptt_tick()
+            except Exception as ptt_err:
+                logger.error(f"PTT tick failed, disabling push-to-talk: {ptt_err}",
+                             exc_info=True)
+                self._ptt = None
 
             # Log every 60 seconds for debugging (reduced from 5s to minimize log spam)
             current_time = time.time()

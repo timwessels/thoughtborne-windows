@@ -91,6 +91,33 @@ VK_KEY_MAP = {
 # Merge letter/digit codes into VK_KEY_MAP for is_key_pressed
 VK_KEY_MAP.update(VK_MAP)
 
+# Side-specific VK codes for the push-to-talk detector (#66). The name-keyed
+# VK_KEY_MAP above maps 'ctrl' to the COMBINED VK_CONTROL (0x11) on purpose and
+# cannot tell left from right; PTT needs Left-Ctrl specifically as its trigger
+# and Right-Alt specifically as the AltGr discriminator, so these are read raw
+# via is_vk_pressed() instead of going through is_key_pressed().
+VK_LCONTROL = 0xA2   # left Ctrl, distinct from combined VK_CONTROL (0x11)
+VK_RMENU = 0xA5      # right Alt = AltGr discriminator on German QWERTZ
+
+
+def is_vk_pressed(vk: int) -> bool:
+    """
+    Check whether a raw virtual-key code is currently pressed, by VK number.
+
+    High-bit (physical-down) test via GetAsyncKeyState, the same hook-free
+    primitive is_key_pressed() uses (survives sleep/wake). Unlike
+    is_key_pressed(), this is keyed by raw VK code, so it can distinguish keys
+    the name map deliberately collapses (left vs. right Ctrl, Right-Alt). Used
+    by the PTT detector.
+
+    Args:
+        vk: Virtual-key code (e.g. VK_LCONTROL = 0xA2)
+
+    Returns:
+        True if the key is currently physically down
+    """
+    return bool(GetAsyncKeyState(vk) & 0x8000)
+
 
 def _resolve_vk_code(key_str: str) -> int:
     """
