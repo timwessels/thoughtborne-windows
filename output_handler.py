@@ -270,9 +270,11 @@ def _window_class(hwnd) -> str:
 # image or copied file on the clipboard the cached state is "paste disabled";
 # our pyperclip text copy goes unnoticed, and since Ctrl+V is an accelerator
 # on that menu command, Win32 swallows the keystroke entirely (disabled menu
-# item => no WM_COMMAND, no beep). Known upstream as notepad-plus-plus#16456;
-# the v8.8 fix covers only N++-internal copy/cut. Full analysis with sources:
-# _research/2026-06_npp-paste-gate-clipboard/.
+# item => no WM_COMMAND, no beep). Known upstream as notepad-plus-plus#16456
+# (internal copy/cut only, v8.8); the external-clipboard case is #18118, fixed
+# upstream by a clipboard listener in 331ace4f (not yet released) — this nudge
+# stays until that ships and propagates (removal tracked in thoughtborne #71).
+# Full analysis with sources: _research/2026-06_npp-paste-gate-clipboard/.
 #
 # The cure N++ itself uses on window activation: SCI_SETXOFFSET triggers an
 # unconditional SCN_UPDATEUI, whose handler re-runs checkClipboard(). Setting
