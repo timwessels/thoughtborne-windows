@@ -1,4 +1,9 @@
-<!-- logo slot (#48): insert logo image here, above the title -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/thoughtborne-lockup-dark.svg">
+    <img src="assets/logo/thoughtborne-lockup.svg" alt="Thoughtborne" width="420">
+  </picture>
+</p>
 # Thoughtborne
 
 **[English version](README.md)**
