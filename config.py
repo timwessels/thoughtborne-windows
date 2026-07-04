@@ -162,6 +162,13 @@ SONIOX_MODEL = "de_v2"  # Language model: "de_v2" for German, "en_v2" for Englis
 # the duration check, which can push the actual file length over the limit.
 # 58s provides a safe margin (see: Bug 2026-01-30, 59.8s recording + 1000ms padding = 60.5s → rejected).
 SHORT_AUDIO_THRESHOLD = 58
+# SpeechContext boost for the personal vocabulary phrases on the V2 sync path (#73).
+# 15.0 matches Soniox's own legacy examples; a guide value, not gospel -- too high
+# risks false-positive term insertion (a boosted term landing where it wasn't spoken,
+# exactly the "meaning-bearing wrong word" the quality bar guards against). The v4
+# engines have no equivalent knob -- they let the server weight the context dict -- so
+# this tunes the legacy gRPC path only.
+SONIOX_V2_CONTEXT_BOOST = 15.0
 
 # ===== SONIOX V4 ASYNC REST API SETTINGS =====
 # V4 async REST engine: used by the 'soniox' slot for long recordings and as

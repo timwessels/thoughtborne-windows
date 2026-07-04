@@ -153,7 +153,7 @@ Transcripts are always inserted in recording order, even when several recordings
 
 ## Customization
 
-**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by Soniox Live and the v4 path of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
+**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and both paths of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
 
 ```
 copy personal_settings.example.json personal_settings.json

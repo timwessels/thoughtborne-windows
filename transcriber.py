@@ -27,7 +27,7 @@ from groq import Groq, AuthenticationError
 from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
     GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY,
-    SHORT_AUDIO_THRESHOLD,
+    SHORT_AUDIO_THRESHOLD, SONIOX_V2_CONTEXT_BOOST,
     SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
     SONIOX_V4_MAX_POLL_ATTEMPTS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
@@ -343,7 +343,23 @@ class SonioxTranscriber(AbstractTranscriber):
         # Eager init is safe: the V4 constructor only builds a header dict,
         # and _get_api_key() above already raised if the key is missing.
         self._v4 = SonioxV4Transcriber()
-    
+        # V2 SpeechContext is constant per session -> build it once here and
+        # reuse it on every _transcribe_v2_sync call (#73). None means "send no
+        # context" (no SDK, no personal_settings.json, or no usable terms), in
+        # which case V2 sync stays byte-identical to pre-#73. Never fatal: a
+        # broken vocabulary must not break slot construction or transcription.
+        self._v2_speech_context = None
+        if self._v2_available:
+            try:
+                self._v2_speech_context = self._terms_to_speech_context(
+                    (SONIOX_CONTEXT or {}).get("terms")
+                )
+            except Exception as e:
+                logger.warning(f"Soniox V2 speech context disabled (build failed): {e}")
+            if self._v2_speech_context is not None:
+                n = len(self._v2_speech_context.entries[0].phrases)
+                logger.info(f"Soniox V2 sync context enabled: {n} terms")
+
     def _get_api_key(self) -> str:
         """Get API key from environment"""
         if not SONIOX_API_KEY:
@@ -421,6 +437,27 @@ class SonioxTranscriber(AbstractTranscriber):
 
         return transcript
     
+    @staticmethod
+    def _terms_to_speech_context(terms):
+        """Translate vocabulary phrase strings into a V2 SpeechContext, or None (#73).
+
+        Pure and side-effect-free so it can be unit-tested without an API key or a
+        constructed transcriber. Lazy-imports soniox so nothing soniox-typed sits on
+        the module-import path -- a missing SDK must stay non-fatal (#31). The legacy
+        gRPC SDK requires a genuine SpeechContext protobuf (transcribe_file_short
+        asserts isinstance), unlike the v4/Live REST paths that pass the raw
+        SONIOX_CONTEXT dict straight through. Non-string / empty entries are dropped:
+        the protobuf phrases field is a repeated string and would raise TypeError on a
+        non-str element; an empty or all-invalid list yields None (send no context).
+        """
+        phrases = [t for t in (terms or []) if isinstance(t, str) and t]
+        if not phrases:
+            return None
+        from soniox.speech_service import SpeechContext, SpeechContextEntry
+        return SpeechContext(
+            entries=[SpeechContextEntry(phrases=phrases, boost=SONIOX_V2_CONTEXT_BOOST)]
+        )
+
     def _transcribe_v2_sync(self, audio_file_path: str, duration_seconds: float) -> str:
         """V2 sync attempt (gRPC, transcribe_file_short). Raises on any failure.
 
@@ -447,6 +484,7 @@ class SonioxTranscriber(AbstractTranscriber):
                 audio_file_path,
                 client,
                 model=SONIOX_MODEL,
+                speech_context=self._v2_speech_context,  # None -> byte-identical to pre-#73
             )
 
             elapsed = time.time() - start_time
