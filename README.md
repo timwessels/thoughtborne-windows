@@ -127,7 +127,7 @@ Then dictate:
 
 **Self-test:** `Ctrl+Alt+Ü` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
-Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording.
+Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries a short engine code — `s-live`, `s-v2`, `s-v4`, `groq`, or `groq-large` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording.
 
 `Ctrl+Alt+4` exits the tool.
 

@@ -1041,6 +1041,35 @@ class AudioRecorder:
 
         return str(wav_path), str(mp3_path)
 
+    def tag_archive_with_engine(self, timestamp: str, engine: str) -> Optional[str]:
+        """Rename the archived recording to carry the producing-engine token (#62).
+
+        Called from the worker after a transcript is saved, so the archived
+        voice_<ts>.mp3 becomes voice_<ts>_<engine>.mp3 and mirrors the token the
+        transcript file already carries. Same-volume rename, so atomic on NTFS.
+
+        Best-effort and never raises (stability is principle #1): an empty code,
+        a missing source, or a locked file (e.g. an AV scanner still holding the
+        just-written MP3) leaves the bare voice_<ts>.mp3 in place and only warns.
+        The audio<->transcript pairing keys off the shared timestamp -- which the
+        transcript carries too -- so a failed rename degrades only the audio name,
+        never the pairing or the Ctrl+Alt+R retry slot.
+        """
+        if not engine:
+            return None
+        src = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
+        dst = ARCHIVE_FOLDER / f"voice_{timestamp}_{engine}.mp3"
+        try:
+            if not src.exists():
+                logger.warning(f"Cannot tag archive -- source missing: {src}")
+                return None
+            src.rename(dst)
+            logger.info(f"Archived recording tagged with engine: {dst.name}")
+            return str(dst)
+        except Exception as e:
+            logger.warning(f"Could not tag archive {src.name} with engine '{engine}': {e}")
+            return None
+
     def cleanup_temp_files(self, wav_path: str, mp3_path: str):
         """Remove temporary audio files"""
         for path in [wav_path, mp3_path]:

@@ -127,7 +127,7 @@ Dann diktieren:
 
 **Selbsttest:** `Ctrl+Alt+Ü` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
-Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme.
+Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein kurzes Engine-Kürzel — `s-live`, `s-v2`, `s-v4`, `groq` oder `groq-large` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme.
 
 `Ctrl+Alt+4` beendet das Tool.
 

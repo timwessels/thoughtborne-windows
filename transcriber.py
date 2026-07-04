@@ -52,6 +52,19 @@ class MissingAPIKeyError(ValueError):
         super().__init__(f"{env_var} is required for {transcriber_label}")
 
 
+class _EngineTag:
+    """Mutable one-shot holder so SonioxTranscriber.transcribe can report which
+    engine (V2 sync vs. V4 async) actually produced the text (#62), without
+    changing the ABC's `transcribe() -> str` contract. The worker allocates one
+    per call and reads .code afterwards, so it is inherently thread-safe across
+    the parallel transcriptions -- unlike a mutable attribute on the shared
+    transcriber singleton."""
+    __slots__ = ("code",)
+
+    def __init__(self):
+        self.code = None
+
+
 class AbstractTranscriber(ABC):
     """Abstract base class for all transcriber implementations"""
     
@@ -119,22 +132,27 @@ class AbstractTranscriber(ABC):
         """Get the name of this transcriber"""
         pass
     
-    def save_transcript(self, text: str, timestamp: str) -> Optional[str]:
+    def save_transcript(self, text: str, timestamp: str, engine: Optional[str] = None) -> Optional[str]:
         """
         Save transcript to text archive
-        
+
         Args:
             text: Transcribed text to save
             timestamp: Timestamp for filename
-            
+            engine: Producing-engine token (#62), appended as
+                text_<ts>_<engine>.txt so the archive shows which engine made
+                the text. None or empty keeps the legacy text_<ts>.txt name --
+                a byte-identical, defensive default.
+
         Returns:
             Path to saved file or None if failed
         """
         if not text:
             return None
-            
+
         try:
-            filename = TEXT_ARCHIVE_FOLDER / f"text_{timestamp}.txt"
+            stem = f"text_{timestamp}_{engine}" if engine else f"text_{timestamp}"
+            filename = TEXT_ARCHIVE_FOLDER / f"{stem}.txt"
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(text)
             
@@ -515,7 +533,8 @@ class SonioxTranscriber(AbstractTranscriber):
             return False
         return isinstance(e, grpc.RpcError) and e.code() == grpc.StatusCode.UNAUTHENTICATED
 
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
+                   engine_sink: Optional['_EngineTag'] = None) -> str:
         """Transcribe an audio file via the hybrid V2-sync/V4-async slot (#31).
 
         Recordings under SHORT_AUDIO_THRESHOLD run V2 sync exactly as before
@@ -526,6 +545,11 @@ class SonioxTranscriber(AbstractTranscriber):
         Args:
             audio_file_path: Path to the audio file
             duration_seconds: Duration of the audio in seconds
+            engine_sink: Optional _EngineTag the caller reads afterwards to learn
+                which engine won this call (#62) -- "s-v2" on the V2 sync path,
+                "s-v4" whenever V4 async produced the text (long recording, missing
+                SDK, or V2-raised fallback). Only set on a returned result the
+                caller keeps; the caller ignores it on an empty transcript.
 
         Returns:
             Transcribed text
@@ -539,7 +563,10 @@ class SonioxTranscriber(AbstractTranscriber):
                 # returned as-is -- no V4 hop on the slot path. The empty-live
                 # cascade in thoughtborne.py keeps its own empty -> V4
                 # fall-through one level up (#31).
-                return self._transcribe_v2_sync(audio_file_path, duration_seconds)
+                result = self._transcribe_v2_sync(audio_file_path, duration_seconds)
+                if engine_sink is not None:
+                    engine_sink.code = "s-v2"
+                return result
             except Exception as e:
                 if self._is_auth_error(e):
                     # V4 uses the same SONIOX_API_KEY, so a fallback would just
@@ -559,11 +586,15 @@ class SonioxTranscriber(AbstractTranscriber):
                 # alone on the console; V4's own handlers log ERROR if the
                 # fallback fails too.
                 logger.debug(f"V2 sync failure detail: {e}", exc_info=True)
+                if engine_sink is not None:
+                    engine_sink.code = "s-v4"
                 return self._v4.transcribe(audio_file_path, duration_seconds)
 
         if duration_seconds >= SHORT_AUDIO_THRESHOLD:
             logger.info(f"Long recording ({duration_seconds:.1f}s >= "
                         f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)")
+        if engine_sink is not None:
+            engine_sink.code = "s-v4"
         return self._v4.transcribe(audio_file_path, duration_seconds)
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
@@ -1465,6 +1496,25 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             logger.error(f"Soniox Live test transcription failed: {e}", exc_info=True)
             self.cancel_session()
             return None
+
+
+def engine_code(transcriber: AbstractTranscriber) -> str:
+    """Stable filename token for the engine a transcriber represents (#62).
+
+    Total by design: called on a carousel-slot transcriber, where only
+    'soniox-live', 'groq' and 'groq-large' reach here (the hybrid 'soniox' slot
+    is tagged per-call via engine_sink instead, since its engine is only known
+    at runtime). The remaining branches are defensive completeness.
+    """
+    if isinstance(transcriber, SonioxLiveTranscriber):
+        return "s-live"
+    if isinstance(transcriber, GroqTranscriber):
+        return "groq-large" if transcriber.model == GROQ_LARGE_MODEL else "groq"
+    if isinstance(transcriber, SonioxV4Transcriber):
+        return "s-v4"
+    if isinstance(transcriber, SonioxTranscriber):
+        return "s-v2"
+    return "unknown"
 
 
 def create_transcriber(api_name: str) -> AbstractTranscriber:

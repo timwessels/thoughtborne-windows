@@ -30,7 +30,7 @@ import logging
 import threading
 import datetime
 from pathlib import Path
-from typing import List, Optional, NamedTuple
+from typing import List, Optional, NamedTuple, Tuple
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 # Import our modules
@@ -49,10 +49,12 @@ from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import AudioRecorder, recover_partial_files
 from transcriber import (
     create_transcriber,
+    engine_code,
     MissingAPIKeyError,
     SonioxLiveTranscriber,
     SonioxTranscriber,
     SonioxV4Transcriber,
+    _EngineTag,
 )
 from output_handler import OutputManager, TranscriptionTask
 
@@ -660,9 +662,18 @@ class ThoughtborneApp:
                 sidecar.discard()
             print(f"[Seq: {sequence_number}] Audio saved and archived")
 
-            # Transcribe with the fixed transcriber
+            # Transcribe with the fixed transcriber, and resolve the engine that
+            # actually produced the text (#62). The hybrid 'soniox' slot chooses
+            # V2 sync or V4 async per recording, so it reports through a per-call
+            # sink; every other slot maps straight from its type.
             print(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
-            transcript = transcriber.transcribe(mp3_path, duration)
+            if isinstance(transcriber, SonioxTranscriber):
+                engine_tag = _EngineTag()
+                transcript = transcriber.transcribe(mp3_path, duration, engine_sink=engine_tag)
+                engine = engine_tag.code
+            else:
+                transcript = transcriber.transcribe(mp3_path, duration)
+                engine = engine_code(transcriber)
             transcript = transcript.rstrip('\n')
 
             # Issue #1: empty live transcript -> file-based fallback on the
@@ -671,16 +682,20 @@ class ThoughtborneApp:
             # file-based path was tried and failed, so a second pass would not
             # help. Runs before cleanup_temp_files so mp3_path still exists.
             if not transcript and isinstance(transcriber, SonioxLiveTranscriber):
-                transcript = self._run_empty_transcript_fallback(
+                transcript, fallback_engine = self._run_empty_transcript_fallback(
                     mp3_path=mp3_path,
                     duration=duration,
                     sequence_number=sequence_number,
                     thread_name=thread_name,
                 )
+                if transcript:
+                    engine = fallback_engine
 
-            # Save transcript
+            # Save transcript, then tag the archived recording with the same
+            # engine token so the audio<->transcript pair shows the engine (#62).
             if transcript:
-                transcriber.save_transcript(transcript, timestamp)
+                transcriber.save_transcript(transcript, timestamp, engine=engine)
+                self.audio_recorder.tag_archive_with_engine(timestamp, engine)
                 self.output_manager.update_last_transcript(transcript)
 
                 # Update task
@@ -769,7 +784,7 @@ class ThoughtborneApp:
         return True
 
     def _run_empty_transcript_fallback(self, mp3_path: str, duration: float,
-                                       sequence_number: int, thread_name: str) -> str:
+                                       sequence_number: int, thread_name: str) -> Tuple[str, str]:
         """Fall back to a file-based Soniox API when SonioxLive returned empty.
 
         Triggered from process_recording_thread when SonioxLiveTranscriber yields
@@ -811,8 +826,10 @@ class ThoughtborneApp:
             thread_name: For log correlation.
 
         Returns:
-            Transcript string (empty if every available fallback failed -- the
-            caller then routes through the existing is_error path).
+            (transcript, engine) -- the transcript plus the token of the engine
+            that produced it ("s-v2" or "s-v4", #62). Both empty ("", "") when
+            every available fallback failed; the caller then routes through the
+            existing is_error path.
         """
         try_v2_first = duration < SHORT_AUDIO_THRESHOLD
         primary_label = "Soniox V2 (sync)" if try_v2_first else "Soniox V4 (async)"
@@ -843,7 +860,7 @@ class ThoughtborneApp:
                 thread_name=thread_name,
             )
             if transcript:
-                return transcript
+                return transcript, "s-v2"
 
             # V2 failed or returned empty. Spec #1 requires we still try V4
             # so that "Empty transcription" only surfaces when both fail (and
@@ -874,7 +891,7 @@ class ThoughtborneApp:
             )
             print(f"[Seq: {sequence_number}] All fallbacks exhausted ({stages} all failed)")
 
-        return transcript
+        return transcript, ("s-v4" if transcript else "")
 
     def _try_fallback(self, kind: str, mp3_path: str, duration: float,
                       sequence_number: int, thread_name: str) -> str:
@@ -1556,17 +1573,21 @@ class ThoughtborneApp:
 
         try:
             print(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
-            transcript = self._run_empty_transcript_fallback(
+            transcript, engine = self._run_empty_transcript_fallback(
                 mp3_path=rec.archived_mp3_path,
                 duration=rec.duration,
                 sequence_number=sequence_number,
                 thread_name=thread_name,
-            ).rstrip('\n')
+            )
+            transcript = transcript.rstrip('\n')
 
             if transcript:
                 # save_transcript is base-class file I/O, so any current
-                # transcriber instance is fine -- it's not API-specific.
-                self.transcriber.save_transcript(transcript, timestamp)
+                # transcriber instance is fine -- it's not API-specific. Only the
+                # transcript gets the engine token here; the archived audio keeps
+                # its original name, since the retry already writes a new
+                # timestamp stem and never re-pairs with the old audio (#62).
+                self.transcriber.save_transcript(transcript, timestamp, engine=engine)
                 self.output_manager.update_last_transcript(transcript)
                 task.transcript = transcript
                 task.is_complete = True
