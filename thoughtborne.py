@@ -1356,7 +1356,7 @@ class ThoughtborneApp:
             return dict(use_clipboard=True, send_after_insert=True, wait_for_keys=trig)
         if self._ptt_insert == 'no_insert':
             return dict(use_clipboard=False, auto_insert=False)
-        return dict(wait_for_keys=trig)  # 'type' (default), mirrors the A hotkey
+        return dict(wait_for_keys=trig)  # 'type' (fallback), mirrors the A hotkey
 
     def on_retry_last_failed(self):
         """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).

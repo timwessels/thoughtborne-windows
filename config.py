@@ -218,7 +218,7 @@ SONIOX_LANGUAGE_HINTS = ["de"]
 # the default. thoughtborne.py imports the (already-overridden) values.
 PTT_ENABLED = False          # master switch; default off (the gesture reads every trigger press)
 PTT_TRIGGER = "lctrl"        # lctrl (default) | rctrl | lalt
-PTT_INSERT = "type"          # type (default) | clipboard | send | no_insert
+PTT_INSERT = "clipboard"     # clipboard (default) | type (fallback) | send | no_insert
 PTT_TAP_WINDOW_S = 0.30      # max gap from first release to second press
 PTT_MIN_HOLD_S = 0.20        # second press must be held this long before recording starts
 PTT_RELEASE_TAIL_S = 0.15    # keep recording this long after release (anti-clip)
