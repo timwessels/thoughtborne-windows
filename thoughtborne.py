@@ -342,6 +342,130 @@ def _style(text: str, *codes: str) -> str:
     return f"\x1b[{';'.join(codes)}m{text}\x1b[0m"
 
 
+# ===== AUDIO CAPTURE-THREAD PRIORITY (#72) =====
+def _elevate_capture_thread_priority():
+    """Raise the audio capture thread's scheduling priority so it keeps draining
+    the mic under CPU load (#72). Windows-only, best-effort, never raises; logs
+    one line naming the mechanism that took. Returns an opaque revert token.
+
+    Three cooperating levers, all via ctypes, no admin rights:
+      1. MMCSS 'Pro Audio' on THIS thread -- the standard Windows mechanism for
+         glitch-free audio; lifts the calling (capture) thread into the audio
+         scheduling band.
+      2. Fallback SetThreadPriority(TIME_CRITICAL) if MMCSS is unavailable --
+         saturates the thread to base priority 15 regardless of process class.
+      3. If the whole process sits below Normal (the #72 field finding), lift it
+         to ABOVE_NORMAL so the other threads (esp. the live websocket receiver)
+         are no longer deprioritised. No-op when already at/above Normal.
+    """
+    if os.name != 'nt':
+        return None
+
+    mmcss_handle = None
+    original_class = None
+    mechanism = "none"
+    detail = ""
+    try:
+        import ctypes
+        # Private WinDLL instances on purpose (same pattern as _enable_vt_mode):
+        # never touch the shared ctypes.windll objects other libs configure.
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        # Full signatures: without restype ctypes assumes c_int and would
+        # truncate a 64-bit HANDLE.
+        kernel32.GetCurrentThread.restype = ctypes.c_void_p   # pseudo-handle
+        kernel32.GetCurrentThread.argtypes = ()
+        kernel32.SetThreadPriority.restype = ctypes.c_int      # BOOL
+        kernel32.SetThreadPriority.argtypes = (ctypes.c_void_p, ctypes.c_int)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p   # pseudo-handle
+        kernel32.GetCurrentProcess.argtypes = ()
+        kernel32.GetPriorityClass.restype = ctypes.c_uint32    # DWORD
+        kernel32.GetPriorityClass.argtypes = (ctypes.c_void_p,)
+        kernel32.SetPriorityClass.restype = ctypes.c_int       # BOOL
+        kernel32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+
+        THREAD_PRIORITY_TIME_CRITICAL = 15
+        IDLE_PRIORITY_CLASS = 0x00000040
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000
+
+        # Lever 1: MMCSS 'Pro Audio', in its own guard so a missing avrt.dll
+        # (exotic/stripped Windows) still lets the kernel32 fallback run.
+        handle = None
+        mmcss_err = 0
+        try:
+            avrt = ctypes.WinDLL('avrt', use_last_error=True)
+            avrt.AvSetMmThreadCharacteristicsW.restype = ctypes.c_void_p   # HANDLE
+            avrt.AvSetMmThreadCharacteristicsW.argtypes = (
+                ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint32))
+            task_index = ctypes.c_uint32(0)   # in/out, must start at 0
+            handle = avrt.AvSetMmThreadCharacteristicsW("Pro Audio",
+                                                        ctypes.byref(task_index))
+            if not handle:
+                mmcss_err = ctypes.get_last_error()
+        except OSError as e:
+            mmcss_err = getattr(e, "winerror", 0) or -1
+
+        if handle:
+            mmcss_handle = handle
+            mechanism = "MMCSS 'Pro Audio'"
+        else:
+            # Lever 2: raise this thread's priority directly.
+            if kernel32.SetThreadPriority(kernel32.GetCurrentThread(),
+                                          THREAD_PRIORITY_TIME_CRITICAL):
+                mechanism = f"TIME_CRITICAL (MMCSS unavailable: err {mmcss_err})"
+            else:
+                mechanism = (f"none (MMCSS err {mmcss_err}, "
+                             f"thread-priority err {ctypes.get_last_error()})")
+
+        # Lever 3: undo a Below-Normal process handicap (#72 field finding). The
+        # priority-class constants are NOT ordered by value (NORMAL 0x20 < IDLE
+        # 0x40), so gate by explicit membership, never a numeric compare.
+        proc = kernel32.GetCurrentProcess()
+        current_class = kernel32.GetPriorityClass(proc)
+        if current_class in (IDLE_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS):
+            if kernel32.SetPriorityClass(proc, ABOVE_NORMAL_PRIORITY_CLASS):
+                original_class = current_class
+                detail = "; process class raised to ABOVE_NORMAL"
+            else:
+                detail = f"; process-class raise failed (err {ctypes.get_last_error()})"
+        # else: already >= Normal -> leave it, nothing to revert.
+    except Exception as e:
+        # A priority tweak must never endanger the recording it protects.
+        logger.warning(f"Capture-thread priority elevation skipped: {e}")
+        return (mmcss_handle, original_class)
+
+    logger.info(f"Capture-thread priority: {mechanism}{detail}")
+    return (mmcss_handle, original_class)
+
+
+def _restore_capture_thread_priority(token):
+    """Best-effort revert of _elevate_capture_thread_priority (#72). The OS
+    reclaims the MMCSS registration and the process class on exit, so this only
+    matters for a rare in-process loop restart; it never raises. The thread's own
+    TIME_CRITICAL bump is left as-is -- the thread dies right after."""
+    if not token:
+        return
+    mmcss_handle, original_class = token
+    if os.name != 'nt':
+        return
+    try:
+        import ctypes
+        if mmcss_handle:
+            avrt = ctypes.WinDLL('avrt', use_last_error=True)
+            avrt.AvRevertMmThreadCharacteristics.restype = ctypes.c_int   # BOOL
+            avrt.AvRevertMmThreadCharacteristics.argtypes = (ctypes.c_void_p,)
+            avrt.AvRevertMmThreadCharacteristics(mmcss_handle)
+        if original_class:
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.GetCurrentProcess.argtypes = ()
+            kernel32.SetPriorityClass.restype = ctypes.c_int
+            kernel32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), original_class)
+    except Exception as e:
+        logger.debug(f"Capture-thread priority revert skipped: {e}")
+
+
 class ThoughtborneApp:
     """Main application class for Thoughtborne (Windows version)"""
 
@@ -1582,6 +1706,12 @@ class ThoughtborneApp:
     def recording_loop_thread(self):
         """Separate thread for audio recording loop"""
         logger.info("Recording loop thread STARTED")
+        # Boost THIS thread's scheduling priority so capture keeps draining the
+        # mic under CPU load (#72). Best-effort: any failure degrades to default
+        # priority and never touches capture -- same guard philosophy as the
+        # PTT/device-loss paths below. Must run on this thread: MMCSS
+        # characterises the caller.
+        _priority_token = _elevate_capture_thread_priority()
         loop_counter = 0
         last_log_time = 0
 
@@ -1639,6 +1769,7 @@ class ThoughtborneApp:
 
             time.sleep(0.01)  # Small delay to prevent high CPU usage
 
+        _restore_capture_thread_priority(_priority_token)
         logger.info("Recording loop thread STOPPED")
 
     def _handle_recording_abort(self):
