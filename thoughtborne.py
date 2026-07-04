@@ -328,6 +328,7 @@ _BOLD = "1"
 _RED = "31"
 _GREEN = "32"
 _CYAN = "36"
+_YELLOW = "33"   # warning/notice tag (#78) -- red stays reserved for FAILED
 
 # Status-block separator: '-' on purpose, distinct from the '=' framing of
 # event blocks (FALLBACK ACTIVE, no-API error) so the two stay tellable apart.
@@ -1911,6 +1912,49 @@ class ThoughtborneApp:
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
 
+    def _show_recovery_block(self, recovered, hotkeys_ok):
+        """Prominent startup notice for salvaged recordings (#78).
+
+        A hard kill mid-recording leaves a .partial sidecar that startup
+        recovery (#49) converts to an archived MP3 and arms for the retry
+        hotkey. That announcement used to be a plain console line above the
+        READY block and was overlooked (#59 test); it is now a #37-style
+        block in warning yellow, emitted last so it sits at the bottom of the
+        scrollback. Only the newest recovered file is one keypress away; older
+        ones wait in the audio folder. Never raises (stability #1)."""
+        try:
+            retry_combo = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            _, newest_dur, newest_ts = recovered[-1]
+            when = (f"{newest_ts[:4]}-{newest_ts[4:6]}-{newest_ts[6:8]} "
+                    f"{newest_ts[9:11]}:{newest_ts[11:13]}:{newest_ts[13:15]}")
+            n = len(recovered)
+            if n == 1:
+                headline = (_style("RECOVERED", _BOLD, _YELLOW)
+                            + f" a recording from {when} ({newest_dur:.0f}s) was "
+                              f"rescued after a hard kill")
+                extra = ()
+                target = "it"
+            else:
+                headline = (_style("RECOVERED", _BOLD, _YELLOW)
+                            + f" {n} recordings rescued after a hard kill")
+                extra = (f"newest is from {when} ({newest_dur:.0f}s); the other "
+                         f"{n - 1} wait in {ARCHIVE_FOLDER}",)
+                target = "the newest"
+            if hotkeys_ok:
+                action = f"press {retry_combo} to transcribe & insert {target}"
+            else:
+                action = (f"the audio is saved in {ARCHIVE_FOLDER}; once hotkeys "
+                          f"work, {retry_combo} transcribes & inserts {target}")
+            self.show_status_block(
+                'recovered',
+                headline,
+                action=action,
+                extra_lines=extra,
+                detail=f"count={n} newest={newest_ts}",
+            )
+        except Exception as e:
+            logger.debug(f"Recovery status block suppressed: {e}")
+
     def _register_hotkeys(self) -> bool:
         """Register all hotkeys using Win32 RegisterHotKey API.
 
@@ -1975,11 +2019,12 @@ class ThoughtborneApp:
         self.print_instructions()
 
         # Convert sidecars left over from a crash (#49 layer 3). Placed
-        # before hotkey registration on purpose: no recording can start
-        # while this converts, the recovery lines sit at the bottom of the
-        # startup block, and the retry slot is armed before the first
-        # keypress is possible. print() is fine here (main thread, no
-        # hotkeys yet). A recovery failure must never block the start.
+        # before hotkey registration on purpose: no recording can start while
+        # this converts, and the retry slot is armed below before the first
+        # keypress is possible. The user-facing announcement is deferred to a
+        # prominent block after READY (#78) so it can't be scrolled off; only
+        # the progress print below stays here (main thread, no hotkeys yet).
+        # A recovery failure must never block the start.
         try:
             try:
                 # Best-effort probe: a file vanishing between glob and stat
@@ -1995,15 +2040,12 @@ class ThoughtborneApp:
             logger.error(f"Startup recovery failed: {e}", exc_info=True)
             recovered = []
         if recovered:
-            for path, duration, ts in recovered:
-                print(f"RECOVERED: unsaved recording from "
-                      f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}:{ts[13:15]} "
-                      f"({duration:.0f}s) -> {Path(path).name}")
-            print(f"Recovered audio is in: {ARCHIVE_FOLDER}")
             # Arm the retry slot with the newest recovered file (single-slot
             # semantics of #24: any later real failure simply overwrites it).
             # Built directly instead of via _record_failed_slot, whose path
-            # reconstruction doesn't know the _recovered naming.
+            # reconstruction doesn't know the _recovered naming. Display is
+            # deferred to _show_recovery_block after hotkey registration (#78);
+            # arming stays here, before the first keypress is possible.
             newest = recovered[-1]
             with self._last_failed_lock:
                 self._last_failed = _FailedRecording(
@@ -2011,8 +2053,6 @@ class ThoughtborneApp:
                     duration=newest[1],
                     origin_timestamp=newest[2],
                 )
-            print(f"Press {self._format_hotkey(HOTKEYS['retry_last_failed'])} "
-                  f"to transcribe the recovered audio.")
 
         # Register hotkeys
         hotkeys_ok = self._register_hotkeys()
@@ -2021,19 +2061,13 @@ class ThoughtborneApp:
             print("Global hotkeys registered. Press any hotkey to begin.")
 
             # First glanceable status block (#37): READY headline, the optional
-            # startup notes (#40 fallback, #49 recovery), the full API lineup,
-            # the hotkey one-liner and the history path.
+            # #40 fallback note, the full API lineup, the hotkey one-liner and
+            # the history path. Recovery gets its own prominent block below
+            # (#78) instead of a muted line in here, where it was overlooked
+            # in the #59 kill-recovery test.
             extra_lines = []
             if self._startup_fallback_note:
                 extra_lines.append(f"NOTE: {self._startup_fallback_note}")
-            if recovered:
-                retry_combo = self._format_hotkey(HOTKEYS['retry_last_failed'])
-                if len(recovered) == 1:
-                    extra_lines.append(f"RECOVERED: unsaved recording saved -- "
-                                       f"transcribe it: {retry_combo}")
-                else:
-                    extra_lines.append(f"RECOVERED: {len(recovered)} unsaved recordings "
-                                       f"saved -- transcribe the newest: {retry_combo}")
             self.show_status_block(
                 'startup',
                 _style("READY", _BOLD, _GREEN)
@@ -2051,6 +2085,14 @@ class ThoughtborneApp:
                        "cannot react to key presses", _BOLD, _RED),
                 action="close any other running Thoughtborne instance, then restart",
             )
+
+        # Recovery notice as its own prominent block, emitted last so it sits at
+        # the bottom of the scrollback below READY and can't be scrolled off
+        # (#78 -- the plain line above it was overlooked in the #59 test). The
+        # retry slot was already armed above; this is display only. Reached from
+        # both hotkey paths, so a failed registration still announces the rescue.
+        if recovered:
+            self._show_recovery_block(recovered, hotkeys_ok)
 
         try:
             # Main loop - wait until running flag is set to False
