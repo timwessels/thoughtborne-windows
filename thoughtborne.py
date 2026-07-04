@@ -1415,13 +1415,15 @@ class ThoughtborneApp:
         logger.info(f"[{thread_name}] Retrying recording from {rec.origin_timestamp} "
                     f"as sequence {sequence_number} (active: {current_count})")
 
-        # Mirror the keyboard stop hotkey: the user is holding Ctrl+Alt+R when
-        # this fires, so the output worker must wait for those modifiers to
-        # release before typing -- otherwise the insert misfires as shortcuts.
+        # Insert like Ctrl+Alt+D: clipboard is the project default, typing the
+        # fallback for apps that block paste. The user is still holding
+        # Ctrl+Alt+R when this fires, so wait_for_key_release below defers the
+        # paste until those keys clear -- otherwise the Ctrl+V collides with the
+        # still-held modifiers, the same guard the D path relies on.
         task = TranscriptionTask(
             sequence_number=sequence_number,
             timestamp=timestamp,
-            use_clipboard=False,
+            use_clipboard=True,
             auto_insert=True,
             wait_for_key_release=True,
             trigger_keys=['ctrl', 'alt', 'r'],
