@@ -146,8 +146,26 @@ AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel ord
 API_DISPLAY = {
     "soniox-live": {"label": "Soniox Live", "descriptor": "verbatim, instant"},
     "soniox":      {"label": "Soniox",      "descriptor": "polished, takes longer"},
-    "groq-large":  {"label": "Groq Large",  "descriptor": "accurate, free"},
-    "groq":        {"label": "Groq",        "descriptor": "fast, free"},
+    "groq-large":  {"label": "Groq Whisper Large v3", "descriptor": "accurate, free"},
+    "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "fast, free"},
+}
+
+# ===== ARCHIVE ENGINE TOKENS (single source, #84) =====
+# Filename tokens naming the engine that produced an archived transcript/recording (#62).
+# Keyed by a stable internal engine id (underscored, so it never collides with the hyphenated
+# carousel/API keys in AVAILABLE_APIS). The token strings are the only thing that ever
+# changes. Deliberately more technical than the in-tool #86 labels: the audience derives the
+# engine from a filename, no legend. The Son… / GWhisper… stems stay recognizably consistent
+# with the #86 labels (Soniox …, Groq Whisper …). The -v2/-v4 suffix records the model
+# generation the tool REQUESTED (the pin), which stays truthful even if Soniox silently
+# serves a newer generation under the old name (#82).
+ENGINE_TOKENS = {
+    "soniox_live": "SonLive-v4",     # Soniox Live (websocket RT)
+    "soniox_v2":   "Son-v2",         # soniox slot, V2 sync (<58 s)
+    "soniox_v4":   "Son-v4",         # soniox slot, V4 async REST (long / fallback)
+    "groq_large":  "GWhisperLar-v3", # Groq whisper-large-v3
+    "groq_turbo":  "GWhisperTur-v3", # Groq whisper-large-v3-turbo
+    "unknown":     "unknown",        # defensive completeness (engine_code fall-through)
 }
 
 # ===== API KEYS =====

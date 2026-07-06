@@ -26,7 +26,7 @@ from groq import Groq, AuthenticationError
 
 from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
-    GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY,
+    GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY, ENGINE_TOKENS,
     SHORT_AUDIO_THRESHOLD, SONIOX_V2_CONTEXT_BOOST,
     SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
     SONIOX_V4_MAX_POLL_ATTEMPTS,
@@ -546,9 +546,10 @@ class SonioxTranscriber(AbstractTranscriber):
             audio_file_path: Path to the audio file
             duration_seconds: Duration of the audio in seconds
             engine_sink: Optional _EngineTag the caller reads afterwards to learn
-                which engine won this call (#62) -- "s-v2" on the V2 sync path,
-                "s-v4" whenever V4 async produced the text (long recording, missing
-                SDK, or V2-raised fallback). Only set on a returned result the
+                which engine won this call (#62) -- ENGINE_TOKENS["soniox_v2"] on
+                the V2 sync path, ENGINE_TOKENS["soniox_v4"] whenever V4 async
+                produced the text (long recording, missing SDK, or V2-raised
+                fallback). Only set on a returned result the
                 caller keeps; the caller ignores it on an empty transcript.
 
         Returns:
@@ -565,7 +566,7 @@ class SonioxTranscriber(AbstractTranscriber):
                 # fall-through one level up (#31).
                 result = self._transcribe_v2_sync(audio_file_path, duration_seconds)
                 if engine_sink is not None:
-                    engine_sink.code = "s-v2"
+                    engine_sink.code = ENGINE_TOKENS["soniox_v2"]
                 return result
             except Exception as e:
                 if self._is_auth_error(e):
@@ -587,14 +588,14 @@ class SonioxTranscriber(AbstractTranscriber):
                 # fallback fails too.
                 logger.debug(f"V2 sync failure detail: {e}", exc_info=True)
                 if engine_sink is not None:
-                    engine_sink.code = "s-v4"
+                    engine_sink.code = ENGINE_TOKENS["soniox_v4"]
                 return self._v4.transcribe(audio_file_path, duration_seconds)
 
         if duration_seconds >= SHORT_AUDIO_THRESHOLD:
             logger.info(f"Long recording ({duration_seconds:.1f}s >= "
                         f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)")
         if engine_sink is not None:
-            engine_sink.code = "s-v4"
+            engine_sink.code = ENGINE_TOKENS["soniox_v4"]
         return self._v4.transcribe(audio_file_path, duration_seconds)
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
@@ -1507,14 +1508,15 @@ def engine_code(transcriber: AbstractTranscriber) -> str:
     at runtime). The remaining branches are defensive completeness.
     """
     if isinstance(transcriber, SonioxLiveTranscriber):
-        return "s-live"
+        return ENGINE_TOKENS["soniox_live"]
     if isinstance(transcriber, GroqTranscriber):
-        return "groq-large" if transcriber.model == GROQ_LARGE_MODEL else "groq"
+        return (ENGINE_TOKENS["groq_large"] if transcriber.model == GROQ_LARGE_MODEL
+                else ENGINE_TOKENS["groq_turbo"])
     if isinstance(transcriber, SonioxV4Transcriber):
-        return "s-v4"
+        return ENGINE_TOKENS["soniox_v4"]
     if isinstance(transcriber, SonioxTranscriber):
-        return "s-v2"
-    return "unknown"
+        return ENGINE_TOKENS["soniox_v2"]
+    return ENGINE_TOKENS["unknown"]
 
 
 def create_transcriber(api_name: str) -> AbstractTranscriber:

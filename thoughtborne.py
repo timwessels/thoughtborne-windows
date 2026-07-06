@@ -38,7 +38,7 @@ from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY,
+    SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
@@ -827,9 +827,9 @@ class ThoughtborneApp:
 
         Returns:
             (transcript, engine) -- the transcript plus the token of the engine
-            that produced it ("s-v2" or "s-v4", #62). Both empty ("", "") when
-            every available fallback failed; the caller then routes through the
-            existing is_error path.
+            that produced it (ENGINE_TOKENS["soniox_v2"] or ["soniox_v4"], #62).
+            Both empty ("", "") when every available fallback failed; the caller
+            then routes through the existing is_error path.
         """
         try_v2_first = duration < SHORT_AUDIO_THRESHOLD
         primary_label = "Soniox V2 (sync)" if try_v2_first else "Soniox V4 (async)"
@@ -860,7 +860,7 @@ class ThoughtborneApp:
                 thread_name=thread_name,
             )
             if transcript:
-                return transcript, "s-v2"
+                return transcript, ENGINE_TOKENS["soniox_v2"]
 
             # V2 failed or returned empty. Spec #1 requires we still try V4
             # so that "Empty transcription" only surfaces when both fail (and
@@ -891,7 +891,7 @@ class ThoughtborneApp:
             )
             print(f"[Seq: {sequence_number}] All fallbacks exhausted ({stages} all failed)")
 
-        return transcript, ("s-v4" if transcript else "")
+        return transcript, (ENGINE_TOKENS["soniox_v4"] if transcript else "")
 
     def _try_fallback(self, kind: str, mp3_path: str, duration: float,
                       sequence_number: int, thread_name: str) -> str:

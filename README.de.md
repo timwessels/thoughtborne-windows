@@ -22,12 +22,12 @@ Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstel
 |-----|------|-------------|-----------------|--------------|
 | **Soniox Live** | wortgetreu · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, Füllwörter inklusive; ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
 | **Soniox** | poliert · braucht länger | Schickt das Audio nach dem Stopp und liefert Text, der sich wie Geschriebenes liest — saubere Interpunktion, keine Füllwörter; für E-Mails und Texte, die an Menschen gehen. | ~4–6 s (kurz) / ~10–40 s (lang) | Soniox (Prepaid) |
-| **Groq Large** | genau · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
-| **Groq** | schnell · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
+| **Groq Whisper Large v3** | genau · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
+| **Groq Whisper Turbo v3** | schnell · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
 
 **Der kostenlose Weg:** Beide Groq-Einträge laufen im Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) — damit lässt sich Thoughtborne ausprobieren, ohne irgendwen zu bezahlen. Soniox hat keinen Free Tier (Stand Juni 2026): Vor der ersten Nutzung ein kleines Prepaid-Guthaben aufladen; die Abrechnung ist nutzungsbasiert ([soniox.com/pricing](https://soniox.com/pricing)). Zur Größenordnung: Ein halbes Jahr intensiver persönlicher Nutzung — etwa 150 Stunden Transkription — hat rund 10–15 $ gekostet ([VISION.md](VISION.md)).
 
-Engines, für Neugierige: `stt-rt-v4` (Soniox Live) · `de_v2` + `stt-async-v4` (Soniox — kurze Aufnahmen laufen über die synchrone v2-Engine, lange und der automatische Fallback über v4 async; welcher Pfad lief, muss einen beim Diktieren nicht kümmern) · `whisper-large-v3` (Groq Large) · `whisper-large-v3-turbo` (Groq).
+Engines, für Neugierige: `stt-rt-v4` (Soniox Live) · `de_v2` + `stt-async-v4` (Soniox — kurze Aufnahmen laufen über die synchrone v2-Engine, lange und der automatische Fallback über v4 async; welcher Pfad lief, muss einen beim Diktieren nicht kümmern) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Voraussetzungen
 
@@ -127,7 +127,7 @@ Dann diktieren:
 
 **Selbsttest:** `Ctrl+Alt+Ü` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
-Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein kurzes Engine-Kürzel — `s-live`, `s-v2`, `s-v4`, `groq` oder `groq-large` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme.
+Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v4`, `Son-v2`, `Son-v4`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme.
 
 `Ctrl+Alt+4` beendet das Tool.
 
@@ -142,7 +142,7 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 | `Ctrl+Alt+Y` | Stopp + nur transkribieren — später mit `A` oder `D` einfügen |
 | `Ctrl+Alt+X` | Aufnahme abbrechen (nichts wird eingefügt) |
 | `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen (aus der archivierten Aufnahme) |
-| `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Large → Groq) |
+| `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
 | `Ctrl+Alt+6` | Den Ordner mit Aufnahmen & Transkripten (`history/`) im Explorer öffnen |
 | `Ctrl+Alt+Ü` | Selbsttest: die mitgelieferte `test_audio.mp3` transkribieren |
 | `Ctrl+Alt+4` | Programm beenden |
