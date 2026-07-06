@@ -181,11 +181,22 @@ SONIOX_MODEL = "de_v2"  # Language model: "de_v2" for German, "en_v2" for Englis
 # 58s provides a safe margin (see: Bug 2026-01-30, 59.8s recording + 1000ms padding = 60.5s → rejected).
 SHORT_AUDIO_THRESHOLD = 58
 # SpeechContext boost for the personal vocabulary phrases on the V2 sync path (#73).
-# 15.0 matches Soniox's own legacy examples; a guide value, not gospel -- too high
-# risks false-positive term insertion (a boosted term landing where it wasn't spoken,
-# exactly the "meaning-bearing wrong word" the quality bar guards against). The v4
-# engines have no equivalent knob -- they let the server weight the context dict -- so
-# this tunes the legacy gRPC path only.
+# Soniox's legacy customization docs define boost as a decode-stage bias on recognizing
+# the given phrases; valid range -50..50 (values outside are clipped server-side, no
+# error), with 15 the documented "start here" value and "increase if needed" the next
+# step, and the boost applying to each phrase as a whole. An excessively high boost may
+# hurt accuracy (unquantified by Soniox) -- the false-positive risk of a boosted term
+# landing where it wasn't spoken, exactly the "meaning-bearing wrong word" the quality
+# bar guards against. 15.0 is now a measured optimum, not a copied guess (#85): a sweep
+# of the known V2 failure recording over boosts 0/15/20/25/30/40/50 rescued no hard term
+# at any value (WezTerm, tmux-Session, Kannengießer, van Wynsberghe stay garbled -- the
+# de_v2 base model simply lacks the hypotheses, #81), everything the context can rescue
+# (Cygnus, QISPOS) already lands at 15, boosts 20..30 gained nothing over 15 (same
+# terms rescued, no false positives, only immaterial text differences), and boosts
+# >= 40 began degrading other recordings -- doubling a spoken filler at 40, inserting
+# unspoken vocabulary at 50. So 15 is the safe ceiling. The v4 engines have no equivalent
+# knob -- they let the server weight the context dict -- so this tunes the legacy gRPC
+# (de_v2) path only. Sweep evidence lives in _research/2026-07_soniox-v2-boost-sweep/.
 SONIOX_V2_CONTEXT_BOOST = 15.0
 
 # ===== SONIOX V4 ASYNC REST API SETTINGS =====
