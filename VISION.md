@@ -113,6 +113,23 @@ their tools by telling an AI what to change — "Claude, add this feature" —
 which is exactly how this tool is built and why clean, readable code is a
 feature here, not an aesthetic preference.
 
+Put as a persona — the sketch that presentation and priority calls get
+measured against:
+
+**The self-reliant German techie.** Works in or around IT — sysadmin,
+developer, technically minded knowledge worker; not necessarily a programmer.
+Dictates in German and talks to AI every day. Four things drive their tool
+choices:
+
+- **Pay for use, not for access.** No subscriptions; cost should track
+  actual usage — and stay small.
+- **Independence.** No lock-in: keep the freedom to switch providers
+  whenever the lineup shifts.
+- **Verifiable privacy.** Know where the audio goes — and be able to read
+  it in the code, rather than having to trust a privacy policy.
+- **Control.** The tool bends to their workflow, not the other way around —
+  by editing plain config, or by telling an AI agent what to change.
+
 It is *not* aimed at people who want a polished GUI product with guided
 onboarding — commercial tools serve them well. The honest ambition: me, my
 friends, and the friends of my friends. If strangers find value in it beyond
