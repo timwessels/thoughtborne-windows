@@ -16,11 +16,11 @@ Der Qualitätsmaßstab ist einfach: Transkripte müssen **gut genug sein, um sie
 
 ## Die Modell-Aufstellung
 
-Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstellung folgt dem, was im praktischen Einsatz für Deutsch am besten abschneidet, alle paar Monate neu bewertet ([VISION.md](VISION.md)). Zwei Jobs bleiben bewusst nebeneinander: wortgetreue Transkripte, die im Moment des Stopps fertig sind, und polierte, die sich wie Geschriebenes lesen ([die zwei Modi](VISION.md#two-modes-two-jobs-verbatim-vs-polished)).
+Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstellung folgt dem, was im praktischen Einsatz für Deutsch am besten abschneidet, alle paar Monate neu bewertet ([VISION.md](VISION.md)). Die Engines unterscheiden sich vor allem entlang einer Achse — Tempo gegen Sauberkeit: manche sind im Moment des Stopps fertig und bleiben nah am Gesprochenen, andere brauchen etwas länger und lesen sich etwas sauberer ([verschiedene Engines, verschiedene Stärken](VISION.md#different-engines-different-strengths)).
 
 | API | Kurz | Was sie tut | Geschwindigkeit | Key & Kosten |
 |-----|------|-------------|-----------------|--------------|
-| **Soniox Live** | wortgetreu · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, Füllwörter inklusive; ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
+| **Soniox Live** | wortgetreu · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, nah an dem, wie du wirklich gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert); ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
 | **Soniox** | poliert · braucht länger | Schickt das Audio nach dem Stopp und liefert Text, der sich wie Geschriebenes liest — saubere Interpunktion, keine Füllwörter; für E-Mails und Texte, die an Menschen gehen. | ~4–6 s (kurz) / ~10–40 s (lang) | Soniox (Prepaid) |
 | **Groq Whisper Large v3** | genau · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
 | **Groq Whisper Turbo v3** | schnell · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |

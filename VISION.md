@@ -75,30 +75,34 @@ Consequences:
   carousel) as utility options, but not as the recommended default.
 - Models are judged by hands-on testing with real dictation, not by
   benchmark numbers alone. I re-test the field every few months.
-- Above the bar, there is room for trade-offs (see the two modes below).
-  Below it, speed is worthless.
+- Above the bar, there is room for trade-offs (see the fast-vs-tidy split
+  below). Below it, speed is worthless.
 
-## Two modes, two jobs: verbatim vs. polished
+## Different engines, different strengths
 
-Dictation is not one job. Thoughtborne deliberately keeps two kinds of
-transcription side by side:
+Dictation isn't one job, and the engines in the lineup don't all behave the
+same way. The main axis is speed versus tidiness — worth knowing so you can
+reach for the right one:
 
-- **Verbatim & instant** (today: Soniox Live, streamed during recording):
-  transcribes what you actually said — fillers, hesitations and all — and the
-  result is ready the moment you stop, even after ten minutes of talking.
-  For talking to LLMs this is a feature twice over: no waiting, and the
-  fillers can carry signal about what you mean and how sure you are. Its
+- **Fast & close to speech** (today: Soniox Live, streamed during recording):
+  the result is ready the moment you stop, even after ten minutes of talking,
+  and it stays close to how you actually spoke — the conversational "ja",
+  "also", "hm" and the like come through rather than being smoothed away.
+  Pure hesitation sounds ("ähm", "äh") are the exception: they carry almost
+  no meaning, and get filtered out everywhere, this mode included. Its
   occasional small misrecognitions are the kind an LLM straightens out from
   context — which is why it still clears the bar.
-- **Polished & patient** (today: the Soniox upload models — audio is sent
-  after you stop): reads like something you would have written — proper
-  punctuation, no fillers. Ten minutes of audio take on the order of a
-  minute. The right mode for emails and texts meant for humans, or whenever
-  wording matters more than waiting.
+- **Tidier & patient** (today: the Soniox upload models — audio is sent after
+  you stop): a higher threshold for what makes it into the text, so it reads a
+  bit more cleanly — fewer spoken-language particles, a little closer to
+  something you'd have written. Ten minutes of audio take on the order of a
+  minute. The better fit for emails and texts meant for humans, or whenever
+  wording matters more than waiting. Neither mode is truly "as if typed",
+  though — there's no LLM behind them; the difference is one of degree.
 
-Both jobs are legitimate; the tool should keep serving both and keep the
-choice one hotkey away. (Optional LLM post-processing may later make this
-distinction explicit and configurable — see below.)
+Both are legitimate; the tool should keep serving both and keep the choice one
+hotkey away. (Optional LLM post-processing may later sharpen this difference
+into an explicit, configurable choice — see below.)
 
 ## Who it's for
 
@@ -189,8 +193,8 @@ a bit better" is not a release blocker — at some point you just put it out.
 
 **Later, optional, explicitly not launch-blocking:**
 
-- **Optional LLM post-processing** of transcripts — making the verbatim
-  vs. polished distinction an explicit, configurable choice (and giving
+- **Optional LLM post-processing** of transcripts — making the fast-vs-tidy
+  distinction an explicit, configurable choice (and giving
   spelling-and-grammar cleanup as a side effect). Today's quality is good
   enough without it; that's why it can wait.
 - **English as a real second language.** The same models can handle English,

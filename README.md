@@ -16,11 +16,11 @@ The quality bar is simple: transcripts must be **good enough to send to an LLM u
 
 ## The model lineup
 
-Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup follows what tests best for German in hands-on use, re-evaluated every few months ([VISION.md](VISION.md)). Two jobs are deliberately kept side by side: verbatim transcripts that are ready the instant you stop, and polished ones that read like writing ([the two modes](VISION.md#two-modes-two-jobs-verbatim-vs-polished)).
+Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup follows what tests best for German in hands-on use, re-evaluated every few months ([VISION.md](VISION.md)). The engines differ mainly along one axis — speed versus tidiness: some are ready the instant you stop and stay close to how you spoke, others take a little longer and read a bit more cleanly ([different engines, different strengths](VISION.md#different-engines-different-strengths)).
 
 | API | In short | What it does | Speed | Key & cost |
 |-----|----------|--------------|-------|------------|
-| **Soniox Live** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, fillers and all; ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
+| **Soniox Live** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
 | **Soniox** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~4–6 s (short) / ~10–40 s (long) | Soniox (prepaid) |
 | **Groq Whisper Large v3** | accurate · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
 | **Groq Whisper Turbo v3** | fast · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |

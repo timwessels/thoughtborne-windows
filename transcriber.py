@@ -163,6 +163,107 @@ class AbstractTranscriber(ABC):
             logger.error(f"Failed to save transcript: {e}")
             return None
 
+    # Marks that end a sentence, so a capitalized filler right after one is
+    # genuinely sentence-initial. ":" is included on purpose: the model
+    # capitalizes a filler after a colon when it treats what follows as a new
+    # sentence, and keeping that move leaves Live output unchanged (#97
+    # measurement: 2 such cases, all currently capitalized). Widening this set
+    # can never add a wrong capital -- the move is already gated on the filler
+    # itself being uppercase (a strict subset of the pre-#97 always-move).
+    _SENTENCE_END = frozenset(".!?…:")
+    # Closing quotes/brackets skipped through on the backward look: they can sit
+    # between a sentence-ender and the next sentence's first token
+    # (SATZ." Ähm ...), so they must not hide the sentence start. Live emits the
+    # straight " ; the rest are defensive and semantically transparent.
+    _CAP_TRANSPARENT = frozenset('"' + "'" + '”’»)]}')
+
+    def _at_sentence_start(self, text: str, idx: int) -> bool:
+        """True if position idx begins a new sentence: scanning left past
+        whitespace and transparent closing quotes/brackets reaches a
+        sentence-ending mark (. ! ? …), a colon, or the start of the text."""
+        j = idx - 1
+        while j >= 0 and (text[j].isspace() or text[j] in self._CAP_TRANSPARENT):
+            j -= 1
+        return j < 0 or text[j] in self._SENTENCE_END
+
+    def _remove_spoken_fillers(self, transcript: str) -> str:
+        """Remove spoken hesitation fillers ("ähm"/"äh") that some engines
+        transcribe verbatim (#31; generalized to every engine in #97).
+
+        Additions-only counterpart to the V2/Groq end-artifact filters (which
+        stay untouched). Origin: the #31 quality gate
+        (_research/2026-06_soniox-v2async-vs-v4-quality/) found 172 inline
+        fillers on the Soniox V4 async path, exclusively the forms "ähm"/"äh".
+        A larger Soniox Live sample (#97) confirmed the same two forms and
+        nothing else, delimited almost always by a following comma, rarely a
+        period (the older V4 corpus also showed the three-dot ellipsis).
+        Removal drops the filler plus its immediately following delimiter and
+        spacing, re-capitalizes the next word when a sentence-initial
+        capitalized filler preceded a lowercase one, and trims a comma left
+        dangling at the very end. The capital is moved only at a genuine
+        sentence start (see _at_sentence_start), so a filler capitalized
+        mid-clause can never push a wrong capital onto the following word.
+        Deliberately not filtered: any other form -- "eh"/"hm"/"naja" are real
+        words or meaning-bearing particles, not hesitation noise.
+        """
+        if not transcript:
+            return transcript
+
+        original = transcript
+        # Word-boundary matching is load-bearing: umlauts are \w in Python's
+        # unicode re, so "ähm" inside "Lähmung" or "äh" inside "ähnlich"
+        # cannot match.
+        filler_re = re.compile(r"\b(?:ähm|äh)\b", re.IGNORECASE)
+        # Delimiter the model attaches to the filler itself (corpus-exact:
+        # comma, three-dot ellipsis, or period) plus the gluing whitespace.
+        trail_re = re.compile(r"(?:\.{3}|[.,])?[ \t]*")
+
+        out = []
+        pos = 0
+        removed = 0
+        ends_at_eos = False
+        cap_pending = False
+        for m in filler_re.finditer(transcript):
+            if m.start() < pos:
+                continue
+            if transcript[pos:m.start()]:
+                # Real text in between -- a pending capitalization from an
+                # earlier filler chain cannot reach across it.
+                cap_pending = False
+            end = trail_re.match(transcript, m.end()).end()
+            out.append(transcript[pos:m.start()])
+            removed += 1
+            logger.debug(f"Removed spoken filler: '{transcript[m.start():end]}' at {m.start()}")
+            cap_pending = cap_pending or (
+                m.group(0)[0].isupper()
+                and self._at_sentence_start(transcript, m.start())
+            )
+            if (cap_pending and end < len(transcript) and transcript[end].islower()
+                    and not filler_re.match(transcript, end)):
+                # The sentence-initial filler (or filler chain, "Äh, ähm, ...")
+                # carried the capitalization -- move it to the word that now
+                # starts the sentence. When another filler follows directly,
+                # defer the move until the chain ends, so the flip never eats
+                # the next filler's first letter.
+                out.append(transcript[end].upper())
+                end += 1
+                cap_pending = False
+            pos = end
+            ends_at_eos = pos >= len(transcript)
+        if not removed:
+            return transcript
+
+        out.append(transcript[pos:])
+        text = "".join(out)
+        if ends_at_eos:
+            # A filler removed at the very end can leave ", " dangling.
+            text = text.rstrip()
+            if text.endswith(","):
+                text = text[:-1].rstrip()
+
+        logger.debug(f"Removed {removed} spoken filler(s): {len(original)} -> {len(text)} chars")
+        return text
+
 
 class GroqTranscriber(AbstractTranscriber):
     """Handles transcription using Groq Whisper API.
@@ -295,7 +396,9 @@ class GroqTranscriber(AbstractTranscriber):
             
             # Clean hallucinations
             text = self._clean_groq_hallucinations(text)
-            
+            # Clean fillers
+            text = self._remove_spoken_fillers(text)
+
             return text
             
         except AuthenticationError as e:
@@ -513,6 +616,8 @@ class SonioxTranscriber(AbstractTranscriber):
 
             # Clean hallucinations
             text = self._clean_transcript_hallucinations(text)
+            # Clean fillers
+            text = self._remove_spoken_fillers(text)
 
             return text.strip()
 
@@ -658,78 +763,6 @@ class SonioxV4Transcriber(AbstractTranscriber):
         """Get the name of this transcriber"""
         return "Soniox v4 (async)"
 
-    def _clean_v4_fillers(self, transcript: str) -> str:
-        """Remove spoken fillers that stt-async-v4 transcribes verbatim (#31).
-
-        Corpus-derived, additions-only counterpart to the V2/Groq end-artifact
-        filters (which stay untouched). The #31 quality gate
-        (_research/2026-06_soniox-v2async-vs-v4-quality/, 13 real dictation
-        samples / 41.9 min) found 172 inline fillers on the V4 path --
-        exclusively the forms "ähm"/"äh" (V2-async: 0). The model delimits
-        them with a following comma (163), rarely an ellipsis (5) or period
-        (3), and capitalizes sentence-initial ones (44, of which 39 carry the
-        capitalization that belongs to the next word). Removal mirrors exactly
-        that: drop the filler plus its immediately following delimiter and
-        spacing, re-capitalize the next word when a capitalized filler
-        preceded a lowercase one, and trim a comma left dangling at the very
-        end. Deliberately not filtered: any other form -- "eh" is a real
-        German word, and the corpus' single "hm" is no pattern.
-        """
-        if not transcript:
-            return transcript
-
-        original = transcript
-        # Word-boundary matching is load-bearing: umlauts are \w in Python's
-        # unicode re, so "ähm" inside "Lähmung" or "äh" inside "ähnlich"
-        # cannot match.
-        filler_re = re.compile(r"\b(?:ähm|äh)\b", re.IGNORECASE)
-        # Delimiter the model attaches to the filler itself (corpus-exact:
-        # comma, three-dot ellipsis, or period) plus the gluing whitespace.
-        trail_re = re.compile(r"(?:\.{3}|[.,])?[ \t]*")
-
-        out = []
-        pos = 0
-        removed = 0
-        ends_at_eos = False
-        cap_pending = False
-        for m in filler_re.finditer(transcript):
-            if m.start() < pos:
-                continue
-            if transcript[pos:m.start()]:
-                # Real text in between -- a pending capitalization from an
-                # earlier filler chain cannot reach across it.
-                cap_pending = False
-            end = trail_re.match(transcript, m.end()).end()
-            out.append(transcript[pos:m.start()])
-            removed += 1
-            logger.debug(f"Removed V4 filler: '{transcript[m.start():end]}' at {m.start()}")
-            cap_pending = cap_pending or m.group(0)[0].isupper()
-            if (cap_pending and end < len(transcript) and transcript[end].islower()
-                    and not filler_re.match(transcript, end)):
-                # The sentence-initial filler (or filler chain, "Äh, ähm, ...")
-                # carried the capitalization -- move it to the word that now
-                # starts the sentence. When another filler follows directly,
-                # defer the move until the chain ends, so the flip never eats
-                # the next filler's first letter.
-                out.append(transcript[end].upper())
-                end += 1
-                cap_pending = False
-            pos = end
-            ends_at_eos = pos >= len(transcript)
-        if not removed:
-            return transcript
-
-        out.append(transcript[pos:])
-        text = "".join(out)
-        if ends_at_eos:
-            # A filler removed at the very end can leave ", " dangling.
-            text = text.rstrip()
-            if text.endswith(","):
-                text = text[:-1].rstrip()
-
-        logger.debug(f"Removed {removed} V4 filler(s): {len(original)} -> {len(text)} chars")
-        return text
-
     def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
         """Transcribe an audio file using Soniox v4 Async REST API.
 
@@ -822,7 +855,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
 
             # Clean fillers
-            text = self._clean_v4_fillers(text)
+            text = self._remove_spoken_fillers(text)
 
             return text
 
@@ -1374,6 +1407,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
             # Step 5: Assemble text from final tokens
             text = "".join(self._final_tokens).strip()
+            # Clean fillers
+            text = self._remove_spoken_fillers(text)
 
             elapsed = time.time() - start_time
             logger.info(f"Soniox Live transcription finalized in {elapsed:.2f}s")
