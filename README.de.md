@@ -6,7 +6,7 @@
 </p>
 # Thoughtborne
 
-**[English version](README.md)**
+**[English version](README.md)** · **Website: [thoughtborne.app](https://thoughtborne.app)**
 
 Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Hotkey drücken, sprechen, zweiten Hotkey drücken — und das Transkript landet an der Cursor-Position in der gerade aktiven Anwendung, als wäre es getippt. Optimiert für Deutsch, gebaut zuallererst für einen Job: mit KI sprechen.
 
@@ -191,6 +191,7 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 
 ## Projekt & Links
 
+- [thoughtborne.app](https://thoughtborne.app) — die Projekt-Website.
 - [VISION.md](VISION.md) — warum es das Tool gibt, der Qualitätsmaßstab, was Entscheidungen leitet (englisch).
 - [CHANGELOG.md](CHANGELOG.md) — was sich geändert hat, Release für Release.
 - [LICENSE](LICENSE) — MIT.

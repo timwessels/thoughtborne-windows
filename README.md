@@ -6,7 +6,7 @@
 </p>
 # Thoughtborne
 
-**[Deutsche Version](README.de.md)**
+**[Deutsche Version](README.de.md)** · **Website: [thoughtborne.app](https://thoughtborne.app)**
 
 Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — and the transcript lands at the cursor in whatever app is active, as if you had typed it. Optimized for German, built first and foremost for one job: talking to AI.
 
@@ -191,6 +191,7 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 
 ## Project & links
 
+- [thoughtborne.app](https://thoughtborne.app) — the project website.
 - [VISION.md](VISION.md) — why the tool exists, the quality bar, what guides decisions.
 - [CHANGELOG.md](CHANGELOG.md) — what changed, release by release.
 - [LICENSE](LICENSE) — MIT.
