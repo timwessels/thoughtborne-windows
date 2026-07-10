@@ -6,7 +6,7 @@
 <title>Thoughtborne — hotkey voice-to-text for Windows</title>
 <meta name="description" content="Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — the transcript lands at the cursor. Optimized for German, built for talking to AI.">
 <!-- EN-only by decision (#75): German readers land on README.de.md via the footer. -->
-<link rel="canonical" href="https://timwessels.github.io/thoughtborne-windows/">
+<link rel="canonical" href="https://thoughtborne.app/">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/thoughtborne-avatar-512.png">
@@ -14,12 +14,14 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="Thoughtborne — hotkey voice-to-text for Windows">
 <meta property="og:description" content="Press a hotkey, talk, press another — the transcript lands at the cursor. Optimized for German, built for talking to AI. Open source, MIT.">
-<meta property="og:url" content="https://timwessels.github.io/thoughtborne-windows/">
-<meta property="og:image" content="https://timwessels.github.io/thoughtborne-windows/assets/thoughtborne-social-preview.png">
+<meta property="og:url" content="https://thoughtborne.app/">
+<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<a class="skip-link" href="#main">Skip to content</a>
 
 <header class="hero">
   <div class="wrap hero-inner">
@@ -48,16 +50,55 @@
 
     <p class="tagline"><strong>Hotkey-driven voice-to-text for Windows.</strong> Press a hotkey, talk, press another — the transcript lands at the cursor in whatever app is active, as if you had typed it.</p>
     <p class="subline">Optimized for German, built first and foremost for one job: talking to AI.</p>
+    <!-- the glanceable answer to "why use this" — four short claims, no explaining sentence;
+         each is proven further down (value grid, cost ledger, quality quote, loop card 3) -->
+    <p class="benefits"><span>free or a few dollars a month</span> <span>no subscription</span> <span>good enough to send unread</span> <span>one press to your AI</span></p>
 
     <p class="actions">
       <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">View on GitHub</a>
       <a class="btn btn-ghost" href="#get-started">Get started</a>
     </p>
-    <p class="meta"><span>Open source</span>&ensp;·&ensp;<span>MIT</span>&ensp;·&ensp;<span>Windows</span>&ensp;·&ensp;<span>bring your own API keys</span></p>
+    <p class="meta"><span>Open source</span> <span>MIT</span> <span>Windows</span> <span>bring your own API keys</span></p>
   </div>
 </header>
 
 <main id="main">
+
+  <section class="section value">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Why</p>
+      <h2>Why it exists</h2>
+      <p>Most of the maintainer's workday is talking to LLMs — and the keyboard is the bottleneck. Some version of this tool has been his daily driver since 2023; commercial tools have caught up since, but he still maintains his own because none of them gets all of the essentials right at once:</p>
+    </div>
+    <div class="wrap value-wide">
+      <ol class="value-grid">
+        <li>
+          <strong>Free — or a few dollars.</strong>
+          <span>No subscription: the free path costs nothing, and even heavy daily dictation runs about $3 a month on the paid default.</span>
+        </li>
+        <li>
+          <strong>Optimized for German.</strong>
+          <span>The lineup follows whatever tests best for German in hands-on use, re-evaluated every few months — regardless of vendor.</span>
+        </li>
+        <li>
+          <strong>Send it unread.</strong>
+          <span>The quality bar behind every model choice: transcripts reliable enough to go straight to an LLM, no proofreading pass.</span>
+        </li>
+        <li>
+          <strong>One press to your AI.</strong>
+          <span>A dedicated hotkey transcribes, inserts at the cursor, and presses Enter for you — dictation straight into a running AI chat.</span>
+        </li>
+        <li>
+          <strong>Two styles, four APIs.</strong>
+          <span>Verbatim or polished, switchable at runtime — plus recognition vocabulary for your terms and hallucination filters for German artifacts.</span>
+        </li>
+        <li>
+          <strong>Your data stays yours.</strong>
+          <span>Not training data — audio goes only to the API you chose; recordings and transcripts are archived on your disk, nowhere else.</span>
+        </li>
+      </ol>
+    </div>
+  </section>
 
   <section class="loop">
     <div class="wrap">
@@ -76,21 +117,7 @@
           <span class="step-text">Or insert <strong>and press Enter</strong> — entire AI conversations without touching the keyboard.</span>
         </li>
       </ol>
-    </div>
-  </section>
-
-  <section class="section why">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Why</p>
-      <h2>Why it exists</h2>
-      <p>Most of the maintainer's workday is talking to LLMs — and the keyboard is the bottleneck. Some version of this tool has been his daily driver since 2023; commercial tools have caught up since, but he still maintains his own because none of them gets all of the essentials right at once:</p>
-      <ul class="reasons">
-        <li><strong>The best current German model, always.</strong> The lineup follows what tests best for German in hands-on use, re-evaluated every few months — regardless of vendor.</li>
-        <li><strong>Good enough to send unread.</strong> A quality bar most tools don't clear for German.</li>
-        <li><strong>One-press send.</strong> A dedicated hotkey transcribes, inserts, and presses Enter.</li>
-        <li><strong>Hallucination filtering.</strong> Speech models produce well-known artifacts; Thoughtborne ships model-specific filters for German artifacts, built from three years of annotated transcriptions.</li>
-        <li><strong>Pay for usage, not a subscription.</strong> Bring your own API keys and pay cents — or take the free path.</li>
-      </ul>
+      <p class="loop-note">Prefer to hold a key instead? Optional <strong>push-to-talk</strong>: hold, talk, release.</p>
     </div>
   </section>
 
@@ -110,8 +137,8 @@
   <section class="section lineup">
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">The lineup</p>
-      <h2>Two jobs, four APIs</h2>
-      <p>Dictation is not one job. Thoughtborne keeps two kinds of transcription side by side — <strong>verbatim</strong> transcripts that are ready the instant you stop, and <strong>polished</strong> ones that read like writing — across four APIs, switchable at runtime with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p>
+      <h2>Different engines, different strengths</h2>
+      <p>No one engine is best at everything. Thoughtborne keeps four APIs side by side, switchable at runtime with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>; they differ mainly along one axis — speed versus tidiness: some are ready the instant you stop and stay close to how you spoke, others take a little longer and read a bit more cleanly.</p>
     </div>
     <!-- lineup mirrors the README model-lineup table (#47 label contract) — change README first, then here -->
     <div class="wrap lineup-wide">
@@ -129,8 +156,71 @@
         </table>
       </div>
     </div>
+  </section>
+
+  <section class="section cost">
     <div class="wrap prose">
-      <p class="free-path"><strong>The free path:</strong> both Groq entries run on Groq's free tier (as of June 2026) — you can try Thoughtborne without paying anyone. Soniox has no free tier (as of June 2026): you top up a small prepaid balance; pricing is usage-based. For scale: half a year of the maintainer's heavy use — on the order of 150 hours of transcription — cost roughly $10–15.</p>
+      <p class="eyebrow" aria-hidden="true">Cost</p>
+      <h2>What it costs</h2>
+      <p>There is <strong>no subscription</strong> anywhere in this stack. You bring your own API keys and pay the providers' usage prices — a fraction of the $12–15 a month that subscription dictation tools charge.</p>
+      <!-- key figures set as an editorial ledger; every number traces to the README cost paragraph -->
+      <dl class="figures">
+        <div>
+          <dt><span class="fig-num">$0</span> <span class="fig-unit">the Groq path</span></dt>
+          <dd><strong>A real free tier, not a trial.</strong> Both Groq engines run on Groq's generous free tier — 2,000 requests and up to about eight hours of audio a day, enough for daily use.</dd>
+        </div>
+        <div>
+          <dt><span class="fig-num">$0.12</span> <span class="fig-unit">per hour of audio</span></dt>
+          <dd><strong>The Soniox default.</strong> No free tier: top up a small prepaid balance and pay as you go from the first minute — only for what you actually transcribe.</dd>
+        </div>
+        <div>
+          <dt><span class="fig-num">~$3</span> <span class="fig-unit">per month, heavy use</span></dt>
+          <dd><strong>Measured, not estimated.</strong> The maintainer dictates about 25 hours of audio a month, averaged over the last six months. Lighter regular use lands around a dollar.</dd>
+        </div>
+      </dl>
+      <p class="cost-note">One honest note: the quality bar above — German good enough to send unread — is anchored by the paid Soniox default. The free Groq engines are capable; the bar is measured against Soniox.</p>
+    </div>
+  </section>
+
+  <section class="section features">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Features</p>
+      <h2>Beyond the loop</h2>
+      <p>The loop is the product. Around it, the details that make daily dictation dependable:</p>
+      <dl class="feature-list">
+        <div class="feature-row">
+          <dt>Recognition vocabulary</dt>
+          <dd>Your names and special terms are handed to the speech model as context, so they come back spelled right (Soniox engines).</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Hallucination filters</dt>
+          <dd>Speech models produce well-known artifacts; Thoughtborne ships model-specific filters for German ones, built from three years of annotated transcriptions.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Push-to-talk</dt>
+          <dd>Optional: hold a key, talk, release. Off by default.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Parallel dictation</dt>
+          <dd>Start the next recording while the previous one is still transcribing — inserts stay in order.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Local archive</dt>
+          <dd>Every recording and its transcript, paired on your disk.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Never lose a recording</dt>
+          <dd>A retry hotkey plus a safety net for crashes, exits, and device loss.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Built-in self-test</dt>
+          <dd>One hotkey checks the whole pipeline end to end.</dd>
+        </div>
+        <div class="feature-row">
+          <dt>Built to be changed</dt>
+          <dd>A single, readable Python script — small enough to hand to an AI coding agent with a feature request.</dd>
+        </div>
+      </dl>
     </div>
   </section>
 
@@ -138,7 +228,8 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Privacy</p>
       <h2>Your data is not training data.</h2>
-      <p>Audio goes to the transcription API you chose, and nowhere beyond that. Recordings and transcripts are archived locally, nowhere else — no cloud storage. Every integrated API must offer at least an opt-out from training on user data; APIs that can't are not integrated.</p>
+      <p>Audio goes to the transcription API you chose, and nowhere beyond that. Recordings and transcripts are archived locally, nowhere else — no cloud storage.</p>
+      <p>Every integrated API must offer at least an opt-out from training on user data; APIs that can't are not integrated.</p>
     </div>
   </section>
 
@@ -147,6 +238,7 @@
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Get started</h2>
       <p>Windows, a microphone, and at least one API key — Groq's free tier works. Setup lives in the repo: a standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
+      <p>Thoughtborne is a single Python script, not an installed product — lean, readable end to end, easy to modify. The trade-off: it runs from a terminal window, not behind a GUI.</p>
       <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
            becomes the first option in this section; the GitHub pointers below move after it. -->
       <p class="actions">
