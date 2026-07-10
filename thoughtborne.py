@@ -1582,12 +1582,21 @@ class ThoughtborneApp:
             transcript = transcript.rstrip('\n')
 
             if transcript:
-                # save_transcript is base-class file I/O, so any current
-                # transcriber instance is fine -- it's not API-specific. Only the
-                # transcript gets the engine token here; the archived audio keeps
-                # its original name, since the retry already writes a new
-                # timestamp stem and never re-pairs with the old audio (#62).
-                self.transcriber.save_transcript(transcript, timestamp, engine=engine)
+                # Mirror a normal successful transcription (#91): save under the
+                # recording's ORIGIN timestamp so the audio<->transcript pair
+                # re-forms by timestamp -- restoring the #62 invariant the #24
+                # retry path used to break. save_transcript is base-class file
+                # I/O, so self.transcriber (whatever instance is current) is
+                # fine -- it's not API-specific.
+                self.transcriber.save_transcript(transcript, rec.origin_timestamp, engine=engine)
+                # Tag the archived audio only when it is the bare voice_<ts>.mp3
+                # form the timestamp-based rename in tag_archive_with_engine can
+                # actually find. A kill-recovered file carries a _recovered
+                # suffix (audio_handler.recover_partial_files) that rename would
+                # miss, so it keeps its _recovered name and still re-pairs by
+                # timestamp via the transcript saved above.
+                if Path(rec.archived_mp3_path).name == f"voice_{rec.origin_timestamp}.mp3":
+                    self.audio_recorder.tag_archive_with_engine(rec.origin_timestamp, engine)
                 self.output_manager.update_last_transcript(transcript)
                 task.transcript = transcript
                 task.is_complete = True
