@@ -18,7 +18,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 
 ## While the tool is running
 
-If `thoughtborne.py` is currently running, do not modify code, rename files, or otherwise disturb the working directory. Reliable check: a Windows python process whose command line contains `thoughtborne.py` (e.g. via `powershell.exe Get-CimInstance Win32_Process`). The log's mtime alone misleads — a clean shutdown writes `Program ended` as its final lines and still looks recently touched. Ask the user to stop it with `Ctrl+Alt+4` first. The user may be dictating into the same agent session that is being asked to edit — the hotkey exit is the clean handoff.
+If `thoughtborne.py` is currently running, do not modify code, rename files, or otherwise disturb the working directory. Reliable check — the log heartbeat: the recording loop writes a `Recording loop alive` DEBUG line to `thoughtborne.log` every 60 seconds, so the tool is running exactly when the log's mtime is fresh (under ~3 minutes) **and** its final lines do not say `Program ended`. Neither half alone suffices: a clean shutdown writes `Program ended` and still looks recently touched, and a stale mtime without that line just means the process died uncleanly. A process-list check (a Windows python process whose command line contains `thoughtborne.py`) is *not* reliable: when the tool runs elevated, a non-elevated query — e.g. `Get-CimInstance Win32_Process`, typical from WSL — sees the python process but an empty `CommandLine`, and the check falsely reports the tool as not running. Ask the user to stop it with `Ctrl+Alt+4` first. The user may be dictating into the same agent session that is being asked to edit — the hotkey exit is the clean handoff.
 
 ## Conventions
 
