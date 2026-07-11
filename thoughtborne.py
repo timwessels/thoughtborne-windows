@@ -49,6 +49,7 @@ from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
     write_retry_marker, recover_salvaged_recordings,
+    _RECOVERED_ARCHIVE_RE,
 )
 from transcriber import (
     create_transcriber,
@@ -1619,14 +1620,22 @@ class ThoughtborneApp:
                 # I/O, so self.transcriber (whatever instance is current) is
                 # fine -- it's not API-specific.
                 self.transcriber.save_transcript(transcript, rec.origin_timestamp, engine=engine)
-                # Tag the archived audio only when it is the bare voice_<ts>.mp3
-                # form the timestamp-based rename in tag_archive_with_engine can
-                # actually find. A kill-recovered file carries a _recovered
-                # suffix (audio_handler.recover_partial_files) that rename would
-                # miss, so it keeps its _recovered name and still re-pairs by
-                # timestamp via the transcript saved above.
-                if Path(rec.archived_mp3_path).name == f"voice_{rec.origin_timestamp}.mp3":
+                # Tag the archived audio with the producing engine. Two shapes
+                # reach here: the bare voice_<ts>.mp3 (a normal failed slot, or a
+                # #106 clean-exit salvage) is tagged by the timestamp-based
+                # rename; a kill-recovered voice_<ts>_recovered.mp3
+                # (audio_handler.recover_partial_files) is tagged path-based,
+                # inserting the token before the _recovered marker (#98). Any
+                # other shape is left untouched, as before. Both taggers are
+                # best-effort/never-raise: a failed rename degrades only the
+                # audio name, the pair still re-forms by the shared <ts> via the
+                # transcript saved above.
+                archived_name = Path(rec.archived_mp3_path).name
+                if archived_name == f"voice_{rec.origin_timestamp}.mp3":
                     self.audio_recorder.tag_archive_with_engine(rec.origin_timestamp, engine)
+                elif _RECOVERED_ARCHIVE_RE.match(archived_name):
+                    self.audio_recorder.tag_recovered_archive_with_engine(rec.archived_mp3_path, engine)
+                # else: an unrecognized archive name -- skip tagging, as before.
                 self.output_manager.update_last_transcript(transcript)
                 task.transcript = transcript
                 task.is_complete = True

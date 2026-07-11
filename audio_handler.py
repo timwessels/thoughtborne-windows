@@ -213,6 +213,17 @@ def _parse_sidecar_name(path: Path) -> Tuple[str, int, int]:
     return f"{mtime_ts}_000", RATE, CHANNELS
 
 
+# Recognizes a kill-recovered archive name (recover_partial_files, below) so a
+# successful Ctrl+Alt+R retry can tag it with the producing engine (#98). The
+# engine token is inserted before the _recovered marker; the double-recovery
+# disambiguator (_<n>) is preserved. Anchored ^...$ so only an exact recovered
+# name is ever renamed. Engine tokens carry no '_' (config.ENGINE_TOKENS), so
+# '_recovered' is an unambiguous anchor.
+_RECOVERED_ARCHIVE_RE = re.compile(
+    r"^(?P<base>voice_\d{8}_\d{6}_\d{3})_recovered(?P<disamb>_\d+)?\.mp3$"
+)
+
+
 def recover_partial_files() -> List[Tuple[str, float, str]]:
     """Convert leftover .partial sidecars into archive MP3s (#49 layer 3).
 
@@ -1138,6 +1149,43 @@ class AudioRecorder:
             return str(dst)
         except Exception as e:
             logger.warning(f"Could not tag archive {src.name} with engine '{engine}': {e}")
+            return None
+
+    def tag_recovered_archive_with_engine(self, recovered_path: str, engine: str) -> Optional[str]:
+        """Tag a kill-recovered archive with the producing-engine token (#98).
+
+        Path-based sibling of tag_archive_with_engine for the _recovered form
+        (recover_partial_files). The actual file is voice_<ts>_recovered.mp3 (or
+        _recovered_<n> on a double recovery) -- a name the timestamp-based tagger
+        cannot reconstruct. Inserts the engine token right before the _recovered
+        marker, so the result parallels a normally tagged file
+        (voice_<ts>_<engine>_recovered.mp3) while keeping the recovery provenance
+        readable. Same-volume rename, so atomic on NTFS.
+
+        Best-effort and never raises (stability is principle #1): an empty code, a
+        name that is not a _recovered form, a missing source, or a locked file
+        (e.g. an AV scanner still holding the just-written MP3) leaves the file in
+        place and only warns. The audio<->transcript pairing keys off the shared
+        <ts> -- unchanged by this rename -- so a failed rename degrades only the
+        audio name, never the pairing or the Ctrl+Alt+R retry slot.
+        """
+        if not engine:
+            return None
+        src = Path(recovered_path)
+        m = _RECOVERED_ARCHIVE_RE.match(src.name)
+        if not m:
+            logger.warning(f"Cannot tag recovered archive -- unexpected name: {src.name}")
+            return None
+        dst = src.with_name(f"{m['base']}_{engine}_recovered{m['disamb'] or ''}.mp3")
+        try:
+            if not src.exists():
+                logger.warning(f"Cannot tag recovered archive -- source missing: {src}")
+                return None
+            src.rename(dst)
+            logger.info(f"Recovered recording tagged with engine: {dst.name}")
+            return str(dst)
+        except Exception as e:
+            logger.warning(f"Could not tag recovered archive {src.name} with engine '{engine}': {e}")
             return None
 
     def cleanup_temp_files(self, wav_path: str, mp3_path: str):
