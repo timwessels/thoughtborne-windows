@@ -13,7 +13,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 ## Run & verify
 
 - Run: `uv run thoughtborne.py`, or double-click `Thoughtborne.bat`. Requires Windows, a microphone, and at least one API key in `.env` (template: `.env.example`).
-- There is no automated test suite. The verification ladder: `python -m py_compile <changed files>` for syntax; start the tool and check the startup banner plus `All hotkeys registered successfully` in `thoughtborne.log`; the in-app self-test `Ctrl+Alt+Ü` transcribes `test_audio.mp3` end to end (needs a valid API key).
+- There is no automated test suite. The verification ladder: `python -m py_compile <changed files>` for syntax; `python3 test_console_ui.py` verifies every console panel/strip (widths, CP437 charset, the plain-ASCII twin, red-exclusivity) and runs on plain Python off-Windows (`--show` prints the screens); start the tool and check the startup masthead plus `All hotkeys registered successfully` in `thoughtborne.log`; the in-app self-test `Ctrl+Alt+Ü` transcribes `test_audio.mp3` end to end (needs a valid API key).
 - Working from inside WSL2? The tool itself must run Windows-side; [`llms-install.md`](llms-install.md) covers the interop.
 
 ## While the tool is running
@@ -37,7 +37,7 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 
 ## Where things live
 
-- **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`.
+- **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`, `console_ui.py` (the Cockpit console renderer, #109 — pure/stdlib, verified by `test_console_ui.py`).
 - **Windows launcher:** `Thoughtborne.bat`.
 - **Public docs:** `README.md`, `README.de.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
 - **Website:** `docs/` — the public project site, served at [thoughtborne.app](https://thoughtborne.app) via GitHub Pages (`docs/CNAME` holds the custom domain). Public content, not a local workspace.

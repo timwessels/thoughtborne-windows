@@ -31,7 +31,7 @@ from config import (
     CHUNK, FORMAT, CHANNELS, RATE,
     ARCHIVE_FOLDER, SCRIPT_DIR,
     AUDIO_TRIM_END_MS, AUDIO_SILENCE_PADDING_MS,
-    SIDECAR_FLUSH_SECONDS
+    SIDECAR_FLUSH_SECONDS, FILE_ONLY
 )
 
 logger = logging.getLogger('Thoughtborne.AudioHandler')
@@ -267,7 +267,7 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
             duration = len(raw) / (rate * frame_bytes)
             partial.unlink()  # only after the MP3 exists
             results.append((str(target), duration, ts))
-            logger.info(f"Recovered unsaved recording: {target.name} ({duration:.1f}s)")
+            logger.info(f"Recovered unsaved recording: {target.name} ({duration:.1f}s)", extra=FILE_ONLY)
         except Exception as e:
             logger.error(f"Could not recover {partial.name}: {e}", exc_info=True)
             try:
@@ -341,7 +341,7 @@ def recover_salvaged_recordings() -> List[Tuple[str, float, str]]:
                 continue
             results.append((str(mp3), duration, ts))
             marker.unlink(missing_ok=True)  # one-shot: offer the retry once
-            logger.info(f"Clean-exit salvage re-armed for retry: {mp3.name} ({duration:.1f}s)")
+            logger.info(f"Clean-exit salvage re-armed for retry: {mp3.name} ({duration:.1f}s)", extra=FILE_ONLY)
         except Exception as e:
             logger.error(f"Could not process retry marker {marker.name}: {e}", exc_info=True)
     return results
@@ -418,7 +418,7 @@ class AudioRecorder:
     def _ensure_directories(self):
         """Create archive directories if they don't exist"""
         ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Archive folder ready: {ARCHIVE_FOLDER}")
+        logger.info(f"Archive folder ready: {ARCHIVE_FOLDER}", extra=FILE_ONLY)
 
     def _ensure_pyaudio_ready(self) -> bool:
         """
@@ -444,7 +444,7 @@ class AudioRecorder:
             # Initialize new PyAudio instance
             logger.debug("_ensure_pyaudio_ready: about to call pyaudio.PyAudio()")
             self.p = pyaudio.PyAudio()
-            logger.info("PyAudio reinitialized to detect current default device")
+            logger.info("PyAudio reinitialized to detect current default device", extra=FILE_ONLY)
 
             # Get and log current default input device
             try:
@@ -486,7 +486,7 @@ class AudioRecorder:
             return True
 
         try:
-            logger.info("Opening audio stream...")
+            logger.info("Opening audio stream...", extra=FILE_ONLY)
             self.stream = self.p.open(
                 format=pyaudio.paInt16,
                 channels=CHANNELS,
@@ -495,7 +495,7 @@ class AudioRecorder:
                 frames_per_buffer=CHUNK
             )
             self.stream_is_open = True
-            logger.info("Audio stream opened successfully")
+            logger.info("Audio stream opened successfully", extra=FILE_ONLY)
             return True
         except Exception as e:
             logger.error(f"Error opening audio stream: {e}", exc_info=True)
@@ -517,12 +517,12 @@ class AudioRecorder:
 
             if self.stream:
                 try:
-                    logger.info("Closing audio stream...")
+                    logger.info("Closing audio stream...", extra=FILE_ONLY)
                     self.stream.stop_stream()
                     self.stream.close()
                     self.stream = None
                     self.stream_is_open = False
-                    logger.info("Audio stream closed successfully")
+                    logger.info("Audio stream closed successfully", extra=FILE_ONLY)
                 except Exception as e:
                     logger.error(f"Error closing audio stream: {e}")
 
@@ -657,7 +657,7 @@ class AudioRecorder:
         self._loop_iteration_slow_total = 0.0
         self._last_iteration_end_time = None
 
-        logger.info(f"Recording started - self.recording is now {self.recording}, frames cleared, stream_is_open={self.stream_is_open}")
+        logger.info(f"Recording started - self.recording is now {self.recording}, frames cleared, stream_is_open={self.stream_is_open}", extra=FILE_ONLY)
         return True
 
     def stop_recording(self) -> Tuple[List[bytes], float]:
@@ -679,7 +679,7 @@ class AudioRecorder:
             self._sidecar_writer.request_stop()
 
         duration = self.get_audio_duration(self.frames)
-        logger.info(f"Recording stopped. Duration: {duration:.1f}s, Chunks: {len(self.frames)}")
+        logger.info(f"Recording stopped. Duration: {duration:.1f}s, Chunks: {len(self.frames)}", extra=FILE_ONLY)
 
         # Drop diagnostic: compare wallclock (from first received chunk) vs.
         # audio duration. With the start time anchored to the first chunk,
@@ -718,14 +718,16 @@ class AudioRecorder:
                 f"Session read-latency stats: "
                 f"max={self._read_latency_max*1000:.0f}ms, "
                 f"slow-reads(>100ms)={self._read_latency_slow_count}, "
-                f"total-slow-read-time={self._read_latency_slow_total:.2f}s"
+                f"total-slow-read-time={self._read_latency_slow_total:.2f}s",
+                extra=FILE_ONLY
             )
         if self._loop_iteration_max > 0:
             logger.info(
                 f"Session loop-iteration stats: "
                 f"max-gap={self._loop_iteration_max*1000:.0f}ms, "
                 f"large-gaps(>50ms)={self._loop_iteration_slow_count}, "
-                f"total-large-gap-time={self._loop_iteration_slow_total:.2f}s"
+                f"total-large-gap-time={self._loop_iteration_slow_total:.2f}s",
+                extra=FILE_ONLY
             )
 
         # Close stream after recording (releases headset from "headset mode")
@@ -757,7 +759,7 @@ class AudioRecorder:
         """
         self.recording = False
         self.frames = []
-        logger.info("Recording cancelled")
+        logger.info("Recording cancelled", extra=FILE_ONLY)
 
         # Close stream after cancellation (releases headset from "headset mode")
         self._close_stream()
@@ -1068,7 +1070,7 @@ class AudioRecorder:
             final_duration_ms = (final_samples / RATE) * 1000
             trim_note = f"trimmed {AUDIO_TRIM_END_MS}ms" if trim_end else "no end trim"
             logger.info(f"Audio preprocessed: {original_duration_ms:.0f}ms -> {final_duration_ms:.0f}ms "
-                       f"({trim_note}, added {AUDIO_SILENCE_PADDING_MS}ms silence)")
+                       f"({trim_note}, added {AUDIO_SILENCE_PADDING_MS}ms silence)", extra=FILE_ONLY)
 
             # Convert back to bytes and return as single-element list
             return [audio_data.tobytes()]
@@ -1106,19 +1108,19 @@ class AudioRecorder:
         wf.setframerate(RATE)
         wf.writeframes(b''.join(processed_frames))
         wf.close()
-        logger.info(f"WAV file created: {wav_filename}")
+        logger.info(f"WAV file created: {wav_filename}", extra=FILE_ONLY)
 
         # Convert to MP3
         data, samplerate = sf.read(str(wav_path))
         mp3_filename = wav_filename.replace('.wav', '.mp3')
         mp3_path = Path(mp3_filename)
         sf.write(str(mp3_path), data, samplerate, format='mp3')
-        logger.info(f"MP3 file created: {mp3_filename}")
+        logger.info(f"MP3 file created: {mp3_filename}", extra=FILE_ONLY)
 
         # Archive MP3
         archive_path = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
         sf.write(str(archive_path), data, samplerate, format='mp3')
-        logger.info(f"Archived as: {archive_path}")
+        logger.info(f"Archived as: {archive_path}", extra=FILE_ONLY)
 
         return str(wav_path), str(mp3_path)
 
@@ -1145,7 +1147,7 @@ class AudioRecorder:
                 logger.warning(f"Cannot tag archive -- source missing: {src}")
                 return None
             src.rename(dst)
-            logger.info(f"Archived recording tagged with engine: {dst.name}")
+            logger.info(f"Archived recording tagged with engine: {dst.name}", extra=FILE_ONLY)
             return str(dst)
         except Exception as e:
             logger.warning(f"Could not tag archive {src.name} with engine '{engine}': {e}")
@@ -1182,7 +1184,7 @@ class AudioRecorder:
                 logger.warning(f"Cannot tag recovered archive -- source missing: {src}")
                 return None
             src.rename(dst)
-            logger.info(f"Recovered recording tagged with engine: {dst.name}")
+            logger.info(f"Recovered recording tagged with engine: {dst.name}", extra=FILE_ONLY)
             return str(dst)
         except Exception as e:
             logger.warning(f"Could not tag recovered archive {src.name} with engine '{engine}': {e}")
@@ -1200,7 +1202,7 @@ class AudioRecorder:
 
     def cleanup(self):
         """Clean up audio resources"""
-        logger.info("Cleaning up audio resources...")
+        logger.info("Cleaning up audio resources...", extra=FILE_ONLY)
 
         # Close stream if still open
         if self.stream_is_open:
@@ -1210,7 +1212,7 @@ class AudioRecorder:
         if self.p:
             try:
                 self.p.terminate()
-                logger.info("PyAudio terminated")
+                logger.info("PyAudio terminated", extra=FILE_ONLY)
             except Exception as e:
                 logger.error(f"Error terminating PyAudio: {e}")
 

@@ -35,7 +35,7 @@ from config import (
     SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
     SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT,
     SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT,
-    RATE, CHANNELS,
+    RATE, CHANNELS, FILE_ONLY,
 )
 
 logger = logging.getLogger('Thoughtborne.Transcriber')
@@ -75,7 +75,7 @@ class AbstractTranscriber(ABC):
     def _ensure_directories(self):
         """Create text archive directory if it doesn't exist"""
         TEXT_ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Text archive folder ready: {TEXT_ARCHIVE_FOLDER}")
+        logger.info(f"Text archive folder ready: {TEXT_ARCHIVE_FOLDER}", extra=FILE_ONLY)
 
     def _report_auth_failure(self, env_var: str, detail: str = "") -> None:
         """Emit one uniform, actionable console line for a rejected API key.
@@ -156,7 +156,7 @@ class AbstractTranscriber(ABC):
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(text)
             
-            logger.info(f"Text archived: {filename} ({len(text)} chars)")
+            logger.info(f"Text archived: {filename} ({len(text)} chars)", extra=FILE_ONLY)
             return str(filename)
             
         except Exception as e:
@@ -307,14 +307,14 @@ class GroqTranscriber(AbstractTranscriber):
             logger.debug("GROQ_API_KEY not found in environment variables!")
             raise MissingAPIKeyError("GROQ_API_KEY", "Groq transcriber")
 
-        logger.info("Using Groq API key from environment")
+        logger.info("Using Groq API key from environment", extra=FILE_ONLY)
         return GROQ_API_KEY
     
     def _initialize_client(self):
         """Initialize Groq client"""
         try:
             self.client = Groq(api_key=self.api_key)
-            logger.info("Groq client initialized successfully")
+            logger.info("Groq client initialized successfully", extra=FILE_ONLY)
         except Exception as e:
             logger.error(f"Failed to initialize Groq client: {e}")
             raise
@@ -392,7 +392,7 @@ class GroqTranscriber(AbstractTranscriber):
         Returns:
             Transcribed text
         """
-        logger.info(f"Starting Groq transcription ({self.model}): {audio_file_path} (Duration: {duration_seconds:.1f}s)")
+        logger.info(f"Starting Groq transcription ({self.model}): {audio_file_path} (Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
         
         try:
             start_time = time.time()
@@ -407,7 +407,7 @@ class GroqTranscriber(AbstractTranscriber):
                 )
             
             elapsed = time.time() - start_time
-            logger.info(f"Groq transcription successful in {elapsed:.2f}s")
+            logger.info(f"Groq transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
             
             # Groq returns text directly when response_format="text"
             text = transcription.strip()
@@ -452,13 +452,13 @@ class GroqTranscriber(AbstractTranscriber):
             data, samplerate = sf.read(test_file_path)
             duration = len(data) / samplerate
             
-            logger.info(f"Testing Groq with file: {test_file_path} ({duration:.1f}s)")
+            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
             
             # Transcribe
             text = self.transcribe(test_file_path, duration)
             
             if text:
-                logger.info(f"Groq test transcription successful: {len(text)} chars")
+                logger.info(f"Groq test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
                 logger.warning("Groq test transcription returned empty text")
@@ -498,7 +498,7 @@ class SonioxTranscriber(AbstractTranscriber):
                 logger.warning(f"Soniox V2 speech context disabled (build failed): {e}")
             if self._v2_speech_context is not None:
                 n = len(self._v2_speech_context.entries[0].phrases)
-                logger.info(f"Soniox V2 sync context enabled: {n} terms")
+                logger.info(f"Soniox V2 sync context enabled: {n} terms", extra=FILE_ONLY)
 
     def _get_api_key(self) -> str:
         """Get API key from environment"""
@@ -506,7 +506,7 @@ class SonioxTranscriber(AbstractTranscriber):
             logger.debug("SONIOX_API_KEY not found in environment variables!")
             raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox transcriber")
         
-        logger.info("Using Soniox API key from environment")
+        logger.info("Using Soniox API key from environment", extra=FILE_ONLY)
         return SONIOX_API_KEY
     
     def _check_soniox_availability(self) -> bool:
@@ -519,7 +519,7 @@ class SonioxTranscriber(AbstractTranscriber):
         try:
             from soniox.speech_service import SpeechClient
             from soniox.transcribe_file import transcribe_file_short
-            logger.info("Soniox library available")
+            logger.info("Soniox library available", extra=FILE_ONLY)
             return True
         except ImportError:
             logger.warning(
@@ -611,7 +611,7 @@ class SonioxTranscriber(AbstractTranscriber):
         from soniox.speech_service import SpeechClient
         from soniox.transcribe_file import transcribe_file_short
 
-        logger.info("Using synchronous Soniox transcription")
+        logger.info("Using synchronous Soniox transcription", extra=FILE_ONLY)
 
         # Create new client for each transcription to avoid connection issues
         logger.debug("Creating new SpeechClient for synchronous transcription")
@@ -628,7 +628,7 @@ class SonioxTranscriber(AbstractTranscriber):
             )
 
             elapsed = time.time() - start_time
-            logger.info(f"Soniox synchronous transcription successful in {elapsed:.2f}s")
+            logger.info(f"Soniox synchronous transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
 
             text = "".join(word.text for word in result.words)
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
@@ -680,7 +680,7 @@ class SonioxTranscriber(AbstractTranscriber):
             Transcribed text
         """
         logger.info(f"Starting Soniox transcription: {audio_file_path} "
-                    f"(Duration: {duration_seconds:.1f}s)")
+                    f"(Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
 
         if self._v2_available and duration_seconds < SHORT_AUDIO_THRESHOLD:
             try:
@@ -717,7 +717,7 @@ class SonioxTranscriber(AbstractTranscriber):
 
         if duration_seconds >= SHORT_AUDIO_THRESHOLD:
             logger.info(f"Long recording ({duration_seconds:.1f}s >= "
-                        f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)")
+                        f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)", extra=FILE_ONLY)
         if engine_sink is not None:
             engine_sink.code = ENGINE_TOKENS["soniox_v4"]
         return self._v4.transcribe(audio_file_path, duration_seconds)
@@ -742,13 +742,13 @@ class SonioxTranscriber(AbstractTranscriber):
             data, samplerate = sf.read(test_file_path)
             duration = len(data) / samplerate
             
-            logger.info(f"Testing Soniox with file: {test_file_path} ({duration:.1f}s)")
+            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
             
             # Transcribe
             text = self.transcribe(test_file_path, duration)
             
             if text:
-                logger.info(f"Soniox test transcription successful: {len(text)} chars")
+                logger.info(f"Soniox test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
                 logger.warning("Soniox test transcription returned empty text")
@@ -774,9 +774,9 @@ class SonioxV4Transcriber(AbstractTranscriber):
             raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox v4 transcriber")
         self.api_key = SONIOX_API_KEY
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
-        logger.info(f"Soniox v4 transcriber initialized (model: {SONIOX_V4_MODEL})")
+        logger.info(f"Soniox v4 transcriber initialized (model: {SONIOX_V4_MODEL})", extra=FILE_ONLY)
         if SONIOX_CONTEXT:
-            logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms")
+            logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms", extra=FILE_ONLY)
 
     def get_name(self) -> str:
         """Get the name of this transcriber"""
@@ -795,7 +795,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
         import httpx
 
         logger.info(f"Starting Soniox v4 transcription: {audio_file_path} "
-                    f"(Duration: {duration_seconds:.1f}s)")
+                    f"(Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
 
         file_id = None
         tx_id = None
@@ -813,7 +813,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             resp.raise_for_status()
             file_id = resp.json()["id"]
             upload_time = time.time() - start_time
-            logger.info(f"File uploaded in {upload_time:.2f}s, ID: {file_id}")
+            logger.info(f"File uploaded in {upload_time:.2f}s, ID: {file_id}", extra=FILE_ONLY)
 
             # Step 2: Create transcription
             tx_config = {
@@ -832,7 +832,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             )
             resp.raise_for_status()
             tx_id = resp.json()["id"]
-            logger.info(f"Transcription created, ID: {tx_id}")
+            logger.info(f"Transcription created, ID: {tx_id}", extra=FILE_ONLY)
 
             # Step 3: Poll until completed
             for attempt in range(SONIOX_V4_MAX_POLL_ATTEMPTS):
@@ -848,7 +848,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
                     logger.debug(f"Polling attempt {attempt}: status={status}")
 
                 if status == "completed":
-                    logger.info(f"Transcription completed after {attempt} polls")
+                    logger.info(f"Transcription completed after {attempt} polls", extra=FILE_ONLY)
                     break
                 elif status in ("error", "failed"):
                     error_msg = resp.json().get("error", "Unknown error")
@@ -870,7 +870,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             text = resp.json().get("text", "").strip()
 
             elapsed = time.time() - start_time
-            logger.info(f"Soniox v4 transcription successful in {elapsed:.2f}s")
+            logger.info(f"Soniox v4 transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
 
             # Clean fillers
@@ -924,12 +924,12 @@ class SonioxV4Transcriber(AbstractTranscriber):
             data, samplerate = sf.read(test_file_path)
             duration = len(data) / samplerate
 
-            logger.info(f"Testing Soniox v4 with file: {test_file_path} ({duration:.1f}s)")
+            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
 
             text = self.transcribe(test_file_path, duration)
 
             if text:
-                logger.info(f"Soniox v4 test transcription successful: {len(text)} chars")
+                logger.info(f"Soniox v4 test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
                 logger.warning("Soniox v4 test transcription returned empty text")
@@ -1016,9 +1016,9 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         self._drop_count_current = 0
         self._drop_count_total = 0
 
-        logger.info(f"Soniox Live transcriber initialized (model: {SONIOX_RT_MODEL})")
+        logger.info(f"Soniox Live transcriber initialized (model: {SONIOX_RT_MODEL})", extra=FILE_ONLY)
         if SONIOX_CONTEXT:
-            logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms")
+            logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms", extra=FILE_ONLY)
 
     def get_name(self) -> str:
         """Get the name of this transcriber"""
@@ -1053,7 +1053,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             try:
                 from websockets.sync.client import connect
 
-                logger.info(f"Opening WebSocket connection to {SONIOX_WS_URL}...")
+                logger.info(f"Opening WebSocket connection to {SONIOX_WS_URL}...", extra=FILE_ONLY)
                 self._ws = connect(SONIOX_WS_URL)
 
                 # Send configuration
@@ -1070,7 +1070,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                     config["context"] = SONIOX_CONTEXT
 
                 self._ws.send(json.dumps(config))
-                logger.info("WebSocket config sent")
+                logger.info("WebSocket config sent", extra=FILE_ONLY)
 
                 # Reset state
                 self._final_tokens = []
@@ -1113,7 +1113,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 )
                 self._sender_thread.start()
 
-                logger.info("Soniox Live session started")
+                logger.info("Soniox Live session started", extra=FILE_ONLY)
                 return True
 
             except Exception as e:
@@ -1159,7 +1159,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 drop_duration = time.time() - self._drop_start_time if self._drop_start_time else 0.0
                 logger.info(
                     f"Queue recovered after dropping {self._drop_count_current} "
-                    f"chunks over {drop_duration:.1f}s"
+                    f"chunks over {drop_duration:.1f}s", extra=FILE_ONLY
                 )
                 self._drop_warned = False
                 self._drop_count_current = 0
@@ -1197,7 +1197,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
           on to waiting for the receiver.
         - _STOP_SENTINEL: hard stop, exit immediately (sent by _close_session_internal).
         """
-        logger.info("Soniox Live sender thread started")
+        logger.info("Soniox Live sender thread started", extra=FILE_ONLY)
 
         try:
             while not self._sender_stop.is_set():
@@ -1260,7 +1260,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             remaining = self._send_queue.qsize() if self._send_queue is not None else 0
             logger.info(
                 f"Soniox Live sender thread stopped "
-                f"(queue size at exit: {remaining})"
+                f"(queue size at exit: {remaining})", extra=FILE_ONLY
             )
 
     def cancel_session(self):
@@ -1269,7 +1269,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         Called from on_cancel_recording().
         """
         with self._session_lock:
-            logger.info("Cancelling Soniox Live session")
+            logger.info("Cancelling Soniox Live session", extra=FILE_ONLY)
             self._close_session_internal()
 
     def _receiver_loop(self):
@@ -1280,7 +1280,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         """
         import json
 
-        logger.info("Soniox Live receiver thread started")
+        logger.info("Soniox Live receiver thread started", extra=FILE_ONLY)
 
         try:
             while self._session_active and self._ws is not None:
@@ -1320,11 +1320,11 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                         if text not in ("<end>", "<fin>", ""):
                             self._final_tokens.append(text)
                         if text == "<fin>":
-                            logger.info("Received <fin> token, finalization complete")
+                            logger.info("Received <fin> token, finalization complete", extra=FILE_ONLY)
 
                 # Check if finished
                 if msg.get("finished"):
-                    logger.info("Received 'finished' signal from server")
+                    logger.info("Received 'finished' signal from server", extra=FILE_ONLY)
                     break
 
         except Exception as e:
@@ -1338,7 +1338,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             self._session_active = False
             self._result_ready.set()
             logger.info(f"Soniox Live receiver thread stopped "
-                       f"({len(self._final_tokens)} final tokens collected)")
+                       f"({len(self._final_tokens)} final tokens collected)", extra=FILE_ONLY)
 
     def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
         """Finalize the live session and return the transcript.
@@ -1358,7 +1358,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         import json
 
         logger.info(f"Soniox Live: finalizing session "
-                    f"(duration: {duration_seconds:.1f}s, audio archived at: {audio_file_path})")
+                    f"(duration: {duration_seconds:.1f}s, audio archived at: {audio_file_path})", extra=FILE_ONLY)
 
         if not self._session_active or self._ws is None or self._send_queue is None:
             logger.warning("No active Soniox Live session to finalize")
@@ -1430,7 +1430,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             text = self._remove_spoken_fillers(text)
 
             elapsed = time.time() - start_time
-            logger.info(f"Soniox Live transcription finalized in {elapsed:.2f}s")
+            logger.info(f"Soniox Live transcription finalized in {elapsed:.2f}s", extra=FILE_ONLY)
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
 
             return text
@@ -1453,7 +1453,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 f"Session send-latency stats: "
                 f"max={self._send_latency_max*1000:.0f}ms, "
                 f"blocked-events(>10ms)={self._send_latency_blocked_count}, "
-                f"total-blocked-time={self._send_latency_blocked_total:.2f}s"
+                f"total-blocked-time={self._send_latency_blocked_total:.2f}s",
+                extra=FILE_ONLY
             )
 
         # Block 2: log queue-drop diagnostics
@@ -1461,7 +1462,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             logger.info(
                 f"Session queue-drop stats: "
                 f"total-chunks-dropped={self._drop_count_total} "
-                f"(live transcript had gaps, MP3 archive unaffected)"
+                f"(live transcript had gaps, MP3 archive unaffected)", extra=FILE_ONLY
             )
 
         self._session_active = False
@@ -1519,7 +1520,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             data, samplerate = sf.read(test_file_path, dtype='int16')
             duration = len(data) / samplerate
 
-            logger.info(f"Testing Soniox Live with file: {test_file_path} ({duration:.1f}s)")
+            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
 
             # Start session — announce the file's real rate so Soniox decodes
             # the bytes correctly even when it differs from config.RATE (#12).
@@ -1541,7 +1542,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             text = self.transcribe(test_file_path, duration)
 
             if text:
-                logger.info(f"Soniox Live test transcription successful: {len(text)} chars")
+                logger.info(f"Soniox Live test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
                 logger.warning("Soniox Live test transcription returned empty text")

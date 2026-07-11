@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import queue
+import shutil
 import signal
 import logging
 import threading
@@ -34,9 +35,10 @@ from typing import List, Optional, NamedTuple, Tuple
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 # Import our modules
+import console_ui
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
-    LOG_CONSOLE_QUEUE_MAX,
+    LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
@@ -137,13 +139,30 @@ class DroppingQueueHandler(QueueHandler):
 
 
 class ConsoleFormatter(logging.Formatter):
-    """Standard log format for normal records; verbatim passthrough for records
-    flagged raw_console (the pre-composed status blocks, #37). Normal log lines
-    are formatted exactly as before -- only flagged records skip the prefix."""
+    """Console rendering for the Cockpit design (#109). Records flagged
+    raw_console (the pre-composed panels/strips/ticker) pass through verbatim.
+    Every other console record becomes a receding dim ``HH:MM:SS  message``
+    line: red+bold for errors (red stays error-exclusive), unstyled for
+    warnings, dim for info. The FILE log keeps the full LOG_FORMAT (this
+    formatter is only on the console handler)."""
     def format(self, record):
         if getattr(record, 'raw_console', False):
             return record.getMessage()
-        return super().format(record)
+        line = f"{self.formatTime(record, '%H:%M:%S')}  {record.getMessage()}"
+        if record.levelno >= logging.ERROR:
+            return _style(line, _BOLD, _RED)
+        if record.levelno >= logging.WARNING:
+            return line
+        return _style(line, _DIM)
+
+
+class _ConsoleGateFilter(logging.Filter):
+    """Keeps records flagged file_only off the console queue (#61/#109); the file
+    handler on the 'Thoughtborne' root logger records them unchanged. Attached to
+    the queue handler, so it governs every Thoughtborne.* child logger too (they
+    propagate up) and never touches console_logger records (they carry no flag)."""
+    def filter(self, record):
+        return not getattr(record, 'file_only', False)
 
 
 # ===== LOGGING SETUP =====
@@ -175,7 +194,9 @@ logger.addHandler(file_handler)
 # emit() would recurse through the redirected stream.
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)  # Terminal: INFO, WARNING, ERROR only (no DEBUG)
-console_handler.setFormatter(ConsoleFormatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+# ConsoleFormatter renders its own dim HH:MM:SS line and never calls super().format(),
+# so it takes no fmt/datefmt (the file handler keeps LOG_FORMAT above).
+console_handler.setFormatter(ConsoleFormatter())
 
 # Bounded queue: a full queue drops the newest console records (DroppingQueueHandler
 # swallows queue.Full instead of routing to handleError) so the listener thread never
@@ -184,6 +205,7 @@ console_handler.setFormatter(ConsoleFormatter(LOG_FORMAT, datefmt=LOG_DATE_FORMA
 _console_log_queue: queue.Queue = queue.Queue(maxsize=LOG_CONSOLE_QUEUE_MAX)
 _console_queue_handler = DroppingQueueHandler(_console_log_queue)
 _console_queue_handler.setLevel(logging.INFO)  # Filter DEBUG before the queue
+_console_queue_handler.addFilter(_ConsoleGateFilter())  # file_only records skip the console (#61/#109)
 logger.addHandler(_console_queue_handler)
 
 _console_queue_listener = QueueListener(
@@ -284,9 +306,6 @@ _stdio_logger.addHandler(file_handler)
 sys.stdout = StreamToLogger(_stdio_logger, logging.DEBUG, original_stdout)
 sys.stderr = StreamToLogger(_stdio_logger, logging.INFO, original_stderr, prefix="[stderr] ")
 
-# Clean up old log backups on startup
-cleanup_old_logs(LOG_FILE, max_age_days=30)
-
 
 # ===== STATUS BLOCK STYLING (#37) =====
 def _enable_vt_mode() -> bool:
@@ -329,16 +348,11 @@ def _enable_vt_mode() -> bool:
 
 _ANSI_ENABLED = _enable_vt_mode()
 
-# SGR codes for _style -- palette kept deliberately minimal (#37)
-_BOLD = "1"
-_RED = "31"
-_GREEN = "32"
-_CYAN = "36"
-_YELLOW = "33"   # warning/notice tag (#78) -- red stays reserved for FAILED
-
-# Status-block separator: '-' on purpose, distinct from the '=' framing of
-# event blocks (FALLBACK ACTIVE, no-API error) so the two stay tellable apart.
-_SEP = "-" * 60
+# SGR codes for the few _style() call sites left in this module (the dim ticker
+# and the console log formatter). The full palette is single-sourced in
+# console_ui (#109); the panels/strips style themselves there. Only bold, red,
+# and the new dim (the receding technical layer) are still applied here.
+from console_ui import BOLD as _BOLD, RED as _RED, DIM as _DIM
 
 
 def _style(text: str, *codes: str) -> str:
@@ -346,6 +360,13 @@ def _style(text: str, *codes: str) -> str:
     if not _ANSI_ENABLED or not codes:
         return text
     return f"\x1b[{';'.join(codes)}m{text}\x1b[0m"
+
+
+# Clean up old log backups on startup. Deferred to here (past the palette /
+# _style / _ANSI_ENABLED above) because ConsoleFormatter.format() now references
+# them (#109); if this logged an INFO before they existed the async listener
+# thread could format that record and hit a NameError.
+cleanup_old_logs(LOG_FILE, max_age_days=30)
 
 
 # ===== AUDIO CAPTURE-THREAD PRIORITY (#72) =====
@@ -440,7 +461,7 @@ def _elevate_capture_thread_priority():
         logger.warning(f"Capture-thread priority elevation skipped: {e}")
         return (mmcss_handle, original_class)
 
-    logger.info(f"Capture-thread priority: {mechanism}{detail}")
+    logger.info(f"Capture-thread priority: {mechanism}{detail}", extra=FILE_ONLY)
     return (mmcss_handle, original_class)
 
 
@@ -477,11 +498,13 @@ class ThoughtborneApp:
 
     def __init__(self):
         """Initialize the application"""
-        logger.info("=" * 60)
+        # Startup wall is file-only (#61/#109); only the one "starting" line
+        # stays as a dim console breadcrumb ahead of the masthead.
+        logger.info("=" * 60, extra=FILE_ONLY)
         logger.info("Thoughtborne application starting (Windows version)...")
-        logger.info(f"Python Version: {sys.version}")
-        logger.info(f"Working directory: {os.getcwd()}")
-        logger.info(f"Script directory: {SCRIPT_DIR}")
+        logger.info(f"Python Version: {sys.version}", extra=FILE_ONLY)
+        logger.info(f"Working directory: {os.getcwd()}", extra=FILE_ONLY)
+        logger.info(f"Script directory: {SCRIPT_DIR}", extra=FILE_ONLY)
 
         # Initialize components
         try:
@@ -584,9 +607,10 @@ class ThoughtborneApp:
                 f"insert={PTT_INSERT}, tap_window={PTT_TAP_WINDOW_S}s, "
                 f"min_hold={PTT_MIN_HOLD_S}s, release_tail={PTT_RELEASE_TAIL_S}s")
 
-        logger.info(f"Configuration: Default API={DEFAULT_API}, Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}")
-        logger.info(f"Current transcriber: {self.transcriber.get_name()}")
-        logger.info("Application initialized successfully")
+        logger.info(f"Configuration: Default API={DEFAULT_API}, Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}",
+                    extra=FILE_ONLY)
+        logger.info(f"Current transcriber: {self.transcriber.get_name()}", extra=FILE_ONLY)
+        logger.info("Application initialized successfully", extra=FILE_ONLY)
 
     def get_unique_timestamp(self) -> str:
         """Generate a unique timestamp with counter"""
@@ -614,7 +638,8 @@ class ThoughtborneApp:
         )
         with self._last_failed_lock:
             self._last_failed = rec
-        logger.info(f"Retry slot armed: failed recording from {timestamp} (Ctrl+Alt+R to retry)")
+        logger.info(f"Retry slot armed: failed recording from {timestamp} (Ctrl+Alt+R to retry)",
+                    extra=FILE_ONLY)
 
     def _resolve_failed_slot(self, rec: '_FailedRecording'):
         """Clear the retry slot after a successful retry of rec (Issue #24).
@@ -643,7 +668,7 @@ class ThoughtborneApp:
             self.processing_counter += 1
             current_count = self.processing_counter
 
-        logger.info(f"[{thread_name}] Starting processing for sequence {sequence_number} with {transcriber.get_name()} (active: {current_count})")
+        logger.info(f"[{thread_name}] Starting processing for sequence {sequence_number} with {transcriber.get_name()} (active: {current_count})", extra=FILE_ONLY)
 
         # Create task
         task = TranscriptionTask(
@@ -664,13 +689,13 @@ class ThoughtborneApp:
             # discarded, so the next start recovers what this save lost.
             if sidecar is not None:
                 sidecar.discard()
-            print(f"[Seq: {sequence_number}] Audio saved and archived")
+            self._ticker(f"[Seq: {sequence_number}] Audio saved and archived")
 
             # Transcribe with the fixed transcriber, and resolve the engine that
             # actually produced the text (#62). The hybrid 'soniox' slot chooses
             # V2 sync or V4 async per recording, so it reports through a per-call
             # sink; every other slot maps straight from its type.
-            print(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
+            self._ticker(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
             if isinstance(transcriber, SonioxTranscriber):
                 engine_tag = _EngineTag()
                 transcript = transcriber.transcribe(mp3_path, duration, engine_sink=engine_tag)
@@ -707,10 +732,14 @@ class ThoughtborneApp:
                 task.is_complete = True
                 task.use_clipboard = use_clipboard
 
-                logger.info(f"[{thread_name}] Transcription for sequence {sequence_number} ready")
-                print(f"[Seq: {sequence_number}] Transcription completed, waiting for output...")
+                logger.info(f"[{thread_name}] Transcription for sequence {sequence_number} ready", extra=FILE_ONLY)
+                self._ticker(f"[Seq: {sequence_number}] Transcription completed, waiting for output...")
             else:
-                logger.warning(f"[{thread_name}] Empty transcription for sequence {sequence_number}")
+                # File-only: the error task always drives the designed FAILED
+                # panel through the OutputManager (is_error -> 'failed'), so the
+                # console user learns of the empty result there (#109).
+                logger.warning(f"[{thread_name}] Empty transcription for sequence {sequence_number}",
+                               extra=FILE_ONLY)
                 task.is_error = True
                 task.is_complete = True
                 self._record_failed_slot(timestamp, duration)
@@ -723,7 +752,7 @@ class ThoughtborneApp:
 
         except Exception as e:
             logger.error(f"[{thread_name}] Error processing sequence {sequence_number}: {e}", exc_info=True)
-            print(f"ERROR: [Seq: {sequence_number}] Processing error: {e}")
+            # console shows the dim red ERROR log line; the FAILED panel follows
 
             # Mark task as error
             task.is_error = True
@@ -736,7 +765,7 @@ class ThoughtborneApp:
             with self.processing_lock:
                 self.processing_counter -= 1
                 current_count = self.processing_counter
-            logger.info(f"[{thread_name}] Processing for sequence {sequence_number} finished (active: {current_count})")
+            logger.info(f"[{thread_name}] Processing for sequence {sequence_number} finished (active: {current_count})", extra=FILE_ONLY)
 
     def start_processing_thread(self, frames: List[bytes], duration: float,
                                use_clipboard: bool = False, auto_insert: bool = True,
@@ -784,7 +813,8 @@ class ThoughtborneApp:
         thread.start()
         self.active_threads.append(thread)
 
-        logger.info(f"New processing thread started: {thread.name} (Seq: {sequence_number}) using {transcriber.get_name()}")
+        logger.info(f"New processing thread started: {thread.name} (Seq: {sequence_number}) using {transcriber.get_name()}",
+                    extra=FILE_ONLY)
         return True
 
     def _run_empty_transcript_fallback(self, mp3_path: str, duration: float,
@@ -838,20 +868,16 @@ class ThoughtborneApp:
         try_v2_first = duration < SHORT_AUDIO_THRESHOLD
         primary_label = "Soniox V2 (sync)" if try_v2_first else "Soniox V4 (async)"
 
+        # Technical engine labels stay in the file log (file-only, unchanged);
+        # the console gets one calm dim ticker line (#109). Emitted before the
+        # attempt so it shows even if the lazy init below raises.
         logger.info(
             f"[{thread_name}] Empty live transcript for sequence {sequence_number} "
-            f"(duration: {duration:.1f}s) -- falling back to {primary_label}"
+            f"(duration: {duration:.1f}s) -- falling back to {primary_label}",
+            extra=FILE_ONLY
         )
-
-        # Clearly framed console block so Tim sees the fallback kick in without
-        # having to scan the log. Printed before the attempt so it is visible
-        # even if the lazy init below raises.
-        print("")
-        print("=" * 60)
-        print(f"[Seq: {sequence_number}] FALLBACK ACTIVE -- live transcript empty")
-        print(f"  Duration: {duration:.1f}s -> {primary_label}")
-        print(f"  (Class-B: live WebSocket likely disconnected mid-recording)")
-        print("=" * 60)
+        self._ticker(f"[Seq: {sequence_number}] Live came back empty -- "
+                     f"retrying from the saved audio file...")
 
         # Short recordings: try V2, fall through to V4 on failure / empty.
         # Long recordings: V4 is the only option (V2 has a 60 s hard limit).
@@ -871,9 +897,10 @@ class ThoughtborneApp:
             # so the tool keeps working if V2 is ever shut down by Soniox).
             logger.info(
                 f"[{thread_name}] V2 fallback unproductive for sequence "
-                f"{sequence_number} -- falling through to Soniox V4 (async)"
+                f"{sequence_number} -- falling through to Soniox V4 (async)",
+                extra=FILE_ONLY
             )
-            print(f"[Seq: {sequence_number}] V2 unproductive -- falling through to Soniox V4 (async)")
+            self._ticker(f"[Seq: {sequence_number}] Still empty -- trying the second file engine...")
 
         transcript = self._try_fallback(
             kind="v4",
@@ -889,11 +916,16 @@ class ThoughtborneApp:
             # V2 + V4 all failed (triple failure); for long recordings V2 is
             # skipped because of its 60 s hard limit, so it's Live + V4 only.
             stages = "Live + V2 + V4" if try_v2_first else "Live + V4"
+            # The exact engine stages stay in the file log (file-only); the
+            # console gets the de-technicalized red exhausted line (#109), which
+            # reads as part of the FAILED panel that follows.
             logger.error(
                 f"[{thread_name}] All fallbacks exhausted for sequence "
-                f"{sequence_number} ({stages} all empty / failed)"
+                f"{sequence_number} ({stages} all empty / failed)",
+                extra=FILE_ONLY
             )
-            print(f"[Seq: {sequence_number}] All fallbacks exhausted ({stages} all failed)")
+            self._ticker(f"[Seq: {sequence_number}] All fallbacks exhausted "
+                         f"(live + file engines all failed)", error=True)
 
         return transcript, (ENGINE_TOKENS["soniox_v4"] if transcript else "")
 
@@ -923,10 +955,10 @@ class ThoughtborneApp:
             with self._fallback_init_lock:
                 if kind == "v2" and self._fallback_v2 is None:
                     self._fallback_v2 = SonioxTranscriber()
-                    logger.info("Soniox V2 fallback transcriber initialized")
+                    logger.info("Soniox V2 fallback transcriber initialized", extra=FILE_ONLY)
                 elif kind == "v4" and self._fallback_v4 is None:
                     self._fallback_v4 = SonioxV4Transcriber()
-                    logger.info("Soniox V4 fallback transcriber initialized")
+                    logger.info("Soniox V4 fallback transcriber initialized", extra=FILE_ONLY)
 
             fallback = self._fallback_v2 if kind == "v2" else self._fallback_v4
 
@@ -954,16 +986,19 @@ class ThoughtborneApp:
                 logger.info(
                     f"[{thread_name}] Fallback ({label}) succeeded for "
                     f"sequence {sequence_number} in {elapsed:.2f}s "
-                    f"({len(transcript)} chars)"
+                    f"({len(transcript)} chars)",
+                    extra=FILE_ONLY
                 )
-                print(f"[Seq: {sequence_number}] Fallback succeeded "
-                      f"({elapsed:.1f}s, {len(transcript)} chars)")
+                self._ticker(f"[Seq: {sequence_number}] File engine succeeded "
+                             f"({elapsed:.1f}s, {len(transcript)} chars)")
             else:
+                # The per-stage empty note (with its technical engine label) stays
+                # file-only; the higher-level ticker narrates the cascade (#109).
                 logger.warning(
                     f"[{thread_name}] Fallback ({label}) returned empty for "
-                    f"sequence {sequence_number} after {elapsed:.2f}s"
+                    f"sequence {sequence_number} after {elapsed:.2f}s",
+                    extra=FILE_ONLY
                 )
-                print(f"[Seq: {sequence_number}] Fallback ({label}) returned empty")
 
             return transcript
 
@@ -982,7 +1017,6 @@ class ThoughtborneApp:
                 f"sequence {sequence_number}: {e}",
                 exc_info=True
             )
-            print(f"ERROR: [Seq: {sequence_number}] Fallback ({label}) failed: {e}")
             return ""
 
     def handle_test_transcription(self):
@@ -1019,26 +1053,27 @@ class ThoughtborneApp:
             else:
                 logger.warning("Test: no transcription received")
                 # No task exists on this path, so the OutputManager funnel never
-                # sees it -- emit the failure block directly (#37). Runs on the
-                # listener thread: show_status_block only enqueues (#11).
-                self.show_status_block(
+                # sees it -- emit the failure panel directly (#109). Runs on the
+                # listener thread: _emit_block only enqueues (#11).
+                self._emit_block(
                     'self-test-failed',
-                    _style("FAILED Self-test failed -- no transcription received",
-                           _BOLD, _RED),
-                    action=(f"check your API key in .env and the log: {LOG_FILE.name}",
-                            f"(.env is in {SCRIPT_DIR})"),
-                )
+                    lambda ansi, compact: console_ui.render_selftest_failed(
+                        "self-test failed -- no transcription received",
+                        ("check your API key in .env,",
+                         f"then see {LOG_FILE.name} for details"),
+                        ansi=ansi, compact=compact))
 
             logger.info("Test completed")
         else:
             logger.error(f"Test file not found: {test_file}")
             logger.error("Place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
-            self.show_status_block(
+            self._emit_block(
                 'self-test-failed',
-                _style("FAILED Self-test failed -- no test audio file found",
-                       _BOLD, _RED),
-                action="place 'test_audio.wav' or 'test_audio.mp3' in the project folder, then retry",
-            )
+                lambda ansi, compact: console_ui.render_selftest_failed(
+                    "self-test failed -- no test audio file found",
+                    ("place test_audio.wav or test_audio.mp3",
+                     "in the project folder, then retry"),
+                    ansi=ansi, compact=compact))
 
     def _create_startup_transcriber(self):
         """Construct the startup transcriber, falling through the carousel (#40).
@@ -1066,7 +1101,11 @@ class ThoughtborneApp:
                 transcriber = create_transcriber(api_name)
             except Exception as e:
                 failures.append((api_name, e))
-                logger.warning(f"Skipped {api_name} ({_describe_construction_failure(e)})")
+                # Slot-IDs stay file-only (#44/#109): the console user learns of a
+                # fallback via the masthead NOTE, or of an all-failed start via the
+                # SETUP-NEEDED panel -- both name the missing env vars in labels.
+                logger.warning(f"Skipped {api_name} ({_describe_construction_failure(e)})",
+                               extra=FILE_ONLY)
                 logger.debug(f"Construction failed for {api_name}: {e}", exc_info=True)
                 continue
 
@@ -1075,9 +1114,15 @@ class ThoughtborneApp:
                                   if isinstance(err, MissingAPIKeyError)})
                 reason = (f"{' / '.join(missing)} missing" if missing
                           else f"default API '{DEFAULT_API}' unavailable")
+                # File log keeps the slot-id form (greppable, unchanged); the
+                # masthead NOTE shows display labels (#109). Both file-only --
+                # the panel is the console surface.
+                logger.warning(f"{reason} -> started on {api_name} (default: {DEFAULT_API})",
+                               extra=FILE_ONLY)
+                started = API_DISPLAY.get(api_name, {}).get("label", api_name)
+                default_label = API_DISPLAY.get(DEFAULT_API, {}).get("label", DEFAULT_API)
                 self._startup_fallback_note = (
-                    f"{reason} -> started on {api_name} (default: {DEFAULT_API})")
-                logger.warning(self._startup_fallback_note)
+                    f"{reason} -> started on {started} (default: {default_label})")
             return api_name, transcriber
 
         self._print_no_api_error_block(failures)
@@ -1087,33 +1132,31 @@ class ThoughtborneApp:
 
     @staticmethod
     def _print_no_api_error_block(failures):
-        """Actionable console block when no transcription API is constructible (#40)."""
-        by_key = {}   # env var -> [api names]
-        other = []    # (api name, reason) for non-key construction failures
+        """Actionable SETUP-NEEDED panel when no transcription API is
+        constructible (#40/#109). Printed, not queued: it runs on the main
+        thread before any thread starts, and the 'Press Enter to exit' prompt
+        below must appear strictly after it (queue ordering could not guarantee
+        that against the input() prompt)."""
+        missing = {}   # env var -> [slot ids]
+        other = []     # (slot id, reason) for non-key construction failures
         for api_name, error in failures:
             if isinstance(error, MissingAPIKeyError):
-                by_key.setdefault(error.env_var, []).append(api_name)
+                missing.setdefault(error.env_var, []).append(api_name)
             else:
                 other.append((api_name, f"{type(error).__name__}: {error}"))
 
         logger.error("No transcription API could be constructed -- tried: "
-                     + ", ".join(api for api, _ in failures))
-        print("")
-        print("=" * 60)
-        print("ERROR: No transcription API available")
-        print("=" * 60)
-        for env_var, apis in by_key.items():
-            print(f"  {env_var} is missing  (needed for: {', '.join(apis)})")
-        for api_name, reason in other:
-            print(f"  {api_name} failed: {reason}")
-        print("")
-        print("  Thoughtborne needs at least one API key in the .env file")
-        print("  in the project folder (copy .env.example to .env first):")
-        print("      GROQ_API_KEY    - free tier, no payment needed")
-        print("      SONIOX_API_KEY  - prepaid, best German accuracy")
-        print("  Where to get the keys: see .env.example or the README.")
-        print("  Then start Thoughtborne again.")
-        print("=" * 60)
+                     + ", ".join(api for api, _ in failures), extra=FILE_ONLY)
+        try:
+            compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
+            lines = console_ui.render_noapi_panel(
+                list(missing.items()), other, str(SCRIPT_DIR),
+                ansi=_ANSI_ENABLED, compact=compact)
+            print("\n" + "\n".join(lines))
+        except Exception as e:
+            logger.debug(f"No-API panel render failed: {e}")
+            print("\nERROR: No transcription API available -- add a key to .env "
+                  "(copy .env.example to .env, see the README).")
 
     def switch_api(self):
         """Switch to the next constructible transcription API (#40).
@@ -1134,36 +1177,45 @@ class ThoughtborneApp:
                     new_transcriber = create_transcriber(next_api)
                 except Exception as e:
                     skipped.append((next_api, e))
-                    logger.warning(f"Skipped {next_api} ({_describe_construction_failure(e)})")
+                    # Slot-IDs stay file-only (#44/#109): a successful switch shows
+                    # the display label via the SWITCHED panel, a full-circle failure
+                    # names the missing env vars in the FAILED panel below.
+                    logger.warning(f"Skipped {next_api} ({_describe_construction_failure(e)})",
+                                   extra=FILE_ONLY)
                     logger.debug(f"Construction failed for {next_api}: {e}", exc_info=True)
                     continue
 
-                logger.info(f"Switching API from {self.current_api} to {next_api}")
+                old_label = self.transcriber.get_name()
+                # Slot-IDs stay file-only; the console dim ticker speaks display
+                # labels, the panel is the surface (#44/#109).
+                logger.info(f"Switching API from {self.current_api} to {next_api}", extra=FILE_ONLY)
                 self.transcriber = new_transcriber
                 self.current_api = next_api
-                logger.info(f"Successfully switched to {self.transcriber.get_name()}")
-                self.show_status_block(
+                new_label = self.transcriber.get_name()
+                logger.info(f"Successfully switched to {new_label}", extra=FILE_ONLY)
+                self._ticker(f"switch: {old_label} -> {new_label}")
+                switch_key = self._format_hotkey(HOTKEYS['switch_api'])
+                self._emit_block(
                     'switched',
-                    _style("SWITCHED", _BOLD, _CYAN)
-                    + f" Now transcribing with: {self.transcriber.get_name()}",
-                    show_lineup=True,
-                )
+                    lambda ansi, compact: console_ui.render_switched_panel(
+                        new_label, self._lineup_data(), switch_key,
+                        ansi=ansi, compact=compact))
                 return
 
             # Full circle: no other entry is constructible -- stay put.
             missing = sorted({e.env_var for _, e in skipped
                               if isinstance(e, MissingAPIKeyError)})
-            logger.error(f"No other API available -- staying on {self.transcriber.get_name()}")
+            current_label = self.transcriber.get_name()
+            logger.error(f"No other API available -- staying on {current_label}", extra=FILE_ONLY)
             if missing:
                 logger.error(f"Missing API key(s): {', '.join(missing)} -- add them to "
-                             f".env (see README), then restart Thoughtborne.")
-            self.show_status_block(
+                             f".env (see README), then restart Thoughtborne.", extra=FILE_ONLY)
+            switch_key = self._format_hotkey(HOTKEYS['switch_api'])
+            self._emit_block(
                 'switch-failed',
-                _style(f"FAILED No other API available -- staying on "
-                       f"{self.transcriber.get_name()}", _BOLD, _RED),
-                action="add the missing key(s) to .env (see README), then restart",
-                show_lineup=True,
-            )
+                lambda ansi, compact: console_ui.render_switch_failed(
+                    current_label, self._lineup_data(), switch_key, missing,
+                    ansi=ansi, compact=compact))
 
         except Exception as e:
             logger.error(f"Error in API switch: {e}", exc_info=True)
@@ -1209,7 +1261,7 @@ class ThoughtborneApp:
         """Callback for start recording hotkey"""
         if not self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
-            logger.info(f"Recording started ({hotkey_display})")
+            logger.info(f"Recording started ({hotkey_display})", extra=FILE_ONLY)
             logger.debug("on_start_recording: marker A - after info log line")
             logger.debug("on_start_recording: marker B - before loop-alive check")
 
@@ -1228,6 +1280,19 @@ class ThoughtborneApp:
                 logger.error("Could not open audio stream. Check audio device connection.")
                 return
             logger.debug("on_start_recording: marker D - audio_recorder.start_recording() returned OK")
+
+            # REC strip once the mic is actually open (#109): shows the stop
+            # options the user needs right now. Only the W-flow gets it -- PTT
+            # stops on a trigger release, so those stop hints would be wrong.
+            self._emit_block(
+                'recording',
+                lambda ansi, compact: console_ui.render_rec_strip(
+                    self._key_letter('stop_recording_keyboard'),
+                    self._key_letter('stop_recording_clipboard'),
+                    self._key_letter('stop_recording_send'),
+                    self._key_letter('stop_recording_no_insert'),
+                    self._key_letter('cancel_recording'),
+                    ansi=ansi, compact=compact))
 
             # Start live streaming session if transcriber supports it
             if self.transcriber.is_live:
@@ -1270,8 +1335,8 @@ class ThoughtborneApp:
             if self.start_processing_thread(frames, duration, wait_for_keys=['ctrl', 'alt', 'a'],
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
-                logger.info("Processing in background...")
-                logger.info(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background...", extra=FILE_ONLY)
+                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
 
         elif not self.just_finished_recording_a:
             # Insert last text
@@ -1302,8 +1367,8 @@ class ThoughtborneApp:
             if self.start_processing_thread(frames, duration, use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'd'],
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
-                logger.info("Processing in background (clipboard mode)...")
-                logger.info(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background (clipboard mode)...", extra=FILE_ONLY)
+                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
 
         elif not self.just_finished_recording_d:
             # Insert last text via clipboard
@@ -1340,8 +1405,8 @@ class ThoughtborneApp:
                                             wait_for_keys=['ctrl', 'alt'],
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
-                logger.info("Processing in background (will send)...")
-                logger.info(f"You can start a new recording with {start_hotkey_display}!")
+                logger.info("Processing in background (will send)...", extra=FILE_ONLY)
+                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
 
         elif not self.just_finished_recording_d:
             # Insert last text and send
@@ -1375,14 +1440,19 @@ class ThoughtborneApp:
             if self.start_processing_thread(frames, duration, use_clipboard=False, auto_insert=False,
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
-                logger.info("Processing in background (no auto-insert)...")
-                logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording")
+                logger.info("Processing in background (no auto-insert)...", extra=FILE_ONLY)
+                logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording",
+                            extra=FILE_ONLY)
 
     def on_cancel_recording(self):
         """Callback for cancel recording"""
         if self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['cancel_recording'][0])
-            logger.info(f"Recording cancelled ({hotkey_display})")
+            logger.info(f"Recording cancelled ({hotkey_display})", extra=FILE_ONLY)
+            self._emit_block(
+                'cancelled',
+                lambda ansi, compact: console_ui.render_cancelled_strip(
+                    ansi=ansi, compact=compact))
 
             # Cancel live session if active
             if self._active_live_transcriber is not None:
@@ -1547,7 +1617,7 @@ class ThoughtborneApp:
         self.active_threads.append(thread)
 
         logger.info(f"Retry started ({hotkey_display}) for recording from "
-                    f"{rec.origin_timestamp} (Seq: {sequence_number})")
+                    f"{rec.origin_timestamp} (Seq: {sequence_number})", extra=FILE_ONLY)
 
     def retry_recording_thread(self, rec: '_FailedRecording', sequence_number: int, transcriber):
         """Worker: re-transcribe an archived MP3 and insert at the cursor like a
@@ -1568,7 +1638,7 @@ class ThoughtborneApp:
             self.processing_counter += 1
             current_count = self.processing_counter
         logger.info(f"[{thread_name}] Retrying recording from {rec.origin_timestamp} "
-                    f"as sequence {sequence_number} (active: {current_count})")
+                    f"as sequence {sequence_number} (active: {current_count})", extra=FILE_ONLY)
 
         # Insert like Ctrl+Alt+D: clipboard is the project default, typing the
         # fallback for apps that block paste. The user is still holding
@@ -1585,7 +1655,7 @@ class ThoughtborneApp:
         )
 
         try:
-            print(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
+            self._ticker(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
             if transcriber.is_live:
                 # A live session can't re-stream a file, so re-transcribe through
                 # the fixed duration-gated Soniox V2/V4 file chain, exactly as
@@ -1601,7 +1671,7 @@ class ThoughtborneApp:
                 # process_recording_thread so the hybrid 'soniox' slot reports its
                 # per-recording V2/V4 choice through the sink -- engine_code would
                 # mistag a V4 recording as Son-v2 (its defensive default).
-                print(f"[Seq: {sequence_number}] Retrying via {transcriber.get_name()}...")
+                self._ticker(f"[Seq: {sequence_number}] Retrying via {transcriber.get_name()}...")
                 if isinstance(transcriber, SonioxTranscriber):
                     engine_tag = _EngineTag()
                     transcript = transcriber.transcribe(
@@ -1640,11 +1710,14 @@ class ThoughtborneApp:
                 task.transcript = transcript
                 task.is_complete = True
                 self._resolve_failed_slot(rec)
-                logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready")
-                print(f"[Seq: {sequence_number}] Retry completed, waiting for output...")
+                logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready", extra=FILE_ONLY)
+                self._ticker(f"[Seq: {sequence_number}] Retry completed, waiting for output...")
             else:
+                # File-only like the first-pass empty case above: the error task
+                # drives the FAILED panel via the OutputManager (#109).
                 logger.warning(f"[{thread_name}] Retry still empty for sequence {sequence_number} "
-                               f"-- recording from {rec.origin_timestamp} stays retryable")
+                               f"-- recording from {rec.origin_timestamp} stays retryable",
+                               extra=FILE_ONLY)
                 task.is_error = True
                 task.is_complete = True
                 # Failed retry: slot already points at rec, leave it retryable.
@@ -1653,7 +1726,7 @@ class ThoughtborneApp:
 
         except Exception as e:
             logger.error(f"[{thread_name}] Error retrying sequence {sequence_number}: {e}", exc_info=True)
-            print(f"ERROR: [Seq: {sequence_number}] Retry error: {e}")
+            # console shows the dim red ERROR log line; the FAILED panel follows
             task.is_error = True
             task.is_complete = True
             self.output_manager.add_task(task)
@@ -1662,7 +1735,7 @@ class ThoughtborneApp:
             with self.processing_lock:
                 self.processing_counter -= 1
                 current_count = self.processing_counter
-            logger.info(f"[{thread_name}] Retry for sequence {sequence_number} finished (active: {current_count})")
+            logger.info(f"[{thread_name}] Retry for sequence {sequence_number} finished (active: {current_count})", extra=FILE_ONLY)
 
     def on_test_transcription(self):
         """Callback for test transcription hotkey"""
@@ -1728,8 +1801,16 @@ class ThoughtborneApp:
             wav_path, mp3_path = self.audio_recorder.save_recording(frames, timestamp)
             self.audio_recorder.cleanup_temp_files(wav_path, mp3_path)
             archive = str(ARCHIVE_FOLDER / f"voice_{timestamp}.mp3")
+            # File keeps the full salvage detail (file-only); the console gets the
+            # visible SAVED strip below so the user leaving mid-recording learns
+            # nothing was lost and how to continue (#106/#109).
             logger.warning(f"Recording was still running ({reason}) -- audio saved "
-                           f"({duration:.1f}s, not transcribed): {archive}")
+                           f"({duration:.1f}s, not transcribed): {archive}", extra=FILE_ONLY)
+            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            self._emit_block(
+                'exit-saved',
+                lambda ansi, compact: console_ui.render_saved_strip(
+                    duration, retry_key, ansi=ansi, compact=compact))
             # Arm the next start's retry offer (#106). A clean exit leaves no
             # .partial (unlike a hard kill), so without this marker startup
             # recovery finds nothing and Ctrl+Alt+R reports "nothing to retry".
@@ -1743,7 +1824,8 @@ class ThoughtborneApp:
                     sidecar.discard()  # only after the archive write AND marker
                 else:
                     logger.warning(f"Retry marker not written -- keeping crash-safety "
-                                   f"sidecar for next-start recovery: {sidecar.path}")
+                                   f"sidecar for next-start recovery: {sidecar.path}",
+                                   extra=FILE_ONLY)
             return archive
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
@@ -1753,7 +1835,7 @@ class ThoughtborneApp:
 
     def stop_program(self):
         """Stop the program"""
-        logger.info("Program exit requested")
+        logger.info("Program exit requested", extra=FILE_ONLY)
 
         # Salvage an in-flight recording before any teardown (#49): exiting
         # mid-recording used to discard the audio -- the original incident.
@@ -1771,7 +1853,7 @@ class ThoughtborneApp:
 
         # Wait for active threads
         if self.active_threads:
-            logger.info(f"Waiting for {len(self.active_threads)} active processing...")
+            logger.info(f"Waiting for {len(self.active_threads)} active processing...", extra=FILE_ONLY)
             for thread in self.active_threads:
                 if thread.is_alive():
                     thread.join(timeout=5)
@@ -1782,11 +1864,11 @@ class ThoughtborneApp:
             time.sleep(STATUS_UPDATE_INTERVAL)
             with self.processing_lock:
                 if self.processing_counter > 0:
-                    print(f"\n[STATUS] Active processing: {self.processing_counter}")
+                    self._ticker(f"[STATUS] Active processing: {self.processing_counter}")
 
     def recording_loop_thread(self):
         """Separate thread for audio recording loop"""
-        logger.info("Recording loop thread STARTED")
+        logger.info("Recording loop thread STARTED", extra=FILE_ONLY)
         # Boost THIS thread's scheduling priority so capture keeps draining the
         # mic under CPU load (#72). Best-effort: any failure degrades to default
         # priority and never touches capture -- same guard philosophy as the
@@ -1851,7 +1933,7 @@ class ThoughtborneApp:
             time.sleep(0.01)  # Small delay to prevent high CPU usage
 
         _restore_capture_thread_priority(_priority_token)
-        logger.info("Recording loop thread STOPPED")
+        logger.info("Recording loop thread STOPPED", extra=FILE_ONLY)
 
     def _handle_recording_abort(self):
         """Handle the device-loss endgame on the recording-loop thread (#49).
@@ -1912,268 +1994,177 @@ class ThoughtborneApp:
                 sidecar.discard()
             archive = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
             self._record_failed_slot(timestamp, duration)
-            # ERROR level on purpose: this IS an error state and must stand out.
-            logger.error(f"Audio captured so far was saved ({duration:.1f}s): {archive}")
-            logger.error(f"Reconnect your microphone, then press "
-                         f"{self._format_hotkey(HOTKEYS['retry_last_failed'])} to transcribe it.")
-            self.show_status_block(
+            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            # ERROR level on purpose: this IS an error state (file log unchanged);
+            # the FAILED panel below is the console surface (#109), so these two
+            # detail lines are file-only.
+            logger.error(f"Audio captured so far was saved ({duration:.1f}s): {archive}",
+                         extra=FILE_ONLY)
+            logger.error(f"Reconnect your microphone, then press {retry_key} to transcribe it.",
+                         extra=FILE_ONLY)
+            self._emit_block(
                 'device-loss',
-                _style(f"FAILED Microphone lost -- recording ended and saved "
-                       f"({duration:.0f}s, not transcribed)", _BOLD, _RED),
-                action=f"reconnect your microphone, then press "
-                       f"{self._format_hotkey(HOTKEYS['retry_last_failed'])} to transcribe it",
-            )
+                lambda ansi, compact: console_ui.render_device_loss(
+                    duration, retry_key, self.transcriber.get_name(),
+                    self._footer_keys(retry=True), ansi=ansi, compact=compact))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
                     if sidecar is not None else "")
             logger.error(f"Could not save the aborted recording: {e}.{kept}")
 
-    def print_instructions(self):
-        """Print the startup banner (main thread, before hotkeys -- print() is
-        safe here). Deliberately slim since #37: the essentials (active API,
-        hotkeys, history path, what to press now) repeat in every status block;
-        the full hotkey reference lives in the README."""
-        print(f"\n=== Thoughtborne running (Windows version) ===")
-        print(f"Log file: {LOG_FILE}")
-        print(f"Max parallel processing: {MAX_PARALLEL_TRANSCRIPTIONS}")
-        print(f"Self-test: {self._format_hotkey(HOTKEYS['test_transcription'])} "
-              f"transcribes 'test_audio.mp3'")
-        print("\nCtrl+Alt+H sends message after transcription - perfect for chatbots!")
-        print("     Use Y to process without inserting. Insert later with A or D.")
-        print("\nCtrl+Alt+D uses clipboard for faster insertion!")
-        print("Texts are always inserted in recording order!")
-        print("=========================================\n")
+    # ===== COCKPIT CONSOLE (#109) =====
 
-    # ===== GLANCEABLE STATUS BLOCK (#37) =====
+    def _emit_block(self, event, builder, detail=""):
+        """Render and emit one designed console block (#109). Same contract as
+        the old show_status_block (#37/#11): one pre-composed string through the
+        console-only logger (serialized by the single QueueListener, atomic
+        write, never the file log), one DEBUG breadcrumb to the file, never
+        raises. `builder(ansi, compact)` returns the ready-to-print lines.
 
-    def show_status_block(self, event, headline, action=(), show_lineup=False,
-                          extra_lines=(), detail=""):
-        """Compose and print the glanceable status block (#37).
-
-        The block is ONE pre-composed string emitted through the console-only
-        logger: it rides the same bounded queue as all console logging (#11 --
-        non-blocking from every thread, serialized by the single QueueListener,
-        and written in a single write() so concurrent prints can never land
-        inside it). It never reaches the file log; one DEBUG breadcrumb on the
-        main logger carries the event into the file instead. Never raises: a
-        broken status block must never break an insert or a switch
-        (stability #1).
-
-        Args:
-            event: Short event id for the file-log breadcrumb.
-            headline: Block headline including its styled tag (OK/FAILED/
-                      READY/SWITCHED), built by the caller via _style.
-            action: "What now" line(s) -- a string or a sequence of strings;
-                    follow-up lines align under the first.
-            show_lineup: True renders the full API lineup (startup + switch);
-                         False the one-line active-API summary.
-            extra_lines: Lines right below the headline (startup notes).
-            detail: Extra text for the breadcrumb (e.g. "seq=12 chars=184").
-        """
+        On a renderer fault a minimal one-line fallback still reaches the console
+        -- in the Cockpit many former plain-text log lines are file-only, so a
+        silent swallow could drop an entire FAILED panel (stability #1)."""
         try:
-            lines = ["", _SEP, " " + headline]
-            lines.extend(" " + extra for extra in extra_lines)
-            if isinstance(action, str):
-                action = (action,)
-            for i, action_line in enumerate(action):
-                if i == 0:
-                    lines.append(" " + _style("What now: " + action_line, _BOLD))
-                else:
-                    lines.append(" " + " " * len("What now: ") + action_line)
-            lines.extend(self._compose_api_lines(show_lineup))
-            lines.append(self._compose_hotkey_line())
-            lines.append(f" History: {HISTORY_FOLDER}   "
-                         f"(open: {self._format_hotkey(HOTKEYS['open_history'])})")
-            lines.append(_SEP)
-            console_logger.info("\n".join(lines), extra={'raw_console': True})
+            compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
+            lines = builder(ansi=_ANSI_ENABLED, compact=compact)
+            console_logger.info("\n".join([""] + lines), extra={'raw_console': True})
             logger.debug(f"Status block: event={event} api={self.current_api}"
                          + (f" {detail}" if detail else ""))
         except Exception as e:
             logger.debug(f"Status block suppressed ({event}): {e}")
+            try:
+                console_logger.info(f"[{event}] -- display failed, details in {LOG_FILE.name}",
+                                    extra={'raw_console': True})
+            except Exception:
+                pass
 
-    def _compose_api_lines(self, show_lineup):
-        """API section of the status block: the full lineup (startup, switch)
-        or a one-line summary of the active API. Labels and descriptors come
-        from config.API_DISPLAY (#30), order from AVAILABLE_APIS; '(default)'
-        follows config.DEFAULT_API at runtime."""
-        switch_combo = self._format_hotkey(HOTKEYS['switch_api'])
+    def _ticker(self, msg, error=False):
+        """One [Seq:]-style progress line: dim on the console (red for the
+        exhausted error state), a DEBUG copy to the file log. Replaces the raw
+        print()s so designed blocks can never be torn apart mid-string (#11)."""
+        try:
+            console_logger.info(_style(msg, _BOLD, _RED) if error else _style(msg, _DIM),
+                                extra={'raw_console': True})
+            logger.debug(msg)
+        except Exception:
+            pass
 
-        def display(api_name):
-            entry = API_DISPLAY.get(api_name)
-            if entry is None:  # custom config edit -- degrade, don't lose the block
-                return api_name, ""
-            return entry["label"], entry["descriptor"]
+    def _key_letter(self, name):
+        """The bare display key of a hotkey (e.g. 'ctrl+alt+w' -> 'W'), remap-safe."""
+        combo = HOTKEYS[name]
+        combo = combo[0] if isinstance(combo, list) else combo
+        return combo.rpartition('+')[2].capitalize()
 
-        if not show_lineup:
-            label, descriptor = display(self.current_api)
-            described = f"{label} - {descriptor}" if descriptor else label
-            if self.current_api == DEFAULT_API:
-                described += " (default)"
-            left = f" API: {described}"
-            return [left + " " * max(3, 55 - len(left)) + f"switch: {switch_combo}"]
+    def _lineup_data(self):
+        """MODEL lineup rows for the renderer: (label, descriptor, is_current,
+        is_default) in AVAILABLE_APIS order (labels/descriptors from #30)."""
+        def entry(a):
+            e = API_DISPLAY.get(a)
+            return (e["label"], e["descriptor"]) if e else (a, "")
+        return [(*entry(a), a == self.current_api, a == DEFAULT_API)
+                for a in AVAILABLE_APIS]
 
-        lines = [f" API (switch: {switch_combo}):"]
-        width = max(len(display(api_name)[0]) for api_name in AVAILABLE_APIS)
-        for api_name in AVAILABLE_APIS:
-            label, descriptor = display(api_name)
-            marker = ">" if api_name == self.current_api else " "
-            line = f"   {marker} {label.ljust(width)}"
-            if descriptor:
-                line += f" - {descriptor}"
-            if api_name == DEFAULT_API:
-                line += "   (default)"
-            if api_name == self.current_api:
-                line = _style(line, _BOLD)
-            lines.append(line)
-        return lines
-
-    def _compose_hotkey_line(self):
-        """One-line core-hotkey summary for the status block, derived from
-        config.HOTKEYS so remapped combos show the user's real keys. The shared
-        modifier prefix is factored out ("Ctrl+Alt + W record | ...") when all
-        listed combos use the same one; otherwise full combos are printed."""
-        def split_combo(combo):
-            mods, _, key = combo.rpartition('+')
-            return mods, (key or combo)
-
-        combos = {
-            'record': HOTKEYS['start_recording'],
-            'stop_kb': HOTKEYS['stop_recording_keyboard'],
-            'stop_clip': HOTKEYS['stop_recording_clipboard'],
-            'send': HOTKEYS['stop_recording_send'],
-            'keep': HOTKEYS['stop_recording_no_insert'],
-            'cancel': HOTKEYS['cancel_recording'][0],
-            'exit': HOTKEYS['exit_program'][0],
-        }
-        prefixes = {split_combo(combo)[0] for combo in combos.values()}
+    def _keys_grid_data(self):
+        """The 11 KEYS-grid letters (console_ui.KEY_ACTIONS order) plus the
+        shared modifier prefix, from config.HOTKEYS. Degrades to full combos
+        with prefix=None if the config ever mixes prefixes (edge, documented)."""
+        order = ['start_recording', 'stop_recording_keyboard', 'stop_recording_clipboard',
+                 'stop_recording_send', 'stop_recording_no_insert', 'cancel_recording',
+                 'retry_last_failed', 'switch_api', 'open_history', 'test_transcription',
+                 'exit_program']
+        combos = [HOTKEYS[n][0] if isinstance(HOTKEYS[n], list) else HOTKEYS[n]
+                  for n in order]
+        prefixes = {c.rpartition('+')[0] for c in combos}
         if len(prefixes) == 1 and '' not in prefixes:
-            lead = f"{self._format_hotkey(prefixes.pop())} + "
-            def show(combo):
-                return self._format_hotkey(split_combo(combo)[1])
-        else:
-            lead = ""
-            show = self._format_hotkey
-        return (f" Hotkeys: {lead}"
-                f"{show(combos['record'])} record | "
-                f"{show(combos['stop_kb'])}/{show(combos['stop_clip'])} stop+insert | "
-                f"{show(combos['send'])} insert+send | "
-                f"{show(combos['keep'])} keep | "
-                f"{show(combos['cancel'])} cancel | "
-                f"{show(combos['exit'])} exit")
+            return ([c.rpartition('+')[2].capitalize() for c in combos],
+                    self._format_hotkey(prefixes.pop()))
+        return [self._format_hotkey(c) for c in combos], None
+
+    def _footer_keys(self, retry=False):
+        """The bottom action-strip key hints (letter, word). The retry variant
+        replaces '6 history' with 'R retry' (error panels)."""
+        rec, mdl, quit_ = (self._key_letter('start_recording'),
+                           self._key_letter('switch_api'),
+                           self._key_letter('exit_program'))
+        if retry:
+            return [(rec, 'record'), (self._key_letter('retry_last_failed'), 'retry'),
+                    (mdl, 'model'), (quit_, 'quit')]
+        return [(rec, 'record'), (mdl, 'model'),
+                (self._key_letter('open_history'), 'history'), (quit_, 'quit')]
 
     def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False):
-        """Map OutputManager completion events onto status blocks (#37).
+        """Map OutputManager completion events onto Cockpit strips/panels (#109).
 
         This is the on_task_complete callback (see OutputManager.__init__ for
         the contract). Runs on the OutputManager thread; the block emission
-        only enqueues (#11). Defensive like show_status_block: never raises
-        into the output loop.
+        only enqueues (#11), never raises into the output loop.
 
         Events:
-            'inserted' -- transcript inserted; sent=True for the H flow.
-            'ready'    -- Y flow: processed, waiting for a manual insert.
-            'failed'   -- kind='transcription' or kind='insertion'.
+            'inserted' -- transcript inserted (OK strip); sent=True for the H flow.
+            'ready'    -- Y flow: processed, waiting for a manual insert (WAITING).
+            'failed'   -- kind='transcription' (FAILED panel) or 'insertion'.
         """
         try:
-            insert_combos = (
-                f"{self._format_hotkey(HOTKEYS['stop_recording_keyboard'])} (type) or "
-                f"{self._format_hotkey(HOTKEYS['stop_recording_clipboard'])} (paste)")
+            model = self.transcriber.get_name()
+            type_key = self._key_letter('stop_recording_keyboard')
+            paste_key = self._key_letter('stop_recording_clipboard')
+            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
             # Negative sequence numbers are internal (immediate tasks: self-test,
-            # insert-last) -- omit them from the user-facing headline.
-            seq_known = seq is not None and seq >= 0
+            # insert-last) -- omit them from the user-facing strip.
+            seq_shown = seq if (seq is not None and seq >= 0) else None
 
             if event == 'inserted':
-                what = ("Inserted at the cursor + sent" if sent
-                        else "Inserted at the cursor")
-                seq_part = f"seq {seq}, " if seq_known else ""
-                self.show_status_block(
+                self._emit_block(
                     'inserted',
-                    _style("OK", _BOLD, _GREEN) + f" {what} ({seq_part}{chars} chars)",
-                    detail=f"seq={seq} chars={chars} sent={sent}",
-                )
+                    lambda ansi, compact: console_ui.render_ok_strip(
+                        seq_shown, chars, sent, model, self._footer_keys(),
+                        ansi=ansi, compact=compact),
+                    detail=f"seq={seq} chars={chars} sent={sent}")
             elif event == 'ready':
-                self.show_status_block(
+                self._emit_block(
                     'ready',
-                    _style("READY", _BOLD, _GREEN)
-                    + f" Transcript waiting ({chars} chars) -- not inserted yet",
-                    action=f"insert at the cursor with {insert_combos}",
-                    detail=f"seq={seq} chars={chars}",
-                )
+                    lambda ansi, compact: console_ui.render_waiting_strip(
+                        seq_shown, chars, type_key, paste_key, ansi=ansi, compact=compact),
+                    detail=f"seq={seq} chars={chars}")
             elif event == 'failed' and kind == 'insertion':
-                seq_part = f" (seq {seq})" if seq_known else ""
-                self.show_status_block(
+                self._emit_block(
                     'insert-failed',
-                    _style(f"FAILED Could not insert{seq_part} -- the transcript is kept",
-                           _BOLD, _RED),
-                    action=f"insert the last transcript with {insert_combos}",
-                    detail=f"seq={seq}",
-                )
+                    lambda ansi, compact: console_ui.render_insert_failed(
+                        seq_shown, type_key, paste_key, model, self._footer_keys(),
+                        ansi=ansi, compact=compact),
+                    detail=f"seq={seq}")
             elif event == 'failed':
-                seq_part = f" (seq {seq})" if seq_known else ""
-                self.show_status_block(
+                self._emit_block(
                     'transcription-failed',
-                    _style(f"FAILED Transcription failed{seq_part} -- nothing was inserted",
-                           _BOLD, _RED),
-                    action=(f"retry this recording with "
-                            f"{self._format_hotkey(HOTKEYS['retry_last_failed'])}",
-                            "(if an [AUTH] line is shown above: fix the key in .env, "
-                            "then restart)",
-                            f"(.env is in {SCRIPT_DIR})"),
-                    detail=f"seq={seq}",
-                )
+                    lambda ansi, compact: console_ui.render_transcription_failed(
+                        seq_shown, retry_key, str(SCRIPT_DIR), model,
+                        self._footer_keys(retry=True), ansi=ansi, compact=compact),
+                    detail=f"seq={seq}")
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
 
     def _show_recovery_block(self, pending, newest_clean_exit, hotkeys_ok):
-        """Prominent startup notice for salvaged recordings (#78, #106).
+        """Prominent startup notice for salvaged recordings (#78, #106, #109).
 
         Two origins feed this block: a hard kill mid-recording leaves a .partial
         sidecar that startup recovery (#49) converts to an archived MP3, and a
         clean exit mid-recording saves the audio but never transcribes it (#106).
         Both arm the retry hotkey; newest_clean_exit says which the newest
         (R-targeted) entry is, so the wording names what actually happened -- a
-        clean exit is not a crash. The announcement used to be a plain console
-        line above the READY block and was overlooked (#59 test); it is now a
-        #37-style block in warning yellow, emitted last so it sits at the bottom
-        of the scrollback. Only the newest file is one keypress away; older ones
-        wait in the audio folder. Never raises (stability #1)."""
+        clean exit is not a crash. Rendered as the yellow-lamp RECOVERED panel,
+        emitted last so it sits at the bottom of the scrollback. Never raises."""
         try:
-            retry_combo = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
             _, newest_dur, newest_ts = pending[-1]
             when = (f"{newest_ts[:4]}-{newest_ts[4:6]}-{newest_ts[6:8]} "
-                    f"{newest_ts[9:11]}:{newest_ts[11:13]}:{newest_ts[13:15]}")
+                    f"{newest_ts[9:11]}:{newest_ts[11:13]}")
             n = len(pending)
-            # The newest entry (the one R targets) decides the wording. A mixed
-            # multi-count set rides that entry's phrasing; "saved but not
-            # transcribed" fits a hard-kill file too, so it stays truthful.
-            if newest_clean_exit:
-                one = "was saved but not transcribed (you exited mid-recording)"
-                many = f"{n} recordings saved but not transcribed"
-            else:
-                one = "was rescued after a hard kill"
-                many = f"{n} recordings rescued after a hard kill"
-            if n == 1:
-                headline = (_style("RECOVERED", _BOLD, _YELLOW)
-                            + f" a recording from {when} ({newest_dur:.0f}s) {one}")
-                extra = ()
-                target = "it"
-            else:
-                headline = _style("RECOVERED", _BOLD, _YELLOW) + f" {many}"
-                extra = (f"newest is from {when} ({newest_dur:.0f}s); the other "
-                         f"{n - 1} wait in {ARCHIVE_FOLDER}",)
-                target = "the newest"
-            if hotkeys_ok:
-                action = f"press {retry_combo} to transcribe & insert {target}"
-            else:
-                action = (f"the audio is saved in {ARCHIVE_FOLDER}; once hotkeys "
-                          f"work, {retry_combo} transcribes & inserts {target}")
-            self.show_status_block(
+            self._emit_block(
                 'recovered',
-                headline,
-                action=action,
-                extra_lines=extra,
-                detail=f"count={n} newest={newest_ts} clean_exit={newest_clean_exit}",
-            )
+                lambda ansi, compact: console_ui.render_recovered_panel(
+                    n, when, newest_dur, newest_clean_exit, hotkeys_ok,
+                    str(ARCHIVE_FOLDER), retry_key, ansi=ansi, compact=compact),
+                detail=f"count={n} newest={newest_ts} clean_exit={newest_clean_exit}")
         except Exception as e:
             logger.debug(f"Recovery status block suppressed: {e}")
 
@@ -2182,7 +2173,7 @@ class ThoughtborneApp:
 
         Returns True when the hotkey listener is up; run() gates its
         success messaging on this."""
-        logger.info("Registering hotkeys via RegisterHotKey...")
+        logger.info("Registering hotkeys via RegisterHotKey...", extra=FILE_ONLY)
 
         self.hotkey_manager = HotkeyManager()
 
@@ -2212,11 +2203,20 @@ class ThoughtborneApp:
 
         # Start the listener thread (blocks until registration is done)
         if not self.hotkey_manager.start():
-            logger.error("Failed to start HotkeyManager")
-            print("ERROR: Could not register hotkeys. Another instance may be running.")
+            logger.error("Failed to start HotkeyManager", extra=FILE_ONLY)  # FAILED panel is the surface
             return False
 
-        logger.info("All hotkeys registered successfully via RegisterHotKey")
+        # File log keeps the full per-key wall (file-only) and the greppable
+        # success line (AGENTS heartbeat); the console gets one dim summary, or a
+        # visible WARNING when some keys were lost to another app (#61/#109).
+        logger.info("All hotkeys registered successfully via RegisterHotKey", extra=FILE_ONLY)
+        registered = self.hotkey_manager.registered_count
+        expected = self.hotkey_manager.expected_count
+        summary = f"hotkeys: {registered}/{expected} registered -- full log: {LOG_FILE.name}"
+        if registered < expected:
+            logger.warning(summary)
+        else:
+            logger.info(summary)
         return True
 
     def run(self):
@@ -2237,9 +2237,6 @@ class ThoughtborneApp:
         )
         self.recording_thread.start()
 
-        # Print instructions
-        self.print_instructions()
-
         # Convert sidecars left over from a crash (#49 layer 3). Placed
         # before hotkey registration on purpose: no recording can start while
         # this converts, and the retry slot is armed below before the first
@@ -2254,7 +2251,7 @@ class ThoughtborneApp:
                 # hint line, never the recovery below.
                 if any(p.stat().st_size > 10 * 1024 * 1024
                        for p in ARCHIVE_FOLDER.glob("voice_*.partial")):
-                    print("Recovering unsaved recording, this may take a moment...")
+                    self._ticker("Recovering unsaved recording, this may take a moment...")
             except OSError:
                 pass
             recovered = recover_partial_files()
@@ -2294,33 +2291,29 @@ class ThoughtborneApp:
         hotkeys_ok = self._register_hotkeys()
 
         if hotkeys_ok:
-            print("Global hotkeys registered. Press any hotkey to begin.")
-
-            # First glanceable status block (#37): READY headline, the optional
-            # #40 fallback note, the full API lineup, the hotkey one-liner and
-            # the history path. Recovery gets its own prominent block below
-            # (#78) instead of a muted line in here, where it was overlooked
-            # in the #59 kill-recovery test.
-            extra_lines = []
-            if self._startup_fallback_note:
-                extra_lines.append(f"NOTE: {self._startup_fallback_note}")
-            self.show_status_block(
+            # First Cockpit block (#109): the masthead -- wordmark, READY, the
+            # optional #40 fallback note, the MODEL lineup, the KEYS grid, the
+            # history edge. Recovery gets its own prominent panel below (#78).
+            keys, key_prefix = self._keys_grid_data()
+            lineup = self._lineup_data()
+            note = self._startup_fallback_note
+            self._emit_block(
                 'startup',
-                _style("READY", _BOLD, _GREEN)
-                + f" -- press {self._format_hotkey(HOTKEYS['start_recording'])} "
-                  f"and start talking",
-                show_lineup=True,
-                extra_lines=extra_lines,
-            )
+                lambda ansi, compact: console_ui.render_masthead(
+                    lineup, keys, key_prefix, str(HISTORY_FOLDER),
+                    self._format_hotkey(HOTKEYS['open_history']),
+                    self._format_hotkey(HOTKEYS['switch_api']),
+                    self._format_hotkey(HOTKEYS['start_recording']),
+                    note=note, with_wordmark=True,
+                    logo_lines=console_ui.ACTIVE_LOGO_MARK,
+                    ansi=ansi, compact=compact))
         else:
             # No READY invitation after a failed registration -- the tool keeps
-            # running without hotkeys (status quo), but the block must say so.
-            self.show_status_block(
+            # running without hotkeys (status quo), but the panel must say so.
+            self._emit_block(
                 'hotkeys-failed',
-                _style("FAILED Hotkeys could not be registered -- the tool "
-                       "cannot react to key presses", _BOLD, _RED),
-                action="close any other running Thoughtborne instance, then restart",
-            )
+                lambda ansi, compact: console_ui.render_hotkeys_failed(
+                    ansi=ansi, compact=compact))
 
         # Recovery notice as its own prominent block, emitted last so it sits at
         # the bottom of the scrollback below READY and can't be scrolled off
@@ -2345,7 +2338,7 @@ class ThoughtborneApp:
             if hasattr(self, 'hotkey_manager') and self.hotkey_manager:
                 try:
                     self.hotkey_manager.stop()
-                    logger.info("HotkeyManager stopped")
+                    logger.info("HotkeyManager stopped", extra=FILE_ONLY)
                 except Exception as e:
                     logger.warning(f"Error stopping HotkeyManager: {e}")
 
@@ -2353,8 +2346,7 @@ class ThoughtborneApp:
 
     def cleanup(self):
         """Clean up resources"""
-        logger.info("Cleaning up...")
-        print("Cleaning up...")
+        logger.info("Cleaning up...")   # one dim console line (#109)
 
         # Salvage an in-flight recording (#49): covers Ctrl+C / Ctrl+Break,
         # where this is the first shutdown code that runs. After an
@@ -2367,8 +2359,8 @@ class ThoughtborneApp:
         # Clean up audio resources
         self.audio_recorder.cleanup()
 
-        logger.info("Program ended")
-        logger.info("=" * 60)
+        logger.info("Program ended")   # dim console + last real file line (AGENTS heartbeat)
+        logger.info("=" * 60, extra=FILE_ONLY)
 
         # Drain and stop the console QueueListener last, so the two lines above
         # still reach the terminal. stop() enqueues a sentinel via put_nowait; if
@@ -2391,6 +2383,11 @@ def main():
     except AttributeError:
         pass
 
+    # "Program ended" is emitted once by cleanup() (dim console + file, the
+    # AGENTS heartbeat), which run()'s finally reaches on every normal and
+    # Ctrl+C/Ctrl+Break exit -- so no print here (that was the #10 doubling).
+    # The except branches only run after cleanup() has stopped the listener, so
+    # their remaining feedback is print() (the only working console channel).
     try:
         migrate_legacy_archives()  # legacy voice_archive/ + text_archive/ -> history/ (#50)
         app = ThoughtborneApp()
@@ -2402,8 +2399,6 @@ def main():
         logger.critical(f"Fatal error: {e}", exc_info=True)
         print(f"\nFATAL ERROR: {e}")
         print(f"Details in log file: {LOG_FILE}")
-    finally:
-        print("Program ended")
 
 
 if __name__ == "__main__":

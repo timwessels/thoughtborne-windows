@@ -329,6 +329,11 @@ LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 # log bursts in normal use; when the cmd window stays in Mark-Mode longer than the
 # queue can absorb, the newest console records are dropped (the file log keeps all).
 LOG_CONSOLE_QUEUE_MAX = 200
+# Pass as `extra=FILE_ONLY` on a log call to keep that record off the console while
+# the file handler still records it unchanged (level + content preserved). The
+# Cockpit console (#109) routes routine/technical lines this way instead of
+# downgrading their level, so the file log stays complete.
+FILE_ONLY = {'file_only': True}
 
 # ===== UI SETTINGS =====
 STATUS_UPDATE_INTERVAL = 5  # seconds

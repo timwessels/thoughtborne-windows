@@ -35,7 +35,7 @@ from collections import deque
 
 from config import (
     TRANSCRIPT_HISTORY_SIZE, OUTPUT_QUEUE_TIMEOUT,
-    CLIPBOARD_RESTORE_DELAY, KEY_RELEASE_DELAY
+    CLIPBOARD_RESTORE_DELAY, KEY_RELEASE_DELAY, FILE_ONLY
 )
 
 logger = logging.getLogger('Thoughtborne.OutputHandler')
@@ -383,7 +383,7 @@ class OutputManager:
             name="OutputManager"
         )
         self.output_thread.start()
-        logger.info("Output manager initialized and started (Windows version)")
+        logger.info("Output manager initialized and started (Windows version)", extra=FILE_ONLY)
 
     def get_next_sequence_number(self) -> int:
         """Get the next sequence number (thread-safe)"""
@@ -682,7 +682,7 @@ class OutputManager:
             logger.error(f"Error during clipboard insertion: {e}")
             # Fallback to keyboard.write
             try:
-                logger.info("Trying fallback to keyboard.write()")
+                logger.info("Trying fallback to keyboard.write()", extra=FILE_ONLY)
                 with self.keyboard_lock:
                     keyboard.write(text)
                 return True
@@ -692,7 +692,7 @@ class OutputManager:
 
     def _output_manager_thread(self):
         """Thread that handles sequential text output"""
-        logger.info("Output manager thread started")
+        logger.info("Output manager thread started", extra=FILE_ONLY)
 
         while self.running:
             try:
@@ -795,7 +795,6 @@ class OutputManager:
                                                           sent=task.send_after_insert)
                             else:
                                 logger.error("Clipboard insertion failed")
-                                print(f"ERROR: Clipboard insertion failed (Seq: {task.sequence_number})")
                                 if self.on_task_complete:
                                     self.on_task_complete(event='failed',
                                                           kind='insertion',
@@ -841,14 +840,12 @@ class OutputManager:
 
                     except Exception as e:
                         logger.error(f"Error during insertion: {e}")
-                        print(f"ERROR: Text insertion failed (Seq: {task.sequence_number}) - {e}")
                         if self.on_task_complete:
                             self.on_task_complete(event='failed',
                                                   kind='insertion',
                                                   seq=task.sequence_number)
                 elif task.is_error:
-                    logger.info(f"Skipping errored sequence {task.sequence_number}")
-                    print(f"ERROR: Transcription failed (Seq: {task.sequence_number})")
+                    logger.info(f"Skipping errored sequence {task.sequence_number}", extra=FILE_ONLY)
                     if self.on_task_complete:
                         self.on_task_complete(event='failed',
                                               kind='transcription',
@@ -856,17 +853,16 @@ class OutputManager:
 
             except Exception as e:
                 logger.error(f"Error in output manager: {e}", exc_info=True)
-                print(f"ERROR: Output manager exception - {e}")
 
-        logger.info("Output manager thread stopped")
+        logger.info("Output manager thread stopped", extra=FILE_ONLY)
 
     def stop(self):
         """Stop the output manager"""
-        logger.info("Stopping output manager...")
+        logger.info("Stopping output manager...", extra=FILE_ONLY)
         self.running = False
         with self.output_condition:
             self.output_condition.notify()
 
         # Wait for thread to finish
         self.output_thread.join(timeout=2)
-        logger.info("Output manager stopped")
+        logger.info("Output manager stopped", extra=FILE_ONLY)

@@ -243,6 +243,18 @@ class HotkeyManager:
         self._started = threading.Event()
         self._next_id = 1
 
+    @property
+    def expected_count(self) -> int:
+        """How many hotkeys were queued for registration (#109 startup summary)."""
+        return len(self._registrations)
+
+    @property
+    def registered_count(self) -> int:
+        """How many hotkeys actually registered -- start() populates the map, so
+        a per-key 1409 loss (another app owns the combo) shows as a shortfall
+        against expected_count without changing start()'s return value (#61)."""
+        return len(self._hotkey_map)
+
     def register(self, hotkey_str: str, callback, name: str = "") -> int:
         """
         Register a hotkey. Must be called before start().
@@ -292,7 +304,7 @@ class HotkeyManager:
         if self._thread is None or self._thread_id is None:
             return
 
-        logger.info("Stopping HotkeyManager...")
+        logger.info("Stopping HotkeyManager...", extra={'file_only': True})
         # Send WM_QUIT to the message pump thread
         PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
 
@@ -323,7 +335,7 @@ class HotkeyManager:
         """
         # Get Win32 thread ID (needed for PostThreadMessageW)
         self._thread_id = GetCurrentThreadId()
-        logger.info(f"HotkeyManager listener thread started (Win32 TID: {self._thread_id})")
+        logger.info(f"HotkeyManager listener thread started (Win32 TID: {self._thread_id})", extra={'file_only': True})
 
         # Register all hotkeys
         registered_count = 0
@@ -333,7 +345,7 @@ class HotkeyManager:
                 success = RegisterHotKey(None, hotkey_id, modifiers, vk_code)
                 if success:
                     self._hotkey_map[hotkey_id] = (callback, name)
-                    logger.info(f"  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})")
+                    logger.info(f"  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})", extra={'file_only': True})
                     registered_count += 1
                 else:
                     error_code = ctypes.get_last_error()
@@ -344,7 +356,7 @@ class HotkeyManager:
             except ValueError as e:
                 logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}")
 
-        logger.info(f"Hotkey registration complete: {registered_count}/{len(self._registrations)} successful")
+        logger.info(f"Hotkey registration complete: {registered_count}/{len(self._registrations)} successful", extra={'file_only': True})
 
         # Signal that registration is done
         self._started.set()
@@ -376,5 +388,5 @@ class HotkeyManager:
         # Unregister all hotkeys
         for hotkey_id in self._hotkey_map:
             UnregisterHotKey(None, hotkey_id)
-        logger.info(f"All hotkeys unregistered ({len(self._hotkey_map)} total)")
+        logger.info(f"All hotkeys unregistered ({len(self._hotkey_map)} total)", extra={'file_only': True})
         self._hotkey_map.clear()
