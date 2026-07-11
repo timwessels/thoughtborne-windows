@@ -46,7 +46,10 @@ from config import (
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
-from audio_handler import AudioRecorder, recover_partial_files
+from audio_handler import (
+    AudioRecorder, recover_partial_files,
+    write_retry_marker, recover_salvaged_recordings,
+)
 from transcriber import (
     create_transcriber,
     engine_code,
@@ -1691,8 +1694,20 @@ class ThoughtborneApp:
             archive = str(ARCHIVE_FOLDER / f"voice_{timestamp}.mp3")
             logger.warning(f"Recording was still running ({reason}) -- audio saved "
                            f"({duration:.1f}s, not transcribed): {archive}")
+            # Arm the next start's retry offer (#106). A clean exit leaves no
+            # .partial (unlike a hard kill), so without this marker startup
+            # recovery finds nothing and Ctrl+Alt+R reports "nothing to retry".
+            # Written AFTER save_recording (the archive exists) but BEFORE the
+            # sidecar is discarded: if the marker cannot be written, keep the
+            # sidecar so recover_partial_files() still rescues the audio next
+            # start -- the audio is never left un-recoverable.
+            marker_ok = write_retry_marker(timestamp, duration)
             if sidecar is not None:
-                sidecar.discard()  # only after the archive write succeeded
+                if marker_ok:
+                    sidecar.discard()  # only after the archive write AND marker
+                else:
+                    logger.warning(f"Retry marker not written -- keeping crash-safety "
+                                   f"sidecar for next-start recovery: {sidecar.path}")
             return archive
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
@@ -2073,31 +2088,41 @@ class ThoughtborneApp:
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
 
-    def _show_recovery_block(self, recovered, hotkeys_ok):
-        """Prominent startup notice for salvaged recordings (#78).
+    def _show_recovery_block(self, pending, newest_clean_exit, hotkeys_ok):
+        """Prominent startup notice for salvaged recordings (#78, #106).
 
-        A hard kill mid-recording leaves a .partial sidecar that startup
-        recovery (#49) converts to an archived MP3 and arms for the retry
-        hotkey. That announcement used to be a plain console line above the
-        READY block and was overlooked (#59 test); it is now a #37-style
-        block in warning yellow, emitted last so it sits at the bottom of the
-        scrollback. Only the newest recovered file is one keypress away; older
-        ones wait in the audio folder. Never raises (stability #1)."""
+        Two origins feed this block: a hard kill mid-recording leaves a .partial
+        sidecar that startup recovery (#49) converts to an archived MP3, and a
+        clean exit mid-recording saves the audio but never transcribes it (#106).
+        Both arm the retry hotkey; newest_clean_exit says which the newest
+        (R-targeted) entry is, so the wording names what actually happened -- a
+        clean exit is not a crash. The announcement used to be a plain console
+        line above the READY block and was overlooked (#59 test); it is now a
+        #37-style block in warning yellow, emitted last so it sits at the bottom
+        of the scrollback. Only the newest file is one keypress away; older ones
+        wait in the audio folder. Never raises (stability #1)."""
         try:
             retry_combo = self._format_hotkey(HOTKEYS['retry_last_failed'])
-            _, newest_dur, newest_ts = recovered[-1]
+            _, newest_dur, newest_ts = pending[-1]
             when = (f"{newest_ts[:4]}-{newest_ts[4:6]}-{newest_ts[6:8]} "
                     f"{newest_ts[9:11]}:{newest_ts[11:13]}:{newest_ts[13:15]}")
-            n = len(recovered)
+            n = len(pending)
+            # The newest entry (the one R targets) decides the wording. A mixed
+            # multi-count set rides that entry's phrasing; "saved but not
+            # transcribed" fits a hard-kill file too, so it stays truthful.
+            if newest_clean_exit:
+                one = "was saved but not transcribed (you exited mid-recording)"
+                many = f"{n} recordings saved but not transcribed"
+            else:
+                one = "was rescued after a hard kill"
+                many = f"{n} recordings rescued after a hard kill"
             if n == 1:
                 headline = (_style("RECOVERED", _BOLD, _YELLOW)
-                            + f" a recording from {when} ({newest_dur:.0f}s) was "
-                              f"rescued after a hard kill")
+                            + f" a recording from {when} ({newest_dur:.0f}s) {one}")
                 extra = ()
                 target = "it"
             else:
-                headline = (_style("RECOVERED", _BOLD, _YELLOW)
-                            + f" {n} recordings rescued after a hard kill")
+                headline = _style("RECOVERED", _BOLD, _YELLOW) + f" {many}"
                 extra = (f"newest is from {when} ({newest_dur:.0f}s); the other "
                          f"{n - 1} wait in {ARCHIVE_FOLDER}",)
                 target = "the newest"
@@ -2111,7 +2136,7 @@ class ThoughtborneApp:
                 headline,
                 action=action,
                 extra_lines=extra,
-                detail=f"count={n} newest={newest_ts}",
+                detail=f"count={n} newest={newest_ts} clean_exit={newest_clean_exit}",
             )
         except Exception as e:
             logger.debug(f"Recovery status block suppressed: {e}")
@@ -2200,14 +2225,28 @@ class ThoughtborneApp:
         except Exception as e:
             logger.error(f"Startup recovery failed: {e}", exc_info=True)
             recovered = []
-        if recovered:
-            # Arm the retry slot with the newest recovered file (single-slot
+        # Clean-exit salvages (#106) join the same retry pipeline as hard-kill
+        # recoveries -- both are audio saved but not transcribed. Own try/except
+        # so a fault in one source can never suppress the other.
+        try:
+            salvaged = recover_salvaged_recordings()
+        except Exception as e:
+            logger.error(f"Clean-exit salvage recovery failed: {e}", exc_info=True)
+            salvaged = []
+        # Merge by timestamp so the single retry slot (#24) arms the newest across
+        # BOTH sources; the timestamp format is fixed-width, so lexicographic ==
+        # chronological. An identity (is) check marks whether that newest came
+        # from the clean-exit list -- _show_recovery_block needs it for the wording.
+        pending = sorted(recovered + salvaged, key=lambda t: t[2])
+        newest_clean_exit = bool(pending) and any(pending[-1] is s for s in salvaged)
+        if pending:
+            # Arm the retry slot with the newest pending file (single-slot
             # semantics of #24: any later real failure simply overwrites it).
             # Built directly instead of via _record_failed_slot, whose path
             # reconstruction doesn't know the _recovered naming. Display is
             # deferred to _show_recovery_block after hotkey registration (#78);
             # arming stays here, before the first keypress is possible.
-            newest = recovered[-1]
+            newest = pending[-1]
             with self._last_failed_lock:
                 self._last_failed = _FailedRecording(
                     archived_mp3_path=newest[0],
@@ -2252,8 +2291,8 @@ class ThoughtborneApp:
         # (#78 -- the plain line above it was overlooked in the #59 test). The
         # retry slot was already armed above; this is display only. Reached from
         # both hotkey paths, so a failed registration still announces the rescue.
-        if recovered:
-            self._show_recovery_block(recovered, hotkeys_ok)
+        if pending:
+            self._show_recovery_block(pending, newest_clean_exit, hotkeys_ok)
 
         try:
             # Main loop - wait until running flag is set to False

@@ -266,6 +266,76 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
     return results
 
 
+# ===== Clean-exit retry marker (#106) =====
+# A clean exit (Ctrl+Alt+4 / Ctrl+C) during recording saves the audio as a bare
+# voice_<ts>.mp3 via save_recording() and discards the .partial sidecar, so the
+# hard-kill recovery above finds nothing. This tiny marker, written next to the
+# archive mp3, re-arms the Ctrl+Alt+R retry slot on the next start. The duration
+# rides in the name (integer milliseconds) so startup needs no file read or MP3
+# decode; <ts> identifies the archive mp3 AND is the retry origin timestamp. No
+# engine token: the recording was never transcribed, so the retry picks the
+# engine itself -- exactly like an in-session failed slot.
+
+_RETRY_MARKER_NAME_RE = re.compile(
+    r"^voice_(?P<ts>\d{8}_\d{6}_\d{3})_d(?P<ms>\d+)\.needsretry$"
+)
+
+
+def write_retry_marker(timestamp: str, duration: float) -> bool:
+    """Persist a one-shot 'saved but not transcribed' marker (#106).
+
+    Best-effort and never raises (stability #1): on failure the caller keeps the
+    crash-safety sidecar as the fallback recovery path. Returns True only when the
+    marker was actually written.
+    """
+    try:
+        ms = max(0, int(round(duration * 1000)))
+        path = ARCHIVE_FOLDER / f"voice_{timestamp}_d{ms}.needsretry"
+        path.touch()
+        logger.debug(f"Retry marker written: {path.name}")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not write retry marker for {timestamp}: {e}")
+        return False
+
+
+def recover_salvaged_recordings() -> List[Tuple[str, float, str]]:
+    """Re-arm clean-exit salvages for the retry hotkey (#106).
+
+    Counterpart to recover_partial_files() for the other untranscribed-audio
+    source: a clean exit during recording. Returns (archive_mp3_path,
+    duration_seconds, ts) tuples, oldest first, matching recover_partial_files()'s
+    shape so both feed the same arming/display path.
+
+    Single-shot like the kill path: each marker is deleted after it is read, so
+    the retry is offered exactly once across restarts. The audio itself is never
+    deleted -- it stays as voice_<ts>.mp3, findable in the audio folder. A marker
+    whose archive mp3 is gone (manually cleared), or whose name is unparseable, is
+    removed without arming. Never raises for one bad marker.
+    """
+    results = []
+    for marker in sorted(ARCHIVE_FOLDER.glob("voice_*.needsretry")):
+        try:
+            m = _RETRY_MARKER_NAME_RE.match(marker.name)
+            if not m:
+                logger.warning(f"Unrecognized retry marker, removing: {marker.name}")
+                marker.unlink(missing_ok=True)
+                continue
+            ts = m.group("ts")
+            duration = int(m.group("ms")) / 1000.0
+            mp3 = ARCHIVE_FOLDER / f"voice_{ts}.mp3"
+            if not mp3.exists():
+                logger.warning(f"Retry marker without archive, removing: {marker.name}")
+                marker.unlink(missing_ok=True)
+                continue
+            results.append((str(mp3), duration, ts))
+            marker.unlink(missing_ok=True)  # one-shot: offer the retry once
+            logger.info(f"Clean-exit salvage re-armed for retry: {mp3.name} ({duration:.1f}s)")
+        except Exception as e:
+            logger.error(f"Could not process retry marker {marker.name}: {e}", exc_info=True)
+    return results
+
+
 class AudioRecorder:
     """Handles audio recording and file operations"""
 
