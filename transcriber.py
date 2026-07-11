@@ -186,6 +186,14 @@ class AbstractTranscriber(ABC):
             j -= 1
         return j < 0 or text[j] in self._SENTENCE_END
 
+    def _quoted_spans(self, text: str) -> list[tuple[int, int]]:
+        """Index pairs (open, close) of straight-double-quote spans, matched
+        positionally (1st-2nd, 3rd-4th, ...). A lone unpaired quote is dropped:
+        it protects nothing (#101), so a stray '"' can never switch the filler
+        filter off for everything that follows it."""
+        quotes = [i for i, ch in enumerate(text) if ch == '"']
+        return [(quotes[i], quotes[i + 1]) for i in range(0, len(quotes) - 1, 2)]
+
     def _remove_spoken_fillers(self, transcript: str) -> str:
         """Remove spoken hesitation fillers ("ähm"/"äh") that some engines
         transcribe verbatim (#31; generalized to every engine in #97).
@@ -203,6 +211,13 @@ class AbstractTranscriber(ABC):
         dangling at the very end. The capital is moved only at a genuine
         sentence start (see _at_sentence_start), so a filler capitalized
         mid-clause can never push a wrong capital onto the following word.
+        Fillers the user deliberately quotes are exempt: a filler whose match
+        falls inside a balanced pair of straight double quotes ("...") is left
+        verbatim (#101), so 'Er sagte "ähm".' keeps its quoted word instead of
+        collapsing to '""'. Quote pairs are taken positionally (1st-2nd,
+        3rd-4th, ...); a lone unpaired quote protects nothing, so a stray quote
+        character cannot silently switch the filter off for the rest of the
+        transcript.
         Deliberately not filtered: any other form -- "eh"/"hm"/"naja" are real
         words or meaning-bearing particles, not hesitation noise.
         """
@@ -217,6 +232,7 @@ class AbstractTranscriber(ABC):
         # Delimiter the model attaches to the filler itself (corpus-exact:
         # comma, three-dot ellipsis, or period) plus the gluing whitespace.
         trail_re = re.compile(r"(?:\.{3}|[.,])?[ \t]*")
+        quoted_spans = self._quoted_spans(transcript)
 
         out = []
         pos = 0
@@ -225,6 +241,9 @@ class AbstractTranscriber(ABC):
         cap_pending = False
         for m in filler_re.finditer(transcript):
             if m.start() < pos:
+                continue
+            if any(a < m.start() < b for a, b in quoted_spans):
+                # Filler inside a deliberate quote -- leave it verbatim (#101).
                 continue
             if transcript[pos:m.start()]:
                 # Real text in between -- a pending capitalization from an
