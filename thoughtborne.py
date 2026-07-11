@@ -1531,9 +1531,14 @@ class ThoughtborneApp:
             return
 
         sequence_number = self.output_manager.get_next_sequence_number()
+        # Snapshot the selected engine here on the listener thread -- where
+        # switch_api also runs -- so the retry runs on one stable engine
+        # reference and can't race a mid-flight Ctrl+Alt+L. Mirrors how
+        # start_processing_thread snapshots self.transcriber at its call site (#107).
+        transcriber = self.transcriber
         thread = threading.Thread(
             target=self.retry_recording_thread,
-            args=(rec, sequence_number),
+            args=(rec, sequence_number, transcriber),
             name=f"Retry-{sequence_number}-{datetime.datetime.now().strftime('%H%M%S%f')}"
         )
         thread.daemon = True
@@ -1543,14 +1548,18 @@ class ThoughtborneApp:
         logger.info(f"Retry started ({hotkey_display}) for recording from "
                     f"{rec.origin_timestamp} (Seq: {sequence_number})")
 
-    def retry_recording_thread(self, rec: '_FailedRecording', sequence_number: int):
-        """Worker: re-transcribe an archived MP3 via the file-fallback chain and
-        insert at the cursor like a fresh dictation (Issue #24).
+    def retry_recording_thread(self, rec: '_FailedRecording', sequence_number: int, transcriber):
+        """Worker: re-transcribe an archived MP3 and insert at the cursor like a
+        fresh dictation (Issue #24).
 
-        Reuses _run_empty_transcript_fallback (duration-gated Soniox V2/V4 file
-        path) regardless of which API originally failed -- a Live failure can't
-        re-stream a file, so the retry is uniformly the file-capable chain.
-        A successful retry resolves the slot; a failed retry keeps it retryable."""
+        Honors the currently selected engine when it is file-capable -- the
+        'soniox' upload slot or either Groq slot (#107): switching engine with
+        Ctrl+Alt+L and retrying is the escape hatch when one API is broken. Only
+        when the selection is Soniox Live does it fall back to the fixed
+        duration-gated Soniox V2/V4 file chain (_run_empty_transcript_fallback),
+        since a live session can't re-stream an archived file. A successful retry
+        resolves the slot; a failed retry keeps it retryable, so a switch-and-retry
+        routes around an outage."""
         thread_name = threading.current_thread().name
         timestamp = self.get_unique_timestamp()
 
@@ -1576,12 +1585,30 @@ class ThoughtborneApp:
 
         try:
             print(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
-            transcript, engine = self._run_empty_transcript_fallback(
-                mp3_path=rec.archived_mp3_path,
-                duration=rec.duration,
-                sequence_number=sequence_number,
-                thread_name=thread_name,
-            )
+            if transcriber.is_live:
+                # A live session can't re-stream a file, so re-transcribe through
+                # the fixed duration-gated Soniox V2/V4 file chain, exactly as
+                # before; its FALLBACK ACTIVE block names the engine.
+                transcript, engine = self._run_empty_transcript_fallback(
+                    mp3_path=rec.archived_mp3_path,
+                    duration=rec.duration,
+                    sequence_number=sequence_number,
+                    thread_name=thread_name,
+                )
+            else:
+                # Honor the selected file-capable engine (#107). Mirror
+                # process_recording_thread so the hybrid 'soniox' slot reports its
+                # per-recording V2/V4 choice through the sink -- engine_code would
+                # mistag a V4 recording as Son-v2 (its defensive default).
+                print(f"[Seq: {sequence_number}] Retrying via {transcriber.get_name()}...")
+                if isinstance(transcriber, SonioxTranscriber):
+                    engine_tag = _EngineTag()
+                    transcript = transcriber.transcribe(
+                        rec.archived_mp3_path, rec.duration, engine_sink=engine_tag)
+                    engine = engine_tag.code
+                else:
+                    transcript = transcriber.transcribe(rec.archived_mp3_path, rec.duration)
+                    engine = engine_code(transcriber)
             transcript = transcript.rstrip('\n')
 
             if transcript:
