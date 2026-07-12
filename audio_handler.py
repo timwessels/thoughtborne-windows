@@ -267,6 +267,12 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
             duration = len(raw) / (rate * frame_bytes)
             partial.unlink()  # only after the MP3 exists
             results.append((str(target), duration, ts))
+            # Persist across restarts (#114); best-effort. Unlike the clean-exit
+            # path, the .partial is already consumed (unlink above), so a failed
+            # marker write costs only the next-restart offer -- keeping the partial
+            # would be wrong (the next start would recover it again as a duplicate
+            # _recovered_2.mp3).
+            write_retry_marker(target, duration)
             logger.info(f"Recovered unsaved recording: {target.name} ({duration:.1f}s)", extra=FILE_ONLY)
         except Exception as e:
             logger.error(f"Could not recover {partial.name}: {e}", exc_info=True)
@@ -277,52 +283,63 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
     return results
 
 
-# ===== Clean-exit retry marker (#106) =====
-# A clean exit (Ctrl+Alt+4 / Ctrl+C) during recording saves the audio as a bare
-# voice_<ts>.mp3 via save_recording() and discards the .partial sidecar, so the
-# hard-kill recovery above finds nothing. This tiny marker, written next to the
-# archive mp3, re-arms the Ctrl+Alt+R retry slot on the next start. The duration
+# ===== Persistent retry marker (#106/#114) =====
+# The single source of truth "saved but never successfully transcribed". Written
+# next to the archive mp3 at every untranscribed-audio source -- an in-session
+# transcription failure (#24), the hard-kill .partial recovery above, and a
+# clean-exit salvage (#106) -- it re-arms the Ctrl+Alt+R retry slot on the next
+# start. Persistent (#114): the reader KEEPS a valid marker, so the recording
+# stays retryable across any number of restarts until it is retried successfully
+# or a newer failure supersedes it; only then is the marker removed. The duration
 # rides in the name (integer milliseconds) so startup needs no file read or MP3
-# decode; <ts> identifies the archive mp3 AND is the retry origin timestamp. No
-# engine token: the recording was never transcribed, so the retry picks the
-# engine itself -- exactly like an in-session failed slot.
+# decode -- and on the 2nd+ restart the marker is the only surviving source of the
+# duration (the .partial is long gone). The mp3 STEM keys the marker so both the
+# bare voice_<ts>.mp3 and the kill-recovered voice_<ts>_recovered(_<n>)?.mp3
+# round-trip; _d<ms> is an unambiguous suffix anchor ('d' is not a digit, so it
+# never collides with the ts's trailing _<3 digits> nor the _recovered _<n>
+# disambiguator). No engine token: the recording was never transcribed, so the
+# retry picks the engine itself -- exactly like an in-session failed slot.
+#
+# Backward compatible: a legacy bare voice_<ts>_d<ms>.needsretry (#106) matches
+# with rec=None and reconstructs voice_<ts>.mp3 unchanged -- no migration needed.
 
 _RETRY_MARKER_NAME_RE = re.compile(
-    r"^voice_(?P<ts>\d{8}_\d{6}_\d{3})_d(?P<ms>\d+)\.needsretry$"
+    r"^voice_(?P<ts>\d{8}_\d{6}_\d{3})(?P<rec>_recovered(?:_\d+)?)?_d(?P<ms>\d+)\.needsretry$"
 )
 
 
-def write_retry_marker(timestamp: str, duration: float) -> bool:
-    """Persist a one-shot 'saved but not transcribed' marker (#106).
+def write_retry_marker(mp3_path, duration: float) -> bool:
+    """Persist a 'saved but not transcribed' marker next to the archive mp3 (#106/#114).
 
-    Best-effort and never raises (stability #1): on failure the caller keeps the
-    crash-safety sidecar as the fallback recovery path. Returns True only when the
-    marker was actually written.
+    Keyed on the mp3 stem so both the bare voice_<ts>.mp3 and the kill-recovered
+    voice_<ts>_recovered(_<n>)?.mp3 round-trip. Best-effort and never raises
+    (stability #1): a marker failure never breaks recording/exit. Returns True only
+    when the marker was actually written.
     """
     try:
+        stem = Path(mp3_path).stem
         ms = max(0, int(round(duration * 1000)))
-        path = ARCHIVE_FOLDER / f"voice_{timestamp}_d{ms}.needsretry"
+        path = ARCHIVE_FOLDER / f"{stem}_d{ms}.needsretry"
         path.touch()
         logger.debug(f"Retry marker written: {path.name}")
         return True
     except Exception as e:
-        logger.warning(f"Could not write retry marker for {timestamp}: {e}")
+        logger.warning(f"Could not write retry marker for {mp3_path}: {e}")
         return False
 
 
 def recover_salvaged_recordings() -> List[Tuple[str, float, str]]:
-    """Re-arm clean-exit salvages for the retry hotkey (#106).
+    """Read every persistent 'saved but not transcribed' marker (#106/#114).
 
-    Counterpart to recover_partial_files() for the other untranscribed-audio
-    source: a clean exit during recording. Returns (archive_mp3_path,
-    duration_seconds, ts) tuples, oldest first, matching recover_partial_files()'s
-    shape so both feed the same arming/display path.
+    Returns (archive_mp3_path, duration_seconds, origin_ts) tuples, oldest first,
+    matching recover_partial_files()'s shape so both feed one arming/display path.
 
-    Single-shot like the kill path: each marker is deleted after it is read, so
-    the retry is offered exactly once across restarts. The audio itself is never
-    deleted -- it stays as voice_<ts>.mp3, findable in the audio folder. A marker
-    whose archive mp3 is gone (manually cleared), or whose name is unparseable, is
-    removed without arming. Never raises for one bad marker.
+    Persistent (#114): a valid marker is KEPT on read, so the recording stays
+    retryable across any number of restarts until it is retried successfully or a
+    newer failure supersedes it. Superseded-marker pruning happens elsewhere
+    (startup reconciliation and the retry-success path); orphans are removed here.
+    A marker whose archive mp3 is gone (manually cleared) or whose name is
+    unparseable is removed here without arming. Never raises for one bad marker.
     """
     results = []
     for marker in sorted(ARCHIVE_FOLDER.glob("voice_*.needsretry")):
@@ -334,17 +351,51 @@ def recover_salvaged_recordings() -> List[Tuple[str, float, str]]:
                 continue
             ts = m.group("ts")
             duration = int(m.group("ms")) / 1000.0
-            mp3 = ARCHIVE_FOLDER / f"voice_{ts}.mp3"
+            mp3 = ARCHIVE_FOLDER / f"voice_{ts}{m.group('rec') or ''}.mp3"
             if not mp3.exists():
                 logger.warning(f"Retry marker without archive, removing: {marker.name}")
                 marker.unlink(missing_ok=True)
                 continue
             results.append((str(mp3), duration, ts))
-            marker.unlink(missing_ok=True)  # one-shot: offer the retry once
-            logger.info(f"Clean-exit salvage re-armed for retry: {mp3.name} ({duration:.1f}s)", extra=FILE_ONLY)
+            # Marker intentionally KEPT -- persistent truth (#114). Superseding and
+            # orphan cleanup are the reconciliation points' job, not the reader's.
+            logger.info(f"Pending recording re-armed for retry: {mp3.name} ({duration:.1f}s)", extra=FILE_ONLY)
         except Exception as e:
             logger.error(f"Could not process retry marker {marker.name}: {e}", exc_info=True)
     return results
+
+
+def delete_retry_marker(mp3_path) -> None:
+    """Best-effort: remove the retry marker for one recording, by mp3 stem (#114).
+
+    Globs '<stem>_d*.needsretry' so it matches regardless of the encoded duration.
+    The stems are disjoint by construction (voice_<ts>_d* cannot match
+    voice_<ts>_recovered_d*, and voice_<ts>_recovered_d* cannot match
+    voice_<ts>_recovered_2_d*), so this only ever hits the intended marker. Never
+    raises: a failed delete leaves an orphan the next startup prunes."""
+    try:
+        stem = Path(mp3_path).stem
+        for marker in ARCHIVE_FOLDER.glob(f"{stem}_d*.needsretry"):
+            marker.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not delete retry marker for {mp3_path}: {e}")
+
+
+def delete_superseded_retry_markers(newest_ts: str) -> None:
+    """Best-effort: drop every retry marker older than newest_ts (single-slot
+    supersede, #24/#114).
+
+    The ts is fixed-width, so lexicographic == chronological. A strict '<' never
+    touches the newest marker itself. Audio is never deleted -- only the markers,
+    so a superseded recording stops auto-arming but stays in the folder. Never
+    raises."""
+    try:
+        for marker in ARCHIVE_FOLDER.glob("voice_*.needsretry"):
+            m = _RETRY_MARKER_NAME_RE.match(marker.name)
+            if m and m.group("ts") < newest_ts:
+                marker.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not prune superseded retry markers: {e}")
 
 
 def _repair_device_name(name: Optional[str]) -> Optional[str]:

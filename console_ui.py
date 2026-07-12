@@ -686,7 +686,7 @@ def render_recovered_panel(count, when, duration, clean_exit, hotkeys_ok,
     if clean_exit:
         if count == 1:
             head, detail = ("1 recording saved but not transcribed",
-                            f"you exited mid-recording -- from {when} ({dur})")
+                            f"from {when} ({dur})")
         else:
             head, detail = (f"{count} recordings saved but not transcribed",
                             f"newest: {when} ({dur}) -- {count - 1} more in the audio folder")

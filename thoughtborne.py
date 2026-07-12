@@ -51,6 +51,7 @@ from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
     write_retry_marker, recover_salvaged_recordings,
+    delete_retry_marker, delete_superseded_retry_markers,
     _RECOVERED_ARCHIVE_RE,
 )
 from transcriber import (
@@ -626,7 +627,8 @@ class ThoughtborneApp:
         ARCHIVE_FOLDER / voice_<ts>.mp3) and stores it in the retry slot --
         newest failure wins. Skips when the archive is missing: an exception
         before save_recording leaves nothing to retry, so do not park an
-        unretryable pointer."""
+        unretryable pointer. Also drops a persistent .needsretry marker (#114)
+        so the slot survives restarts, best-effort after the in-memory arm."""
         archived_mp3 = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
         if not archived_mp3.exists():
             logger.warning(f"Not arming retry slot -- archive missing for {timestamp}: {archived_mp3}")
@@ -640,6 +642,11 @@ class ThoughtborneApp:
             self._last_failed = rec
         logger.info(f"Retry slot armed: failed recording from {timestamp} (Ctrl+Alt+R to retry)",
                     extra=FILE_ONLY)
+        # Persist for cross-restart retry (#114): the in-memory arm above is the
+        # critical path; this marker is a best-effort add after it, so a marker
+        # failure never affects the current session's retry. Written outside
+        # _last_failed_lock (the lock guards only the reference swap).
+        write_retry_marker(archived_mp3, duration)
 
     def _resolve_failed_slot(self, rec: '_FailedRecording'):
         """Clear the retry slot after a successful retry of rec (Issue #24).
@@ -1711,6 +1718,16 @@ class ThoughtborneApp:
                 task.transcript = transcript
                 task.is_complete = True
                 self._resolve_failed_slot(rec)
+                # Retire the persistent marker(s) (#114). Keys on the PRE-tag stem
+                # (rec.archived_mp3_path) -- the marker was written under that name,
+                # even though the engine tagging just above may have renamed the mp3.
+                # delete_superseded_retry_markers additionally drops every marker
+                # older than rec, so an already-superseded recording cannot resurrect
+                # on a later start ("newest wins", #24). Both best-effort, run on the
+                # worker thread and outside _last_failed_lock -- rec was transcribed,
+                # so its marker must go regardless of the in-memory slot's identity.
+                delete_retry_marker(rec.archived_mp3_path)
+                delete_superseded_retry_markers(rec.origin_timestamp)
                 logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready", extra=FILE_ONLY)
                 self._ticker(f"[Seq: {sequence_number}] Retry completed, waiting for output...")
             else:
@@ -1819,7 +1836,7 @@ class ThoughtborneApp:
             # sidecar is discarded: if the marker cannot be written, keep the
             # sidecar so recover_partial_files() still rescues the audio next
             # start -- the audio is never left un-recoverable.
-            marker_ok = write_retry_marker(timestamp, duration)
+            marker_ok = write_retry_marker(archive, duration)
             if sidecar is not None:
                 if marker_ok:
                     sidecar.discard()  # only after the archive write AND marker
@@ -2154,15 +2171,19 @@ class ThoughtborneApp:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
 
     def _show_recovery_block(self, pending, newest_clean_exit, hotkeys_ok):
-        """Prominent startup notice for salvaged recordings (#78, #106, #109).
+        """Prominent startup notice for salvaged recordings (#78, #106, #109, #114).
 
-        Two origins feed this block: a hard kill mid-recording leaves a .partial
-        sidecar that startup recovery (#49) converts to an archived MP3, and a
-        clean exit mid-recording saves the audio but never transcribes it (#106).
-        Both arm the retry hotkey; newest_clean_exit says which the newest
-        (R-targeted) entry is, so the wording names what actually happened -- a
-        clean exit is not a crash. Rendered as the yellow-lamp RECOVERED panel,
-        emitted last so it sits at the bottom of the scrollback. Never raises."""
+        Several origins feed this block through the merged retry pipeline: a hard
+        kill mid-recording leaves a .partial sidecar that startup recovery (#49)
+        converts to an archived MP3, and the persistent .needsretry marker (#114)
+        re-arms anything else saved but never transcribed -- a clean-exit salvage
+        (#106), an in-session transcription failure (#24), or a device-loss
+        salvage. All arm the retry hotkey; newest_clean_exit is True when the
+        newest (R-targeted) entry is NOT a kill-recovered file (derived from its
+        mp3 stem at the merge site, not list identity), so the panel tells a
+        hard-kill rescue apart from a plain "saved but not transcribed". Rendered
+        as the yellow-lamp RECOVERED panel, emitted last so it sits at the bottom
+        of the scrollback. Never raises."""
         try:
             retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
             _, newest_dur, newest_ts = pending[-1]
@@ -2276,12 +2297,29 @@ class ThoughtborneApp:
         except Exception as e:
             logger.error(f"Clean-exit salvage recovery failed: {e}", exc_info=True)
             salvaged = []
-        # Merge by timestamp so the single retry slot (#24) arms the newest across
-        # BOTH sources; the timestamp format is fixed-width, so lexicographic ==
-        # chronological. An identity (is) check marks whether that newest came
-        # from the clean-exit list -- _show_recovery_block needs it for the wording.
-        pending = sorted(recovered + salvaged, key=lambda t: t[2])
-        newest_clean_exit = bool(pending) and any(pending[-1] is s for s in salvaged)
+        # Merge both untranscribed-audio sources into one retry pipeline, sorted
+        # by timestamp (fixed-width, so lexicographic == chronological). De-dup by
+        # archive path (#114): a freshly kill-recovered file appears BOTH in the
+        # recover_partial_files() return AND -- via the marker that recovery just
+        # wrote -- in the recover_salvaged_recordings() read of this same start.
+        # The recovered entry precedes its marker echo (stable sort), so the exact
+        # duration is the one kept.
+        merged = sorted(recovered + salvaged, key=lambda t: t[2])
+        pending, seen = [], set()
+        for entry in merged:
+            if entry[0] in seen:
+                continue
+            seen.add(entry[0])
+            pending.append(entry)
+        # Wording (#106): a kill-recovered _recovered stem reads "rescued after a
+        # hard kill", everything else "saved but not transcribed". Derived from the
+        # stem (not list identity) so it stays correct on the 2nd+ restart, when a
+        # kill file is re-armed from its persistent marker rather than a .partial.
+        # "Everything else" now spans clean-exit, in-session transcription failure
+        # and device-loss salvage (#114); the marker carries no origin, so the
+        # panel's detail line is deliberately origin-neutral (just when/duration).
+        newest_clean_exit = bool(pending) and not _RECOVERED_ARCHIVE_RE.match(
+            Path(pending[-1][0]).name)
         if pending:
             # Arm the retry slot with the newest pending file (single-slot
             # semantics of #24: any later real failure simply overwrites it).
@@ -2296,6 +2334,10 @@ class ThoughtborneApp:
                     duration=newest[1],
                     origin_timestamp=newest[2],
                 )
+            # Single-slot supersede (#24/#114): keep only the newest marker so an
+            # older recording can't resurrect on a later start. Audio is never
+            # deleted -- only the older markers.
+            delete_superseded_retry_markers(newest[2])
 
         # Register hotkeys
         hotkeys_ok = self._register_hotkeys()
