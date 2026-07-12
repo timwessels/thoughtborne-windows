@@ -37,6 +37,14 @@ CYAN = "36"
 YELLOW = "33"
 DIM = "90"   # bright black -- SGR 2 (faint) is unreliable on conhost
 
+# Brand accent for the masthead wordmark + logo mark ONLY -- a deliberate,
+# documented exception to the 16-color doctrine (terminal-constraints.md).
+# Purely decorative: meaning never rides on it, red/semantic tags untouched,
+# and SGR never affects width math (_compose). On ancient conhost this rounds to
+# a nearby palette color -- still blue-ish, never a broken layout. Flip to CYAN
+# for a strict-16-color fallback (one line).
+ACCENT = "38;2;89;194;255"   # -> CYAN for a 16-color fallback
+
 # ---- plain-ASCII twin: 1 char -> 1 char, hence length-preserving ----
 # Wordmark/mark glyphs (▀▄) are deliberately absent: they are handled by group
 # replacement / gating at composition time, never by this table.
@@ -266,20 +274,20 @@ def _keys_grid_lines(keys, key_prefix, ansi):
     return rows
 
 
-def _footer_segs(model_label, keyhints):
-    """Bottom action strip: model: <label>  <letter word>  ...  Elastic first
-    gap (3 desired, shrunk to 2 under a long label) keeps it within 68 (§2.4)."""
-    hints_len = sum(len(f"{k} {w}") for k, w in keyhints)
-    base = 2 + len("model: ") + len(model_label) + hints_len + 2 * (len(keyhints) - 1)
-    gap = 3 if base + 3 <= INNER else 2
-    segs = [("  model: ", ()), (model_label, (BOLD,))]
-    first = True
-    for k, w in keyhints:
-        segs.append((" " * (gap if first else 2), ()))
+def _footer_lines(model_label, keyhints, key_prefix, emit, ansi):
+    """Two-line action footer (#115): model on its own line, then one key line
+    with a single `Ctrl+Alt + ` lead (no per-key modifier repetition). `emit` is
+    dline or sline (double vs single frame). key_prefix None -> bare 2-space lead
+    (documented edge; the shipped config never mixes prefixes)."""
+    lead = f"  {key_prefix} +  " if key_prefix else "  "
+    segs = [(lead, ())]
+    for i, (k, w) in enumerate(keyhints):
+        if i:
+            segs.append(("   ", ()))               # 3-space cell separator
         segs.append((k, (BOLD,)))
         segs.append((" " + w, ()))
-        first = False
-    return segs
+    return [emit([("  model: ", ()), (model_label, (BOLD,))], ansi),
+            emit(segs, ansi)]
 
 
 def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
@@ -296,7 +304,7 @@ def render_masthead(lineup, keys, key_prefix, history_path,
                     note=None, with_wordmark=True, logo_lines=None,
                     *, ansi, compact):
     if compact:
-        return _masthead_compact(lineup, keys, key_prefix, open_key, switch_key,
+        return _masthead_compact(lineup, keys, open_key, switch_key,
                                  start_key, note, with_wordmark, ansi)
     lines = [dtop(ansi)]
     if with_wordmark:
@@ -306,14 +314,21 @@ def render_masthead(lineup, keys, key_prefix, history_path,
                         (f" -- press {start_key} and start talking", ())], ansi))
     if note:
         lines.extend(_note_lines(note, ansi))
+    # #115: one framed spacer before each zone header + the history edge. Gated on
+    # with_wordmark (mirrors _masthead_compact) so the terse re-display stays tight.
+    if with_wordmark:
+        lines.append(dline("", ansi))                    # spacer before MODEL
     lines.append(dzone([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
     lines.extend(_lineup_lines(lineup, ansi))
-    lines.append(dzone([("KEYS", (BOLD,)), (f"   all are {key_prefix} + key", ())]
-                       if key_prefix else [("KEYS", (BOLD,))], ansi))
+    if with_wordmark:
+        lines.append(dline("", ansi))                    # spacer before KEYS
+    lines.append(dzone([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
     lines.extend(_keys_grid_lines(keys, key_prefix, ansi))
-    budget = 63 - len("history: ") - len("   open: ") - len(open_key)
+    if with_wordmark:
+        lines.append(dline("", ansi))                    # spacer before History edge
+    budget = 63 - len("History: ")                       # #115: no open hint here
     path = truncate_path_middle(history_path, budget)
-    lines.append(dedge([(f"history: {path}   open: {open_key}", (DIM,))], ansi))
+    lines.append(dedge([(f"History: {path}", (DIM,))], ansi))
     return lines
 
 
@@ -324,22 +339,28 @@ def _masthead_wordmark(logo_lines, ansi):
         wm = WM_PLAIN + "  " + TAGLINE
         pad = (INNER - len(wm)) // 2
         return [dline(" " * pad + wm, ansi)]
+    # ANSI: mark + wordmark carry the brand ACCENT (indent/gap stay unstyled, so
+    # the accent spans match the mockup); width math is unaffected (SGR only).
     rows = []
     if logo_lines:
         markw = max(len(r) for r in logo_lines)
         gap = 4
         indent = max(0, (INNER - (markw + gap + len(WM[0]))) // 2)
+        wm_offset = indent + markw + gap                 # 16 for the a5 mark
         mark = [r.ljust(markw) for r in logo_lines]
         # pad the mark block to 3 rows so it aligns beside the wordmark
         while len(mark) < 3:
             mark.append(" " * markw)
         for i in range(3):
-            body = " " * indent + mark[i] + " " * gap + WM[i]
-            rows.append(dline([(body, ())], ansi))
+            rows.append(dline([(" " * indent, ()), (mark[i], (ACCENT,)),
+                               (" " * gap, ()), (WM[i], (ACCENT,))], ansi))
     else:
+        wm_offset = 11
         for i in range(3):
-            rows.append(dline(" " * 11 + WM[i], ansi))
-    rows.append(dline(" " * ((INNER - len(TAGLINE)) // 2 + 1) + TAGLINE, ansi))
+            rows.append(dline([(" " * 11, ()), (WM[i], (ACCENT,))], ansi))
+    # tagline centered under the 47-col wordmark block (derived from wm_offset,
+    # not hardcoded), never accented
+    rows.append(dline(" " * (wm_offset + (len(WM[0]) - len(TAGLINE)) // 2) + TAGLINE, ansi))
     return rows
 
 
@@ -390,31 +411,34 @@ def _strip_row1_seq(left_segs, seq, chars):
 
 
 def render_rec_strip(type_key, paste_key, send_key, keep_key, cancel_key,
-                     *, ansi, compact):
+                     key_prefix, *, ansi, compact):
     if compact:
+        clead = f"{key_prefix} +  " if key_prefix else ""   # 12 cols, no frame indent
         return [
             cline([("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
-            cline([("  stop: ", ()), (type_key, (BOLD,)), (" type   ", ()),
+            cline([(clead, ()), (type_key, (BOLD,)), (" type   ", ()),
                    (paste_key, (BOLD,)), (" paste   ", ()),
                    (send_key, (BOLD,)), (" paste+Enter", ())], ansi),
-            cline([("   or:  ", ()), (keep_key, (BOLD,)), (" keep for later   ", ()),
+            cline([(" " * len(clead), ()), (keep_key, (BOLD,)), (" keep for later   ", ()),
                    (cancel_key, (BOLD,)), (" cancel", ())], ansi),
         ]
+    lead = f"  {key_prefix} +  " if key_prefix else "  "   # 14 cols for "Ctrl+Alt"
     return [
         *_strip_open(ansi),
-        sline([("  ", ()), ("REC", (BOLD, YELLOW)),
-               ("  recording...  stop: ", ()),
+        sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
+        sline([(lead, ()),
                (type_key, (BOLD,)), (" type   ", ()),
                (paste_key, (BOLD,)), (" paste   ", ()),
                (send_key, (BOLD,)), (" paste+Enter", ())], ansi),
-        sline([("                      or:  ", ()),
+        sline([(" " * len(lead), ()),
                (keep_key, (BOLD,)), (" keep for later   ", ()),
                (cancel_key, (BOLD,)), (" cancel", ())], ansi),
         sbot(ansi),
     ]
 
 
-def render_ok_strip(seq, chars, sent, model_label, footer_keys, *, ansi, compact):
+def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
+                    *, ansi, compact):
     what = "inserted at the cursor + sent" if sent else "inserted at the cursor"
     if compact:
         seq_part = f"seq {seq}, " if (seq is not None) else ""
@@ -425,24 +449,26 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, *, ansi, compact
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
-        sline(_footer_segs(model_label, footer_keys), ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
         sbot(ansi),
     ]
 
 
-def render_waiting_strip(seq, chars, type_key, paste_key, *, ansi, compact):
+def render_waiting_strip(seq, chars, type_key, paste_key, key_prefix, *, ansi, compact):
     if compact:
+        clead = f"{key_prefix} +  " if key_prefix else ""
         return [
             cline([("WAITING", (BOLD, GREEN)), (f"  kept -- not inserted ({chars} chars)", ())], ansi),
-            cline([("  insert: ", ()), (type_key, (BOLD,)), (" type text   ", ()),
+            cline([(clead, ()), (type_key, (BOLD,)), (" type text   ", ()),
                    (paste_key, (BOLD,)), (" paste", ())], ansi),
         ]
     row1 = _strip_row1_seq([("  ", ()), ("WAITING", (BOLD, GREEN)),
                             ("  kept -- not inserted yet", ())], seq, chars)
+    lead = f"  {key_prefix} +  " if key_prefix else "  "
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
-        sline([("  insert at the cursor:  ", ()),
+        sline([(lead, ()),
                (type_key, (BOLD,)), (" type text   ", ()),
                (paste_key, (BOLD,)), (" paste", ())], ansi),
         sbot(ansi),
@@ -485,7 +511,7 @@ def _failed_top(tag, rest, ansi, tag_codes=(BOLD, RED)):
 
 
 def render_transcription_failed(seq, retry_key, env_dir, model_label,
-                                footer_keys, *, ansi, compact):
+                                footer_keys, key_prefix, *, ansi, compact):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     env = truncate_path_middle(env_dir, INNER - len("  (.env is in )"))
     if compact:
@@ -499,29 +525,33 @@ def render_transcription_failed(seq, retry_key, env_dir, model_label,
             cline(f"  then restart  (.env: {truncate_path_middle(env_dir, 20)})", ansi),
             cline([("model: ", ()), (model_label, (BOLD,))], ansi),
         ]
+    # Framed: the footer key line carries the sole Ctrl+Alt (its `R retry` anchors
+    # the bare retry letter used here) -- one Ctrl+Alt per box (#115).
+    retry_letter = retry_key.rpartition('+')[2]
     return [
         dtop(ansi),
         _failed_top("FAILED", f"transcription failed{seq_part} -- nothing inserted", ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline([(f"  press {retry_key} to retry this recording", (BOLD,))], ansi),
+        dline([(f"  press {retry_letter} to retry this recording", (BOLD,))], ansi),
         dline("  if an [AUTH] line shows above: fix the key in .env, restart", ansi),
         dline([(f"  (.env is in {env})", (DIM,))], ansi),
         dsep(ansi),
-        dline(_footer_segs(model_label, footer_keys), ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
         dbot(ansi),
     ]
 
 
 def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
-                         *, ansi, compact):
+                         key_prefix, *, ansi, compact):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     if compact:
+        clead = f"{key_prefix} +  " if key_prefix else ""
         return [
             cline([(LAMP + " FAILED", (BOLD, RED)),
                    (f"  could not insert{seq_part}", ())], ansi),
             cline([("   the transcript is kept", ())], ansi),
             cline([("WHAT NOW", (BOLD,))], ansi),
-            cline([("  insert it: ", ()), (type_key, (BOLD,)), (" type   ", ()),
+            cline([(clead, ()), (type_key, (BOLD,)), (" type   ", ()),
                    (paste_key, (BOLD,)), (" paste", ())], ansi),
             cline([("model: ", ()), (model_label, (BOLD,))], ansi),
         ]
@@ -533,7 +563,7 @@ def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
                (type_key, (BOLD,)), (" (type) or ", ()),
                (paste_key, (BOLD,)), (" (paste)", ())], ansi),
         dsep(ansi),
-        dline(_footer_segs(model_label, footer_keys), ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
         dbot(ansi),
     ]
 
@@ -559,7 +589,8 @@ def render_selftest_failed(reason, action_lines, *, ansi, compact):
     return lines
 
 
-def render_device_loss(duration, retry_key, model_label, footer_keys, *, ansi, compact):
+def render_device_loss(duration, retry_key, model_label, footer_keys, key_prefix,
+                       *, ansi, compact):
     dur = f"{duration:.0f}s"
     if compact:
         return [
@@ -569,14 +600,16 @@ def render_device_loss(duration, retry_key, model_label, footer_keys, *, ansi, c
             cline([(f"  reconnect the mic, then press {retry_key}", ())], ansi),
             cline([("model: ", ()), (model_label, (BOLD,))], ansi),
         ]
+    # Framed: the footer key line's `R retry` anchors the bare retry letter here.
+    retry_letter = retry_key.rpartition('+')[2]
     return [
         dtop(ansi),
         _failed_top("FAILED", "microphone lost -- recording ended early", ansi),
         dline(f"    audio saved ({dur}, not transcribed)", ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline(f"  reconnect your microphone, then press {retry_key} to transcribe it", ansi),
+        dline(f"  reconnect your microphone, then press {retry_letter} to transcribe it", ansi),
         dsep(ansi),
-        dline(_footer_segs(model_label, footer_keys), ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
         dbot(ansi),
     ]
 
@@ -795,12 +828,14 @@ def _compact_keys(keys, ansi):
     return rows
 
 
-def _masthead_compact(lineup, keys, key_prefix, open_key, switch_key, start_key,
+def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
                       note, with_wordmark, ansi):
     lines = []
     if with_wordmark:
-        lines.append(cline([(WM_COMPACT if ansi else WM_PLAIN, ()),
-                            ("  " + TAGLINE, ())], ansi))
+        # ANSI: WM_COMPACT carries the brand ACCENT; plain degrades to WM_PLAIN
+        # (its glyphs aren't in the plain table) and is never accented.
+        wm_seg = (WM_COMPACT, (ACCENT,)) if ansi else (WM_PLAIN, ())
+        lines.append(cline([wm_seg, ("  " + TAGLINE, ())], ansi))
         lines.append("")
     lines.append(cline([("READY", (BOLD, GREEN)),
                         (f" -- press {start_key} and start talking", ())], ansi))
@@ -815,8 +850,7 @@ def _masthead_compact(lineup, keys, key_prefix, open_key, switch_key, start_key,
     lines.extend(_compact_lineup(lineup, ansi))
     if with_wordmark:
         lines.append("")
-    prefix_hint = f"   all are {key_prefix} + key" if key_prefix else ""
-    lines.append(cline([("KEYS", (BOLD,)), (prefix_hint, ())], ansi))
+    lines.append(cline([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
     lines.extend(_compact_keys(keys, ansi))
     if with_wordmark:
         lines.append("")

@@ -1292,6 +1292,7 @@ class ThoughtborneApp:
                     self._key_letter('stop_recording_send'),
                     self._key_letter('stop_recording_no_insert'),
                     self._key_letter('cancel_recording'),
+                    self._key_prefix(),
                     ansi=ansi, compact=compact))
 
             # Start live streaming session if transcriber supports it
@@ -2006,7 +2007,8 @@ class ThoughtborneApp:
                 'device-loss',
                 lambda ansi, compact: console_ui.render_device_loss(
                     duration, retry_key, self.transcriber.get_name(),
-                    self._footer_keys(retry=True), ansi=ansi, compact=compact))
+                    self._footer_keys(retry=True), self._key_prefix(),
+                    ansi=ansi, compact=compact))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
                     if sidecar is not None else "")
@@ -2080,6 +2082,12 @@ class ThoughtborneApp:
                     self._format_hotkey(prefixes.pop()))
         return [self._format_hotkey(c) for c in combos], None
 
+    def _key_prefix(self):
+        """Shared modifier prefix of all hotkeys ('Ctrl+Alt'), or None if the
+        config mixes prefixes (documented edge). Drives the once-per-box lead on
+        the strip/panel key lines (#115)."""
+        return self._keys_grid_data()[1]
+
     def _footer_keys(self, retry=False):
         """The bottom action-strip key hints (letter, word). The retry variant
         replaces '6 history' with 'R retry' (error panels)."""
@@ -2089,8 +2097,8 @@ class ThoughtborneApp:
         if retry:
             return [(rec, 'record'), (self._key_letter('retry_last_failed'), 'retry'),
                     (mdl, 'model'), (quit_, 'quit')]
-        return [(rec, 'record'), (mdl, 'model'),
-                (self._key_letter('open_history'), 'history'), (quit_, 'quit')]
+        return [(rec, 'record'), (self._key_letter('open_history'), 'history'),
+                (mdl, 'model'), (quit_, 'quit')]
 
     def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False):
         """Map OutputManager completion events onto Cockpit strips/panels (#109).
@@ -2118,27 +2126,29 @@ class ThoughtborneApp:
                     'inserted',
                     lambda ansi, compact: console_ui.render_ok_strip(
                         seq_shown, chars, sent, model, self._footer_keys(),
-                        ansi=ansi, compact=compact),
+                        self._key_prefix(), ansi=ansi, compact=compact),
                     detail=f"seq={seq} chars={chars} sent={sent}")
             elif event == 'ready':
                 self._emit_block(
                     'ready',
                     lambda ansi, compact: console_ui.render_waiting_strip(
-                        seq_shown, chars, type_key, paste_key, ansi=ansi, compact=compact),
+                        seq_shown, chars, type_key, paste_key, self._key_prefix(),
+                        ansi=ansi, compact=compact),
                     detail=f"seq={seq} chars={chars}")
             elif event == 'failed' and kind == 'insertion':
                 self._emit_block(
                     'insert-failed',
                     lambda ansi, compact: console_ui.render_insert_failed(
                         seq_shown, type_key, paste_key, model, self._footer_keys(),
-                        ansi=ansi, compact=compact),
+                        self._key_prefix(), ansi=ansi, compact=compact),
                     detail=f"seq={seq}")
             elif event == 'failed':
                 self._emit_block(
                     'transcription-failed',
                     lambda ansi, compact: console_ui.render_transcription_failed(
                         seq_shown, retry_key, str(SCRIPT_DIR), model,
-                        self._footer_keys(retry=True), ansi=ansi, compact=compact),
+                        self._footer_keys(retry=True), self._key_prefix(),
+                        ansi=ansi, compact=compact),
                     detail=f"seq={seq}")
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
@@ -2301,8 +2311,10 @@ class ThoughtborneApp:
                 'startup',
                 lambda ansi, compact: console_ui.render_masthead(
                     lineup, keys, key_prefix, str(HISTORY_FOLDER),
-                    self._format_hotkey(HOTKEYS['open_history']),
-                    self._format_hotkey(HOTKEYS['switch_api']),
+                    # bare letters: Ctrl+Alt is established once on the READY line
+                    # (#115). open_key survives only in the compact history line.
+                    self._key_letter('open_history'),
+                    self._key_letter('switch_api'),
                     self._format_hotkey(HOTKEYS['start_recording']),
                     note=note, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
