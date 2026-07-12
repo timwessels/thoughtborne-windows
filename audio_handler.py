@@ -347,6 +347,25 @@ def recover_salvaged_recordings() -> List[Tuple[str, float, str]]:
     return results
 
 
+def _repair_device_name(name: Optional[str]) -> Optional[str]:
+    """Repair PyAudio device-name mojibake on non-English Windows (#113).
+
+    PortAudio (>= v19.7) returns device names as UTF-8 bytes, but PyAudio
+    decodes them with the ANSI code page (CP1252 on German Windows), so a
+    "ö" (UTF-8 C3 B6) arrives as the CP1252 pair "Ã¶". Re-encoding as CP1252
+    and decoding as UTF-8 reverses exactly that. Self-correcting: a pure-ASCII
+    or already-correct name fails the re-encode/decode and is returned
+    unchanged, so the repair can never double-apply; a non-str value (e.g. a
+    missing 'name' key) passes through untouched instead of raising.
+    """
+    if not isinstance(name, str):
+        return name
+    try:
+        return name.encode('cp1252').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
+
+
 class AudioRecorder:
     """Handles audio recording and file operations"""
 
@@ -450,7 +469,7 @@ class AudioRecorder:
             try:
                 logger.debug("_ensure_pyaudio_ready: about to query default input device")
                 default_device = self.p.get_default_input_device_info()
-                device_name = default_device.get('name', 'Unknown')
+                device_name = _repair_device_name(default_device.get('name', 'Unknown'))
                 device_index = default_device.get('index', -1)
 
                 # Check if device changed
@@ -571,7 +590,7 @@ class AudioRecorder:
             default_input = None
             try:
                 default_input = self.p.get_default_input_device_info()
-                logger.info(f"Default input device: {default_input.get('name')}")
+                logger.info(f"Default input device: {_repair_device_name(default_input.get('name'))}")
             except Exception as e:
                 logger.warning(f"Could not get default input device: {e}")
 
