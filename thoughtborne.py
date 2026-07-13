@@ -23,6 +23,7 @@ Windows Adaptations:
 
 import os
 import sys
+import copy
 import time
 import queue
 import shutil
@@ -131,12 +132,30 @@ class DroppingQueueHandler(QueueHandler):
     of letting the base emit() fall into handleError(), which writes a traceback
     to the (blockable) console stderr. That keeps the listener thread from ever
     blocking on console I/O even under a cmd Mark-Mode stall (#11). The file
-    handler keeps every record regardless."""
+    handler keeps every record regardless.
+
+    prepare() additionally strips the exception/stack payload before the record
+    is queued for the console (#117). QueueHandler.prepare() pre-formats every
+    record through the handler's default Formatter, which appends the exception
+    text and bakes the full traceback into record.msg (the file handler runs
+    first and has already cached the rendered trace on exc_text), so the
+    console's ConsoleFormatter -- which renders only a HH:MM:SS one-liner and
+    never appends exception text -- would print the whole stack trace, styled
+    red, burying the FAILED panel. Clearing the payload on a copy keeps the
+    console to the one-liner while the independent file handler keeps full
+    tracebacks, and leaves the original record intact for any other handler."""
     def enqueue(self, record):
         try:
             self.queue.put_nowait(record)
         except queue.Full:
             pass
+
+    def prepare(self, record):
+        record = copy.copy(record)
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return super().prepare(record)
 
 
 class ConsoleFormatter(logging.Formatter):
