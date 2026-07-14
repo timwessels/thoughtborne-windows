@@ -724,6 +724,7 @@ class ThoughtborneApp:
             # sink; every other slot maps straight from its type.
             self._ticker(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
             if isinstance(transcriber, SonioxTranscriber):
+                self._ticker(f"[Seq: {sequence_number}] {transcriber.engine_choice_line(duration)}")
                 engine_tag = _EngineTag()
                 transcript = transcriber.transcribe(mp3_path, duration, engine_sink=engine_tag)
                 engine = engine_tag.code
@@ -1703,6 +1704,7 @@ class ThoughtborneApp:
                 # mistag a V4 recording as Son-v2 (its defensive default).
                 self._ticker(f"[Seq: {sequence_number}] Retrying via {transcriber.get_name()}...")
                 if isinstance(transcriber, SonioxTranscriber):
+                    self._ticker(f"[Seq: {sequence_number}] {transcriber.engine_choice_line(rec.duration)}")
                     engine_tag = _EngineTag()
                     transcript = transcriber.transcribe(
                         rec.archived_mp3_path, rec.duration, engine_sink=engine_tag)

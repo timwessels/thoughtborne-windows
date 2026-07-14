@@ -500,6 +500,27 @@ class GroqTranscriber(AbstractTranscriber):
             return None
 
 
+def _soniox_engine_choice_line(v2_available: bool, duration_seconds: float) -> str:
+    """One terse, console-safe line naming the Soniox file engine this slot will
+    run for a duration_seconds recording, plus the reason (#125).
+
+    Pure and side-effect-free so it is unit-testable without an API key or a
+    constructed transcriber (same rationale as _terms_to_speech_context). A
+    read-only mirror of the transcribe() decision (v2_available and
+    duration_seconds < SHORT_AUDIO_THRESHOLD); the caller emits it on the dim
+    ticker at decision time so the otherwise-silent V2-sync-vs-async pick becomes
+    visible with its "why". The shown second count is truncated (int()), never
+    rounded, so a sub-threshold duration can never read a contradictory
+    "58 s -> under 58 s".
+    """
+    secs = int(duration_seconds)  # truncate toward zero -- see docstring
+    if not v2_available:
+        return f"audio {secs} s -> SDK unavailable -> Soniox async"
+    if duration_seconds < SHORT_AUDIO_THRESHOLD:
+        return f"audio {secs} s -> under {SHORT_AUDIO_THRESHOLD} s -> Soniox V2 (sync)"
+    return f"audio {secs} s -> {SHORT_AUDIO_THRESHOLD} s or longer -> Soniox async"
+
+
 class SonioxTranscriber(AbstractTranscriber):
     """Soniox file-upload slot: V2 sync for short recordings with automatic
     V4 async REST fallback; V4 async REST for long recordings (#31)."""
@@ -563,7 +584,12 @@ class SonioxTranscriber(AbstractTranscriber):
     def get_name(self) -> str:
         """Get the name of this transcriber"""
         return API_DISPLAY["soniox"]["label"]
-    
+
+    def engine_choice_line(self, duration_seconds: float) -> str:
+        """Ticker line naming the file engine transcribe() will pick for this
+        duration and why (#125). Read-only; changes nothing, decides nothing."""
+        return _soniox_engine_choice_line(self._v2_available, duration_seconds)
+
     def _clean_transcript_hallucinations(self, transcript: str) -> str:
         """
         Remove known hallucination patterns from Soniox transcriptions
