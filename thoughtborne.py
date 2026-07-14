@@ -2212,7 +2212,7 @@ class ThoughtborneApp:
             self._emit_block(
                 'recovered',
                 lambda ansi, compact: console_ui.render_recovered_panel(
-                    n, when, newest_dur, newest_clean_exit, hotkeys_ok,
+                    when, newest_dur, newest_clean_exit, hotkeys_ok,
                     str(ARCHIVE_FOLDER), retry_key, ansi=ansi, compact=compact),
                 detail=f"count={n} newest={newest_ts} clean_exit={newest_clean_exit}")
         except Exception as e:

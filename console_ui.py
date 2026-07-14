@@ -680,34 +680,20 @@ def render_switched_panel(new_label, lineup, switch_key, *, ansi, compact):
     ]
 
 
-def render_recovered_panel(count, when, duration, clean_exit, hotkeys_ok,
+def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
                            audio_path, retry_key, *, ansi, compact):
     dur = f"{duration:.0f}s"
-    if clean_exit:
-        if count == 1:
-            head, detail = ("1 recording saved but not transcribed",
-                            f"from {when} ({dur})")
-        else:
-            head, detail = (f"{count} recordings saved but not transcribed",
-                            f"newest: {when} ({dur}) -- {count - 1} more in the audio folder")
-    else:
-        if count == 1:
-            head, detail = ("1 recording rescued after a hard kill",
-                            f"from {when} ({dur})")
-        else:
-            head, detail = (f"{count} recordings rescued after a hard kill",
-                            f"newest: {when} ({dur}) -- {count - 1} more in the audio folder")
-    target = "it" if count == 1 else "the newest"
+    cause = "saved but not transcribed" if clean_exit else "rescued after a hard kill"
+    head = f"a recording {cause}"
+    detail = f"from {when} ({dur})"
 
     if compact:
-        s = "" if count == 1 else "s"
-        cause = "saved but not transcribed" if clean_exit else "rescued after a hard kill"
-        full = f"{count} recording{s} {cause} -- {when} ({dur})"
+        full = f"a recording {cause} -- {when} ({dur})"
         wrapped = _wrap(full, COMPACT_MAX - 3, 3, first=COMPACT_MAX - len(LAMP) - 12)
         out = [cline([(LAMP + " RECOVERED", (BOLD, YELLOW)), ("  " + wrapped[0], ())], ansi)]
         out += [cline(w, ansi) for w in wrapped[1:]]
         if hotkeys_ok:
-            out.append(cline(f"   press {retry_key} to transcribe {target}", ansi))
+            out.append(cline(f"   press {retry_key} to transcribe it", ansi))
         else:
             out.append(cline("   audio is safe in the audio folder", ansi))
             out.append(cline(f"   once hotkeys work, press {retry_key}", ansi))
@@ -719,14 +705,11 @@ def render_recovered_panel(count, when, duration, clean_exit, hotkeys_ok,
         dline("    " + detail, ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
     ]
-    # "& insert" only fits next to the short single-file target "it"; the plural
-    # "the newest" needs the terser verb to stay inside 68 columns.
-    verb = "transcribe & insert" if count == 1 else "transcribe"
     if hotkeys_ok:
-        lines.append(dline(f"  press {retry_key} to {verb} {target}", ansi))
+        lines.append(dline(f"  press {retry_key} to transcribe & insert it", ansi))
     else:
         lines.append(dline("  the audio is safe in the audio folder", ansi))
-        lines.append(dline(f"  once hotkeys work, press {retry_key} to {verb} {target}", ansi))
+        lines.append(dline(f"  once hotkeys work, press {retry_key} to transcribe & insert it", ansi))
     edge = truncate_path_middle(audio_path, 56)
     lines.append(dedge([(f"audio: {edge}", (DIM,))], ansi))
     return lines

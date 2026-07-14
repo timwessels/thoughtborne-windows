@@ -346,7 +346,7 @@ def check_ctrl_alt_counts():
             model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True, compact=False), 1),
         ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False), 1),
         ("recovered", u.render_recovered_panel(
-            1, "2026-07-11 03:14", 42, False, True, PATHS[3] + r"\history\audio", RETRY,
+            "2026-07-11 03:14", 42, False, True, PATHS[3] + r"\history\audio", RETRY,
             ansi=True, compact=False), 1),
         ("noapi", u.render_noapi_panel(
             [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True, compact=False), 0),
@@ -470,10 +470,9 @@ def main():
 
         for clean in (True, False):
             for hk in (True, False):
-                for n in (1, 3):
-                    run("recovered", u.render_recovered_panel, dict(
-                        count=n, when="2026-07-11 03:14", duration=42, clean_exit=clean,
-                        hotkeys_ok=hk, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY))
+                run("recovered", u.render_recovered_panel, dict(
+                    when="2026-07-11 03:14", duration=42, clean_exit=clean,
+                    hotkeys_ok=hk, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY))
 
     # No-API: MISSING (keys only) and PROBLEMS (with a non-key failure)
     run("noapi", u.render_noapi_panel, dict(
@@ -494,7 +493,7 @@ def main():
          model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
     twin("transcription_failed", u.render_transcription_failed, seq=12, retry_key=RETRY,
          env_dir=PATHS[3], model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
-    twin("recovered", u.render_recovered_panel, count=3, when="2026-07-11 03:14", duration=42,
+    twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("noapi", u.render_noapi_panel, missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"])],
          other_failures=[], env_dir=PATHS[1])
