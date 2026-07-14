@@ -63,6 +63,7 @@ from transcriber import (
     SonioxTranscriber,
     SonioxV4Transcriber,
     _EngineTag,
+    _one_line_error,
 )
 from output_handler import OutputManager, TranscriptionTask
 
@@ -975,7 +976,9 @@ class ThoughtborneApp:
             Transcript string, or "" if this attempt failed (exception) or
             returned empty.
         """
-        label = "Soniox V2 (sync)" if kind == "v2" else "Soniox V4 (async)"
+        # This label reaches the console via the "raised" ERROR below, so its V4
+        # half is generation-neutral (#124); V2/sync stays technical (legacy gRPC).
+        label = "Soniox V2 (sync)" if kind == "v2" else "Soniox async"
 
         try:
             with self._fallback_init_lock:
@@ -1040,7 +1043,7 @@ class ThoughtborneApp:
                 return ""
             logger.error(
                 f"[{thread_name}] Fallback ({label}) raised for "
-                f"sequence {sequence_number}: {e}",
+                f"sequence {sequence_number}: {_one_line_error(e)}",
                 exc_info=True
             )
             return ""

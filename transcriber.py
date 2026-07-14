@@ -65,6 +65,37 @@ class _EngineTag:
         self.code = None
 
 
+def _one_line_error(error: BaseException) -> str:
+    """Collapse an exception to one console-safe line (#124).
+
+    Some exceptions render str() as a multi-line block -- notably gRPC's
+    _InactiveRpcError from the Soniox V2 sync path, whose str() spans status /
+    details / debug_error_string across ~8 lines. Interpolated straight into a
+    console log message, that reintroduces the multi-line console flood #117
+    removed for tracebacks, pushing the FAILED panel off screen. Callers keep
+    exc_info=True, so thoughtborne.log still records the full exception; this is
+    only what the receding console one-liner shows.
+
+    A gRPC RpcError exposes code()/details() (duck-typed so the optional grpc
+    import is never forced here): we surface the status code plus the first line
+    of its details. Everything else collapses to the exception class name plus
+    the first non-empty line of str().
+    """
+    code = getattr(error, "code", None)
+    details = getattr(error, "details", None)
+    if callable(code) and callable(details):
+        try:
+            status = code().name
+            detail_lines = (details() or "").strip().splitlines()
+            first = detail_lines[0].strip() if detail_lines else ""
+            return f"{status}: {first}" if first else status
+        except Exception:
+            pass
+    text = str(error).strip()
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    return f"{type(error).__name__}: {first}" if first else type(error).__name__
+
+
 class AbstractTranscriber(ABC):
     """Abstract base class for all transcriber implementations"""
     
@@ -705,7 +736,7 @@ class SonioxTranscriber(AbstractTranscriber):
                     reason = type(e).__name__
                 logger.warning(
                     f"[FALLBACK] Soniox V2 sync failed ({reason}) -- "
-                    f"retrying with Soniox V4 (async REST, slower)"
+                    f"retrying with {self._v4.get_name()} (slower)"
                 )
                 # DEBUG keeps the trace file-only so the [FALLBACK] line stands
                 # alone on the console; V4's own handlers log ERROR if the
@@ -852,12 +883,12 @@ class SonioxV4Transcriber(AbstractTranscriber):
                     break
                 elif status in ("error", "failed"):
                     error_msg = resp.json().get("error", "Unknown error")
-                    logger.error(f"Soniox v4 transcription failed: {error_msg}")
+                    logger.error(f"{self.get_name()} transcription failed: {error_msg}")
                     return ""
 
                 time.sleep(SONIOX_ASYNC_POLL_INTERVAL)
             else:
-                logger.error(f"Soniox v4 polling timeout after {SONIOX_ASYNC_MAX_POLL_ATTEMPTS} attempts")
+                logger.error(f"{self.get_name()} polling timeout after {SONIOX_ASYNC_MAX_POLL_ATTEMPTS} attempts")
                 return ""
 
             # Step 4: Get transcript
@@ -885,10 +916,10 @@ class SonioxV4Transcriber(AbstractTranscriber):
                 # alone on the console (#32)
                 logger.debug(f"Error during Soniox v4 transcription: {e}", exc_info=True)
             else:
-                logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+                logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
             return ""
         except Exception as e:
-            logger.error(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+            logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
             return ""
 
         finally:
@@ -932,11 +963,11 @@ class SonioxV4Transcriber(AbstractTranscriber):
                 logger.info(f"Soniox v4 test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
-                logger.warning("Soniox v4 test transcription returned empty text")
+                logger.warning(f"{self.get_name()} test transcription returned empty text")
                 return None
 
         except Exception as e:
-            logger.error(f"Soniox v4 test transcription failed: {e}", exc_info=True)
+            logger.error(f"{self.get_name()} test transcription failed: {e}", exc_info=True)
             return None
 
 
