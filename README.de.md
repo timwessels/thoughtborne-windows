@@ -27,7 +27,7 @@ Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstel
 
 **Der kostenlose Weg:** Beide Groq-Einträge laufen im Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) — damit lässt sich Thoughtborne ausprobieren, ohne irgendwen zu bezahlen. Soniox hat keinen Free Tier (Stand Juni 2026): Ein kleines Prepaid-Guthaben aufladen und dann nach Verbrauch zahlen — 0,12 $ pro Stunde Audio, ab der ersten Minute ([soniox.com/pricing](https://soniox.com/pricing)). In der Praxis bleibt das gering: Der Maintainer diktiert rund 25 Stunden Audio im Monat (Schnitt der letzten sechs Monate), was etwa 3 $ ergibt; leichtere regelmäßige Nutzung liegt eher bei einem Dollar. Kein Abo: ein Bruchteil dessen, was Abo-Diktier-Tools kosten (etwa 12–15 $ im Monat), und man zahlt nur für das, was man tatsächlich nutzt ([VISION.md](VISION.md)).
 
-Engines, für Neugierige: `stt-rt-v4` (Soniox Live) · `de_v2` + `stt-async-v4` (Soniox — kurze Aufnahmen laufen über die synchrone v2-Engine, lange und der automatische Fallback über v4 async; welcher Pfad lief, muss einen beim Diktieren nicht kümmern) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, für Neugierige: `stt-rt-v5` (Soniox Live) · `de_v2` + `stt-async-v5` (Soniox — kurze Aufnahmen laufen über die synchrone v2-Engine, lange und der automatische Fallback über v5 async; welcher Pfad lief, muss einen beim Diktieren nicht kümmern) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Voraussetzungen
 
@@ -103,7 +103,7 @@ pip install -r requirements-optional.txt
 python thoughtborne.py
 ```
 
-Die optionale Datei installiert das Soniox-SDK. Ohne das SDK läuft der `soniox`-Slot vollständig über die v4-Engine — funktioniert, ist bei kurzen Aufnahmen nur langsamer. (Auf dem uv-Weg ist das SDK automatisch enthalten.)
+Die optionale Datei installiert das Soniox-SDK. Ohne das SDK läuft der `soniox`-Slot vollständig über die v5-Engine — funktioniert, ist bei kurzen Aufnahmen nur langsamer. (Auf dem uv-Weg ist das SDK automatisch enthalten.)
 
 ## API-Keys
 
@@ -127,7 +127,7 @@ Dann diktieren:
 
 **Selbsttest:** `Ctrl+Alt+Ü` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
-Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v4`, `Son-v2`, `Son-v4`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt.
+Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v5`, `Son-v2`, `Son-v5`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt.
 
 `Ctrl+Alt+4` beendet das Tool.
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Optional user personalization for the Soniox engines. Copy this file to 'personal_settings.json' and customize the vocabulary block. If 'personal_settings.json' is absent, SONIOX_CONTEXT stays None and no personalization is sent. The 'terms' list is used by every Soniox engine — Soniox Live and both the v2 sync and v4 async paths of the Soniox upload slot; the 'general' domain/topic block is used only by the v4 engines (Soniox Live and the v4 upload path), as the legacy v2 sync path has no equivalent for it. The Groq APIs ignore this file entirely.",
+  "_comment": "Optional user personalization for the Soniox engines. Copy this file to 'personal_settings.json' and customize the vocabulary block. If 'personal_settings.json' is absent, SONIOX_CONTEXT stays None and no personalization is sent. The 'terms' list is used by every Soniox engine — Soniox Live and both the v2 sync and async paths of the Soniox upload slot; the 'general' domain/topic block is used only by the newer engines (Soniox Live and the async upload path), as the legacy v2 sync path has no equivalent for it. The Groq APIs ignore this file entirely.",
 
   "vocabulary": {
     "general": [
@@ -25,5 +25,9 @@
     "tap_window_s": 0.30,
     "min_hold_s": 0.20,
     "release_tail_s": 0.15
+  },
+
+  "soniox_endpointing": {
+    "_comment": "OPTIONAL, OFF BY DEFAULT (Issue #121). Fine-tunes Soniox v5 real-time endpoint detection for the Soniox Live path only (the async upload path has no endpointing). With no keys here, nothing is sent and Soniox uses its own defaults -- behavior is unchanged. To tune, add any of: 'endpoint_sensitivity' (number -1.0..1.0, default 0.0; lower waits longer before ending a sentence -- Soniox documents -0.3 for dictation and slow speakers), 'endpoint_latency_adjustment_level' (integer 0..3, default 0; higher ends sentences sooner -- leave at 0 when using a negative sensitivity), 'max_endpoint_delay_ms' (number 500..3000, default 2000; hard cap on the wait after speech stops). Out-of-range or wrong-typed values are ignored with a warning and never sent. Concrete tuning is still being decided (follow-up issue)."
   }
 }

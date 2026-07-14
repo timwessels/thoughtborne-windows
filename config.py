@@ -156,13 +156,15 @@ API_DISPLAY = {
 # carousel/API keys in AVAILABLE_APIS). The token strings are the only thing that ever
 # changes. Deliberately more technical than the in-tool #86 labels: the audience derives the
 # engine from a filename, no legend. The Son… / GWhisper… stems stay recognizably consistent
-# with the #86 labels (Soniox …, Groq Whisper …). The -v2/-v4 suffix records the model
-# generation the tool REQUESTED (the pin), which stays truthful even if Soniox silently
-# serves a newer generation under the old name (#82).
+# with the #86 labels (Soniox …, Groq Whisper …). The version suffix records the model
+# generation the tool REQUESTED (the pin) -- `-v2` for the legacy gRPC sync engine, `-v5`
+# for the Live and async REST engines since the #121 re-pin -- which stays truthful even if
+# Soniox silently serves a newer generation under the old name (#82); a re-pin updates the
+# token from that point on, and existing archive files keep the token they were written with.
 ENGINE_TOKENS = {
-    "soniox_live": "SonLive-v4",     # Soniox Live (websocket RT)
+    "soniox_live": "SonLive-v5",     # Soniox Live (websocket RT)
     "soniox_v2":   "Son-v2",         # soniox slot, V2 sync (<58 s)
-    "soniox_v4":   "Son-v4",         # soniox slot, V4 async REST (long / fallback)
+    "soniox_v4":   "Son-v5",         # soniox slot, async REST (long / fallback)
     "groq_large":  "GWhisperLar-v3", # Groq whisper-large-v3
     "groq_turbo":  "GWhisperTur-v3", # Groq whisper-large-v3-turbo
     "unknown":     "unknown",        # defensive completeness (engine_code fall-through)
@@ -194,25 +196,25 @@ SHORT_AUDIO_THRESHOLD = 58
 # (Cygnus, QISPOS) already lands at 15, boosts 20..30 gained nothing over 15 (same
 # terms rescued, no false positives, only immaterial text differences), and boosts
 # >= 40 began degrading other recordings -- doubling a spoken filler at 40, inserting
-# unspoken vocabulary at 50. So 15 is the safe ceiling. The v4 engines have no equivalent
+# unspoken vocabulary at 50. So 15 is the safe ceiling. The v5 engines have no equivalent
 # knob -- they let the server weight the context dict -- so this tunes the legacy gRPC
 # (de_v2) path only. Sweep evidence lives in _research/2026-07_soniox-v2-boost-sweep/.
 SONIOX_V2_CONTEXT_BOOST = 15.0
 
-# ===== SONIOX V4 ASYNC REST API SETTINGS =====
-# V4 async REST engine: used by the 'soniox' slot for long recordings and as
+# ===== SONIOX ASYNC REST API SETTINGS =====
+# Async REST engine: used by the 'soniox' slot for long recordings and as
 # automatic fallback when V2 sync fails (#31). File upload → transcription →
 # polling → result.
-SONIOX_V4_API_BASE = "https://api.soniox.com"
-SONIOX_V4_MODEL = "stt-async-v4"
-SONIOX_V4_POLL_INTERVAL = 0.5   # Seconds between polling attempts
-SONIOX_V4_MAX_POLL_ATTEMPTS = 600  # Max 5 minutes waiting
+SONIOX_ASYNC_API_BASE = "https://api.soniox.com"
+SONIOX_ASYNC_MODEL = "stt-async-v5"
+SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds between polling attempts
+SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # Max 5 minutes waiting
 
 # ===== SONIOX LIVE (WEBSOCKET RT) SETTINGS =====
 # Live-streaming API: audio is sent in real-time during recording.
 # After stop, finalize returns the transcript in milliseconds.
 SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
-SONIOX_RT_MODEL = "stt-rt-v4"
+SONIOX_RT_MODEL = "stt-rt-v5"
 SONIOX_LIVE_FINALIZE_DELAY = 0.2    # Seconds of silence to send before finalize
 SONIOX_LIVE_FINALIZE_TIMEOUT = 10.0  # Max seconds to wait for finalize response
 
@@ -234,9 +236,45 @@ SONIOX_LIVE_SENDER_JOIN_TIMEOUT = 3.0
 # (silence + finalize command + EOS) before falling through to receiver wait.
 SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT = 5.0
 
-# ===== SONIOX SHARED V4 SETTINGS =====
-# Language and context settings used by both v4 Async and Live APIs
+# ===== SONIOX SHARED SETTINGS =====
+# Language and context settings used by both the Async and Live APIs
 SONIOX_LANGUAGE_HINTS = ["de"]
+
+# ===== SONIOX V5 ENDPOINTING (#121) =====
+# Optional fine-tuning of Soniox's v5 real-time endpoint detector, for the Live
+# (WebSocket) path only -- the async REST API has no endpointing concept. DEFAULT
+# is all-None -> nothing is sent, so the Live WS config JSON stays byte-identical
+# to before and Soniox applies its own defaults. Values come from an optional
+# "soniox_endpointing" block in personal_settings.json (same file as vocabulary
+# and push_to_talk); any out-of-range/wrong-typed field warns and is dropped
+# (never sent) so an invalid value can never reach -- and be rejected by --
+# Soniox mid-session. enable_endpoint_detection stays True unconditionally
+# (already sent, transcriber.py); these only tune the detector it turns on.
+# Ranges/defaults per Soniox docs (2026-07, _research/2026-07_soniox-v5-endpointing/):
+#   endpoint_sensitivity              number  -1.0..1.0  default 0.0  (v5-only; lower waits longer -> dictation-friendly)
+#   endpoint_latency_adjustment_level integer 0..3       default 0    (v5-only; higher ends sentences sooner)
+#   max_endpoint_delay_ms             number  500..3000  default 2000 (v4+;   hard cap on wait after speech ends)
+# Concrete dictation tuning is deferred to a follow-up issue; this is only the hook.
+SONIOX_ENDPOINT_SENSITIVITY = None
+SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL = None
+SONIOX_MAX_ENDPOINT_DELAY_MS = None
+
+
+def soniox_live_endpointing_params() -> dict:
+    """Configured Soniox v5 endpointing params, ready to merge into the Live
+    WebSocket config JSON (#121). Empty dict when nothing is configured, so the
+    caller's config stays byte-identical to before. Live path only -- the async
+    REST API has no endpointing fields, so nothing here is ever sent there.
+    Uses `is not None` (not truthiness) so an explicit 0.0/0 is included."""
+    params = {}
+    if SONIOX_ENDPOINT_SENSITIVITY is not None:
+        params["endpoint_sensitivity"] = SONIOX_ENDPOINT_SENSITIVITY
+    if SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL is not None:
+        params["endpoint_latency_adjustment_level"] = SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL
+    if SONIOX_MAX_ENDPOINT_DELAY_MS is not None:
+        params["max_endpoint_delay_ms"] = SONIOX_MAX_ENDPOINT_DELAY_MS
+    return params
+
 
 # SONIOX_CONTEXT is loaded from the "vocabulary" block of an optional
 # personal_settings.json in the project root. See personal_settings.example.json
@@ -316,6 +354,45 @@ if _personal_settings_path.exists():
                     _config_logger.warning(
                         f"push_to_talk.{_key} '{_v}' invalid (need a positive number); "
                         f"using {globals()[_name]}")
+
+        # Soniox v5 endpointing override (#121): optional fine-tuning of the
+        # Live-path endpoint detector, read from the same _settings dict. An
+        # absent block or any invalid field leaves the None default in force, so
+        # nothing is sent for that field and the WS config JSON is byte-identical
+        # to today. Validated client-side so an out-of-range value never reaches
+        # Soniox (which would reject it and could drop the live session).
+        _ep_cfg = _settings.get("soniox_endpointing", {})
+        if isinstance(_ep_cfg, dict):
+            # endpoint_sensitivity: number in -1.0..1.0. Reject bool (True/False
+            # are ints in Python and would slip past isinstance + the range).
+            # 0.0 is a VALID explicit value -> use `is not None`, never truthiness,
+            # so an explicitly configured 0.0 is honored and sent (not dropped).
+            _sens = _ep_cfg.get("endpoint_sensitivity")
+            if isinstance(_sens, (int, float)) and not isinstance(_sens, bool) and -1.0 <= _sens <= 1.0:
+                SONIOX_ENDPOINT_SENSITIVITY = float(_sens)
+            elif _sens is not None:
+                _config_logger.warning(
+                    f"soniox_endpointing.endpoint_sensitivity '{_sens}' invalid "
+                    f"(need a number -1.0..1.0); not sending it")
+
+            # endpoint_latency_adjustment_level: integer 0..3 (strict int; reject
+            # bool and float so a stray 1.0 or True can't be sent as a level).
+            _lvl = _ep_cfg.get("endpoint_latency_adjustment_level")
+            if isinstance(_lvl, int) and not isinstance(_lvl, bool) and 0 <= _lvl <= 3:
+                SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL = _lvl
+            elif _lvl is not None:
+                _config_logger.warning(
+                    f"soniox_endpointing.endpoint_latency_adjustment_level '{_lvl}' invalid "
+                    f"(need an integer 0..3); not sending it")
+
+            # max_endpoint_delay_ms: number in 500..3000, sent as an integer ms.
+            _delay = _ep_cfg.get("max_endpoint_delay_ms")
+            if isinstance(_delay, (int, float)) and not isinstance(_delay, bool) and 500 <= _delay <= 3000:
+                SONIOX_MAX_ENDPOINT_DELAY_MS = int(_delay)
+            elif _delay is not None:
+                _config_logger.warning(
+                    f"soniox_endpointing.max_endpoint_delay_ms '{_delay}' invalid "
+                    f"(need a number 500..3000); not sending it")
     except (json.JSONDecodeError, OSError) as _e:
         _config_logger.warning(f"Could not load {_personal_settings_path.name}: {_e}")
 

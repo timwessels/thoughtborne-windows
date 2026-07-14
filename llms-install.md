@@ -65,7 +65,7 @@ Outcome: `uv run thoughtborne.py` can resolve and launch. There is no separate "
   pip install -r requirements-optional.txt
   ```
 
-  The optional file installs the Soniox SDK: it enables the fast v2 path of the `soniox` upload slot. Without it that slot still works, served entirely by the v4 engine.
+  The optional file installs the Soniox SDK: it enables the fast v2 path of the `soniox` upload slot. Without it that slot still works, served entirely by the v5 engine.
 - Do not "pre-verify" with a Linux-side dry run — see the WSL trap in Step 0.
 
 ## Step 3 — API keys (the user does the signups)

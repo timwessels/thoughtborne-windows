@@ -28,13 +28,13 @@ from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
     GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY, ENGINE_TOKENS,
     SHORT_AUDIO_THRESHOLD, SONIOX_V2_CONTEXT_BOOST,
-    SONIOX_V4_API_BASE, SONIOX_V4_MODEL, SONIOX_V4_POLL_INTERVAL,
-    SONIOX_V4_MAX_POLL_ATTEMPTS,
+    SONIOX_ASYNC_API_BASE, SONIOX_ASYNC_MODEL, SONIOX_ASYNC_POLL_INTERVAL,
+    SONIOX_ASYNC_MAX_POLL_ATTEMPTS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
     SONIOX_LIVE_FINALIZE_TIMEOUT,
     SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
     SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT,
-    SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT,
+    SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT, soniox_live_endpointing_params,
     RATE, CHANNELS, FILE_ONLY,
 )
 
@@ -760,7 +760,7 @@ class SonioxTranscriber(AbstractTranscriber):
 
 
 class SonioxV4Transcriber(AbstractTranscriber):
-    """Handles transcription using Soniox v4 Async REST API.
+    """Handles transcription using Soniox Async REST API.
 
     Workflow: Upload file → Create transcription → Poll status → Get result → Cleanup.
     Uses httpx for HTTP requests. No Soniox SDK needed.
@@ -774,16 +774,16 @@ class SonioxV4Transcriber(AbstractTranscriber):
             raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox v4 transcriber")
         self.api_key = SONIOX_API_KEY
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
-        logger.info(f"Soniox v4 transcriber initialized (model: {SONIOX_V4_MODEL})", extra=FILE_ONLY)
+        logger.info(f"Soniox async transcriber initialized (model: {SONIOX_ASYNC_MODEL})", extra=FILE_ONLY)
         if SONIOX_CONTEXT:
             logger.info(f"Context enabled: {len(SONIOX_CONTEXT.get('terms', []))} terms", extra=FILE_ONLY)
 
     def get_name(self) -> str:
         """Get the name of this transcriber"""
-        return "Soniox v4 (async)"
+        return "Soniox async"
 
     def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
-        """Transcribe an audio file using Soniox v4 Async REST API.
+        """Transcribe an audio file using Soniox Async REST API.
 
         Args:
             audio_file_path: Path to the audio file
@@ -805,7 +805,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             # Step 1: Upload file
             with open(audio_file_path, "rb") as f:
                 resp = httpx.post(
-                    f"{SONIOX_V4_API_BASE}/v1/files",
+                    f"{SONIOX_ASYNC_API_BASE}/v1/files",
                     headers=self.headers,
                     files={"file": (os.path.basename(audio_file_path), f)},
                     timeout=60
@@ -817,7 +817,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
 
             # Step 2: Create transcription
             tx_config = {
-                "model": SONIOX_V4_MODEL,
+                "model": SONIOX_ASYNC_MODEL,
                 "file_id": file_id,
                 "language_hints": SONIOX_LANGUAGE_HINTS,
             }
@@ -825,7 +825,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
                 tx_config["context"] = SONIOX_CONTEXT
 
             resp = httpx.post(
-                f"{SONIOX_V4_API_BASE}/v1/transcriptions",
+                f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions",
                 headers=self.headers,
                 json=tx_config,
                 timeout=30
@@ -835,9 +835,9 @@ class SonioxV4Transcriber(AbstractTranscriber):
             logger.info(f"Transcription created, ID: {tx_id}", extra=FILE_ONLY)
 
             # Step 3: Poll until completed
-            for attempt in range(SONIOX_V4_MAX_POLL_ATTEMPTS):
+            for attempt in range(SONIOX_ASYNC_MAX_POLL_ATTEMPTS):
                 resp = httpx.get(
-                    f"{SONIOX_V4_API_BASE}/v1/transcriptions/{tx_id}",
+                    f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
                     headers=self.headers,
                     timeout=15
                 )
@@ -855,14 +855,14 @@ class SonioxV4Transcriber(AbstractTranscriber):
                     logger.error(f"Soniox v4 transcription failed: {error_msg}")
                     return ""
 
-                time.sleep(SONIOX_V4_POLL_INTERVAL)
+                time.sleep(SONIOX_ASYNC_POLL_INTERVAL)
             else:
-                logger.error(f"Soniox v4 polling timeout after {SONIOX_V4_MAX_POLL_ATTEMPTS} attempts")
+                logger.error(f"Soniox v4 polling timeout after {SONIOX_ASYNC_MAX_POLL_ATTEMPTS} attempts")
                 return ""
 
             # Step 4: Get transcript
             resp = httpx.get(
-                f"{SONIOX_V4_API_BASE}/v1/transcriptions/{tx_id}/transcript",
+                f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}/transcript",
                 headers=self.headers,
                 timeout=15
             )
@@ -897,7 +897,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             try:
                 if tx_id:
                     httpx_cleanup.delete(
-                        f"{SONIOX_V4_API_BASE}/v1/transcriptions/{tx_id}",
+                        f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
                         headers=self.headers, timeout=10
                     )
                     logger.debug(f"Transcription {tx_id} deleted from server")
@@ -906,7 +906,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             try:
                 if file_id:
                     httpx_cleanup.delete(
-                        f"{SONIOX_V4_API_BASE}/v1/files/{file_id}",
+                        f"{SONIOX_ASYNC_API_BASE}/v1/files/{file_id}",
                         headers=self.headers, timeout=10
                     )
                     logger.debug(f"File {file_id} deleted from server")
@@ -941,7 +941,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
 
 
 class SonioxLiveTranscriber(AbstractTranscriber):
-    """Handles live transcription using Soniox v4 WebSocket RT API.
+    """Handles live transcription using Soniox WebSocket RT API.
 
     Audio is streamed in real-time during recording via WebSocket. When recording
     stops, a finalize command is sent and the server returns the final, quality-
@@ -1068,6 +1068,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 }
                 if SONIOX_CONTEXT:
                     config["context"] = SONIOX_CONTEXT
+                config.update(soniox_live_endpointing_params())
 
                 self._ws.send(json.dumps(config))
                 logger.info("WebSocket config sent", extra=FILE_ONLY)
