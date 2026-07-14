@@ -684,11 +684,11 @@ def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
                            audio_path, retry_key, *, ansi, compact):
     dur = f"{duration:.0f}s"
     cause = "saved but not transcribed" if clean_exit else "rescued after a hard kill"
-    head = f"a recording {cause}"
+    head = f"a recording was {cause}"
     detail = f"from {when} ({dur})"
 
     if compact:
-        full = f"a recording {cause} -- {when} ({dur})"
+        full = f"a recording was {cause} -- {when} ({dur})"
         wrapped = _wrap(full, COMPACT_MAX - 3, 3, first=COMPACT_MAX - len(LAMP) - 12)
         out = [cline([(LAMP + " RECOVERED", (BOLD, YELLOW)), ("  " + wrapped[0], ())], ansi)]
         out += [cline(w, ansi) for w in wrapped[1:]]
