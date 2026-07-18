@@ -65,6 +65,20 @@ class _EngineTag:
         self.code = None
 
 
+class _ErrorTag:
+    """Mutable one-shot holder so SonioxV4Transcriber.transcribe can report that
+    the call failed with a transport/API error rather than completing
+    clean-but-empty (#141), without changing the ABC's `transcribe() -> str`
+    contract. Same shape and thread-safety rationale as _EngineTag above: the
+    caller allocates one per call and reads .errored afterwards, so it is safe
+    across the parallel transcriptions -- unlike a mutable attribute on the
+    shared transcriber singleton."""
+    __slots__ = ("errored",)
+
+    def __init__(self):
+        self.errored = False
+
+
 def _one_line_error(error: BaseException) -> str:
     """Collapse an exception to one console-safe line (#124).
 
@@ -840,12 +854,18 @@ class SonioxV4Transcriber(AbstractTranscriber):
         """Get the name of this transcriber"""
         return "Soniox async"
 
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
+                   error_sink: Optional['_ErrorTag'] = None) -> str:
         """Transcribe an audio file using Soniox Async REST API.
 
         Args:
             audio_file_path: Path to the audio file
             duration_seconds: Duration of the audio in seconds
+            error_sink: Optional _ErrorTag the caller reads afterwards to learn
+                that this call failed with a transport/API error instead of
+                completing clean-but-empty (#141). Set on every error path (job
+                status error, poll timeout, HTTP error, unexpected exception);
+                never set on a completed run, however empty the text.
 
         Returns:
             Transcribed text
@@ -909,13 +929,22 @@ class SonioxV4Transcriber(AbstractTranscriber):
                     logger.info(f"Transcription completed after {attempt} polls", extra=FILE_ONLY)
                     break
                 elif status in ("error", "failed"):
-                    error_msg = resp.json().get("error", "Unknown error")
+                    # "error" is the documented terminal status; "failed" is
+                    # undocumented but kept as a defensive catch -- matching an
+                    # unknown terminal-looking status here beats polling it into
+                    # the full timeout (#141). The field is error_message, not
+                    # "error"; the `or` also covers a null error_message.
+                    error_msg = resp.json().get("error_message") or "Unknown error"
                     logger.error(f"{self.get_name()} transcription failed: {error_msg}")
+                    if error_sink is not None:
+                        error_sink.errored = True
                     return ""
 
                 time.sleep(SONIOX_ASYNC_POLL_INTERVAL)
             else:
                 logger.error(f"{self.get_name()} polling timeout after {SONIOX_ASYNC_MAX_POLL_ATTEMPTS} attempts")
+                if error_sink is not None:
+                    error_sink.errored = True
                 return ""
 
             # Step 4: Get transcript
@@ -944,9 +973,13 @@ class SonioxV4Transcriber(AbstractTranscriber):
                 logger.debug(f"Error during Soniox v4 transcription: {e}", exc_info=True)
             else:
                 logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored = True
             return ""
         except Exception as e:
             logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored = True
             return ""
 
         finally:

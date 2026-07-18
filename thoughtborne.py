@@ -65,6 +65,7 @@ from transcriber import (
     SonioxTranscriber,
     SonioxV4Transcriber,
     _EngineTag,
+    _ErrorTag,
     _one_line_error,
 )
 from output_handler import OutputManager, TranscriptionTask
@@ -1018,7 +1019,8 @@ class ThoughtborneApp:
         Returns:
             (transcript, errored). transcript is "" when this attempt failed or
             returned empty. errored is True only for a real transport/API failure
-            (auth error, or any raised exception) -- the signal #133 needs to tell
+            (auth error, any raised exception, or a failure the V4 stage reported
+            through its error sink -- #141) -- the signal #133 needs to tell
             "engine ran clean and found no speech" (errored=False, a final verdict)
             apart from "the engine could not be reached" (errored=True, keep the
             retry marker). A clean empty result and the SDK-not-installed skip (a
@@ -1050,13 +1052,21 @@ class ThoughtborneApp:
                 return "", False  # a config state, not a transport error (#133)
 
             start = time.time()
+            errored = False
             if kind == "v2":
                 # Raw V2 sync, without the slot's internal V4 fallback -- the
                 # cascade does its own V2 -> V4 hop (incl. on empty results)
                 # one level up (#31).
                 transcript = fallback._transcribe_v2_sync(mp3_path, duration).rstrip('\n')
             else:
-                transcript = fallback.transcribe(mp3_path, duration).rstrip('\n')
+                # V4 swallows its transport/API errors and returns "" (its slot
+                # contract); the sink is how a real outage still reaches this
+                # chain's any_error aggregation instead of masquerading as a
+                # clean empty (#141).
+                error_tag = _ErrorTag()
+                transcript = fallback.transcribe(
+                    mp3_path, duration, error_sink=error_tag).rstrip('\n')
+                errored = error_tag.errored
             elapsed = time.time() - start
 
             if transcript:
@@ -1077,7 +1087,9 @@ class ThoughtborneApp:
                     extra=FILE_ONLY
                 )
 
-            return transcript, False  # a clean run (empty or not) is not an error
+            # V2 clean run stays False; V4 reports a real outage through the
+            # sink so it reaches the chain's any_error aggregation (#141).
+            return transcript, errored
 
         except Exception as e:
             if kind == "v2" and SonioxTranscriber._is_auth_error(e):
