@@ -31,7 +31,9 @@ from config import (
     CHUNK, FORMAT, CHANNELS, RATE,
     ARCHIVE_FOLDER, SCRIPT_DIR,
     AUDIO_TRIM_END_MS, AUDIO_SILENCE_PADDING_MS,
-    SIDECAR_FLUSH_SECONDS, FILE_ONLY
+    SIDECAR_FLUSH_SECONDS, FILE_ONLY,
+    AUDIO_READ_POLL_SECONDS, AUDIO_STALL_TIMEOUT_SECONDS,
+    AUDIO_CLOSE_LOCK_TIMEOUT, AUDIO_OPEN_TIMEOUT_SECONDS
 )
 
 logger = logging.getLogger('Thoughtborne.AudioHandler')
@@ -430,6 +432,11 @@ class AudioRecorder:
         self.stream_error_count = 0
         self.max_stream_errors = 5  # After 5 errors, try to reinitialize
         self._stream_lock = threading.Lock()  # Lock to prevent race conditions with stream access
+        # Driver-wedge poison (#128): set when a stalled native audio call could
+        # not be closed within its timeout. A poisoned pipeline is abandoned
+        # untouched (leaked) and rebuilt on the next start -- nothing ever runs a
+        # native stop/close/terminate on the wedged handles again.
+        self._audio_poisoned = False
         self.last_device_index = None  # Track which device was used
 
         # Crash-safety sidecar state (#49 layer 2). The writer lives for one
@@ -502,8 +509,20 @@ class AudioRecorder:
         """
         logger.debug("_ensure_pyaudio_ready: entry")
         try:
+            if self._audio_poisoned:
+                # The previous stream/PyAudio wedged at driver level (#128). Drop
+                # the handles WITHOUT terminate()/close(): on a wedged driver
+                # those would block exactly as the stalled read did. Leak them
+                # (the OS reclaims them on process exit) and build fresh --
+                # clearing poison here is what re-enables recording.
+                logger.warning("Rebuilding the audio pipeline after a wedged device (#128) "
+                               "-- the previous handles are abandoned untouched.")
+                self.stream = None
+                self.p = None
+                self.stream_is_open = False
+                self._audio_poisoned = False
             # Terminate old PyAudio instance if exists
-            if self.p is not None:
+            elif self.p is not None:
                 try:
                     logger.debug("_ensure_pyaudio_ready: about to terminate old PyAudio instance")
                     self.p.terminate()
@@ -575,32 +594,107 @@ class AudioRecorder:
         """
         Close the audio stream
 
-        This is called after recording ends (stop or cancel).
+        This is called after recording ends (stop or cancel) and on cleanup.
         This releases the headset from "headset mode".
 
-        Uses a lock to prevent race conditions with concurrent stream reads.
+        Two-stage containment for a driver-wedged stream (#128). A stalled
+        capture read holds _stream_lock inside a native PortAudio call, so a
+        plain `with self._stream_lock:` here -- on the hotkey-listener thread
+        (stop/cancel/exit) or MainThread (cleanup) -- would block every hotkey
+        forever, the exact freeze issue #128 fixes. Instead:
+
+          1. Acquire the lock with AUDIO_CLOSE_LOCK_TIMEOUT. On timeout the
+             recording loop is wedged inside a native audio call holding the
+             lock -- abandon the stream (poison + leak) and return; do NOT touch
+             it, because stop_stream()/close() on a driver-wedged stream would
+             block exactly as the read did (post-mortem: the force-kill reset
+             the whole Bluetooth stack, so the wedge sat at driver level).
+          2. On acquire, DETACH the stream object under the lock and release it,
+             THEN run the native close on a throwaway worker (see
+             _close_detached_stream). No critical thread ever runs the native
+             close itself, so a close that wedges anyway cannot re-create the
+             deadlock -- it is bounded by a join and, on timeout, poisoned.
         """
-        with self._stream_lock:
-            if not self.stream_is_open:
+        if self._audio_poisoned:
+            return  # already abandoned a wedged pipeline; never wait on it again
+
+        if not self._stream_lock.acquire(timeout=AUDIO_CLOSE_LOCK_TIMEOUT):
+            logger.error("Audio stream close timed out -- the audio device is wedged. "
+                         "Abandoning the stream; hotkeys stay alive, the next "
+                         "recording reinitializes the audio device.")
+            self._poison()
+            return
+
+        # We hold the lock, so no read is in flight. Detach the stream object and
+        # release the lock BEFORE the native close: with the object nulled and
+        # stream_is_open False, record_chunk's in-lock guard can never reach this
+        # handle again, so the close needs no lock -- and must not hold one.
+        try:
+            if not self.stream_is_open or self.stream is None:
                 logger.debug("Audio stream already closed")
                 return
+            stream = self.stream
+            self.stream = None
+            self.stream_is_open = False
+        finally:
+            self._stream_lock.release()
 
-            if self.stream:
-                try:
-                    logger.info("Closing audio stream...", extra=FILE_ONLY)
-                    self.stream.stop_stream()
-                    self.stream.close()
-                    self.stream = None
-                    self.stream_is_open = False
-                    logger.info("Audio stream closed successfully", extra=FILE_ONLY)
-                except Exception as e:
-                    logger.error(f"Error closing audio stream: {e}")
+        self._close_detached_stream(stream)
+
+    def _close_detached_stream(self, stream):
+        """Run the native stop_stream()/close() off the lock on a throwaway
+        worker, bounded by a join timeout (#128). No critical thread ever runs
+        the native close itself: on a driver-wedged stream it would block as long
+        as the read did. The worker holds its own reference to the detached
+        stream, so on a join timeout we poison and leave it orphaned in the
+        wedged native call -- the OS reclaims the handle on process exit."""
+        def _worker():
+            try:
+                logger.info("Closing audio stream...", extra=FILE_ONLY)
+                stream.stop_stream()
+                stream.close()
+                logger.info("Audio stream closed successfully", extra=FILE_ONLY)
+            except Exception as e:
+                logger.error(f"Error closing audio stream: {e}")
+
+        t = threading.Thread(target=_worker, name="AudioClose", daemon=True)
+        t.start()
+        t.join(timeout=AUDIO_CLOSE_LOCK_TIMEOUT)
+        if t.is_alive():
+            logger.error("Closing the audio stream is wedged -- the audio device "
+                         "stopped responding. Abandoning the stream; the next "
+                         "recording reinitializes the audio device.")
+            self._poison()
+
+    def _poison(self):
+        """Mark the audio pipeline as driver-wedged and unusable (#128).
+
+        Sets flags only -- it deliberately does NOT touch self.stream / self.p,
+        because a wedged thread may still be inside a native call on them, and a
+        stop/close/terminate on a wedged handle could block just as the read did.
+        The handles are leaked on purpose; the OS reclaims them on process exit,
+        and the next recording rebuilds the pipeline from scratch (see
+        _ensure_pyaudio_ready, which drops a poisoned handle without terminate()).
+        Writes only GIL-atomic bools, so it is safe to call while another thread
+        holds the stream lock inside a wedged native call."""
+        self._audio_poisoned = True
+        self.recording = False
+        self.stream_is_open = False
 
     def _reinitialize_stream(self):
         """
         Reinitialize the audio stream (e.g., when device disconnects/reconnects)
 
         This is only called during an active recording when stream errors occur.
+
+        This path runs inside record_chunk()'s _stream_lock hold and issues the
+        same wedge-prone native calls as the open path (stop/close/terminate/
+        open), so it shares the driver-wedge risk (#128). It is deliberately NOT
+        routed through _open_audio_pipeline_bounded(): if any of these calls
+        wedges, the recording loop stays inside the lock, _close_stream() times
+        out and poisons (Layer 2), and the next start's bounded open (Layer 3)
+        rebuilds the pipeline -- so the wedge is contained without adding a
+        second worker-thread hop to this rarely-taken error path.
         """
         logger.info("Attempting to reinitialize audio stream...")
 
@@ -665,6 +759,41 @@ class AudioRecorder:
             self.stream_is_open = False
             return False
 
+    def _open_audio_pipeline_bounded(self) -> bool:
+        """Run PyAudio init + stream open on a worker thread, bounded by a join
+        timeout, so a driver-wedged Pa_Initialize/Pa_OpenStream can never hang
+        the caller -- the hotkey listener on the Ctrl+Alt+W flow, or the
+        recording loop on push-to-talk (#128 Layer 3).
+
+        After a Layer 2 poison the previous start abandoned a wedged driver;
+        opening it again may wedge the same way, and on the W-flow that would
+        re-create the original all-hotkeys-dead freeze. On timeout the worker is
+        leaked (still stuck in the native call), the pipeline is poisoned, and
+        the next start rebuilds from scratch. This runs once per recording start,
+        not at chunk cadence, so a worker hop is affordable here (unlike the read
+        path, which uses non-blocking polling instead)."""
+        result = {}
+
+        def _worker():
+            try:
+                result['ok'] = self._ensure_pyaudio_ready() and self._open_stream()
+            except Exception as e:  # never lose the reason
+                result['error'] = e
+
+        t = threading.Thread(target=_worker, name="AudioOpen", daemon=True)
+        t.start()
+        t.join(timeout=AUDIO_OPEN_TIMEOUT_SECONDS)
+        if t.is_alive():
+            logger.error("Opening the audio device timed out -- the device may be "
+                         "wedged. This recording cannot start; the next attempt "
+                         "reinitializes it.")
+            self._poison()
+            return False
+        if 'error' in result:
+            logger.error(f"Error opening audio pipeline: {result['error']}")
+            return False
+        return result.get('ok', False)
+
     def start_recording(self) -> bool:
         """
         Start recording audio
@@ -676,14 +805,11 @@ class AudioRecorder:
         """
         logger.debug(f"start_recording() called - Current state: recording={self.recording}, stream_is_open={self.stream_is_open}")
 
-        # Reinitialize PyAudio to detect current default device (e.g., headset connected/disconnected)
-        if not self._ensure_pyaudio_ready():
-            logger.error("Failed to initialize PyAudio for recording")
-            return False
-
-        # Open stream if not already open (lazy initialization)
-        if not self._open_stream():
-            logger.error("Failed to open audio stream for recording")
+        # Reinitialize PyAudio to detect the current default device and open the
+        # stream -- both bounded by a worker-thread timeout so a driver-wedged
+        # init/open can never hang the caller (#128 Layer 3).
+        if not self._open_audio_pipeline_bounded():
+            logger.error("Failed to open audio pipeline for recording")
             return False
 
         logger.debug("About to set self.recording = True")
@@ -931,145 +1057,223 @@ class AudioRecorder:
                     f"(time outside stream.read — likely send-block or scheduling)"
                 )
 
-        # Use lock to prevent race condition with _close_stream()
-        # This ensures the stream can't be closed while we're reading from it
-        with self._stream_lock:
-            # Double-check stream is still open (could have been closed by another thread)
-            if not self.stream_is_open or self.stream is None:
-                if self.recording:
-                    # Stream vanished while the session is still live -- treat
-                    # it like the reinit-failure endgame below instead of
-                    # leaving a zombie "recording" state (#49 layer 4). With
-                    # recording already False this is just the normal race
-                    # with a deliberate stop/cancel, not an abort.
-                    logger.error("Audio stream closed unexpectedly during recording")
-                    self.recording = False
-                    self.aborted_frames = self.frames
-                    self.aborted_writer = self._sidecar_writer
-                    self._sidecar_writer = None
-                    self.recording_aborted = True
-                else:
-                    logger.debug(f"Stream closed during recording, stopping chunk recording")
-                return False
-
-            try:
-                # Drop diagnostic (Block 1.5): measure stream.read() duration.
-                # Nominal ~64 ms (CHUNK=1024 / RATE=16000). A slow read means
-                # the audio source stalled — BT profile switch, driver hiccup,
-                # or PyAudio internal overflow. Distinct from send-latency
-                # (Block 1) which points at the network.
-                #
-                # The FIRST read of a recording always includes the BT/PyAudio
-                # warm-up (typically 0.5–1.0 s on the Jabra, HFP profile switch).
-                # We anchor read-latency tracking to the same marker that
-                # Block 1's wallclock-gap check uses — _recording_start_time,
-                # which is None on the very first read and gets set just below.
-                # So the first read is measured but excluded from stats; from
-                # the second read on, every read counts.
-                read_start = time.perf_counter()
-                data = self.stream.read(CHUNK, exception_on_overflow=False)
-                read_elapsed = time.perf_counter() - read_start
-                if self._recording_start_time is not None:
-                    if read_elapsed > self._read_latency_max:
-                        self._read_latency_max = read_elapsed
-                    if read_elapsed > 0.1:  # > 100 ms (nominal ~64 ms)
-                        self._read_latency_slow_count += 1
-                        self._read_latency_slow_total += read_elapsed
-                        logger.debug(
-                            f"Slow PyAudio read: {read_elapsed*1000:.0f}ms "
-                            f"(audio source did not deliver — BT/driver/overflow)"
-                        )
-
-                self.frames.append(data)
-
-                # Mark the actual recording start on the first received chunk.
-                # This excludes PyAudio init + BT warm-up from the gap metric
-                # so that a non-zero gap is a clear sign of mid-recording loss.
-                if self._recording_start_time is None:
-                    self._recording_start_time = time.time()
-
-                # Reset error count on successful read
-                if self.stream_error_count > 0:
-                    self.stream_error_count = 0
-                    logger.info("Audio stream recovered, reset error count")
-
-                # Drop diagnostic: detect runs of exact-silence chunks.
-                # A normal microphone produces small but non-zero noise floor;
-                # exact all-zero samples mean PyAudio could not fetch fresh
-                # data (recording-loop stall, BT profile switch, etc.).
-                try:
-                    samples = np.frombuffer(data, dtype=np.int16)
-                    if samples.size > 0 and not np.any(samples):
-                        self._silence_chunks_in_row += 1
-                        silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
-                        if silence_ms >= 200 and not self._silence_logged_flag:
-                            logger.warning(
-                                f"Audio drop detected: exact silence ongoing >= {silence_ms:.0f}ms "
-                                f"(possible mic stall or BT issue)"
-                            )
-                            self._silence_logged_flag = True
-                    else:
-                        if self._silence_logged_flag:
-                            silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
-                            logger.warning(
-                                f"Audio drop ended: total exact-silence duration ~{silence_ms:.0f}ms"
-                            )
-                        self._silence_chunks_in_row = 0
-                        self._silence_logged_flag = False
-                except Exception as drop_diag_err:
-                    # Diagnostic must never break the recording loop
-                    logger.debug(f"Drop diagnostic error (non-fatal): {drop_diag_err}")
-
-                # Block 1.5: mark iteration end-time for the next iteration's
-                # gap measurement (set only on success — on failure paths we
-                # want the next successful read to see the full elapsed time).
-                self._last_iteration_end_time = time.perf_counter()
-
-                return True
-            except Exception as e:
-                error_str = str(e)
-                logger.error(f"Error reading audio stream: {e}")
-
-                # Check for specific stream errors that indicate device disconnection
-                # Note: Error codes may vary between Windows and Mac
-                # -9999 and -9988 are common PortAudio error codes
-                if "-9999" in error_str or "-9988" in error_str or "Input overflowed" in error_str:
-                    self.stream_error_count += 1
-
-                    # Try to reinitialize after several errors
-                    if self.stream_error_count >= self.max_stream_errors:
-                        logger.warning(f"Stream error count reached {self.stream_error_count}, attempting to reinitialize...")
-
-                        # Stop recording temporarily
-                        was_recording = self.recording
+        # Layer 1 (#128): the capture read must never block unbounded inside
+        # _stream_lock. A stalled device used to pin the lock in a blocking
+        # stream.read(), so the next stop/cancel/exit deadlocked behind it in
+        # _close_stream() -- the whole-app freeze this fixes. Instead: poll
+        # get_read_available() with the lock RELEASED between polls and only
+        # issue the read once a full CHUNK is buffered, so it returns at once
+        # and the lock is never held across a wait. _close_stream can then slip
+        # in between polls and close cleanly. No full chunk within
+        # AUDIO_STALL_TIMEOUT_SECONDS is treated as device loss and handed to
+        # the #49 endgame (Layer 1b, _begin_stall_abort).
+        #
+        # read_start marks the start of the WAIT for this chunk; on the first
+        # chunk it includes the BT/PyAudio warm-up (typically 0.5-1.0 s on the
+        # Jabra, HFP profile switch), which is why the read-latency stats below
+        # are anchored to _recording_start_time (None on the first read, set
+        # just after it) so the first chunk is measured but excluded from stats.
+        read_start = time.perf_counter()
+        deadline = read_start + AUDIO_STALL_TIMEOUT_SECONDS
+        data = None
+        while data is None:
+            with self._stream_lock:
+                # Double-check the stream is still there: _close_stream may have
+                # detached it between polls (or a concurrent Layer 2 close is
+                # tearing it down).
+                if not self.stream_is_open or self.stream is None:
+                    if self.recording:
+                        # Stream vanished while the session is still live -- treat
+                        # it like the reinit-failure endgame below instead of
+                        # leaving a zombie "recording" state (#49 layer 4). With
+                        # recording already False this is just the normal race
+                        # with a deliberate stop/cancel, not an abort.
+                        logger.error("Audio stream closed unexpectedly during recording")
                         self.recording = False
+                        self.aborted_frames = self.frames
+                        self.aborted_writer = self._sidecar_writer
+                        self._sidecar_writer = None
+                        self.recording_aborted = True
+                    else:
+                        logger.debug(f"Stream closed during recording, stopping chunk recording")
+                    return False
 
-                        # Try to reinitialize
-                        if self._reinitialize_stream():
-                            logger.info("Stream reinitialized successfully, resuming recording")
-                            self.recording = was_recording
-                            # Don't return False, let it try again next cycle
-                            return True
-                        else:
-                            logger.error("Failed to reinitialize stream, stopping recording")
-                            # Device-loss endgame (#49 layer 4): pin this
-                            # session's frames and sidecar writer for the
-                            # recording loop's abort handler, THEN raise the
-                            # flag (the handler must find them pinned). The
-                            # writer keeps running until the handler stops it
-                            # via take_aborted_sidecar(), so it can still
-                            # flush RAM remains. Skipped when was_recording
-                            # is False: a stop/cancel hotkey already ended
-                            # the session and owns frames and writer.
-                            if was_recording:
-                                self.aborted_frames = self.frames
-                                self.aborted_writer = self._sidecar_writer
-                                self._sidecar_writer = None
-                                self.recording_aborted = True
-                            return False
+                try:
+                    # Only read once a full CHUNK is buffered, so the read returns
+                    # immediately -- it can no longer block the lock. get_read_available()
+                    # is wrapped in the SAME try as read(): a poisoned/torn-down stream
+                    # (a concurrent Layer 2 close) makes either call raise, and the
+                    # handler below degrades gracefully instead of crashing the loop.
+                    if self.stream.get_read_available() >= CHUNK:
+                        data = self.stream.read(CHUNK, exception_on_overflow=False)
+                except Exception as e:
+                    error_str = str(e)
+                    logger.error(f"Error reading audio stream: {e}")
 
-                # For other errors or if we haven't hit the error threshold yet
-                return True  # Keep trying
+                    # Check for specific stream errors that indicate device disconnection
+                    # Note: Error codes may vary between Windows and Mac
+                    # -9999 and -9988 are common PortAudio error codes
+                    if "-9999" in error_str or "-9988" in error_str or "Input overflowed" in error_str:
+                        self.stream_error_count += 1
+
+                        # Try to reinitialize after several errors
+                        if self.stream_error_count >= self.max_stream_errors:
+                            logger.warning(f"Stream error count reached {self.stream_error_count}, attempting to reinitialize...")
+
+                            # Stop recording temporarily
+                            was_recording = self.recording
+                            self.recording = False
+
+                            # Try to reinitialize
+                            if self._reinitialize_stream():
+                                # Poison discipline (#128): a concurrent stop/cancel
+                                # can abandon this session while the >2s reinit holds
+                                # _stream_lock -- its _close_stream() runs into the
+                                # lock-acquire timeout and poisons. The stop won (the
+                                # user asked to stop), so the abandoned session belongs
+                                # to that close: do NOT resurrect recording. Close the
+                                # stream we just opened so the mic turns off -- it
+                                # opened cleanly just now, so it is not driver-wedged
+                                # and _close_detached_stream drains it on a bounded
+                                # worker (leaking it would leave the headset live until
+                                # the next start). Not via _close_stream(): that bails
+                                # on the poison flag and would leak the handle.
+                                if self._audio_poisoned:
+                                    logger.warning("Reinit succeeded but a concurrent stop/cancel "
+                                                   "poisoned the pipeline; honoring the stop instead "
+                                                   "of resuming recording")
+                                    self.recording = False
+                                    stream = self.stream
+                                    self.stream = None
+                                    self.stream_is_open = False
+                                    if stream is not None:
+                                        self._close_detached_stream(stream)
+                                    return False
+                                logger.info("Stream reinitialized successfully, resuming recording")
+                                self.recording = was_recording
+                                # Don't return False, let it try again next cycle
+                                return True
+                            else:
+                                logger.error("Failed to reinitialize stream, stopping recording")
+                                # Device-loss endgame (#49 layer 4): pin this
+                                # session's frames and sidecar writer for the
+                                # recording loop's abort handler, THEN raise the
+                                # flag (the handler must find them pinned). The
+                                # writer keeps running until the handler stops it
+                                # via take_aborted_sidecar(), so it can still
+                                # flush RAM remains. Skipped when was_recording
+                                # is False: a stop/cancel hotkey already ended
+                                # the session and owns frames and writer.
+                                if was_recording:
+                                    self.aborted_frames = self.frames
+                                    self.aborted_writer = self._sidecar_writer
+                                    self._sidecar_writer = None
+                                    self.recording_aborted = True
+                                return False
+
+                    # For other errors or if we haven't hit the error threshold yet
+                    return True  # Keep trying
+
+            # Lock RELEASED here between polls -> _close_stream can close cleanly.
+            if data is None:
+                if time.perf_counter() >= deadline:
+                    return self._begin_stall_abort()  # Layer 1b: stall watchdog
+                time.sleep(AUDIO_READ_POLL_SECONDS)
+
+        # A full chunk was obtained (read returned at once). read_start->now is
+        # the wait for this chunk, which is what "slow read" always measured.
+        read_elapsed = time.perf_counter() - read_start
+        if self._recording_start_time is not None:
+            if read_elapsed > self._read_latency_max:
+                self._read_latency_max = read_elapsed
+            if read_elapsed > 0.1:  # > 100 ms (nominal ~64 ms)
+                self._read_latency_slow_count += 1
+                self._read_latency_slow_total += read_elapsed
+                logger.debug(
+                    f"Slow PyAudio read: {read_elapsed*1000:.0f}ms "
+                    f"(audio source did not deliver — BT/driver/overflow)"
+                )
+
+        self.frames.append(data)
+
+        # Mark the actual recording start on the first received chunk.
+        # This excludes PyAudio init + BT warm-up from the gap metric
+        # so that a non-zero gap is a clear sign of mid-recording loss.
+        if self._recording_start_time is None:
+            self._recording_start_time = time.time()
+
+        # Reset error count on successful read
+        if self.stream_error_count > 0:
+            self.stream_error_count = 0
+            logger.info("Audio stream recovered, reset error count")
+
+        # Drop diagnostic: detect runs of exact-silence chunks.
+        # A normal microphone produces small but non-zero noise floor;
+        # exact all-zero samples mean PyAudio could not fetch fresh
+        # data (recording-loop stall, BT profile switch, etc.).
+        try:
+            samples = np.frombuffer(data, dtype=np.int16)
+            if samples.size > 0 and not np.any(samples):
+                self._silence_chunks_in_row += 1
+                silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
+                if silence_ms >= 200 and not self._silence_logged_flag:
+                    logger.warning(
+                        f"Audio drop detected: exact silence ongoing >= {silence_ms:.0f}ms "
+                        f"(possible mic stall or BT issue)"
+                    )
+                    self._silence_logged_flag = True
+            else:
+                if self._silence_logged_flag:
+                    silence_ms = self._silence_chunks_in_row * (CHUNK / RATE) * 1000
+                    logger.warning(
+                        f"Audio drop ended: total exact-silence duration ~{silence_ms:.0f}ms"
+                    )
+                self._silence_chunks_in_row = 0
+                self._silence_logged_flag = False
+        except Exception as drop_diag_err:
+            # Diagnostic must never break the recording loop
+            logger.debug(f"Drop diagnostic error (non-fatal): {drop_diag_err}")
+
+        # Block 1.5: mark iteration end-time for the next iteration's
+        # gap measurement (set only on success — on failure paths we
+        # want the next successful read to see the full elapsed time).
+        self._last_iteration_end_time = time.perf_counter()
+
+        return True
+
+    def _begin_stall_abort(self) -> bool:
+        """Stall watchdog fired (#128 Layer 1b): no full CHUNK became available
+        within AUDIO_STALL_TIMEOUT_SECONDS. Hand the dying session to the
+        recording loop's #49 device-loss endgame exactly like a failed reinit
+        does (pin frames + sidecar writer, THEN raise recording_aborted), then
+        stop this chunk.
+
+        Only arms the endgame while the session is still live: a stop/cancel
+        that already set recording=False owns the frames and writer, so the
+        watchdog must not re-capture them -- the same discipline as the
+        vanished-stream guard above and the was_recording gate on the reinit
+        path. A stop/cancel that wins the race after this check costs at worst a
+        duplicate archive (never a loss), the residual race stop_recording()
+        already documents."""
+        if not self.recording:
+            return False
+        logger.error(f"Audio stalled -- no frames for {AUDIO_STALL_TIMEOUT_SECONDS:.0f}s; "
+                     f"ending the recording (the audio device stopped delivering).")
+        self.recording = False
+        self.aborted_frames = self.frames          # pin BEFORE raising the flag
+        self.aborted_writer = self._sidecar_writer
+        self._sidecar_writer = None
+        # Release the still-open stalled stream so the microphone turns off --
+        # every other recording-end path closes the stream, a stall must not
+        # leak it open. Unlike the reinit-failure endgame (where
+        # _reinitialize_stream already closed the stream), the watchdog fires
+        # with the stream still open. Safe on this (recording-loop) thread: the
+        # lock is free here (we are past the poll's `with`), and _close_stream
+        # runs the native close on a bounded worker, poisoning if it wedges at
+        # driver level -- so this never re-creates the deadlock.
+        self._close_stream()
+        self.recording_aborted = True
+        return False
 
     def get_audio_duration(self, frames: List[bytes]) -> float:
         """
@@ -1273,6 +1477,14 @@ class AudioRecorder:
     def cleanup(self):
         """Clean up audio resources"""
         logger.info("Cleaning up audio resources...", extra=FILE_ONLY)
+
+        # A poisoned pipeline (#128) wedged at driver level: closing or
+        # terminating it here could block the exit exactly as the read did.
+        # Leave the handles untouched -- the OS reclaims them on process exit.
+        if self._audio_poisoned:
+            logger.info("Audio pipeline was abandoned (device wedged); skipping close/terminate.",
+                        extra=FILE_ONLY)
+            return
 
         # Close stream if still open
         if self.stream_is_open:

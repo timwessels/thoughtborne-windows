@@ -127,6 +127,36 @@ AUDIO_SILENCE_PADDING_MS = 1000  # Milliseconds of silence to add at end (helps 
 # reduces disk traffic. The write runs off the capture hot path either way.
 SIDECAR_FLUSH_SECONDS = 5
 
+# ===== AUDIO STALL / DEADLOCK GUARDS (#128) =====
+# A stalled microphone (e.g. a Bluetooth headset that stops delivering audio, or
+# a driver that wedges at OS level) must never freeze the app. The capture read
+# no longer blocks unbounded inside the stream lock: record_chunk() polls
+# get_read_available() every AUDIO_READ_POLL_SECONDS and only reads once a full
+# CHUNK is ready (so the read returns at once); no full chunk for
+# AUDIO_STALL_TIMEOUT_SECONDS is treated as device loss and routed into the #49
+# endgame. No critical thread (the hotkey listener, the exit path) ever waits
+# unbounded on that lock or runs a native audio close itself: _close_stream()
+# acquires the lock with AUDIO_CLOSE_LOCK_TIMEOUT and runs stop_stream()/close()
+# on a throwaway worker bounded by the SAME timeout as a join -- on either
+# timeout it abandons (poisons) the wedged stream so hotkeys stay alive, and the
+# next recording rebuilds the pipeline. Opening the device is likewise bounded by
+# AUDIO_OPEN_TIMEOUT_SECONDS on a worker thread. All are guide values (stability
+# is principle #1), not protocol constants.
+AUDIO_READ_POLL_SECONDS     = 0.005   # ~5 ms between availability polls; << one 64 ms chunk, not a busy-spin
+AUDIO_STALL_TIMEOUT_SECONDS = 5.0     # no full chunk this long => device loss; clears the ~0.5-1.0 s BT warm-up
+AUDIO_CLOSE_LOCK_TIMEOUT    = 2.0     # cap for BOTH the close lock acquire and the close-worker join (worst case ~2+2 s, rare)
+AUDIO_OPEN_TIMEOUT_SECONDS  = 8.0     # PyAudio init + stream open on a worker; generous for BT warm-up
+
+# Recording-loop liveness guard (#128): if get_read_available() itself wedges at
+# driver level, the recording-loop thread stays is_alive() but pins _stream_lock
+# forever inside record_chunk() and never captures another chunk. The recording
+# loop stamps a monotonic tick every iteration; on the next Ctrl+Alt+W,
+# on_start_recording treats a tick older than this as a wedged loop and refuses to
+# start a recording that would look live but stay silent. Well above the worst-
+# case legitimate iteration (~9 s: 5 s stall watchdog + 2+2 s bounded close), so a
+# merely busy loop is never mistaken for a wedged one.
+RECORDING_LOOP_STALE_SECONDS = 15.0
+
 # ===== GROQ API SETTINGS =====
 GROQ_MODEL = "whisper-large-v3-turbo"  # 'groq' carousel entry (fastest)
 GROQ_LARGE_MODEL = "whisper-large-v3"  # 'groq-large' carousel entry (higher accuracy, #36)

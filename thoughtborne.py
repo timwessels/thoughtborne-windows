@@ -46,6 +46,7 @@ from config import (
     migrate_legacy_archives,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
     PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S,
+    RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
@@ -560,6 +561,12 @@ class ThoughtborneApp:
 
         # Recording loop thread
         self.recording_thread = None
+        # Liveness tick for the wedge guard (#128): recording_loop_thread stamps
+        # this monotonic timestamp every iteration; on_start_recording treats a
+        # stale tick as a wedged loop (is_alive() but pinned in a native audio
+        # call) and refuses to start a silent recording. Seeded now so the guard
+        # never reads an unset attribute before the loop's first tick.
+        self._recording_loop_last_tick = time.monotonic()
 
         # Live transcriber reference (for sending audio chunks during recording)
         self._active_live_transcriber = None
@@ -1298,6 +1305,21 @@ class ThoughtborneApp:
             # DEBUG: Check if recording loop thread is alive
             if self.recording_thread and self.recording_thread.is_alive():
                 logger.debug("Recording loop thread is ALIVE")
+                # Alive is not enough: a native audio call (e.g. get_read_available)
+                # can wedge inside record_chunk() and pin the recording loop there
+                # forever, holding _stream_lock, while Layer 2 keeps the hotkeys
+                # alive (#128). Such a thread is is_alive() yet never captures
+                # another chunk, so starting here would produce a silent
+                # "recording". A frozen liveness tick is the tell -- refuse to
+                # start and point the user at a restart. (Only the W-flow needs
+                # this: push-to-talk runs on the recording loop itself, so a
+                # wedged loop never fires PTT in the first place.)
+                tick_age = time.monotonic() - self._recording_loop_last_tick
+                if tick_age > RECORDING_LOOP_STALE_SECONDS:
+                    logger.error(f"Recording loop unresponsive: last tick {tick_age:.0f}s ago "
+                                 f"(threshold {RECORDING_LOOP_STALE_SECONDS:.0f}s)", extra=FILE_ONLY)
+                    logger.error("The recording loop is not responding (wedged audio driver) -- please restart Thoughtborne.")
+                    return
             else:
                 logger.error("Recording loop thread is DEAD!")
                 logger.error("Recording loop thread has died. Please restart the application.")
@@ -1814,9 +1836,11 @@ class ThoughtborneApp:
         hotkey) and the main thread (cleanup after Ctrl+C / Ctrl+Break); the
         flag keeps a second caller from double-saving. Runs on the listener
         thread in the hotkey case, so console output goes through logger.*
-        only (#11). No call in here blocks unbounded: cancel_session() has a
-        hard join budget (~6 s worst case) and save_recording() is local file
-        I/O plus MP3 encode.
+        only (#11). No call in here blocks unbounded: stop_recording() closes
+        the stream on a bounded #128 budget (~4 s worst case on a driver-wedged
+        device: 2 s lock-acquire + 2 s close-join), cancel_session() has a hard
+        join budget (~6 s worst case), and save_recording() is local file I/O
+        plus MP3 encode.
         """
         with self._salvage_lock:
             if self._salvage_done or not self.audio_recorder.is_recording:
@@ -1922,6 +1946,12 @@ class ThoughtborneApp:
 
         while self.running:
             loop_counter += 1
+
+            # Wedge-guard liveness tick (#128): stamp every iteration so a loop
+            # pinned in a wedged native audio call (record_chunk) stops updating
+            # it, letting on_start_recording detect the freeze. monotonic() so a
+            # wall-clock jump can neither fake a wedge nor mask one.
+            self._recording_loop_last_tick = time.monotonic()
 
             # Push-to-talk gesture step (#66). Placed before the audio branch so a
             # START this tick begins capturing on this very iteration. No-op when
