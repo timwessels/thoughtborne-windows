@@ -1,6 +1,6 @@
 # pip fallback. Source of truth for the uv path is pyproject.toml --
 # keep both in sync when changing dependencies.
-groq>=0.4.0
+groq>=0.29,<2
 pyaudio>=0.2.11
 keyboard>=0.13.5
 soundfile>=0.12.1
@@ -8,5 +8,5 @@ numpy>=1.21.0
 pyperclip>=1.8.2
 python-dotenv>=1.0.0
 pyautogui>=0.9.54
-httpx>=0.28.0
-websockets>=15.0.0
+httpx>=0.28.0,<1
+websockets>=15.0.0,<17

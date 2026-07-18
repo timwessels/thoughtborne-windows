@@ -452,7 +452,8 @@ class GroqTranscriber(AbstractTranscriber):
             return text
             
         except AuthenticationError as e:
-            # body['code'] is None in groq 0.29; detect expired vs invalid via str(e)
+            # Groq nests the error code under body['error']['code'], so top-level
+            # body['code'] is None; match str(e) instead -- server behavior, not SDK version.
             detail = "expired" if "expired_api_key" in str(e) else "invalid"
             self._report_auth_failure("GROQ_API_KEY", detail)
             # DEBUG keeps the trace file-only so the [AUTH] line stands alone

@@ -42,7 +42,7 @@ echo Starting Thoughtborne ...
 echo (on the first start, uv downloads Python and the dependencies once)
 "%UV_CMD%" run thoughtborne.py
 set "RC=%errorlevel%"
-if "%RC%"=="0" goto done
+if "%RC%"=="0" goto done_clean
 echo.
 echo Thoughtborne exited with an error (code %RC%).
 echo If this was the first start, check your internet connection:
@@ -80,5 +80,10 @@ goto done
 echo.
 echo Press any key to close this window ...
 pause >nul
+
+rem A clean Thoughtborne exit (Ctrl+Alt+4) jumps straight to :done_clean and just
+rem closes the window. The error/setup paths above fall through to :done first so
+rem their message stays readable before the window closes.
+:done_clean
 popd
 endlocal
