@@ -119,7 +119,7 @@ Only a Groq key? Nothing to configure: startup automatically skips the Soniox en
 
 Start the tool — double-click `Thoughtborne.bat` or run `uv run thoughtborne.py`. A console window opens with a startup banner showing the active API and the hotkey list; details go to `thoughtborne.log`.
 
-**Tip — launch it from the keyboard:** a plain Windows shortcut to `Thoughtborne.bat`, kept on the Desktop or in the Start menu, makes Thoughtborne turn up in search — and if you give that shortcut a shortcut key (`Ctrl+Alt+1` is free; none of the in-app hotkeys use it), one key press starts the tool. Windows honors these shortcut keys only for shortcuts in those two locations.
+**Tip — launch it from the keyboard:** a Windows shortcut to `Thoughtborne.bat`, kept on the Desktop or in the Start menu, makes Thoughtborne turn up in search — and if you give that shortcut a shortcut key (`Ctrl+Alt+1` is free; none of the in-app hotkeys use it), one key press starts the tool. Windows honors these shortcut keys only for shortcuts in those two locations. Best shortcut target: `C:\Windows\System32\cmd.exe /c "C:\path\to\Thoughtborne.bat"` instead of the `.bat` directly — it starts identically, but the Start menu entry then also offers *Run as administrator* on right-click, which shortcuts pointing straight at a `.bat` never get (see the admin-window note under Troubleshooting).
 
 Then dictate:
 
@@ -187,7 +187,7 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 
 **A hotkey does not register** (a `FAILED:` line in the startup log). Another program already owns that combination — global hotkeys are exclusive in Windows. Change the combo in the `HOTKEYS` dict in `config.py`.
 
-**Insertion does nothing in one specific window.** The target app runs elevated (as administrator), and Windows' User Interface Privilege Isolation (UIPI) blocks synthesized input from a non-elevated process — the transcript is produced but never lands, so the dictation seems to vanish. To dictate into admin windows, start Thoughtborne itself elevated: right-click `Thoughtborne.bat` (or its shortcut) → *Run as administrator* and accept the UAC prompt. Only one instance can run at a time — global hotkeys are exclusive in Windows, so a second instance registers no hotkeys.
+**Insertion does nothing in one specific window.** The target app runs elevated (as administrator), and Windows' User Interface Privilege Isolation (UIPI) blocks synthesized input from a non-elevated process — the transcript is produced but never lands, so the dictation seems to vanish. To dictate into admin windows, start Thoughtborne itself elevated: right-click `Thoughtborne.bat` in Explorer — or your Start menu entry, if its shortcut targets the `cmd.exe /c` form from the launch tip (shortcuts pointing straight at the `.bat` don't get the verb there) — and choose *Run as administrator*; the UAC prompt names *Windows Command Processor* because Windows runs batch files through `cmd.exe`. Only one instance can run at a time — global hotkeys are exclusive in Windows, so a second instance registers no hotkeys.
 
 **First start is very slow, or fails offline.** uv downloads Python and the dependencies once; it needs internet that one time.
 

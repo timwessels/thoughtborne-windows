@@ -119,7 +119,7 @@ Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträg
 
 Das Tool starten — Doppelklick auf `Thoughtborne.bat` oder `uv run thoughtborne.py`. Ein Konsolenfenster öffnet sich mit einem Start-Banner, das die aktive API und die Hotkey-Liste zeigt; Details landen in `thoughtborne.log`.
 
-**Tipp — per Tastatur starten:** Eine einfache Windows-Verknüpfung auf `Thoughtborne.bat`, abgelegt auf dem Desktop oder im Startmenü, lässt Thoughtborne in der Suche auftauchen — und gibt man der Verknüpfung ein Tastenkürzel (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), startet ein Tastendruck das Tool. Windows berücksichtigt solche Tastenkürzel nur bei Verknüpfungen an diesen beiden Orten.
+**Tipp — per Tastatur starten:** Eine Windows-Verknüpfung auf `Thoughtborne.bat`, abgelegt auf dem Desktop oder im Startmenü, lässt Thoughtborne in der Suche auftauchen — und gibt man der Verknüpfung ein Tastenkürzel (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), startet ein Tastendruck das Tool. Windows berücksichtigt solche Tastenkürzel nur bei Verknüpfungen an diesen beiden Orten. Als Verknüpfungsziel empfiehlt sich `C:\Windows\System32\cmd.exe /c "C:\Pfad\zu\Thoughtborne.bat"` statt der `.bat` direkt: Der Start ist identisch, aber der Startmenü-Eintrag bietet dann per Rechtsklick auch *Als Administrator ausführen* an, was Verknüpfungen direkt auf eine `.bat` dort nie bekommen (siehe den Admin-Fenster-Hinweis unter Troubleshooting).
 
 Dann diktieren:
 
@@ -187,7 +187,7 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 
 **Ein Hotkey registriert sich nicht** (eine `FAILED:`-Zeile im Start-Log). Ein anderes Programm besitzt die Kombination bereits — globale Hotkeys sind in Windows exklusiv. Die Kombination im `HOTKEYS`-Dict in `config.py` ändern.
 
-**Einfügen bewirkt in einem bestimmten Fenster nichts.** Die Ziel-App läuft mit erhöhten Rechten (als Administrator), und Windows' User Interface Privilege Isolation (UIPI) blockiert simulierte Eingaben aus einem nicht-erhöhten Prozess — das Transkript entsteht, landet aber nirgends, das Diktat scheint also zu verschwinden. Um in Admin-Fenster zu diktieren, Thoughtborne selbst mit erhöhten Rechten starten: Rechtsklick auf `Thoughtborne.bat` (oder die Verknüpfung) → *Als Administrator ausführen* und den UAC-Dialog bestätigen. Es kann immer nur eine Instanz laufen — globale Hotkeys sind in Windows exklusiv, sodass eine zweite Instanz keine Hotkeys registriert.
+**Einfügen bewirkt in einem bestimmten Fenster nichts.** Die Ziel-App läuft mit erhöhten Rechten (als Administrator), und Windows' User Interface Privilege Isolation (UIPI) blockiert simulierte Eingaben aus einem nicht-erhöhten Prozess — das Transkript entsteht, landet aber nirgends, das Diktat scheint also zu verschwinden. Um in Admin-Fenster zu diktieren, Thoughtborne selbst mit erhöhten Rechten starten: Rechtsklick auf `Thoughtborne.bat` im Explorer — oder auf den Startmenü-Eintrag, wenn dessen Verknüpfung auf die `cmd.exe /c`-Form aus dem Start-Tipp zeigt (Verknüpfungen direkt auf die `.bat` bekommen den Eintrag dort nicht) — und *Als Administrator ausführen* wählen; der UAC-Dialog nennt *Windows-Befehlsprozessor*, weil Windows Batch-Dateien über `cmd.exe` ausführt. Es kann immer nur eine Instanz laufen — globale Hotkeys sind in Windows exklusiv, sodass eine zweite Instanz keine Hotkeys registriert.
 
 **Erster Start sehr langsam oder schlägt offline fehl.** uv lädt einmalig Python und die Dependencies; dafür braucht es dieses eine Mal Internet.
 
