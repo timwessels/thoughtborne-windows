@@ -302,11 +302,24 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
 # disambiguator). No engine token: the recording was never transcribed, so the
 # retry picks the engine itself -- exactly like an in-session failed slot.
 #
+# Announce-once bit (#134): a single "already announced" flag rides in the marker
+# name as a trailing _seen token (voice_<ts>..._d<ms>_seen.needsretry). It is the
+# ONLY marker state beyond the persistence itself. An un-announced marker (no
+# _seen) draws the startup RECOVERED panel once; showing it renames the marker to
+# the _seen flavor, so every later start arms Ctrl+Alt+R silently. Both flavors
+# read/arm/supersede/delete identically -- the token sits before the extension,
+# is non-numeric and distinct from _recovered, so it never bleeds into the ts,
+# _d<ms>, or _recovered anchors (same disjointness the delete glob relies on).
+#
 # Backward compatible: a legacy bare voice_<ts>_d<ms>.needsretry (#106) matches
-# with rec=None and reconstructs voice_<ts>.mp3 unchanged -- no migration needed.
+# with rec=None, seen=None and reconstructs voice_<ts>.mp3 unchanged. Migration is
+# automatic: every pre-existing marker (current or legacy) lacks _seen, so it
+# reads as not-yet-announced and gets exactly one more panel after the update,
+# then goes quiet -- no dedicated migration code.
 
 _RETRY_MARKER_NAME_RE = re.compile(
-    r"^voice_(?P<ts>\d{8}_\d{6}_\d{3})(?P<rec>_recovered(?:_\d+)?)?_d(?P<ms>\d+)\.needsretry$"
+    r"^voice_(?P<ts>\d{8}_\d{6}_\d{3})(?P<rec>_recovered(?:_\d+)?)?"
+    r"_d(?P<ms>\d+)(?P<seen>_seen)?\.needsretry$"
 )
 
 
@@ -398,6 +411,39 @@ def delete_superseded_retry_markers(newest_ts: str) -> None:
                 marker.unlink(missing_ok=True)
     except Exception as e:
         logger.warning(f"Could not prune superseded retry markers: {e}")
+
+
+def is_retry_marker_announced(mp3_path) -> bool:
+    """True when this recording's surviving marker is the announced (_seen)
+    flavor (#134). The RECOVERED panel has already been shown once, so a later
+    start arms Ctrl+Alt+R silently instead of re-nagging. Keyed on the mp3 stem
+    like delete_retry_marker, so the bare and _recovered shapes stay disjoint.
+    Never raises: a probe failure reads as not-announced, which at worst re-shows
+    the panel once (never a lost recording)."""
+    try:
+        stem = Path(mp3_path).stem
+        return any(ARCHIVE_FOLDER.glob(f"{stem}_d*_seen.needsretry"))
+    except Exception as e:
+        logger.warning(f"Could not probe retry-marker announce state for {mp3_path}: {e}")
+        return False
+
+
+def mark_retry_marker_announced(mp3_path) -> None:
+    """Rename this recording's un-announced marker to the announced (_seen)
+    flavor so the RECOVERED panel is shown exactly once (#134). Idempotent (an
+    already-_seen marker is skipped) and best-effort: a failed rename leaves the
+    marker un-announced, so the only cost is one more panel next start -- never a
+    lost recording. The persistence itself is unchanged; only the announcement
+    becomes one-shot."""
+    try:
+        stem = Path(mp3_path).stem
+        for marker in ARCHIVE_FOLDER.glob(f"{stem}_d*.needsretry"):
+            if marker.name.endswith("_seen.needsretry"):
+                continue
+            marker.rename(marker.with_name(
+                marker.name[:-len(".needsretry")] + "_seen.needsretry"))
+    except Exception as e:
+        logger.warning(f"Could not mark retry marker announced for {mp3_path}: {e}")
 
 
 def _repair_device_name(name: Optional[str]) -> Optional[str]:

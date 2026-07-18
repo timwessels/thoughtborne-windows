@@ -715,6 +715,27 @@ def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
     return lines
 
 
+def render_no_speech(*, ansi, compact):
+    """A recording that transcribed to empty on every engine held no speech (#133).
+    A deliberately calm yellow panel -- benign, not an error: no red, no WHAT-NOW
+    zone, no hotkey (a retry cannot help, and the audio is kept in history). Mirrors
+    the RECOVERED/SAVED yellow-lamp voice without offering an action."""
+    head = "no speech found in this recording"
+    detail = "the audio is kept in history -- a retry cannot help"
+    if compact:
+        return [
+            cline([(LAMP + " NO SPEECH", (BOLD, YELLOW)),
+                   ("  no speech in this recording", ())], ansi),
+            cline("   kept in history -- a retry cannot help", ansi),
+        ]
+    return [
+        dtop(ansi),
+        _tag_headline(LAMP + " NO SPEECH", (BOLD, YELLOW), "  " + head, ansi),
+        dline("    " + detail, ansi),
+        dbot(ansi),
+    ]
+
+
 def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
     """No constructible API at startup. Tim's call (#109): yellow SETUP NEEDED,
     numbered steps, never red -- a missing first-run key is a setup step, not an

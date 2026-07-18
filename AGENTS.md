@@ -13,7 +13,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 ## Run & verify
 
 - Run: `uv run thoughtborne.py`, or double-click `Thoughtborne.bat`. Requires Windows, a microphone, and at least one API key in `.env` (template: `.env.example`).
-- There is no automated test suite. The verification ladder: `python -m py_compile <changed files>` for syntax; `python3 test_console_ui.py` verifies every console panel/strip (widths, CP437 charset, the plain-ASCII twin, red-exclusivity) and runs on plain Python off-Windows (`--show` prints the screens); `python3 test_audio_stall.py` exercises the audio stall/deadlock guards (#128 — the non-blocking capture read, the stall watchdog, and the close/open timeout-and-poison containment) off-Windows against a fault-injecting fake stream; start the tool and check the startup masthead plus `All hotkeys registered successfully` in `thoughtborne.log`; the in-app self-test `Ctrl+Alt+Ü` transcribes `test_audio.mp3` end to end (needs a valid API key).
+- There is no automated test suite. The verification ladder: `python -m py_compile <changed files>` for syntax; `python3 test_console_ui.py` verifies every console panel/strip (widths, CP437 charset, the plain-ASCII twin, red-exclusivity) and runs on plain Python off-Windows (`--show` prints the screens); `python3 test_audio_stall.py` exercises the audio stall/deadlock guards (#128 — the non-blocking capture read, the stall watchdog, and the close/open timeout-and-poison containment) off-Windows against a fault-injecting fake stream; `python3 test_retry_marker_lifecycle.py` exercises the persistent retry-marker lifecycle off-Windows (#106/#114/#134 announce-once + #133 no-speech verdict, cites D-001) against a tempdir archive; start the tool and check the startup masthead plus `All hotkeys registered successfully` in `thoughtborne.log`; the in-app self-test `Ctrl+Alt+Ü` transcribes `test_audio.mp3` end to end (needs a valid API key).
 - Working from inside WSL2? The tool itself must run Windows-side; [`llms-install.md`](llms-install.md) covers the interop.
 
 ## While the tool is running
@@ -26,6 +26,7 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 - **Bilingual README:** `README.md` (English) and `README.de.md` (German) are content-equivalent twins — a change to one is mirrored in the other.
 - **Commit messages:** short, imperative English; reference issues with `(#N)`.
 - **CHANGELOG.md:** non-trivial changes get an entry under `## [Unreleased]` (Keep-a-Changelog categories: `### Added` / `### Changed` / `### Fixed` / `### Removed`).
+- **Decision log:** `DECISIONS.md` records deliberate, contestable product decisions. Check it **before discussing or specifying any behavior change** — issue texts included — so a settled call is not silently reopened. An issue that touches a recorded decision cites it (`respects D-001` / `proposes superseding D-001`); superseding an entry needs the maintainer's okay (mark the old one `Superseded by D-NNN`, never delete it).
 
 ## Guardrails
 
@@ -37,8 +38,8 @@ If `thoughtborne.py` is currently running, do not modify code, rename files, or 
 
 ## Where things live
 
-- **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `config.py`, `console_ui.py` (the Cockpit console renderer, #109 — pure/stdlib, verified by `test_console_ui.py`).
+- **Source:** `thoughtborne.py`, `audio_handler.py`, `transcriber.py`, `output_handler.py`, `hotkey_manager.py`, `ptt_detector.py` (the push-to-talk gesture state machine, #66 — Win32-decoupled), `config.py`, `console_ui.py` (the Cockpit console renderer, #109 — pure/stdlib, verified by `test_console_ui.py`).
 - **Windows launcher:** `Thoughtborne.bat`.
-- **Public docs:** `README.md`, `README.de.md`, `CHANGELOG.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
+- **Public docs:** `README.md`, `README.de.md`, `CHANGELOG.md`, `DECISIONS.md`, `VISION.md`, `LICENSE`, `AGENTS.md`, `llms-install.md`, `.env.example`, `personal_settings.example.json`.
 - **Website:** `docs/` — the public project site, served at [thoughtborne.app](https://thoughtborne.app) via GitHub Pages (`docs/CNAME` holds the custom domain). Public content, not a local workspace.
 - **User data** (created at runtime, gitignored): `history/` (recordings in `audio/`, transcripts in `transcripts/`), `thoughtborne.log` — the user's data, never delete. Older checkouts may still carry the legacy `voice_archive/` + `text_archive/` folders (auto-migrated into `history/` at startup) — never delete those either.

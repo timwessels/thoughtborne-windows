@@ -333,6 +333,7 @@ class TranscriptionTask:
     trigger_keys: Optional[List[str]] = None  # Which keys to wait for
     auto_insert: bool = True  # Whether to automatically insert text (False = only save for later)
     send_after_insert: bool = False  # Whether to press Enter after inserting (for sending messages)
+    no_speech: bool = False  # Empty on every engine -> honest "no speech" verdict, not a failure (#133)
 
 
 class OutputManager:
@@ -844,6 +845,14 @@ class OutputManager:
                             self.on_task_complete(event='failed',
                                                   kind='insertion',
                                                   seq=task.sequence_number)
+                elif task.no_speech:
+                    # #133: every engine ran clean and returned empty -- the
+                    # recording held no speech. A benign verdict, not a failure:
+                    # route the honest 'no speech' panel, never the FAILED path.
+                    logger.info(f"No speech in sequence {task.sequence_number}", extra=FILE_ONLY)
+                    if self.on_task_complete:
+                        self.on_task_complete(event='no_speech',
+                                              seq=task.sequence_number)
                 elif task.is_error:
                     logger.info(f"Skipping errored sequence {task.sequence_number}", extra=FILE_ONLY)
                     if self.on_task_complete:
