@@ -240,12 +240,20 @@
       <p>Windows, a microphone, and at least one API key — Groq's free tier works. Setup lives in the repo: a standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
       <p>Thoughtborne is a single Python script, not an installed product — lean, readable end to end, easy to modify. The trade-off: it runs from a terminal window, not behind a GUI.</p>
       <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
-           becomes the first option in this section; the GitHub pointers below move after it. -->
+           becomes the first option in this section; the download + GitHub pointers below
+           move after it. -->
       <p class="actions">
-        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows#installation">Installation (README)</a>
+        <!-- Direct download of the current source tree (#103). Points at the main-branch
+             zip, not a tagged release: main is the maintained, current state of the tool
+             and this URL stays current with zero page edits, whereas the only
+             release tag (v1.0.0) trails main and would hand users stale code. Unpacks as
+             thoughtborne-windows-main — the folder the README's ZIP step already names.
+             Revisit only if a per-release tagging/asset process starts. -->
+        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows/archive/refs/heads/main.zip">Download ZIP</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Setup guide (README)</a>
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/blob/main/llms-install.md">Agent-guided setup</a>
       </p>
-      <p class="audience">Built for people who think technically — comfortable launching a script in a terminal and pasting an API key into a <code>.env</code> file.</p>
+      <p class="audience">The download is the source tree — unzip it, then follow the README. Built for people who think technically — comfortable launching a script in a terminal and pasting an API key into a <code>.env</code> file.</p>
     </div>
   </section>
 
