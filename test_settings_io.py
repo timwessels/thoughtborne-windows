@@ -34,10 +34,20 @@ What is covered:
     malformed key (embedded newline / non-latin-1 glyph) rejected as INVALID without
     an exception escaping the worker thread, and a padded key stripped before the
     Authorization header (localhost capture).
+  - settings_strings i18n (#144): the DE and EN tables carry the identical key set
+    (a missing translation fails here, not silently at runtime), every value is a
+    non-empty string, the t() lang -> EN -> key-itself fallback chain, the
+    engine.desc.* EN wording tracks config.API_DISPLAY, and detect_ui_language()'s
+    off-Windows branch returns "de"/"en".
+  - settings_io.write_personal_settings ui.language merge (#144, F6): ui_language
+    None preserves an existing ui block untouched (and creates none when absent),
+    "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
+    absent-file write with a language seeds a fresh ui block.
 
 Hands-on gates (a separate test issue, not reachable here): the real Tk state-bit
 values in decode_key_event, and the live "Test key" round-trip against real keys.
 """
+import json
 import logging
 import os
 import socket
@@ -55,6 +65,7 @@ logging.getLogger('Thoughtborne.Config').setLevel(logging.CRITICAL)
 import config
 import key_check as kc
 import settings_io as sio
+import settings_strings as sstr
 from key_check import KeyStatus
 
 SHOW = "--show" in sys.argv
@@ -532,6 +543,105 @@ def check_key_check_strip():
           f"stripped padded key should get a 200 VALID, got {res}")
 
 
+# ---- settings_strings i18n (#144) --------------------------------------------
+def check_i18n():
+    check(set(sstr.available_languages()) == {"de", "en"},
+          f"available_languages() should be de+en, got {sstr.available_languages()}")
+
+    en, de = set(sstr._EN), set(sstr._DE)
+    check(en - de == set(), f"i18n: keys present in EN but missing in DE: {sorted(en - de)}")
+    check(de - en == set(), f"i18n: keys present in DE but missing in EN: {sorted(de - en)}")
+
+    for table_name, table in (("EN", sstr._EN), ("DE", sstr._DE)):
+        for k, v in table.items():
+            check(isinstance(v, str) and v.strip() != "",
+                  f"i18n: {table_name}[{k!r}] is empty / not a string")
+
+    # every default hotkey action has a display name in both languages
+    for action in config.DEFAULT_HOTKEYS:
+        check(f"action.{action}" in sstr._EN and f"action.{action}" in sstr._DE,
+              f"i18n: missing action.{action} string")
+
+    # t() fallback chain: direct lookup, unknown-lang -> EN, missing key -> the key
+    check(sstr.t("btn.save", "de") == sstr._DE["btn.save"], "t(): DE lookup wrong")
+    check(sstr.t("btn.save", "en") == sstr._EN["btn.save"], "t(): EN lookup wrong")
+    check(sstr.t("btn.save", "fr") == sstr._EN["btn.save"],
+          "t(): unknown lang should fall back to EN")
+    check(sstr.t("no.such.key", "de") == "no.such.key",
+          "t(): a missing key should fall back to the key itself")
+
+    # engine.desc.* EN must equal config.API_DISPLAY's descriptors (one wording,
+    # two surfaces -- the console lineup and the settings dropdown).
+    for api, disp in config.API_DISPLAY.items():
+        check(sstr.t(f"engine.desc.{api}", "en") == disp["descriptor"],
+              f"i18n: engine.desc.{api} EN must equal API_DISPLAY descriptor "
+              f"({sstr.t(f'engine.desc.{api}', 'en')!r} != {disp['descriptor']!r})")
+
+    check(sstr.detect_ui_language() in ("de", "en"),
+          "detect_ui_language() off-Windows must return 'de' or 'en'")
+
+
+# ---- settings_io ui.language merge (#144, F6) --------------------------------
+def check_ui_language(tmp):
+    # (a) ui_language=None preserves an existing ui block untouched.
+    p = tmp / "ps_ui_keep.json"
+    original_ui = {"_comment": "keep me", "language": "en", "theme": "dark"}
+    p.write_text(json.dumps({"ui": original_ui, "vocabulary": {"terms": ["x"]}},
+                            indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS, ui_language=None)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "UI-none: file did not reload as valid JSON")
+    check(data.get("ui") == original_ui,
+          f"UI-none: ui block not preserved untouched: {data.get('ui')}")
+
+    # (b) 'de' sets ui.language, preserving the _comment and sibling keys.
+    p = tmp / "ps_ui_set.json"
+    p.write_text(json.dumps({"ui": {"_comment": "c", "theme": "dark"},
+                             "vocabulary": {"terms": ["keepme"]}},
+                            indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS, ui_language="de")
+    data, _ = sio.read_personal_settings(p)
+    ui = data.get("ui", {})
+    check(ui.get("language") == "de", f"UI-set: language not written: {ui}")
+    check(ui.get("_comment") == "c", "UI-set: ui _comment not preserved")
+    check(ui.get("theme") == "dark", "UI-set: ui sibling key not preserved")
+    check(data.get("vocabulary", {}).get("terms") == ["keepme"],
+          "UI-set: vocabulary clobbered")
+
+    # (c) a second write with 'en' updates the existing language in place.
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS, ui_language="en")
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("ui", {}).get("language") == "en", "UI-set: language not updated to en")
+    check(data.get("ui", {}).get("theme") == "dark", "UI-set: sibling lost on update")
+
+    # (d) no ui block + None -> none is created (the no-toggle first-run case).
+    p = tmp / "ps_ui_absent.json"
+    p.write_text('{\n  "vocabulary": {"terms": ["x"]}\n}\n', encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS, ui_language=None)
+    data, _ = sio.read_personal_settings(p)
+    check("ui" not in data, f"UI-absent: a ui block was created for ui_language=None: {data.get('ui')}")
+
+    # (e) absent file + 'de' -> a fresh ui block with the language (and the
+    # example's _comment lead, since EXAMPLE_PS carries one).
+    p = tmp / "ps_ui_new.json"
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS, ui_language="de")
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("ui", {}).get("language") == "de",
+          "UI-new: language missing on absent-file write")
+    check("_comment" in data.get("ui", {}), "UI-new: example _comment lead not carried")
+    check("vocabulary" not in data, "UI-new: absent-file write seeded a vocabulary block")
+
+
 def _show():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -551,6 +661,7 @@ def main():
         tmp = Path(d)
         check_env(tmp)
         check_personal_settings(tmp)
+        check_ui_language(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
         check(not leftovers, f"atomic write left temp files behind: {leftovers}")
@@ -559,6 +670,7 @@ def main():
     check_key_check_socket()
     check_key_check_malformed()
     check_key_check_strip()
+    check_i18n()
 
     if SHOW:
         _show()

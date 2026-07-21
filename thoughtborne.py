@@ -31,6 +31,7 @@ import signal
 import logging
 import threading
 import datetime
+import subprocess
 from pathlib import Path
 from typing import List, Optional, NamedTuple, Tuple
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
@@ -1215,10 +1216,42 @@ class ThoughtborneApp:
                     f"{reason} -> started on {started} (default: {default_label})")
             return api_name, transcriber
 
+        # First-run onboarding (#144): a true no-key first start -- every attempt
+        # failed for a MISSING key, not a genuine construction error -- opens the
+        # graphical settings app in wizard mode and exits cleanly, no input() wait.
+        # Any non-key failure, or a launch that doesn't take, keeps the SETUP-NEEDED
+        # panel + input() fallback below. Tightly guarded so it can only ever help.
+        all_missing_key = bool(failures) and all(
+            isinstance(err, MissingAPIKeyError) for _, err in failures)
+        if all_missing_key and self._launch_first_run_settings():
+            logger.info("No API key found -- launched the first-run settings app (#144)",
+                        extra=FILE_ONLY)
+            print("No API key found yet -- opening Thoughtborne Setup ...")
+            sys.exit(0)
+
         self._print_no_api_error_block(failures)
         print("Press Enter to exit...")
         input()
         sys.exit(1)
+
+    @staticmethod
+    def _launch_first_run_settings() -> bool:
+        """Detached-launch the settings app in first-run mode (#144). Prefers
+        pythonw (no stray console beside the wizard) and never raises -- a False
+        return keeps the caller's SETUP-NEEDED console fallback. The app is pure
+        stdlib, so the interpreter running Thoughtborne can run it directly."""
+        settings_script = SCRIPT_DIR / "thoughtborne_settings.py"
+        if not settings_script.exists():
+            return False
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        interpreter = str(pythonw) if pythonw.exists() else sys.executable
+        try:
+            subprocess.Popen([interpreter, str(settings_script), "--first-run"],
+                             cwd=str(SCRIPT_DIR))
+            return True
+        except Exception as e:
+            logger.debug(f"Could not launch the first-run settings app: {e}")
+            return False
 
     @staticmethod
     def _print_no_api_error_block(failures):

@@ -37,5 +37,9 @@
 
   "defaults": {
     "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (soniox-live). Must be one of: soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
+  },
+
+  "ui": {
+    "_comment": "GUI-only (Issue #144). The graphical settings app remembers its own display language here — 'language' is 'de' or 'en'. The dictation tool itself ignores this whole block; it has no effect on transcription, hotkeys, or the console. If absent, the settings app follows the Windows display language. Example:  \"language\": \"de\"."
   }
 }

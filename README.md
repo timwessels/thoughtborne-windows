@@ -66,7 +66,7 @@ Thoughtborne uses [uv](https://docs.astral.sh/uv/) as its Python project manager
 
    Or download and unpack the ZIP from GitHub — it unpacks as `thoughtborne-windows-main`, so adjust the `cd`.
 
-3. **Set up API keys:** copy `.env.example` to `.env` and enter at least one key — where to get the keys is in [API keys](#api-keys).
+3. **Set up API keys:** copy `.env.example` to `.env` and enter at least one key — where to get the keys is in [API keys](#api-keys). Or skip this step: on a first start without any key, [the settings app](#the-settings-app) opens and walks you through it.
 
    ```
    copy .env.example .env
@@ -104,6 +104,12 @@ python thoughtborne.py
 ```
 
 The optional file installs the Soniox SDK. Without it, the `soniox` slot runs entirely on the v5 engine — it works, just slower for short recordings. (On the uv path the SDK is included automatically.)
+
+## The settings app
+
+Configuration has a graphical front door: a small settings app — one window that doubles as the first-run wizard and the everyday settings dialog, in German or English (switchable in the header). On a first start without any API key, Thoughtborne opens it automatically and walks you through three pages — transcription provider & API key (with a live "Test key" check), hotkeys (two one-click preset schemes, or capture any combo per action), behavior (default engine, and pointers for the tray and admin-window routes) — ending in "Save & start Thoughtborne". Later, the same window is the settings dialog: double-click `Thoughtborne-Settings.bat` (worth a Start-menu shortcut, so it turns up in Windows search).
+
+The app writes the same two files you could edit by hand — `.env` (the keys) and `personal_settings.json` (hotkeys, default engine) — and edits them surgically: hand-maintained content such as your recognition vocabulary and every comment stay untouched, and hotkeys are stored only where they differ from the defaults. A running Thoughtborne picks changes up on its next start (no live reload). Everything the app does remains hand-editable — it is a front end for the files below, not a replacement (see [Customization](#customization)).
 
 ## API keys
 
@@ -154,6 +160,8 @@ Transcripts are always inserted in recording order, even when several recordings
 **`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, rebind the `test_transcription` action in the `hotkeys` block of `personal_settings.json` (see Customization below) — `config.py` keeps the defaults.
 
 ## Customization
+
+Most of what follows is also available graphically in [the settings app](#the-settings-app) — it writes the very same files described below, so you can mix the two freely.
 
 **Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and both paths of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
 

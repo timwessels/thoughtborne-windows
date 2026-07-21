@@ -17,7 +17,11 @@ rewrite.
     default scheme writes no hotkey entries) and `defaults.api` only when it
     differs from `config.BUILTIN_DEFAULT_API`. On an absent file only the managed
     blocks are written -- NEVER the example's placeholder `vocabulary` (its dummy
-    terms would otherwise become live Soniox vocabulary, a real data bug).
+    terms would otherwise become live Soniox vocabulary, a real data bug). The
+    GUI-only `ui` block (the settings app's own display language, #144) is a third
+    managed block, but written only on demand: `write_personal_settings` touches it
+    solely when passed a `ui_language`, so a user who never changed the language
+    leaves no `ui` block behind (the dictation tool ignores it entirely).
 All writes are atomic (temp file in the same dir + `os.replace`). A present-but-
 unreadable target aborts the save (the read error propagates) rather than
 clobbering it, and a UTF-8 BOM is tolerated on read and healed (dropped) on write.
@@ -182,7 +186,13 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
 # =============================================================================
 # personal_settings.json (surgical merge)
 # =============================================================================
-MANAGED_BLOCKS = ("hotkeys", "defaults")   # the only app-managed blocks in v1
+# The blocks whose `_comment` lead the managed-skeleton seeds on an absent-file
+# write. The GUI-only `ui` block (#144) is app-managed too, but deliberately NOT
+# in this set: it is written only when a `ui_language` is passed, so seeding an
+# empty `ui` block on every first write (which adding it here would do) would
+# violate the "no language changed -> no ui block" minimal-diff rule. See
+# write_personal_settings.
+MANAGED_BLOCKS = ("hotkeys", "defaults")
 
 
 def read_personal_settings(path) -> tuple:
@@ -246,7 +256,7 @@ def _managed_skeleton(example_path) -> dict:
 
 
 def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
-                            example_path=None) -> None:
+                            example_path=None, ui_language=None) -> None:
     """Merge-write. Load the existing dict (or build a minimal skeleton from the
     managed blocks' example `_comment` leads -- never the placeholder vocabulary).
     Replace ONLY the managed blocks:
@@ -256,6 +266,11 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
       - defaults.api: set only if `default_api` differs from
         `config.BUILTIN_DEFAULT_API`; else the key is dropped (any sibling keys +
         `_comment` in `defaults` stay).
+      - ui.language (#144, GUI-only): written ONLY when `ui_language` is `"de"` or
+        `"en"`. `ui_language=None` leaves any `ui` block exactly as found (and
+        creates none), so a user who never toggled the language keeps a clean file.
+        When set, any other keys in `ui` (and its `_comment`) are preserved; a
+        brand-new `ui` block gets the example's `_comment` lead if available.
     Every unmanaged block (vocabulary / push_to_talk / soniox_endpointing) and
     every `_comment` is preserved untouched. Serialized json.dump(indent=2,
     ensure_ascii=False) + trailing newline. Atomic (temp file + os.replace).
@@ -298,8 +313,41 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
     else:
         data.pop("defaults", None)
 
+    # ---- ui.language: GUI-only, written only on demand (#144) ------------------
+    # None -> leave any existing `ui` block exactly as found (and create none), so
+    # a no-language-change session leaves a clean file. Set -> merge into the
+    # existing block (keeping its `_comment` and any siblings) or seed a fresh one
+    # with the example's `_comment` lead. The dictation tool ignores this block.
+    if ui_language is not None:
+        ui_block = data.get("ui")
+        if isinstance(ui_block, dict):
+            new_ui = dict(ui_block)
+        else:
+            new_ui = {}
+            comment = _example_block_comment(example_path, "ui")
+            if comment is not None:
+                new_ui["_comment"] = comment
+        new_ui["language"] = ui_language
+        data["ui"] = new_ui
+
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     _atomic_write(path, content)
+
+
+def _example_block_comment(example_path, block):
+    """The `_comment` lead of `block` in the example file, or None. Best-effort
+    (the example is optional docs, not user data), mirroring _managed_skeleton: an
+    unreadable/absent example never aborts a save, it just means no seeded comment."""
+    if example_path is None:
+        return None
+    try:
+        example, _ = read_personal_settings(example_path)
+    except OSError:
+        return None
+    src = example.get(block)
+    if isinstance(src, dict) and "_comment" in src:
+        return src["_comment"]
+    return None
 
 
 def hotkeys_diff_vs_default(effective: dict, default: dict) -> dict:

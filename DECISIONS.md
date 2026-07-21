@@ -56,3 +56,48 @@ follows:
 Do not reintroduce: a per-start nag, a pending count in the panel, a
 consume-on-read marker (breaks cross-restart retry), or any automatic deletion of
 recovered audio.
+
+---
+
+## D-002 — Settings app: how it writes config, and when the tool sees changes
+
+Decided 2026-07-21 (#144).
+
+The graphical settings/onboarding app is the primary editor for `.env` and
+`personal_settings.json`, and `settings_io.py` is the only code that writes them. The
+write contract:
+
+- **Surgical merge, never a full rewrite.** `personal_settings.json` is parsed and
+  only the app-managed blocks (`hotkeys`, `defaults`, the GUI-only `ui`) are replaced;
+  every other block and every `_`-prefixed key — `_comment`s included, even inside
+  managed blocks — is preserved. `.env` is edited line-wise: the managed keys are
+  updated in place, all other lines/comments/order kept; an empty field is omitted, so
+  a blank never clobbers a stored key.
+- **Abort rather than clobber.** A present-but-unreadable target (locked,
+  permission-denied) or one that is not UTF-8-decodable (an ANSI-encoded file whose
+  vocabulary is intact, just wrongly encoded) aborts the save with an error —
+  recoverable user data is never overwritten. Only a file whose bytes read fine but
+  whose JSON is corrupt takes the overwrite path, and only after the app has warned.
+- **Diff against the shipped defaults.** Hotkeys are written as a #55 partial
+  override — only actions that differ from `DEFAULT_HOTKEYS`; `defaults.api` only when
+  it differs from the built-in default. A user on the default scheme leaves no frozen
+  copy behind, so a future change to the shipped defaults still reaches them.
+- **Never seed the example verbatim.** A first write with no existing file produces a
+  minimal file with only the managed blocks (carrying the example's `_comment` leads);
+  it must NOT copy the example's placeholder `vocabulary` — those dummy terms would
+  become live Soniox vocabulary.
+- **A GUI-only `ui` block.** The app persists its own display language as
+  `ui.language`; the dictation tool ignores the block entirely.
+- **No live reload in v1.** Changes are picked up on the tool's *next* start. The
+  settings app and the running tool do not coordinate; writing while the tool runs is
+  safe (next-start pickup), no file lock.
+- **Guidance, not takeover, for external files.** The Windows Terminal tray toggles
+  (#143) are explained and pointed to, never written by the app (that file is
+  Terminal's own, JSONC, and global to every Terminal window).
+
+Do not reintroduce: a full-file rewrite that drops user comments or unmanaged blocks;
+a save that silently overwrites an unreadable or undecodable settings file; freezing
+the default hotkeys into the file; seeding the placeholder vocabulary; or a silent
+write to Windows Terminal's `settings.json`.
+
+Does not touch D-001.

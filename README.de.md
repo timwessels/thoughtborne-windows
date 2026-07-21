@@ -66,7 +66,7 @@ Thoughtborne nutzt [uv](https://docs.astral.sh/uv/) als Python-Projektmanager: u
 
    Oder das ZIP von GitHub herunterladen und entpacken — der entpackte Ordner heißt `thoughtborne-windows-main`, das `cd` entsprechend anpassen.
 
-3. **API-Keys einrichten:** `.env.example` als `.env` kopieren und mindestens einen Key eintragen — wo es die Keys gibt, steht unter [API-Keys](#api-keys).
+3. **API-Keys einrichten:** `.env.example` als `.env` kopieren und mindestens einen Key eintragen — wo es die Keys gibt, steht unter [API-Keys](#api-keys). Oder diesen Schritt überspringen: Beim ersten Start ohne Key öffnet sich [die Einstellungs-App](#die-einstellungs-app) und führt hindurch.
 
    ```
    copy .env.example .env
@@ -104,6 +104,12 @@ python thoughtborne.py
 ```
 
 Die optionale Datei installiert das Soniox-SDK. Ohne das SDK läuft der `soniox`-Slot vollständig über die v5-Engine — funktioniert, ist bei kurzen Aufnahmen nur langsamer. (Auf dem uv-Weg ist das SDK automatisch enthalten.)
+
+## Die Einstellungs-App
+
+Die Konfiguration hat eine grafische Eingangstür: eine kleine Einstellungs-App — ein Fenster, das zugleich Erststart-Assistent und alltäglicher Einstellungsdialog ist, auf Deutsch oder Englisch (umschaltbar im Kopfbereich). Beim ersten Start ohne API-Key öffnet Thoughtborne sie automatisch und führt durch drei Seiten — Transkriptionsanbieter & API-Key (mit Live-Prüfung „Key testen"), Hotkeys (zwei Ein-Klick-Preset-Schemata oder jede Kombination pro Aktion per Tastendruck aufnehmen), Verhalten (Standard-Engine, dazu Wegweiser für Tray und Admin-Fenster) — und endet mit „Speichern & Thoughtborne starten". Später ist dasselbe Fenster der Einstellungsdialog: Doppelklick auf `Thoughtborne-Settings.bat` (eine Startmenü-Verknüpfung lohnt sich, dann taucht es in der Windows-Suche auf).
+
+Die App schreibt dieselben zwei Dateien, die sich auch von Hand pflegen lassen — `.env` (die Keys) und `personal_settings.json` (Hotkeys, Standard-Engine) — und bearbeitet sie chirurgisch: Handgepflegtes wie das Erkennungs-Vokabular und jeder Kommentar bleiben unangetastet, und Hotkeys landen nur dort in der Datei, wo sie von den Defaults abweichen. Ein laufendes Thoughtborne übernimmt Änderungen beim nächsten Start (kein Live-Reload). Alles, was die App tut, bleibt von Hand editierbar — sie ist ein Frontend für die genannten Dateien, kein Ersatz (siehe [Anpassung](#anpassung)).
 
 ## API-Keys
 
@@ -154,6 +160,8 @@ Transkripte werden immer in Aufnahme-Reihenfolge eingefügt, auch wenn mehrere A
 **`Ü` ohne deutsche Tastatur:** `Ü` ist auf dem deutschen QWERTZ-Layout eine eigene Taste (rechts von `P`). Auf anderen Layouts, falls der Selbsttest nicht auslöst, die Aktion `test_transcription` im `hotkeys`-Block der `personal_settings.json` umbelegen (siehe Anpassung unten) — `config.py` behält die Defaults.
 
 ## Anpassung
+
+Das meiste davon lässt sich auch grafisch in [der Einstellungs-App](#die-einstellungs-app) erledigen — sie schreibt genau die unten beschriebenen Dateien, beides ist frei kombinierbar.
 
 **Erkennungs-Vokabular** (empfohlen): `personal_settings.example.json` als `personal_settings.json` kopieren und den `vocabulary`-Block mit eigenen Namen, Fachbegriffen und häufigen Fremdwörtern füllen — sie werden dem Sprachmodell als Kontext mitgegeben und verbessern die Erkennung spürbar. Genutzt von allen Soniox-Engines — Soniox Live und beiden Pfaden des Soniox-Upload-Slots; die Groq-APIs ignorieren es. Fehlt die Datei, läuft das Tool einfach ohne Personalisierung.
 
