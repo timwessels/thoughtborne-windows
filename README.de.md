@@ -165,6 +165,13 @@ copy personal_settings.example.json personal_settings.json
 
 **Soniox-Live-Endpointing (optional):** Ein standardmäßig inaktiver `soniox_endpointing`-Block in der `personal_settings.json` justiert, wann die Soniox-Live-Engine einen gesprochenen Satz als beendet ansieht (Endpoint-Erkennung) — etwa wie lange sie bei einer Pause wartet, bevor sie den Satz abschließt. Die Felder, ihre Wertebereiche und die von Soniox dokumentierte Ausgangsempfehlung fürs Diktieren stehen im Kommentar des Blocks in `personal_settings.example.json`; ohne den Block wird nichts gesendet und es gelten unverändert die Soniox-Defaults.
 
+**Konsole aus der Taskleiste (optional):** Thoughtborne läuft in einem Konsolenfenster, das wie jedes andere in der Taskleiste sitzt. Um es aus dem Weg zu räumen — läuft weiter, ein Klick zurück —, wenn dieses Fenster in **Windows Terminal** läuft (dem Standard-Konsolenhost auf aktuellem Windows 11), erledigen das zwei von Terminals eigenen Einstellungen, ohne Zusatz-Tool und ohne Admin-Rechte. Terminals Einstellungen öffnen (`Ctrl+,`) und unter **Interaktion** beide aktivieren:
+
+- „Terminal bei Minimierung im Infobereich ausblenden" (`minimizeToNotificationArea`) — Minimieren schickt das Fenster dann in den Infobereich (den System-Tray) statt in die Taskleiste: Der Taskleisten-Button verschwindet und alles läuft weiter, das Diktieren eingeschlossen (es ist hotkey-gesteuert und funktioniert bei verstecktem Fenster).
+- „Immer ein Symbol im Infobereich anzeigen" (`alwaysShowNotificationIcon`) — hält ein dauerhaftes Tray-Icon als Anker bereit: Ein Einzelklick stellt das Fenster wieder her, ein Rechtsklick listet es auf.
+
+Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf-Ausklappmenü (das `^`-Chevron) — das Terminal-Icon einmal von dort in den sichtbaren Tray-Bereich ziehen, damit es erreichbar bleibt. Zwei ehrliche Grenzen: Beide Einstellungen sind **global**, wirken also auf *jedes* Windows-Terminal-Fenster (und Minimieren trayt immer das ganze Fenster, nie einen einzelnen Tab) — belanglos, wenn man das Terminal sonst nicht nutzt, eine bewusste Wahl, wenn doch; und der Weg braucht Windows Terminal — unter dem klassischen `conhost`-Host (ältere Setups oder wenn man das Standard-Terminal umgestellt hat) gibt es diese Schalter nicht. Unter Windows 10 ist Terminal installierbar und als Standard-Terminal setzbar. Die GUI-Schalter sind der saubere Weg — Terminals `settings.json` von Hand zu editieren ist nicht nötig.
+
 **Einstellungen in `config.py`:** Die Konfiguration besteht bewusst aus einfachen Konstanten mit Kommentaren. Was die meisten anpassen:
 
 - `DEFAULT_API` — die API beim Start (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`).
