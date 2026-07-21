@@ -22,15 +22,19 @@ import ctypes.wintypes
 import logging
 import threading
 
+# The modifier flags, the modifier map, the static VK map (letters/digits/F-keys)
+# and the structural parser live in the pure, ctypes-free hotkey_parse module (#55)
+# so config can share the exact same lexical layer without importing this
+# Windows-bound module. Re-exported here (imported names) so any consumer of
+# hotkey_manager.MOD_* / MODIFIER_MAP / VK_MAP keeps working unchanged.
+from hotkey_parse import (
+    MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT,
+    MODIFIER_MAP, VK_MAP, HotkeyParseError, parse_hotkey_lexical,
+)
+
 logger = logging.getLogger('Thoughtborne.HotkeyManager')
 
 # ===== Win32 Constants =====
-MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
-MOD_WIN = 0x0008
-MOD_NOREPEAT = 0x4000
-
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 
@@ -59,25 +63,7 @@ VkKeyScanW.restype = ctypes.c_short
 GetCurrentThreadId = kernel32.GetCurrentThreadId
 
 # ===== VK Code Maps =====
-
-# Modifier string -> RegisterHotKey modifier flag
-MODIFIER_MAP = {
-    'ctrl': MOD_CONTROL,
-    'control': MOD_CONTROL,
-    'alt': MOD_ALT,
-    'shift': MOD_SHIFT,
-    'win': MOD_WIN,
-    'windows': MOD_WIN,
-}
-
-# Key string -> VK code (for non-modifier keys)
-VK_MAP = {}
-# Letters A-Z
-for i in range(26):
-    VK_MAP[chr(ord('a') + i)] = 0x41 + i
-# Digits 0-9
-for i in range(10):
-    VK_MAP[str(i)] = 0x30 + i
+# MODIFIER_MAP and VK_MAP (letters, digits, and F-keys) come from hotkey_parse (#55).
 
 # Modifier string -> VK code (for GetAsyncKeyState)
 VK_KEY_MAP = {
@@ -88,7 +74,8 @@ VK_KEY_MAP = {
     'win': 0x5B,        # VK_LWIN
     'windows': 0x5B,
 }
-# Merge letter/digit codes into VK_KEY_MAP for is_key_pressed
+# Merge letter/digit/F-key codes into VK_KEY_MAP for is_key_pressed. F-keys ride
+# along automatically now that VK_MAP carries them, so is_key_pressed('f9') works.
 VK_KEY_MAP.update(VK_MAP)
 
 # Side-specific VK codes for the push-to-talk detector (#66). The name-keyed
@@ -123,7 +110,7 @@ def _resolve_vk_code(key_str: str) -> int:
     """
     Resolve a key string to a VK code.
 
-    For standard keys (a-z, 0-9) uses the static VK_MAP.
+    For standard keys (a-z, 0-9, f1-f24) uses the static VK_MAP.
     For special characters (e.g. 'ue') uses VkKeyScanW for layout-aware resolution,
     with a fallback to VK_OEM_4 (0xDB) for German QWERTZ.
 
@@ -165,7 +152,10 @@ def _parse_hotkey(hotkey_str: str) -> tuple:
     """
     Parse a hotkey string like 'ctrl+alt+w' into (modifiers, vk_code).
 
-    MOD_NOREPEAT is always added to prevent repeat when key is held.
+    Thin wrapper: the pure structural split (modifier/key validation, always
+    setting MOD_NOREPEAT to prevent repeat when a key is held) lives in
+    hotkey_parse.parse_hotkey_lexical (#55); the one Windows-bound step
+    (_resolve_vk_code, VkKeyScanW for special characters) stays here.
 
     Args:
         hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', 'ctrl+alt+4', 'ctrl+alt+ü')
@@ -174,26 +164,11 @@ def _parse_hotkey(hotkey_str: str) -> tuple:
         Tuple of (modifier_flags, vk_code)
 
     Raises:
-        ValueError: If parsing fails
+        ValueError: If parsing fails (HotkeyParseError is a ValueError, so the
+            registration `except ValueError` catches structural failures too).
     """
-    parts = hotkey_str.lower().split('+')
-    modifiers = MOD_NOREPEAT  # Always set
-    key_part = None
-
-    for part in parts:
-        part = part.strip()
-        if part in MODIFIER_MAP:
-            modifiers |= MODIFIER_MAP[part]
-        else:
-            if key_part is not None:
-                raise ValueError(f"Multiple non-modifier keys in '{hotkey_str}': '{key_part}' and '{part}'")
-            key_part = part
-
-    if key_part is None:
-        raise ValueError(f"No non-modifier key found in '{hotkey_str}'")
-
-    vk_code = _resolve_vk_code(key_part)
-    return (modifiers, vk_code)
+    modifiers, key_part = parse_hotkey_lexical(hotkey_str)
+    return (modifiers, _resolve_vk_code(key_part))
 
 
 def is_key_pressed(key_name: str) -> bool:

@@ -29,5 +29,13 @@
 
   "soniox_endpointing": {
     "_comment": "OPTIONAL, OFF BY DEFAULT (Issue #121). Fine-tunes Soniox v5 real-time endpoint detection for the Soniox Live path only (the async upload path has no endpointing). With no keys here, nothing is sent and Soniox uses its own defaults -- behavior is unchanged. To tune, add any of: 'endpoint_sensitivity' (number -1.0..1.0, default 0.0; lower waits longer before ending a sentence -- Soniox documents -0.3 for dictation and slow speakers), 'endpoint_latency_adjustment_level' (integer 0..3, default 0; higher ends sentences sooner -- leave at 0 when using a negative sensitivity), 'max_endpoint_delay_ms' (number 500..3000, default 2000; hard cap on the wait after speech stops). Out-of-range or wrong-typed values are ignored with a warning and never sent. Concrete tuning is still being decided (follow-up issue)."
+  },
+
+  "hotkeys": {
+    "_comment": "OPTIONAL (Issue #55). A PARTIAL override of the default hotkeys, keyed by action name -- config.py keeps the defaults; a listed action replaces its combo, unlisted actions keep theirs. Valid action names: start_recording, stop_recording_keyboard, stop_recording_clipboard, stop_recording_send, stop_recording_no_insert, retry_last_failed, cancel_recording, test_transcription, switch_api, open_history, exit_program. A value is a combo string (e.g. \"ctrl+alt+p\") or, only for cancel_recording and exit_program (whose defaults are already lists), a list of combos. Modifiers: ctrl/control, alt, shift, win/windows. Keys: letters, digits, and F-keys f1-f24 -- including modifier-less ones like \"f9\". Avoid special characters like '#' and non-ASCII letters (they can be typed into some apps); the self-test default 'ctrl+alt+ue' (the umlaut key) is the known-good exception and, like every action, may be rebound. An unknown action, an unparseable combo, or a combo that would collide with another action is ignored with a warning in thoughtborne.log and that action's default stays -- the tool never fails to start over a bad hotkey. To use, add entries beside this comment, e.g.  \"start_recording\": \"f9\",  \"exit_program\": [\"ctrl+alt+4\", \"ctrl+alt+q\"]."
+  },
+
+  "defaults": {
+    "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (soniox-live). Must be one of: soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
   }
 }

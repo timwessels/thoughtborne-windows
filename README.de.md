@@ -151,7 +151,7 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 
 Transkripte werden immer in Aufnahme-Reihenfolge eingefügt, auch wenn mehrere Aufnahmen parallel verarbeitet werden.
 
-**`Ü` ohne deutsche Tastatur:** `Ü` ist auf dem deutschen QWERTZ-Layout eine eigene Taste (rechts von `P`). Auf anderen Layouts, falls der Selbsttest nicht auslöst, die Kombination im `HOTKEYS`-Dict in `config.py` umbelegen — die Einträge dort zeigen das Format.
+**`Ü` ohne deutsche Tastatur:** `Ü` ist auf dem deutschen QWERTZ-Layout eine eigene Taste (rechts von `P`). Auf anderen Layouts, falls der Selbsttest nicht auslöst, die Aktion `test_transcription` im `hotkeys`-Block der `personal_settings.json` umbelegen (siehe Anpassung unten) — `config.py` behält die Defaults.
 
 ## Anpassung
 
@@ -165,6 +165,8 @@ copy personal_settings.example.json personal_settings.json
 
 **Soniox-Live-Endpointing (optional):** Ein standardmäßig inaktiver `soniox_endpointing`-Block in der `personal_settings.json` justiert, wann die Soniox-Live-Engine einen gesprochenen Satz als beendet ansieht (Endpoint-Erkennung) — etwa wie lange sie bei einer Pause wartet, bevor sie den Satz abschließt. Die Felder, ihre Wertebereiche und die von Soniox dokumentierte Ausgangsempfehlung fürs Diktieren stehen im Kommentar des Blocks in `personal_settings.example.json`; ohne den Block wird nichts gesendet und es gelten unverändert die Soniox-Defaults.
 
+**Hotkeys & Standard-Engine (optional):** Die Tastenkombinationen und die beim Start gewählte Engine lassen sich in der `personal_settings.json` überschreiben, ohne Code zu ändern — ein `hotkeys`-Block (Teil-Überschreibung nach Aktionsnamen; F-Tasten `f1`–`f24` sind erlaubt, auch modifier-lose wie `f9`) und ein `defaults`-Block (`"api"`, eine der vier Engines). `config.py` behält die eingebauten Defaults; eine gelistete Aktion oder eine gültige `api` ersetzt sie, und eine unbekannte Aktion, eine nicht parsbare Kombination, eine Kollision oder eine unbekannte Engine wird mit einer Warnung in `thoughtborne.log` ignoriert, sodass das Tool immer startet. Die Kommentare in `personal_settings.example.json` listen die gültigen Aktionsnamen und das Format.
+
 **Konsole aus der Taskleiste (optional):** Thoughtborne läuft in einem Konsolenfenster, das wie jedes andere in der Taskleiste sitzt. Um es aus dem Weg zu räumen — läuft weiter, ein Klick zurück —, wenn dieses Fenster in **Windows Terminal** läuft (dem Standard-Konsolenhost auf aktuellem Windows 11), erledigen das zwei von Terminals eigenen Einstellungen, ohne Zusatz-Tool und ohne Admin-Rechte. Terminals Einstellungen öffnen (`Ctrl+,`) und unter **Interaktion** beide aktivieren:
 
 - „Terminal bei Minimierung im Infobereich ausblenden" (`minimizeToNotificationArea`) — Minimieren schickt das Fenster dann in den Infobereich (den System-Tray) statt in die Taskleiste: Der Taskleisten-Button verschwindet und alles läuft weiter, das Diktieren eingeschlossen (es ist hotkey-gesteuert und funktioniert bei verstecktem Fenster).
@@ -174,9 +176,9 @@ Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf
 
 **Einstellungen in `config.py`:** Die Konfiguration besteht bewusst aus einfachen Konstanten mit Kommentaren. Was die meisten anpassen:
 
-- `DEFAULT_API` — die API beim Start (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`).
+- `DEFAULT_API` — die API beim Start (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); ohne Code-Änderung überschreibbar im `defaults`-Block der `personal_settings.json` (oben).
 - `LANGUAGE` — Default `"de"`. Englisch funktioniert (`"en"`), aber Artefakt-Filter und Tuning zielen auf Deutsch — ehrliche Erwartungen ([VISION.md](VISION.md)).
-- `HOTKEYS` — alle Tastenkombinationen. Kollidiert eine mit einem anderen Programm, hier ändern; Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden (das etablierte `ü` ist die erprobte Ausnahme).
+- `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden (das etablierte `ü` ist die erprobte Ausnahme).
 
 Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als Kommentare direkt in `config.py` dokumentiert.
 

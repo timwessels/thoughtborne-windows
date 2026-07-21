@@ -406,6 +406,34 @@ def check_strip_structure():
             _record(f"{name}: expected one Ctrl+Alt lead, got {joined.count('Ctrl+Alt')}")
 
 
+# ---- #55 override edge: no shared modifier prefix (key_prefix=None) ----------
+def check_prefix_none_widths():
+    """An override can leave the effective hotkeys without a shared modifier lead
+    (a bare F-key rebind, or mixed prefixes), so the app derives key_prefix=None --
+    a framed path the shipped config never reaches. Guard the masthead KEYS grid
+    and a routine strip on it at full width. The compact/narrow-window layout of
+    long full combos is a separate concern, outside #55's display-only scope."""
+    lineup = lineup_for(DEFAULT_API)
+    mixed_keys = ["F9", "Ctrl+Alt+A", "Ctrl+Alt+D", "Ctrl+Alt+H", "Ctrl+Alt+Y",
+                  "Ctrl+Alt+X", "Ctrl+Shift+F12", "Ctrl+Alt+L", "Ctrl+Alt+6",
+                  "Ctrl+Alt+Ü", "Ctrl+Alt+4"]
+    bare_footer = [("F9", "record"), ("F6", "history"), ("F10", "model"), ("F4", "quit")]
+    fixtures = [
+        ("masthead_prefix_none", u.render_masthead,
+         dict(lineup=lineup, keys=mixed_keys, key_prefix=None,
+              history_path=PATHS[1] + r"\history", open_key="6", switch_key="L",
+              start_key="F9", with_wordmark=False)),
+        ("ok_prefix_none", u.render_ok_strip,
+         dict(seq=12, chars=184, sent=False, model_label="Soniox Live",
+              footer_keys=bare_footer, key_prefix=None)),
+    ]
+    for name, fn, kw in fixtures:
+        for ansi in (True, False):
+            check_block(name, fn(ansi=ansi, compact=False, **kw),
+                        ansi=ansi, compact=False, stress=False)
+        twin(name, fn, **kw)
+
+
 # ---- the parameter matrix ----------------------------------------------------
 def main():
     for api in AVAILABLE_APIS:
@@ -523,6 +551,9 @@ def main():
     check_masthead_layout()
     check_ctrl_alt_counts()
     check_strip_structure()
+
+    # ---- #55 override edge: key_prefix=None framed render --------------------
+    check_prefix_none_widths()
 
     # ---- report -------------------------------------------------------------
     if SHOW:

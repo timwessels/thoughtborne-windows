@@ -151,7 +151,7 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 
 Transcripts are always inserted in recording order, even when several recordings are processing in parallel.
 
-**`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, remap the combination in the `HOTKEYS` dict in `config.py` — the entries there show the format.
+**`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, rebind the `test_transcription` action in the `hotkeys` block of `personal_settings.json` (see Customization below) — `config.py` keeps the defaults.
 
 ## Customization
 
@@ -165,6 +165,8 @@ copy personal_settings.example.json personal_settings.json
 
 **Soniox Live endpointing (optional):** an off-by-default `soniox_endpointing` block in `personal_settings.json` fine-tunes when the Soniox Live engine considers a spoken sentence finished (endpoint detection) — for example, how long it waits through a pause before closing the sentence. The fields, their value ranges, and Soniox's documented starting point for dictation are explained in the block's comment in `personal_settings.example.json`; without the block, nothing is sent and Soniox's own defaults apply unchanged.
 
+**Hotkeys & default engine (optional):** the key combinations and the engine selected at startup can be overridden in `personal_settings.json` without touching code — a `hotkeys` block (a partial override keyed by action name; F-keys `f1`–`f24` are allowed, including modifier-less ones like `f9`) and a `defaults` block (`"api"`, one of the four engines). `config.py` keeps the built-in defaults; a listed action or a valid `api` replaces it, and an unknown action, an unparseable combo, a collision, or an unknown engine is ignored with a warning in `thoughtborne.log` so the tool always starts. The `personal_settings.example.json` comments list the valid action names and the format.
+
 **Console out of the taskbar (optional):** Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Interaction**, turn both on:
 
 - "Hide Terminal in the notification area when it is minimized" (`minimizeToNotificationArea`) — minimizing then sends the window to the tray (the notification area) instead of the taskbar: the taskbar button disappears and everything keeps running, dictation included (it is hotkey-driven and works with the window hidden).
@@ -174,9 +176,9 @@ One-time detail: Windows first tucks a new tray icon into the overflow flyout (t
 
 **Settings in `config.py`:** the configuration is deliberately plain constants with comments. The ones most users touch:
 
-- `DEFAULT_API` — the API at startup (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`).
+- `DEFAULT_API` — the API at startup (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); overridable without editing code in the `defaults` block of `personal_settings.json` (above).
 - `LANGUAGE` — default `"de"`. English works (`"en"`), but the artifact filters and tuning target German — honest expectations ([VISION.md](VISION.md)).
-- `HOTKEYS` — all key combinations. If one collides with another program, change it here; avoid special characters like `#` and non-ASCII letters (the established `ü` is the known-good exception).
+- `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Avoid special characters like `#` and non-ASCII letters (the established `ü` is the known-good exception).
 
 More settings (parallel transcriptions, audio trimming, …) are documented as comments in `config.py` itself.
 

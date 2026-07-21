@@ -7,10 +7,19 @@ It also owns the legacy archive-layout migration (#50), kept next to the
 path constants it serves.
 """
 
+import copy
 import json
 import logging
 import os
 from pathlib import Path
+
+# Pure, ctypes-free hotkey lexical layer (#55): shared with hotkey_manager so a
+# config-time override is validated by the exact logic that registers it at
+# runtime. hotkey_parse imports nothing Windows-bound, so config stays importable
+# off-Windows (the test drivers depend on that).
+from hotkey_parse import (
+    parse_hotkey_lexical, classify_key, HotkeyParseError, KEY_INVALID,
+)
 
 # Try to load dotenv, but don't fail if not available
 try:
@@ -306,6 +315,139 @@ def soniox_live_endpointing_params() -> dict:
     return params
 
 
+def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
+    """Return (effective_hotkeys, warnings) for the #55 'hotkeys' override block.
+
+    Pure and side-effect-free (no logging, no globals) so it is unit-testable and
+    IS the production loader: config calls it verbatim. `defaults` is HOTKEYS
+    (action -> str | list[str]); `raw` is the parsed personal_settings 'hotkeys'
+    object. Every rejected entry leaves that action's default in force -- never a
+    startup abort (stability, VISION principle #1). A combo colliding with another
+    action's effective binding is dropped (the default stays). Never raises.
+
+    Shape is preserved exactly: an action whose default is a string stays a string
+    (a one-element list override collapses to it; a multi-combo override is
+    rejected), and only an action whose default is already a list accepts several
+    combos -- so thoughtborne._register_hotkeys keeps reading the shapes it does
+    today.
+    """
+    warnings = []
+    effective = copy.deepcopy(defaults)
+    overridden = set()
+
+    for action, value in raw.items():
+        if action.startswith('_'):
+            continue   # JSON-comment convention (e.g. "_comment"); never an action
+        if action not in defaults:
+            warnings.append(
+                f"hotkeys: unknown action '{action}' -- ignored "
+                f"(valid: {', '.join(sorted(defaults))})")
+            continue
+
+        # Normalize to a list of combo strings (a bare string is one combo).
+        if isinstance(value, str):
+            combos = [value]
+        elif isinstance(value, list):
+            combos = value
+        else:
+            warnings.append(
+                f"hotkeys.{action}: value must be a combo string or a list of "
+                f"them; keeping default")
+            continue
+        if not combos:
+            warnings.append(f"hotkeys.{action}: empty list; keeping default")
+            continue
+
+        norm = []
+        ok = True
+        for c in combos:
+            if not isinstance(c, str) or not c.strip():
+                warnings.append(
+                    f"hotkeys.{action}: '{c}' is not a non-empty combo string; "
+                    f"keeping default")
+                ok = False
+                break
+            try:
+                _mods, key = parse_hotkey_lexical(c)
+            except HotkeyParseError as e:
+                warnings.append(
+                    f"hotkeys.{action}: '{c}' is not a valid combo ({e}); "
+                    f"keeping default")
+                ok = False
+                break
+            if classify_key(key) == KEY_INVALID:
+                warnings.append(
+                    f"hotkeys.{action}: '{c}' has an unrecognized key '{key}'; "
+                    f"keeping default")
+                ok = False
+                break
+            # Canonicalize: lowercased and inner spaces dropped ('Ctrl + Alt + P'
+            # -> 'ctrl+alt+p'), matching the defaults' shape. The registrar strips
+            # per part regardless, but the string-level prefix comparison in
+            # _keys_grid_data / _prefix_for and _format_hotkey split on '+' and
+            # would otherwise see stray-space parts like ' alt '.
+            norm.append('+'.join(p.strip() for p in c.lower().split('+')))
+        if not ok:
+            continue
+
+        # Match the default's shape (maintainer decision, #55): a string-valued
+        # action stays a string; genuine multi-binding is only for actions whose
+        # default is already a list, so _register_hotkeys' shapes are unchanged.
+        if isinstance(defaults[action], list):
+            effective[action] = norm
+        elif len(norm) == 1:
+            effective[action] = norm[0]
+        else:
+            warnings.append(
+                f"hotkeys.{action}: multiple combos are not supported for this "
+                f"action; keeping default")
+            continue
+        overridden.add(action)
+
+    # ---- duplicate detection on the EFFECTIVE set --------------------------
+    # Canonical form of a combo: (modifier_bitmask_incl_NOREPEAT, key_token) from
+    # the pure parse -- case- and modifier-order-independent, matching what
+    # RegisterHotKey collides on for every statically resolvable key. Run on the
+    # effective set (not the raw defaults) so "free a default key, then reuse it"
+    # is not a false positive.
+    def _flatten(d):
+        for act, val in d.items():
+            for combo in ([val] if isinstance(val, str) else val):
+                mods, key = parse_hotkey_lexical(combo)
+                yield (mods, key), act
+
+    # Revert every overridden action that collides, until no collision involves an
+    # override. Defaults are mutually collision-free in the shipped config, so this
+    # converges (in practice one pass); a default is never mutated. A colliding
+    # combo is tagged 'cross' (shared with a *different* action) or 'self' (the
+    # same combo listed twice within one action's list) so the warning is honest.
+    while True:
+        groups = {}
+        for canon, act in _flatten(effective):
+            groups.setdefault(canon, []).append(act)
+        to_revert = {}   # action -> 'cross' | 'self'  ('cross' wins if both apply)
+        for canon, acts in groups.items():
+            if len(acts) <= 1:
+                continue
+            cross = len(set(acts)) > 1
+            for a in acts:
+                if a in overridden and to_revert.get(a) != 'cross':
+                    to_revert[a] = 'cross' if cross else 'self'
+        if not to_revert:
+            break
+        for a, kind in to_revert.items():
+            effective[a] = copy.deepcopy(defaults[a])
+            overridden.discard(a)
+            if kind == 'cross':
+                warnings.append(
+                    f"hotkeys.{a}: combo collides with another action; keeping default")
+            else:
+                warnings.append(
+                    f"hotkeys.{a}: the same combo is listed more than once; keeping default")
+
+    return effective, warnings
+
+
 # SONIOX_CONTEXT is loaded from the "vocabulary" block of an optional
 # personal_settings.json in the project root. See personal_settings.example.json
 # for the format. Personalization is user-specific (names, project terms etc.)
@@ -334,6 +476,9 @@ _PTT_TRIGGER_VK = {"lctrl": 0xA2, "rctrl": 0xA3, "lalt": 0xA4}
 PTT_TRIGGER_VK = _PTT_TRIGGER_VK[PTT_TRIGGER]
 
 SONIOX_CONTEXT = None
+# Captured during the single personal_settings parse below, applied after the
+# HOTKEYS defaults are defined (#55). Stays None when the file/block is absent.
+_hotkeys_override = None
 _personal_settings_path = SCRIPT_DIR / "personal_settings.json"
 if _personal_settings_path.exists():
     try:
@@ -423,6 +568,31 @@ if _personal_settings_path.exists():
                 _config_logger.warning(
                     f"soniox_endpointing.max_endpoint_delay_ms '{_delay}' invalid "
                     f"(need a number 500..3000); not sending it")
+
+        # Hotkey overrides (#55): capture the optional "hotkeys" block here (so the
+        # file is parsed once) and apply it after the HOTKEYS defaults are defined
+        # below -- the defaults don't exist yet at this point in the module.
+        _hk = _settings.get("hotkeys")
+        if _hk is not None and not isinstance(_hk, dict):
+            _config_logger.warning(
+                f"personal_settings 'hotkeys' must be an object of "
+                f"action -> combo; ignoring (got {type(_hk).__name__})")
+        else:
+            _hotkeys_override = _hk
+
+        # Default engine override (#55): defaults.api must be one of AVAILABLE_APIS,
+        # else warn and keep DEFAULT_API. Same warn-and-keep pattern as the blocks
+        # above; DEFAULT_API and AVAILABLE_APIS are defined far above this block.
+        _defaults_cfg = _settings.get("defaults", {})
+        if isinstance(_defaults_cfg, dict):
+            _api = _defaults_cfg.get("api")
+            if _api is not None:
+                if isinstance(_api, str) and _api in AVAILABLE_APIS:
+                    DEFAULT_API = _api
+                else:
+                    _config_logger.warning(
+                        f"defaults.api '{_api}' unknown (need one of "
+                        f"{AVAILABLE_APIS}); using '{DEFAULT_API}'")
     except (json.JSONDecodeError, OSError) as _e:
         _config_logger.warning(f"Could not load {_personal_settings_path.name}: {_e}")
 
@@ -467,6 +637,16 @@ HOTKEYS = {
     'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
+
+# Hotkey overrides (#55): apply the optional personal_settings "hotkeys" block
+# (captured during the single settings parse above) now that the HOTKEYS defaults
+# exist. The pure validator returns the effective set plus human-readable warnings;
+# every rejected entry keeps that action's default and a combo that would collide
+# with another action is dropped -- never a startup abort (VISION principle #1).
+if _hotkeys_override:
+    HOTKEYS, _hk_warnings = apply_hotkey_overrides(HOTKEYS, _hotkeys_override)
+    for _w in _hk_warnings:
+        _config_logger.warning(_w)
 
 # ===== QUEUE SETTINGS =====
 TRANSCRIPT_HISTORY_SIZE = 10

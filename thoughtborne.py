@@ -49,6 +49,7 @@ from config import (
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
+from hotkey_parse import common_prefix
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
@@ -1396,7 +1397,9 @@ class ThoughtborneApp:
                     self._key_letter('stop_recording_send'),
                     self._key_letter('stop_recording_no_insert'),
                     self._key_letter('cancel_recording'),
-                    self._key_prefix(),
+                    self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard',
+                                      'stop_recording_send', 'stop_recording_no_insert',
+                                      'cancel_recording']),
                     ansi=ansi, compact=compact))
 
             # Start live streaming session if transcriber supports it
@@ -2168,7 +2171,7 @@ class ThoughtborneApp:
                 'device-loss',
                 lambda ansi, compact: console_ui.render_device_loss(
                     duration, retry_key, self.transcriber.get_name(),
-                    self._footer_keys(retry=True), self._key_prefix(),
+                    self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
                     ansi=ansi, compact=compact))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
@@ -2243,11 +2246,18 @@ class ThoughtborneApp:
                     self._format_hotkey(prefixes.pop()))
         return [self._format_hotkey(c) for c in combos], None
 
-    def _key_prefix(self):
-        """Shared modifier prefix of all hotkeys ('Ctrl+Alt'), or None if the
-        config mixes prefixes (documented edge). Drives the once-per-box lead on
-        the strip/panel key lines (#115)."""
-        return self._keys_grid_data()[1]
+    def _prefix_for(self, action_names):
+        """The once-per-box modifier lead (#115) for exactly the keys THIS box
+        shows, derived per box rather than globally (#55). Returns the shared
+        prefix formatted for display ('Ctrl+Alt'), or None when the box's keys
+        mix prefixes -- then the box keeps its existing bare-letter fallback. Per
+        box so rebinding one action (e.g. start_recording -> f9) no longer strips
+        the Ctrl+Alt lead off boxes whose keys still share it. Reads the same
+        first-combo-of-a-list key each surface displays."""
+        combos = [HOTKEYS[n][0] if isinstance(HOTKEYS[n], list) else HOTKEYS[n]
+                  for n in action_names]
+        prefix = common_prefix(combos)
+        return self._format_hotkey(prefix) if prefix is not None else None
 
     def _footer_keys(self, retry=False):
         """The bottom action-strip key hints (letter, word). The retry variant
@@ -2260,6 +2270,13 @@ class ThoughtborneApp:
                     (mdl, 'model'), (quit_, 'quit')]
         return [(rec, 'record'), (self._key_letter('open_history'), 'history'),
                 (mdl, 'model'), (quit_, 'quit')]
+
+    def _footer_actions(self, retry=False):
+        """The action names behind _footer_keys(), so a box's lead (#55) is
+        derived from exactly the keys its footer shows. Mirrors _footer_keys'
+        retry branch (history -> retry)."""
+        tail = 'retry_last_failed' if retry else 'open_history'
+        return ['start_recording', tail, 'switch_api', 'exit_program']
 
     def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False):
         """Map OutputManager completion events onto Cockpit strips/panels (#109).
@@ -2288,13 +2305,14 @@ class ThoughtborneApp:
                     'inserted',
                     lambda ansi, compact: console_ui.render_ok_strip(
                         seq_shown, chars, sent, model, self._footer_keys(),
-                        self._key_prefix(), ansi=ansi, compact=compact),
+                        self._prefix_for(self._footer_actions()), ansi=ansi, compact=compact),
                     detail=f"seq={seq} chars={chars} sent={sent}")
             elif event == 'ready':
                 self._emit_block(
                     'ready',
                     lambda ansi, compact: console_ui.render_waiting_strip(
-                        seq_shown, chars, type_key, paste_key, self._key_prefix(),
+                        seq_shown, chars, type_key, paste_key,
+                        self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']),
                         ansi=ansi, compact=compact),
                     detail=f"seq={seq} chars={chars}")
             elif event == 'failed' and kind == 'insertion':
@@ -2302,14 +2320,16 @@ class ThoughtborneApp:
                     'insert-failed',
                     lambda ansi, compact: console_ui.render_insert_failed(
                         seq_shown, type_key, paste_key, model, self._footer_keys(),
-                        self._key_prefix(), ansi=ansi, compact=compact),
+                        self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']
+                                         + self._footer_actions()),
+                        ansi=ansi, compact=compact),
                     detail=f"seq={seq}")
             elif event == 'failed':
                 self._emit_block(
                     'transcription-failed',
                     lambda ansi, compact: console_ui.render_transcription_failed(
                         seq_shown, retry_key, str(SCRIPT_DIR), model,
-                        self._footer_keys(retry=True), self._key_prefix(),
+                        self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
                         ansi=ansi, compact=compact),
                     detail=f"seq={seq}")
             elif event == 'no_speech':
