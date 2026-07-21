@@ -173,7 +173,12 @@ LANGUAGE = "de"  # "de" for German, "en" for English, None for auto-detect
 MAX_PARALLEL_TRANSCRIPTIONS = 3
 
 # ===== API SELECTION =====
-DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
+# BUILTIN_DEFAULT_API is the shipped startup engine, kept pristine so the settings
+# app (#144) can tell "user is on the default" from an explicit pick and write a
+# defaults.api override only when it differs -- exactly like DEFAULT_HOTKEYS below.
+# A personal_settings 'defaults.api' override reassigns DEFAULT_API (not this).
+BUILTIN_DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
+DEFAULT_API = BUILTIN_DEFAULT_API
 AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API DISPLAY (single source of truth, #30/#37) =====
@@ -624,7 +629,7 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 # - 'ü' is a German umlaut (own key on QWERTZ)
 # Note: Avoid special characters like '#' and non-ASCII letters like 'ä' in hotkeys
 #       They can cause issues with the keyboard module (character gets typed in some apps)
-HOTKEYS = {
+DEFAULT_HOTKEYS = {
     'start_recording': 'ctrl+alt+w',           # W = Start recording
     'stop_recording_keyboard': 'ctrl+alt+a',   # A = Stop & insert (keyboard typing)
     'stop_recording_clipboard': 'ctrl+alt+d',  # D = Stop & insert (clipboard paste)
@@ -638,13 +643,20 @@ HOTKEYS = {
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 
-# Hotkey overrides (#55): apply the optional personal_settings "hotkeys" block
-# (captured during the single settings parse above) now that the HOTKEYS defaults
-# exist. The pure validator returns the effective set plus human-readable warnings;
-# every rejected entry keeps that action's default and a combo that would collide
-# with another action is dropped -- never a startup abort (VISION principle #1).
+# Hotkey overrides (#55): DEFAULT_HOTKEYS is the pristine shipped scheme; the
+# settings app (#144) needs it for its "Ctrl+Alt preset", reset, and the
+# diff-vs-default write, so it must stay untouched in the namespace. HOTKEYS is
+# the EFFECTIVE set the tool registers: a copy of the defaults with the optional
+# personal_settings "hotkeys" block (captured during the single settings parse
+# above) applied on top. The pure validator returns the effective set plus
+# human-readable warnings; every rejected entry keeps that action's default and a
+# combo that would collide with another action is dropped -- never a startup abort
+# (VISION principle #1). Applying onto DEFAULT_HOTKEYS (which apply_hotkey_overrides
+# never mutates) keeps a single source of truth and leaves runtime behavior
+# identical.
+HOTKEYS = copy.deepcopy(DEFAULT_HOTKEYS)
 if _hotkeys_override:
-    HOTKEYS, _hk_warnings = apply_hotkey_overrides(HOTKEYS, _hotkeys_override)
+    HOTKEYS, _hk_warnings = apply_hotkey_overrides(DEFAULT_HOTKEYS, _hotkeys_override)
     for _w in _hk_warnings:
         _config_logger.warning(_w)
 
