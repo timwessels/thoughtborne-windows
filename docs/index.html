@@ -1,19 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Thoughtborne — hotkey voice-to-text for Windows</title>
-<meta name="description" content="Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — the transcript lands at the cursor. Optimized for German, built for talking to AI.">
-<!-- EN-only by decision (#75): German readers land on README.de.md via the footer. -->
+<title>Thoughtborne — Diktieren per Hotkey für Windows</title>
+<meta name="description" content="Diktier-Tool per Hotkey für Windows. Hotkey drücken, reden, zweiten Hotkey drücken — der Text landet an der Cursor-Position. Für Deutsch gebaut, fürs Reden mit KI.">
 <link rel="canonical" href="https://thoughtborne.app/">
+<link rel="alternate" hreflang="de" href="https://thoughtborne.app/">
+<link rel="alternate" hreflang="en" href="https://thoughtborne.app/en/">
+<link rel="alternate" hreflang="x-default" href="https://thoughtborne.app/">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/thoughtborne-avatar-512.png">
 <meta name="theme-color" content="#0E202E">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Thoughtborne — hotkey voice-to-text for Windows">
-<meta property="og:description" content="Press a hotkey, talk, press another — the transcript lands at the cursor. Optimized for German, built for talking to AI. Open source, MIT.">
+<meta property="og:locale" content="de_DE">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Thoughtborne — Diktieren per Hotkey für Windows">
+<meta property="og:description" content="Hotkey drücken, reden, zweiten Hotkey drücken — der Text landet an der Cursor-Position. Für Deutsch gebaut, fürs Reden mit KI. Open Source, MIT.">
 <meta property="og:url" content="https://thoughtborne.app/">
 <meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -21,7 +25,20 @@
 </head>
 <body>
 
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link" href="#main">Zum Inhalt springen</a>
+
+<!-- Language switcher: prominent, sticky on every page. Nav hrefs are
+     root-absolute (correct on the deployed site; they don't resolve under
+     file:// — review click-through over a local HTTP server). -->
+<div class="langbar">
+  <div class="langbar-inner">
+    <span class="langbar-label">Sprache</span>
+    <span class="lang-toggle">
+      <a href="/" aria-current="page">DE</a>
+      <a href="/en/" hreflang="en" aria-label="English version">EN</a>
+    </span>
+  </div>
+</div>
 
 <header class="hero">
   <div class="wrap hero-inner">
@@ -48,197 +65,257 @@
       </svg>
     </h1>
 
-    <p class="tagline"><strong>Hotkey-driven voice-to-text for Windows.</strong> Press a hotkey, talk, press another — the transcript lands at the cursor in whatever app is active, as if you had typed it.</p>
-    <p class="subline">Optimized for German, built first and foremost for one job: talking to AI.</p>
-    <!-- the glanceable answer to "why use this" — four short claims, no explaining sentence;
-         each is proven further down (value grid, cost ledger, quality quote, loop card 3) -->
-    <p class="benefits"><span>free or a few dollars a month</span> <span>no subscription</span> <span>good enough to send unread</span> <span>one press to your AI</span></p>
+    <p class="tagline"><strong>Diktieren per Hotkey für Windows.</strong> Hotkey drücken, sprechen, zweiten Hotkey drücken — der Text landet an der Cursorposition, in jeder App, als wäre er getippt.</p>
+    <p class="subline">Für Deutsch gebaut — und vor allem fürs Diktieren in KI-Chats.</p>
+    <p class="benefits"><span>für Deutsch gebaut</span> <span>kein Abo</span> <span>ungelesen abschickbar</span> <span>direkt in den KI-Chat</span></p>
 
     <p class="actions">
-      <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">View on GitHub</a>
-      <a class="btn btn-ghost" href="#get-started">Get started</a>
+      <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">Auf GitHub ansehen</a>
+      <a class="btn btn-ghost" href="#los-gehts">Loslegen</a>
     </p>
-    <p class="meta"><span>Open source</span> <span>MIT</span> <span>Windows</span> <span>bring your own API keys</span></p>
+    <p class="meta"><span>Open Source</span> <span>MIT</span> <span>Windows</span> <span>eigene API-Keys</span></p>
   </div>
 </header>
 
 <main id="main">
 
-  <section class="section value">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Why</p>
-      <h2>Why it exists</h2>
-      <p>Most of the maintainer's workday is talking to LLMs — and the keyboard is the bottleneck. Some version of this tool has been his daily driver since 2023; commercial tools have caught up since, but he still maintains his own because none of them gets all of the essentials right at once:</p>
-    </div>
-    <div class="wrap value-wide">
-      <ol class="value-grid">
-        <li>
-          <strong>Free — or a few dollars.</strong>
-          <span>No subscription: the free path costs nothing, and even heavy daily dictation runs about $3 a month on the paid default.</span>
-        </li>
-        <li>
-          <strong>Optimized for German.</strong>
-          <span>The lineup follows whatever tests best for German in hands-on use, re-evaluated every few months — regardless of vendor.</span>
-        </li>
-        <li>
-          <strong>Send it unread.</strong>
-          <span>The quality bar behind every model choice: transcripts reliable enough to go straight to an LLM, no proofreading pass.</span>
-        </li>
-        <li>
-          <strong>One press to your AI.</strong>
-          <span>A dedicated hotkey transcribes, inserts at the cursor, and presses Enter for you — dictation straight into a running AI chat.</span>
-        </li>
-        <li>
-          <strong>Two styles, four APIs.</strong>
-          <span>Verbatim or polished, switchable at runtime — plus recognition vocabulary for your terms and hallucination filters for German artifacts.</span>
-        </li>
-        <li>
-          <strong>Your data stays yours.</strong>
-          <span>Not training data — audio goes only to the API you chose; recordings and transcripts are archived on your disk, nowhere else.</span>
-        </li>
-      </ol>
-    </div>
-  </section>
-
-  <section class="loop">
+  <!-- ==== Screenshot, right under the hero ==== -->
+  <section class="shot">
     <div class="wrap">
-      <h2 class="loop-title">The loop</h2>
-      <ol class="steps">
-        <li>
-          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd></span>
-          <span class="step-text">Start recording, and talk.</span>
-        </li>
-        <li>
-          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></span>
-          <span class="step-text">Stop: the transcript lands at the cursor.</span>
-        </li>
-        <li>
-          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd></span>
-          <span class="step-text">Or insert <strong>and press Enter</strong> — entire AI conversations without touching the keyboard.</span>
-        </li>
-      </ol>
-      <p class="loop-note">Prefer to hold a key instead? Optional <strong>push-to-talk</strong>: hold, talk, release.</p>
+      <div class="shot-frame">
+        <img src="assets/screenshot-terminal.png" alt="Thoughtborne im Terminal: das API-Karussell mit den vier Engines und die Hotkey-Leiste — Ctrl+Alt+W zum Aufnehmen, A/D zum Stoppen und Einfügen, H zum Einfügen mit Enter, L zum Umschalten der Engine.">
+      </div>
+      <p class="shot-cap"><strong>Bedient wird komplett per Tastenkürzel.</strong> Das Terminal ist kein Bedienfenster, sondern die Anzeige: Es zeigt, welche Engine gerade aktiv ist, welche Tasten belegt sind und was zuletzt passiert ist. Geklickt wird nichts.</p>
     </div>
   </section>
 
-  <section class="quality" aria-labelledby="quality-heading">
+  <!-- ==== Feature list with green checks, right after the hero ==== -->
+  <section class="features-top">
     <div class="wrap">
-      <h2 id="quality-heading" class="visually-hidden">The quality bar</h2>
-      <figure class="quote">
-        <blockquote>
-          <p class="quote-lead">“Everything the tool outputs must be good enough to send to an LLM unread.”</p>
-          <p class="quote-body">No proofreading pass — that would hand back the very time voice input buys. Transcripts have to be reliable at the level of <em>meaning</em>; that standard is what every model choice is measured against.</p>
-        </blockquote>
-        <figcaption class="quote-cite">— <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION.md</a>, the standard behind every decision</figcaption>
-      </figure>
-    </div>
-  </section>
+      <div class="intro">
+        <p class="eyebrow" aria-hidden="true">Funktionsumfang</p>
+        <h2>Was drin ist</h2>
+        <p>Thoughtborne ist seit Jahren im täglichen Einsatz. Über die Zeit sind die Dinge dazugekommen, die man beim Dauerbetrieb wirklich braucht:</p>
+      </div>
 
-  <section class="section lineup">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">The lineup</p>
-      <h2>Different engines, different strengths</h2>
-      <p>No one engine is best at everything. Thoughtborne keeps four APIs side by side, switchable at runtime with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>; they differ mainly along one axis — speed versus tidiness: some are ready the instant you stop and stay close to how you spoke, others take a little longer and read a bit more cleanly.</p>
-    </div>
-    <!-- lineup mirrors the README model-lineup table (#47 label contract) — change README first, then here -->
-    <div class="wrap lineup-wide">
-      <div class="table-scroll">
-        <table class="lineup-table">
-          <thead>
-            <tr><th scope="col">API</th><th scope="col">In short</th><th scope="col">Key &amp; cost</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row">Soniox Live</th><td data-label="In short">verbatim · instant (default)</td><td data-label="Key &amp; cost">Soniox (prepaid)</td></tr>
-            <tr><th scope="row">Soniox</th><td data-label="In short">polished · takes longer</td><td data-label="Key &amp; cost">Soniox (prepaid)</td></tr>
-            <tr><th scope="row">Groq Whisper Large v3</th><td data-label="In short">accurate · free</td><td data-label="Key &amp; cost">Groq (free tier)</td></tr>
-            <tr><th scope="row">Groq Whisper Turbo v3</th><td data-label="In short">fast · free</td><td data-label="Key &amp; cost">Groq (free tier)</td></tr>
-          </tbody>
-        </table>
+      <div class="feat-group">
+        <p class="feat-group-title">Transkription &amp; Engines</p>
+        <ul class="feat-grid">
+          <li><b>Vier Engines, zur Laufzeit umschaltbar</b> — <span>Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> durchgeschaltet, kein Neustart.</span></li>
+          <li><b>Echtzeit-Live-Transkription</b> — <span>Soniox Live streamt schon beim Sprechen; Text liegt ~0,5 s nach dem Loslassen bereit.</span></li>
+          <li><b>Deutsche Halluzinationsfilter</b> — <span>modellspezifisch gegen bekannte Speech-Artefakte, gezielt auf Deutsch getrimmt.</span></li>
+          <li><b>Füllwortfilter</b> — <span>„ähm"/„äh" wortgrenzen-sicher raus (schont „ähnlich"), bedeutungstragendes „naja"/„mhm" bleibt.</span></li>
+          <li><b>Erkennungs-Vokabular</b> — <span>eigene Namen und Fachbegriffe gehen als Kontext an die Engine und kommen richtig zurück.</span></li>
+          <li><b>Automatischer Engine-Fallback</b> — <span>fällt eine Soniox-Variante aus, springt die REST-Variante ein — transparent.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Nichts geht verloren</p>
+        <ul class="feat-grid">
+          <li><b>Vierschichtiges Safety-Net</b> — <span>Exit-Salvage, Crash-Sidecar, Startup-Recovery, Device-Loss — kein Diktat geht je verloren, auch bei Absturz.</span></li>
+          <li><b>Retry-Hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd> transkribiert die letzte fehlgeschlagene Aufnahme neu.</span></li>
+          <li><b>Paralleles Diktieren</b> — <span>nächste Aufnahme starten, während die vorige noch läuft — die Reihenfolge bleibt erhalten.</span></li>
+          <li><b>Lokales Archiv</b> — <span>Audio und Transkript zeitstempel-gepaart nur auf deiner Platte, kein Cloud-Storage.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Bedienung im Alltag</p>
+        <ul class="feat-grid">
+          <li><b>Vier Stopp-Modi</b> — <span>einfügen per Tippen oder Clipboard, einfügen&nbsp;+&nbsp;Enter zum Absenden, oder nur transkribieren und später einfügen.</span></li>
+          <li><b>Push-to-Talk (optional)</b> — <span>Taste halten, reden, loslassen; robust gegen QWERTZ-Fehlauslösung und Modern Standby.</span></li>
+          <li><b>Selbsttest per Hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Ü</kbd> prüft die ganze Pipeline von Ende zu Ende.</span></li>
+          <li><b>Archiv-Ordner-Hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>6</kbd> öffnet das Archiv direkt im Explorer.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Setup &amp; Anpassbarkeit</p>
+        <ul class="feat-grid">
+          <li><b>uv-Setup ohne Python-Vorinstallation</b> — <span><code>uv run</code> zieht Python und Dependencies selbst, re-synct auch nach <code>git pull</code>.</span></li>
+          <li><b>Freier Einstiegspfad</b> — <span>startet mit nur einem Key, überspringt fehlende APIs sauber statt abzustürzen.</span></li>
+          <li><b>Per KI-Agent anpassbar</b> — <span>lesbarer Code statt Settings-Wüste; <code>AGENTS.md</code> liegt bei, damit dein Coding-Agent direkt loslegt.</span></li>
+          <li><b>macOS-Schwesterport</b> — <span>drei statt vier APIs, sonst analog aufgebaut.</span></li>
+        </ul>
       </div>
     </div>
   </section>
 
+  <!-- ==== The six core arguments, each exactly once, evidence attached ==== -->
+  <section class="args">
+    <div class="wrap">
+      <div class="args-intro">
+        <p class="eyebrow" aria-hidden="true">Warum</p>
+        <h2>Warum es Thoughtborne gibt</h2>
+        <p>LLM-Arbeit ist Textarbeit, und die Tastatur ist der Flaschenhals. Kommerzielle Diktiertools gibt es reichlich; keins trifft alles auf einmal — Deutsch, Qualität, Preis, Datenkontrolle. Genau darum geht es hier:</p>
+      </div>
+
+      <div class="arg-list">
+        <article class="arg">
+          <span class="arg-num">01</span>
+          <h3>Für Deutsch gebaut — nicht nur „unterstützt auch Deutsch".</h3>
+          <p class="arg-lead">Fast alle Konkurrenten sind Englisch-first. Hier ist Deutsch der Ausgangspunkt jeder Entscheidung.</p>
+          <ul class="arg-evidence">
+            <li>Die <strong>Engine-Auswahl folgt dem deutschen Diktat-Alltag</strong> — anbieterunabhängig kuratiert und laufend aktuell gehalten: Ziel ist das jeweils beste verfügbare Cloud-Modell für Deutsch; taucht etwas Besseres auf, wird es übernommen.</li>
+            <li><strong>Halluzinationsfilter</strong> aus drei Jahren annotierter deutscher Transkripte, modellspezifisch.</li>
+            <li>Füllwortfilter und Vokabular-Handling für deutsche Begriffe und Eigennamen.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">02</span>
+          <h3>Kein Abo. Gratis-Pfad oder ~3 €/Monat bei Vielnutzung.</h3>
+          <p class="arg-lead">Du bringst eigene API-Keys mit und zahlst nur, was du verbrauchst — ein Bruchteil der 12–15 $/Monat der Abo-Tools.</p>
+          <ul class="arg-evidence">
+            <li><strong>Groq-Free-Tier als echter Dauerbetriebsweg</strong>, kein Trial: bis zu ~8 Stunden Audio am Tag.</li>
+            <li>Soniox: $0,12 pro Stunde Audio, Prepaid, ab der ersten Minute.</li>
+            <li><strong>~3 $/Monat gemessen, nicht geschätzt</strong> — der Maintainer bei ~25 h Audio im Monat.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">03</span>
+          <h3>Deine Daten: nachprüfbar unter deiner Kontrolle.</h3>
+          <p class="arg-lead">Kein Vertrauen-müssen in eine Datenschutzerklärung — du kannst selbst nachlesen, wohin dein Audio geht.</p>
+          <ul class="arg-evidence">
+            <li>Audio geht <strong>nur an die von dir gewählte API</strong>, sonst nirgendwohin. Archiv liegt lokal auf deiner Platte.</li>
+            <li><strong>Kein Training auf deinen Daten</strong> ist hartes Aufnahmekriterium — APIs ohne Opt-out fliegen raus.</li>
+            <li>Open Source, ein lesbares Skript: <strong>selbst nachlesen statt glauben.</strong></li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">04</span>
+          <h3>Unabhängig: vier Engines, kein Lock-in.</h3>
+          <p class="arg-lead">Wird ein Anbieter schlechter oder teurer, fliegt er aus dem Lineup — du bleibst nie an einem hängen.</p>
+          <ul class="arg-evidence">
+            <li><strong>Zur Laufzeit umschaltbar</strong> per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, anbieterneutral kuratiert.</li>
+            <li>Zwei Stile als Nebeneffekt der Breite: <strong>wörtlich-sofort</strong> oder <strong>geglättet</strong>.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">05</span>
+          <h3>Gebaut fürs Reden mit KI.</h3>
+          <p class="arg-lead">Nicht Diktat allgemein, sondern der Weg in eine laufende KI-Konversation — ohne die Tastatur anzufassen.</p>
+          <ul class="arg-evidence">
+            <li>Ein eigener Hotkey <strong>fügt ein und drückt Enter</strong> — ganze KI-Gespräche per Sprache.</li>
+            <li>Qualitätsmaßstab hinter jeder Modellwahl: <strong>„gut genug, um ungelesen abzuschicken".</strong></li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">06</span>
+          <h3>Passt sich dir an — notfalls per Zuruf.</h3>
+          <p class="arg-lead">Das Werkzeug fügt sich deinem Workflow, nicht umgekehrt. Kein Einstellungs-Dschungel, sondern lesbarer Code.</p>
+          <ul class="arg-evidence">
+            <li><strong>Lesbares Python</strong>, <code>config.py</code> mit Klartext-Konstanten und Erkennungs-Vokabular.</li>
+            <li>„Sag deinem Coding-Agent, was es können soll" — <strong>AGENTS.md liegt bei.</strong></li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==== The loop ==== -->
+  <section class="loop">
+    <div class="wrap">
+      <h2 class="loop-title">Der Ablauf</h2>
+      <ol class="steps">
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd></span>
+          <span class="step-text">Aufnahme starten und reden.</span>
+        </li>
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></span>
+          <span class="step-text">Stopp: der Text landet an der Cursor-Position.</span>
+        </li>
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>H</kbd></span>
+          <span class="step-text">Oder einfügen <strong>und Enter drücken</strong> — ganze KI-Gespräche ohne Tastatur.</span>
+        </li>
+      </ol>
+      <p class="loop-note">Lieber eine Taste halten? Optional <strong>Push-to-Talk</strong>: halten, reden, loslassen.</p>
+    </div>
+  </section>
+
+  <!-- ==== Second row: everyday reliability ==== -->
+  <section class="section reliab">
+    <div class="wrap">
+      <p class="eyebrow" aria-hidden="true">Im Alltag</p>
+      <h2>Verlässlich, Aufnahme für Aufnahme</h2>
+      <ul class="reliab-grid">
+        <li><strong>Sofort da</strong>Live-Engine transkribiert beim Sprechen, ~0,5 s nach Stopp.</li>
+        <li><strong>Nie eine Aufnahme verlieren</strong>Retry-Hotkey plus Sicherheitsnetz bei Absturz, Exit, Gerätewechsel.</li>
+        <li><strong>Parallel diktieren</strong>Nächste Aufnahme starten, während die vorige noch läuft — Reihenfolge bleibt.</li>
+        <li><strong>Lokales Archiv</strong>Jede Aufnahme + Transkript als Paar auf deiner Platte.</li>
+        <li><strong>Erst transkribieren, später einfügen</strong>Per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Y</kbd>, wenn der Cursor noch woanders ist.</li>
+        <li><strong>Zwei Einfüge-Wege</strong>Simuliertes Tippen oder Clipboard-Paste.</li>
+        <li><strong>Push-to-Talk (optional)</strong>Halten, reden, loslassen — aus per Default.</li>
+        <li><strong>Selbsttest per Hotkey</strong>Prüft die ganze Pipeline von Ende zu Ende.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ==== Cost ledger ==== -->
   <section class="section cost">
     <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Cost</p>
-      <h2>What it costs</h2>
-      <p>There is <strong>no subscription</strong> anywhere in this stack. You bring your own API keys and pay the providers' usage prices — a fraction of the $12–15 a month that subscription dictation tools charge.</p>
-      <!-- key figures set as an editorial ledger; every number traces to the README cost paragraph -->
+      <p class="eyebrow" aria-hidden="true">Kosten</p>
+      <h2>Was es kostet</h2>
+      <p>Nirgends in diesem Stack ein <strong>Abo</strong>. Du bringst eigene API-Keys mit und zahlst die Nutzungspreise der Anbieter — ein Bruchteil der 12–15 $/Monat, die Abo-Diktiertools verlangen.</p>
       <dl class="figures">
         <div>
-          <dt><span class="fig-num">$0</span> <span class="fig-unit">the Groq path</span></dt>
-          <dd><strong>A real free tier, not a trial.</strong> Both Groq engines run on Groq's generous free tier — 2,000 requests and up to about eight hours of audio a day, enough for daily use.</dd>
+          <dt><span class="fig-num">0 €</span> <span class="fig-unit">der Groq-Pfad</span></dt>
+          <dd><strong>Ein echter Free-Tier, kein Trial.</strong> Beide Groq-Engines laufen auf Groqs großzügigem Free-Tier — bis zu ~8 Stunden Audio am Tag, genug für den täglichen Einsatz.</dd>
         </div>
         <div>
-          <dt><span class="fig-num">$0.12</span> <span class="fig-unit">per hour of audio</span></dt>
-          <dd><strong>The Soniox default.</strong> No free tier: top up a small prepaid balance and pay as you go from the first minute — only for what you actually transcribe.</dd>
+          <dt><span class="fig-num">$0,12</span> <span class="fig-unit">pro Stunde Audio</span></dt>
+          <dd><strong>Der Soniox-Default.</strong> Kein Free-Tier: ein kleines Prepaid-Guthaben aufladen und ab der ersten Minute nur zahlen, was du wirklich transkribierst.</dd>
         </div>
         <div>
-          <dt><span class="fig-num">~$3</span> <span class="fig-unit">per month, heavy use</span></dt>
-          <dd><strong>Measured, not estimated.</strong> The maintainer dictates about 25 hours of audio a month, averaged over the last six months. Lighter regular use lands around a dollar.</dd>
+          <dt><span class="fig-num">~3 $</span> <span class="fig-unit">pro Monat, Vielnutzung</span></dt>
+          <dd><strong>Gemessen, nicht geschätzt.</strong> Der Maintainer diktiert ~25 Stunden Audio im Monat, gemittelt über ein halbes Jahr. Leichtere Nutzung landet bei rund einem Dollar.</dd>
         </div>
       </dl>
-      <p class="cost-note">One honest note: the quality bar above — German good enough to send unread — is anchored by the paid Soniox default. The free Groq engines are capable; the bar is measured against Soniox.</p>
+      <p class="cost-note">Eine ehrliche Anmerkung: Der Qualitätsmaßstab oben — Deutsch gut genug zum ungelesen Abschicken — ist am bezahlten Soniox-Default gemessen. Die Groq-Engines sind stark; die Messlatte hängt an Soniox.</p>
     </div>
   </section>
 
-  <section class="section features">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Features</p>
-      <h2>Beyond the loop</h2>
-      <p>The loop is the product. Around it, the details that make daily dictation dependable:</p>
-      <dl class="feature-list">
-        <div class="feature-row">
-          <dt>Recognition vocabulary</dt>
-          <dd>Your names and special terms are handed to the speech model as context, so they come back spelled right (Soniox engines).</dd>
+  <!-- ==== Who it's for / expectation management ==== -->
+  <section class="audience-box">
+    <div class="wrap">
+      <p class="eyebrow" aria-hidden="true">Für wen</p>
+      <h2>Für wen das gebaut ist — und für wen nicht</h2>
+      <div class="aud-cols">
+        <div class="aud-for">
+          <h3>Passt, wenn du …</h3>
+          <ul>
+            <li>technisch denkst — Terminal und eine <code>.env</code>-Datei schrecken dich nicht.</li>
+            <li>kein Abo willst, unabhängig bleiben und Anbieter wechseln können möchtest.</li>
+            <li>wissen willst, wohin deine Daten gehen — und es nachprüfen können möchtest.</li>
+            <li>viel auf Deutsch mit KI redest und das Werkzeug an dich anpassen willst.</li>
+          </ul>
         </div>
-        <div class="feature-row">
-          <dt>Hallucination filters</dt>
-          <dd>Speech models produce well-known artifacts; Thoughtborne ships model-specific filters for German ones, built from three years of annotated transcriptions.</dd>
+        <div class="aud-not">
+          <h3>Eher nicht, wenn du …</h3>
+          <ul>
+            <li>ein poliertes GUI-Produkt mit Onboarding-Assistent erwartest.</li>
+            <li>keine Lust auf ein Terminal-Fenster hast — Thoughtborne läuft aus der Konsole, nicht hinter einer Oberfläche.</li>
+            <li>lieber ein Abo zahlst, als selbst einen API-Key einzutragen.</li>
+          </ul>
         </div>
-        <div class="feature-row">
-          <dt>Push-to-talk</dt>
-          <dd>Optional: hold a key, talk, release. Off by default.</dd>
-        </div>
-        <div class="feature-row">
-          <dt>Parallel dictation</dt>
-          <dd>Start the next recording while the previous one is still transcribing — inserts stay in order.</dd>
-        </div>
-        <div class="feature-row">
-          <dt>Local archive</dt>
-          <dd>Every recording and its transcript, paired on your disk.</dd>
-        </div>
-        <div class="feature-row">
-          <dt>Never lose a recording</dt>
-          <dd>A retry hotkey plus a safety net for crashes, exits, and device loss.</dd>
-        </div>
-        <div class="feature-row">
-          <dt>Built-in self-test</dt>
-          <dd>One hotkey checks the whole pipeline end to end.</dd>
-        </div>
-        <div class="feature-row">
-          <dt>Built to be changed</dt>
-          <dd>A single, readable Python script — small enough to hand to an AI coding agent with a feature request.</dd>
-        </div>
-      </dl>
+      </div>
     </div>
   </section>
 
-  <section class="section privacy">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Privacy</p>
-      <h2>Your data is not training data.</h2>
-      <p>Audio goes to the transcription API you chose, and nowhere beyond that. Recordings and transcripts are archived locally, nowhere else — no cloud storage.</p>
-      <p>Every integrated API must offer at least an opt-out from training on user data; APIs that can't are not integrated.</p>
-    </div>
-  </section>
-
-  <section class="section get-started" id="get-started">
+  <!-- ==== Get started ==== -->
+  <section class="section get-started" id="los-gehts">
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
-      <h2>Get started</h2>
-      <p>Windows, a microphone, and at least one API key — Groq's free tier works. Setup lives in the repo: a standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
-      <p>Thoughtborne is a single Python script, not an installed product — lean, readable end to end, easy to modify. The trade-off: it runs from a terminal window, not behind a GUI.</p>
+      <h2>Loslegen</h2>
+      <p>Windows, ein Mikrofon und mindestens ein API-Key — Groqs Free-Tier reicht. Das Setup liegt im Repo: der Standardweg über <strong>uv</strong>, ein geführtes Setup für <strong>KI-Coding-Agents</strong> (<code>llms-install.md</code>) und ein klassischer pip-Fallback.</p>
+      <p>Thoughtborne ist ein einzelnes Python-Skript, kein installiertes Produkt — schlank, von vorne bis hinten lesbar, leicht anzupassen. Der Kompromiss: es läuft aus einem Terminal-Fenster, nicht hinter einer GUI.</p>
       <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
            becomes the first option in this section; the download + GitHub pointers below
            move after it. -->
@@ -249,28 +326,29 @@
              release tag (v1.0.0) trails main and would hand users stale code. Unpacks as
              thoughtborne-windows-main — the folder the README's ZIP step already names.
              Revisit only if a per-release tagging/asset process starts. -->
-        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows/archive/refs/heads/main.zip">Download ZIP</a>
-        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Setup guide (README)</a>
-        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/blob/main/llms-install.md">Agent-guided setup</a>
+        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows/archive/refs/heads/main.zip">ZIP herunterladen</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Installation (README)</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/blob/main/llms-install.md">Agent-geführtes Setup</a>
       </p>
-      <p class="audience">The download is the source tree — unzip it, then follow the README. Built for people who think technically — comfortable launching a script in a terminal and pasting an API key into a <code>.env</code> file.</p>
+      <p class="audience">Der Download ist der Quellbaum — entpacken, dann dem README folgen. Gebaut für Leute, die technisch denken — die ein Skript im Terminal starten und einen API-Key in eine <code>.env</code>-Datei einfügen.</p>
     </div>
   </section>
 
 </main>
 
 <footer class="site-footer">
-  <div class="wrap footer-inner">
-    <nav class="footer-links" aria-label="Project links">
+  <div class="footer-inner">
+    <nav class="footer-links" aria-label="Projekt-Links">
       <a href="https://github.com/timwessels/thoughtborne-windows">GitHub</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/issues">Issues</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT license</a>
-      <a href="https://github.com/timwessels/thoughtborne-macos">macOS port</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.de.md">Deutsche Dokumentation</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT-Lizenz</a>
+      <a href="https://github.com/timwessels/thoughtborne-macos">macOS-Port</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.md" hreflang="en">English documentation</a>
+      <a href="/legal.html">Impressum &amp; Datenschutz</a>
     </nav>
-    <p class="footer-note">Thoughtborne has been the maintainer's daily tool for years and is actively maintained.</p>
+    <p class="footer-note">Thoughtborne ist seit Jahren das tägliche Werkzeug des Maintainers und wird aktiv gepflegt.</p>
     <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. -->
     <svg class="mark mark-footer" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
   </div>
