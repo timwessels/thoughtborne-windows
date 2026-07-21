@@ -631,9 +631,9 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 #       They can cause issues with the keyboard module (character gets typed in some apps)
 DEFAULT_HOTKEYS = {
     'start_recording': 'ctrl+alt+w',           # W = Start recording
-    'stop_recording_keyboard': 'ctrl+alt+a',   # A = Stop & insert (keyboard typing)
-    'stop_recording_clipboard': 'ctrl+alt+d',  # D = Stop & insert (clipboard paste)
-    'stop_recording_send': 'ctrl+alt+h',       # H = Stop & insert & SEND (press Enter)
+    'stop_recording_keyboard': 'ctrl+alt+h',   # H = Stop & insert (keyboard typing)
+    'stop_recording_clipboard': 'ctrl+alt+a',  # A = Stop & insert (clipboard paste)
+    'stop_recording_send': 'ctrl+alt+d',       # D = Stop & insert & SEND (press Enter)
     'stop_recording_no_insert': 'ctrl+alt+y',  # Y = Stop & process only (insert later) - NEW!
     'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording

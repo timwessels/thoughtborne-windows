@@ -144,10 +144,10 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | Hotkey | Action |
 |--------|--------|
 | `Ctrl+Alt+W` | Start recording (works while a previous recording is still transcribing) |
-| `Ctrl+Alt+A` | Stop + insert at the cursor (simulated typing) |
-| `Ctrl+Alt+D` | Stop + insert at the cursor (clipboard paste — faster) |
-| `Ctrl+Alt+H` | Stop + insert + press Enter (one-press send, for chats) |
-| `Ctrl+Alt+Y` | Stop + transcribe only — insert later with `A` or `D` |
+| `Ctrl+Alt+A` | Stop + insert at the cursor (clipboard paste — faster) |
+| `Ctrl+Alt+D` | Stop + insert + press Enter (one-press send, for chats) |
+| `Ctrl+Alt+H` | Stop + insert at the cursor (simulated typing) |
+| `Ctrl+Alt+Y` | Stop + transcribe only — insert later with `A` or `H` |
 | `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
 | `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
@@ -169,7 +169,7 @@ Most of what follows is also available graphically in [the settings app](#the-se
 copy personal_settings.example.json personal_settings.json
 ```
 
-**Push-to-talk (optional):** a second way to dictate, for quick short bursts. Tap **Left-Ctrl**, release, then **press and hold** Left-Ctrl — recording runs as long as you hold it, and releasing inserts the transcript at the cursor (just like the hotkeys). It is **off by default**; enable it in the `push_to_talk` block of `personal_settings.json`. Because Ctrl is the trigger, a mandatory AltGr filter makes sure German QWERTZ characters (`@ \ { } [ ] | € ~`) never set it off — AltGr is `Ctrl+Alt`, and the gesture only counts a *bare* Ctrl (no Alt, no other key down), so `Ctrl+C` → `Ctrl+V` and every other Ctrl combo are left alone too. Configurable in the same block: the trigger key (`lctrl`, `rctrl`, or `lalt`), the insert path (`clipboard` like `D` is the default; `type` like `A` is the fallback for apps that block paste; also `send` like `H` or `no_insert`), and the three timing thresholds. **JetBrains IDEs:** double-Ctrl is the IDE's "Run Anything" shortcut, so it collides when an IntelliJ-family IDE has focus — *enable* the "Disable double modifier key shortcuts" option in the IDE's Advanced Settings to switch that collision off. Note: as with all the hotkeys, push-to-talk cannot reach a window running elevated (as administrator) — Windows blocks input there for non-elevated processes. This is the same limitation the existing hotkeys have, not a new restriction.
+**Push-to-talk (optional):** a second way to dictate, for quick short bursts. Tap **Left-Ctrl**, release, then **press and hold** Left-Ctrl — recording runs as long as you hold it, and releasing inserts the transcript at the cursor (just like the hotkeys). It is **off by default**; enable it in the `push_to_talk` block of `personal_settings.json`. Because Ctrl is the trigger, a mandatory AltGr filter makes sure German QWERTZ characters (`@ \ { } [ ] | € ~`) never set it off — AltGr is `Ctrl+Alt`, and the gesture only counts a *bare* Ctrl (no Alt, no other key down), so `Ctrl+C` → `Ctrl+V` and every other Ctrl combo are left alone too. Configurable in the same block: the trigger key (`lctrl`, `rctrl`, or `lalt`), the insert path (`clipboard` like `A` is the default; `type` like `H` is the fallback for apps that block paste; also `send` like `D` or `no_insert`), and the three timing thresholds. **JetBrains IDEs:** double-Ctrl is the IDE's "Run Anything" shortcut, so it collides when an IntelliJ-family IDE has focus — *enable* the "Disable double modifier key shortcuts" option in the IDE's Advanced Settings to switch that collision off. Note: as with all the hotkeys, push-to-talk cannot reach a window running elevated (as administrator) — Windows blocks input there for non-elevated processes. This is the same limitation the existing hotkeys have, not a new restriction.
 
 **Soniox Live endpointing (optional):** an off-by-default `soniox_endpointing` block in `personal_settings.json` fine-tunes when the Soniox Live engine considers a spoken sentence finished (endpoint detection) — for example, how long it waits through a pause before closing the sentence. The fields, their value ranges, and Soniox's documented starting point for dictation are explained in the block's comment in `personal_settings.example.json`; without the block, nothing is sent and Soniox's own defaults apply unchanged.
 

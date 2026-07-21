@@ -348,7 +348,7 @@ class OutputManager:
                 output thread when a task finishes (#37). Keyword contract:
                   callback(event='inserted', seq=..., chars=..., sent=...)
                       -- transcript inserted; sent=True when Enter was pressed
-                         afterwards (the H flow)
+                         afterwards (the send flow)
                   callback(event='ready', seq=..., chars=...)
                       -- Y flow: processed but NOT inserted, waiting for the user
                   callback(event='failed', kind='transcription'|'insertion', seq=...)
@@ -480,7 +480,7 @@ class OutputManager:
 
         Key insight: We DON'T need to switch apps!
         - User works in their editor/app
-        - User presses hotkey (Ctrl+Alt+D)
+        - User presses the paste hotkey
         - Hotkey is detected even if terminal is in background
         - Script transcribes in background
         - User's app REMAINS the active app the whole time

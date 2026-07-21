@@ -1364,9 +1364,9 @@ class ThoughtborneApp:
         """
         # Map of keys to their corresponding actions
         key_to_action = {
-            'a': ('stop_recording_keyboard', self.on_stop_recording_keyboard),
-            'd': ('stop_recording_clipboard', self.on_stop_recording_clipboard),
-            'h': ('stop_recording_send', self.on_stop_recording_send),
+            'a': ('stop_recording_clipboard', self.on_stop_recording_clipboard),
+            'd': ('stop_recording_send', self.on_stop_recording_send),
+            'h': ('stop_recording_keyboard', self.on_stop_recording_keyboard),
             'y': ('stop_recording_no_insert', self.on_stop_recording_no_insert),
             'x': ('cancel_recording', self.on_cancel_recording),
         }
@@ -1473,7 +1473,7 @@ class ThoughtborneApp:
             logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing with wait for key release
-            if self.start_processing_thread(frames, duration, wait_for_keys=['ctrl', 'alt', 'a'],
+            if self.start_processing_thread(frames, duration, wait_for_keys=['ctrl', 'alt', 'h'],
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
                 logger.info("Processing in background...", extra=FILE_ONLY)
@@ -1482,7 +1482,7 @@ class ThoughtborneApp:
         elif not self.just_finished_recording_a:
             # Insert last text
             logger.debug(f"{hotkey_display} pressed - inserting last text (keyboard mode)")
-            self.output_manager.insert_last_transcript(wait_for_keys=['ctrl', 'alt', 'a'])
+            self.output_manager.insert_last_transcript(wait_for_keys=['ctrl', 'alt', 'h'])
 
     def on_stop_recording_clipboard(self):
         """Callback for stop recording / insert last text (clipboard mode)"""
@@ -1505,7 +1505,7 @@ class ThoughtborneApp:
             logger.info(f"Recording duration: {duration:.1f} seconds")
 
             # Start processing with clipboard flag and wait for key release
-            if self.start_processing_thread(frames, duration, use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'd'],
+            if self.start_processing_thread(frames, duration, use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'a'],
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
                 logger.info("Processing in background (clipboard mode)...", extra=FILE_ONLY)
@@ -1514,14 +1514,13 @@ class ThoughtborneApp:
         elif not self.just_finished_recording_d:
             # Insert last text via clipboard
             logger.debug(f"{hotkey_display} pressed - inserting last text (clipboard mode)")
-            self.output_manager.insert_last_transcript(use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'd'])
+            self.output_manager.insert_last_transcript(use_clipboard=True, wait_for_keys=['ctrl', 'alt', 'a'])
 
     def on_stop_recording_send(self):
         """
         Callback for stop recording and send (insert + press Enter)
 
-        Uses Ctrl+Alt+H (H for "Hit Enter" / "Hand off").
-        Perfect for sending messages to chatbots/Claude Code.
+        Uses Ctrl+Alt+D by default. Perfect for sending messages to chatbots/Claude Code.
         """
         hotkey_display = self._format_hotkey(HOTKEYS['stop_recording_send'])
         start_hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
@@ -1582,7 +1581,7 @@ class ThoughtborneApp:
                                             transcriber_override=recording_transcriber,
                                             sidecar=sidecar):
                 logger.info("Processing in background (no auto-insert)...", extra=FILE_ONLY)
-                logger.info(f"Press A or D to insert later, or {start_hotkey_display} for new recording",
+                logger.info(f"Press A or H to insert later, or {start_hotkey_display} for new recording",
                             extra=FILE_ONLY)
 
     def on_cancel_recording(self):
@@ -1675,8 +1674,8 @@ class ThoughtborneApp:
     def _ptt_stop_and_insert(self):
         """Stop a PTT-owned recording and start processing, using the configured
         insert path. Mirrors the stop-hotkey callbacks. Does NOT set the
-        just_finished_recording_a/d flags: those guard the A/D HOTKEYS from
-        double-firing a stop-then-insert on the same chord; PTT's stop is a key
+        just_finished_recording_a/d flags: those guard the stop-and-insert
+        hotkeys from double-firing a stop-then-insert on the same chord; PTT's stop is a key
         RELEASE that cannot double-fire a stop hotkey, so the flags are
         irrelevant and left untouched to avoid perturbing the W-flow's state."""
         if not self.audio_recorder.is_recording:
@@ -1713,7 +1712,7 @@ class ThoughtborneApp:
             return dict(use_clipboard=True, send_after_insert=True, wait_for_keys=trig)
         if self._ptt_insert == 'no_insert':
             return dict(use_clipboard=False, auto_insert=False)
-        return dict(wait_for_keys=trig)  # 'type' (fallback), mirrors the A hotkey
+        return dict(wait_for_keys=trig)  # 'type' (fallback), mirrors the keyboard/type hotkey
 
     def on_retry_last_failed(self):
         """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).
@@ -1781,11 +1780,11 @@ class ThoughtborneApp:
         logger.info(f"[{thread_name}] Retrying recording from {rec.origin_timestamp} "
                     f"as sequence {sequence_number} (active: {current_count})", extra=FILE_ONLY)
 
-        # Insert like Ctrl+Alt+D: clipboard is the project default, typing the
+        # Insert via clipboard, the project default insert path, with typing the
         # fallback for apps that block paste. The user is still holding
         # Ctrl+Alt+R when this fires, so wait_for_key_release below defers the
         # paste until those keys clear -- otherwise the Ctrl+V collides with the
-        # still-held modifiers, the same guard the D path relies on.
+        # still-held modifiers, the same guard the clipboard stop path relies on.
         task = TranscriptionTask(
             sequence_number=sequence_number,
             timestamp=timestamp,
@@ -2319,7 +2318,7 @@ class ThoughtborneApp:
         only enqueues (#11), never raises into the output loop.
 
         Events:
-            'inserted'  -- transcript inserted (OK strip); sent=True for the H flow.
+            'inserted'  -- transcript inserted (OK strip); sent=True for the send flow.
             'ready'     -- Y flow: processed, waiting for a manual insert (WAITING).
             'failed'    -- kind='transcription' (FAILED panel) or 'insertion'.
             'no_speech' -- clean-but-empty on every engine (NO SPEECH panel, #133).
