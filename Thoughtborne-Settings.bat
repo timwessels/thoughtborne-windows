@@ -39,10 +39,17 @@ if defined PY (
 
 rem 3) No real system Python (the uv-primary setup): use the uv-managed
 rem interpreter, the same one Thoughtborne.bat uses. "uv run" finds the
-rem project's pythonw, so there is still no stray console.
+rem project's pythonw, so there is still no stray console. Look for uv on
+rem PATH first, then at the Astral per-user location
+rem (%USERPROFILE%\.local\bin\uv.exe) where setup.ps1's bootstrap lands: the
+rem primary one-liner lane installs uv there and may leave the machine with
+rem no system Python, so without this fallback this shortcut would miss it.
+set "UV_CMD="
 where uv >nul 2>nul
-if %errorlevel% equ 0 (
-    start "" uv run pythonw "thoughtborne_settings.py"
+if %errorlevel% equ 0 set "UV_CMD=uv"
+if not defined UV_CMD if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV_CMD=%USERPROFILE%\.local\bin\uv.exe"
+if defined UV_CMD (
+    start "" "%UV_CMD%" run pythonw "thoughtborne_settings.py"
     goto done
 )
 

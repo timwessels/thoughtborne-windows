@@ -16,6 +16,12 @@ set "UV_CMD=uv"
 where uv >nul 2>nul
 if %errorlevel% equ 0 goto run
 
+rem uv not on PATH? Try the Astral per-user install location
+rem (%USERPROFILE%\.local\bin\uv.exe), where setup.ps1's uv bootstrap lands, so a
+rem setup-installed uv is found without offering a second, competing uv install.
+if exist "%USERPROFILE%\.local\bin\uv.exe" set "UV_CMD=%USERPROFILE%\.local\bin\uv.exe"
+if not "%UV_CMD%"=="uv" goto run
+
 echo Thoughtborne is started with uv, a Python project manager.
 echo uv was not found on this system.
 echo.

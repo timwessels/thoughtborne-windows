@@ -1,0 +1,25 @@
+<Configuration>
+  <!--
+    Windows Sandbox config for the #76 install verification (Win11 Pro/Enterprise
+    only; the sandbox feature is unavailable on Home). See sandbox/README.md.
+
+    TODO (host-specific): set <HostFolder> below to the ABSOLUTE path of this
+    "sandbox" folder on THIS machine. Windows Sandbox requires an absolute host
+    path and does not expand environment variables here, so it cannot be
+    committed portable -- edit it before first use. Example:
+        C:\Users\<you>\thoughtborne\sandbox
+    The mapped folder carries the harness in, the throwaway key file in, and the
+    logs/screenshots out (ReadOnly=false).
+  -->
+  <Networking>Enable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>__EDIT_ME__\thoughtborne\sandbox</HostFolder>
+      <SandboxFolder>C:\thoughtborne-share</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoProfile -ExecutionPolicy Bypass -File C:\thoughtborne-share\verify-in-sandbox.ps1</Command>
+  </LogonCommand>
+</Configuration>

@@ -76,6 +76,16 @@ _temp-claudecode/
 _tools/
 .claude/
 
+# Windows-Sandbox install harness (#76). temp.env holds a REAL throwaway API key
+# and each run writes an out-<timestamp>/ folder -- neither is caught by the plain
+# `.env` / `*.log` rules above, so pin them here (a stray `git add -A` must never
+# stage the key). setup.ps1 / setup.bat below are throwaway copies for a `local`
+# run (see sandbox/README.md); the canonical ones live in the repo root.
+sandbox/temp.env
+sandbox/out-*/
+sandbox/setup.ps1
+sandbox/setup.bat
+
 # User personalization (Soniox context terms etc.)
 # Template: personal_settings.example.json (committed)
 personal_settings.json
