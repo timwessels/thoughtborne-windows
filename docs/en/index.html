@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thoughtborne — Hotkey dictation for Windows</title>
+<meta name="description" content="Hotkey-driven dictation tool for Windows. Press a hotkey, talk, press a second hotkey — the text lands at the cursor position. Built for German, built for talking to AI.">
+<link rel="canonical" href="https://thoughtborne.app/en/">
+<link rel="alternate" hreflang="de" href="https://thoughtborne.app/">
+<link rel="alternate" hreflang="en" href="https://thoughtborne.app/en/">
+<link rel="alternate" hreflang="x-default" href="https://thoughtborne.app/">
+<link rel="icon" href="../favicon.ico" sizes="48x48">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/thoughtborne-avatar-512.png">
+<meta name="theme-color" content="#0E202E">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
+<meta property="og:title" content="Thoughtborne — Hotkey dictation for Windows">
+<meta property="og:description" content="Press a hotkey, talk, press a second hotkey — the text lands at the cursor position. Built for German, built for talking to AI. Open source, MIT.">
+<meta property="og:url" content="https://thoughtborne.app/en/">
+<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!-- Language switcher: prominent, sticky on every page. Nav hrefs are
+     root-absolute (correct on the deployed site; they don't resolve under
+     file:// — review click-through over a local HTTP server). -->
+<div class="langbar">
+  <div class="langbar-inner">
+    <span class="langbar-label">Language</span>
+    <span class="lang-toggle">
+      <a href="/" hreflang="de" aria-label="German version">DE</a>
+      <a href="/en/" aria-current="page">EN</a>
+    </span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap hero-inner">
+    <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. Channel is true negative space; it shows the navy band through. -->
+    <svg class="mark mark-hero" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
+
+    <h1 class="wordmark-h1">
+      <!-- path data from assets/logo/thoughtborne-wordmark.svg — keep in sync. Letters inherit currentColor; the silent e keeps the brand gray. -->
+      <svg class="wordmark" viewBox="-26.03 -99.87 727.95 148.62" role="img" aria-label="Thoughtborne">
+        <g class="letters">
+          <path transform="translate(0.00 0.00) scale(0.048828 -0.048828)" d="M626 1118V939H403V302Q403 235 431.5 203.5Q460 172 525 172Q543 172 570.5 176.0Q598 180 618 184L657 8Q622 -4 581.5 -9.5Q541 -15 503 -15Q351 -15 267.0 63.5Q183 142 183 284V939H20V1118H183V1384H403V1118Z"/>
+          <path transform="translate(36.63 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1490H366V917Q419 1028 504.0 1080.0Q589 1132 704 1132Q875 1132 980.0 1024.5Q1085 917 1085 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
+          <path transform="translate(99.29 0.00) scale(0.048828 -0.048828)" d="M618 -23Q461 -23 343.5 49.0Q226 121 161.0 250.5Q96 380 96 553Q96 727 161.0 857.5Q226 988 343.5 1060.0Q461 1132 618 1132Q776 1132 893.5 1060.0Q1011 988 1076.0 857.5Q1141 727 1141 553Q1141 380 1076.0 250.5Q1011 121 893.5 49.0Q776 -23 618 -23ZM618 163Q720 163 786.5 216.5Q853 270 885.5 358.5Q918 447 918 553Q918 660 885.5 749.5Q853 839 786.5 892.5Q720 946 618 946Q517 946 451.0 892.5Q385 839 352.5 749.5Q320 660 320 553Q320 447 352.5 358.5Q385 270 451.0 216.5Q517 163 618 163Z"/>
+          <path transform="translate(162.19 0.00) scale(0.048828 -0.048828)" d="M529 -14Q358 -14 253.0 93.5Q148 201 148 408V1118H368V435Q368 314 431.5 246.0Q495 178 604 178Q716 178 790.0 250.5Q864 323 864 456V1118H1085V0H874L873 217Q820 95 732.5 40.5Q645 -14 529 -14Z"/>
+          <path transform="translate(224.84 0.00) scale(0.048828 -0.048828)" d="M616 -442Q422 -442 305.0 -371.0Q188 -300 141 -199L325 -112Q345 -144 378.5 -179.5Q412 -215 468.5 -240.0Q525 -265 615 -265Q742 -265 822.0 -204.5Q902 -144 902 -15V203H883Q863 166 827.5 123.0Q792 80 728.5 48.5Q665 17 563 17Q431 17 325.5 79.0Q220 141 158.0 262.5Q96 384 96 563Q96 741 157.5 868.5Q219 996 325.0 1064.0Q431 1132 566 1132Q669 1132 733.5 1097.5Q798 1063 834.5 1017.0Q871 971 890 936H906V1118H1121V-16Q1121 -163 1054.0 -257.0Q987 -351 873.0 -396.5Q759 -442 616 -442ZM614 200Q754 200 828.5 297.0Q903 394 903 566Q903 734 829.5 839.5Q756 945 614 945Q517 945 451.5 894.5Q386 844 353.5 758.5Q321 673 321 566Q321 402 395.5 301.0Q470 200 614 200Z"/>
+          <path transform="translate(289.31 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1490H366V917Q419 1028 504.0 1080.0Q589 1132 704 1132Q875 1132 980.0 1024.5Q1085 917 1085 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
+          <path transform="translate(351.96 0.00) scale(0.048828 -0.048828)" d="M626 1118V939H403V302Q403 235 431.5 203.5Q460 172 525 172Q543 172 570.5 176.0Q598 180 618 184L657 8Q622 -4 581.5 -9.5Q541 -15 503 -15Q351 -15 267.0 63.5Q183 142 183 284V939H20V1118H183V1384H403V1118Z"/>
+          <path transform="translate(388.59 0.00) scale(0.048828 -0.048828)" d="M703 -22Q601 -22 537.0 12.5Q473 47 436.5 93.0Q400 139 380 175H362V0H148V1490H368V936H380Q399 970 434.5 1016.5Q470 1063 534.0 1097.5Q598 1132 703 1132Q837 1132 942.5 1064.0Q1048 996 1109.0 867.0Q1170 738 1170 556Q1170 376 1110.0 246.0Q1050 116 944.5 47.0Q839 -22 703 -22ZM654 165Q750 165 814.5 217.0Q879 269 912.0 358.0Q945 447 945 558Q945 668 912.5 755.5Q880 843 815.5 894.0Q751 945 654 945Q512 945 438.0 838.5Q364 732 364 558Q364 383 439.0 274.0Q514 165 654 165Z"/>
+          <path transform="translate(452.91 0.00) scale(0.048828 -0.048828)" d="M618 -23Q461 -23 343.5 49.0Q226 121 161.0 250.5Q96 380 96 553Q96 727 161.0 857.5Q226 988 343.5 1060.0Q461 1132 618 1132Q776 1132 893.5 1060.0Q1011 988 1076.0 857.5Q1141 727 1141 553Q1141 380 1076.0 250.5Q1011 121 893.5 49.0Q776 -23 618 -23ZM618 163Q720 163 786.5 216.5Q853 270 885.5 358.5Q918 447 918 553Q918 660 885.5 749.5Q853 839 786.5 892.5Q720 946 618 946Q517 946 451.0 892.5Q385 839 352.5 749.5Q320 660 320 553Q320 447 352.5 358.5Q385 270 451.0 216.5Q517 163 618 163Z"/>
+          <path transform="translate(515.81 0.00) scale(0.048828 -0.048828)" d="M148 0V1118H361V938H373Q403 1029 480.5 1081.5Q558 1134 656 1134Q677 1134 704.5 1132.0Q732 1130 749 1128V918Q737 921 703.0 925.5Q669 930 634 930Q519 930 443.5 859.5Q368 789 368 679V0Z"/>
+          <path transform="translate(558.25 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1118H358L359 903Q411 1021 498.5 1076.5Q586 1132 704 1132Q875 1132 979.5 1024.5Q1084 917 1084 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
+          <path class="silent-e" transform="translate(620.91 0.00) scale(0.048828 -0.048828)" d="M630 -23Q465 -23 345.0 48.0Q225 119 160.5 248.0Q96 377 96 551Q96 723 159.5 854.0Q223 985 339.0 1058.5Q455 1132 611 1132Q738 1132 852.5 1075.5Q967 1019 1038.5 895.5Q1110 772 1110 570V492H317Q323 330 409.0 244.5Q495 159 632 159Q724 159 790.5 199.0Q857 239 886 317L1093 268Q1053 137 931.0 57.0Q809 -23 630 -23ZM318 656H892Q880 788 809.5 869.0Q739 950 612 950Q480 950 403.5 863.5Q327 777 318 656Z"/>
+        </g>
+      </svg>
+    </h1>
+
+    <p class="tagline"><strong>Hotkey dictation for Windows.</strong> Press a hotkey, speak, press a second hotkey — the text lands at the cursor position, in any app, as if you had typed it.</p>
+    <p class="subline">Built for German — and above all for dictating into AI chats.</p>
+    <p class="benefits"><span>built for German</span> <span>no subscription</span> <span>send it unread</span> <span>straight into the AI chat</span></p>
+
+    <p class="actions">
+      <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">View on GitHub</a>
+      <a class="btn btn-ghost" href="#get-started">Get started</a>
+    </p>
+    <p class="meta"><span>Open source</span> <span>MIT</span> <span>Windows</span> <span>your own API keys</span></p>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ==== Screenshot, right under the hero ==== -->
+  <section class="shot">
+    <div class="wrap">
+      <div class="shot-frame">
+        <img src="../assets/screenshot-terminal.png" alt="Thoughtborne in the terminal: the API carousel with the four engines and the hotkey bar — Ctrl+Alt+W to record, A/D to stop and insert, H to insert with Enter, L to switch the engine.">
+      </div>
+      <p class="shot-cap"><strong>It is operated entirely by keyboard shortcut.</strong> The terminal is not a control window but a display: it shows which engine is currently active, which keys are bound, and what happened last. Nothing is clicked.</p>
+    </div>
+  </section>
+
+  <!-- ==== Feature list with green checks, right after the hero ==== -->
+  <section class="features-top">
+    <div class="wrap">
+      <div class="intro">
+        <p class="eyebrow" aria-hidden="true">Feature set</p>
+        <h2>What's inside</h2>
+        <p>Thoughtborne has been in daily use for years. Over that time it has gained the things you actually need in continuous operation:</p>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Transcription &amp; engines</p>
+        <ul class="feat-grid">
+          <li><b>Four engines, switchable at runtime</b> — <span>Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, cycled with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, no restart.</span></li>
+          <li><b>Real-time live transcription</b> — <span>Soniox Live streams while you speak; the text is ready ~0.5 s after you let go.</span></li>
+          <li><b>German hallucination filters</b> — <span>model-specific, against known speech artifacts, tuned deliberately for German.</span></li>
+          <li><b>Filler-word filter</b> — <span>„ähm"/„äh" removed safely at word boundaries (spares „ähnlich"), meaning-bearing „naja"/„mhm" stays.</span></li>
+          <li><b>Recognition vocabulary</b> — <span>your own names and technical terms go to the engine as context and come back spelled right.</span></li>
+          <li><b>Automatic engine fallback</b> — <span>if one Soniox variant fails, the REST variant steps in — transparently.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Nothing gets lost</p>
+        <ul class="feat-grid">
+          <li><b>Four-layer safety net</b> — <span>exit salvage, crash sidecar, startup recovery, device loss — no dictation is ever lost, even on a crash.</span></li>
+          <li><b>Retry hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd> re-transcribes the last failed recording.</span></li>
+          <li><b>Parallel dictation</b> — <span>start the next recording while the previous one is still processing — the order is preserved.</span></li>
+          <li><b>Local archive</b> — <span>audio and transcript, timestamp-paired, on your disk only, no cloud storage.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Everyday operation</p>
+        <ul class="feat-grid">
+          <li><b>Four stop modes</b> — <span>insert by typing or clipboard, insert&nbsp;+&nbsp;Enter to send, or just transcribe and insert later.</span></li>
+          <li><b>Push-to-talk (optional)</b> — <span>hold a key, talk, release; robust against QWERTZ false triggers and Modern Standby.</span></li>
+          <li><b>Self-test by hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Ü</kbd> checks the whole pipeline end to end.</span></li>
+          <li><b>Archive-folder hotkey</b> — <span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>6</kbd> opens the archive directly in Explorer.</span></li>
+        </ul>
+      </div>
+
+      <div class="feat-group">
+        <p class="feat-group-title">Setup &amp; customization</p>
+        <ul class="feat-grid">
+          <li><b>uv setup with no pre-installed Python</b> — <span><code>uv run</code> pulls Python and dependencies itself, and re-syncs after a <code>git pull</code> too.</span></li>
+          <li><b>Free entry path</b> — <span>starts with just one key, skips missing APIs cleanly instead of crashing.</span></li>
+          <li><b>Adaptable by AI agent</b> — <span>readable code instead of a settings maze; <code>AGENTS.md</code> ships with it so your coding agent can get going right away.</span></li>
+          <li><b>macOS sister port</b> — <span>three APIs instead of four, otherwise built the same way.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==== The six core arguments, each exactly once, evidence attached ==== -->
+  <section class="args">
+    <div class="wrap">
+      <div class="args-intro">
+        <p class="eyebrow" aria-hidden="true">Why</p>
+        <h2>Why Thoughtborne exists</h2>
+        <p>Working with LLMs is working with text, and the keyboard is the bottleneck. Commercial dictation tools are plentiful; none of them hit everything at once — German, quality, price, data control. That is exactly what this is about:</p>
+      </div>
+
+      <div class="arg-list">
+        <article class="arg">
+          <span class="arg-num">01</span>
+          <h3>Built for German — not merely "also supports German".</h3>
+          <p class="arg-lead">Almost all competitors are English-first. Here German is the starting point of every decision.</p>
+          <ul class="arg-evidence">
+            <li>The <strong>engine choice follows real German dictation use</strong> — curated provider-independently and kept continuously up to date: the aim is the best available cloud model for German at any given time; if something better appears, it gets adopted.</li>
+            <li><strong>Hallucination filters</strong> from three years of annotated German transcripts, model-specific.</li>
+            <li>Filler-word filtering and vocabulary handling for German terms and proper nouns.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">02</span>
+          <h3>No subscription. A free path, or ~€3/month for heavy use.</h3>
+          <p class="arg-lead">You bring your own API keys and pay only for what you use — a fraction of the $12–15/month of the subscription tools.</p>
+          <ul class="arg-evidence">
+            <li><strong>Groq's free tier as a genuine everyday path</strong>, not a trial: up to ~8 hours of audio a day.</li>
+            <li>Soniox: $0.12 per hour of audio, prepaid, from the first minute.</li>
+            <li><strong>~$3/month, measured, not estimated</strong> — the maintainer at ~25 h of audio a month.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">03</span>
+          <h3>Your data: verifiably under your control.</h3>
+          <p class="arg-lead">No need to trust a privacy policy — you can read for yourself where your audio goes.</p>
+          <ul class="arg-evidence">
+            <li>Audio goes <strong>only to the API you choose</strong>, nowhere else. The archive sits locally on your disk.</li>
+            <li><strong>No training on your data</strong> is a hard inclusion criterion — APIs without an opt-out are dropped.</li>
+            <li>Open source, one readable script: <strong>read it yourself instead of believing.</strong></li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">04</span>
+          <h3>Independent: four engines, no lock-in.</h3>
+          <p class="arg-lead">If a provider gets worse or pricier, it drops out of the lineup — you are never stuck with one.</p>
+          <ul class="arg-evidence">
+            <li><strong>Switchable at runtime</strong> with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, curated provider-neutrally.</li>
+            <li>Two styles as a side effect of the breadth: <strong>verbatim-instant</strong> or <strong>smoothed</strong>.</li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">05</span>
+          <h3>Built for talking to AI.</h3>
+          <p class="arg-lead">Not dictation in general, but the way into an ongoing AI conversation — without touching the keyboard.</p>
+          <ul class="arg-evidence">
+            <li>A dedicated hotkey <strong>inserts and presses Enter</strong> — whole AI conversations by voice.</li>
+            <li>The quality bar behind every model choice: <strong>"good enough to send unread".</strong></li>
+          </ul>
+        </article>
+
+        <article class="arg">
+          <span class="arg-num">06</span>
+          <h3>Adapts to you — just tell it, if need be.</h3>
+          <p class="arg-lead">The tool bends to your workflow, not the other way around. No settings jungle, just readable code.</p>
+          <ul class="arg-evidence">
+            <li><strong>Readable Python</strong>, <code>config.py</code> with plain-text constants and the recognition vocabulary.</li>
+            <li>"Tell your coding agent what it should be able to do" — <strong>AGENTS.md ships with it.</strong></li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==== The loop ==== -->
+  <section class="loop">
+    <div class="wrap">
+      <h2 class="loop-title">The loop</h2>
+      <ol class="steps">
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd></span>
+          <span class="step-text">Start recording and talk.</span>
+        </li>
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></span>
+          <span class="step-text">Stop: the text lands at the cursor position.</span>
+        </li>
+        <li>
+          <span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>H</kbd></span>
+          <span class="step-text">Or insert <strong>and press Enter</strong> — whole AI conversations without a keyboard.</span>
+        </li>
+      </ol>
+      <p class="loop-note">Prefer to hold a key? Optional <strong>push-to-talk</strong>: hold, talk, release.</p>
+    </div>
+  </section>
+
+  <!-- ==== Second row: everyday reliability ==== -->
+  <section class="section reliab">
+    <div class="wrap">
+      <p class="eyebrow" aria-hidden="true">Day to day</p>
+      <h2>Reliable, recording after recording</h2>
+      <ul class="reliab-grid">
+        <li><strong>Instantly there</strong>The live engine transcribes while you speak, ~0.5 s after stop.</li>
+        <li><strong>Never lose a recording</strong>Retry hotkey plus a safety net for crash, exit, device change.</li>
+        <li><strong>Dictate in parallel</strong>Start the next recording while the previous one is still processing — the order holds.</li>
+        <li><strong>Local archive</strong>Every recording + transcript as a pair on your disk.</li>
+        <li><strong>Transcribe first, insert later</strong>With <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Y</kbd>, when the cursor is still somewhere else.</li>
+        <li><strong>Two insert paths</strong>Simulated typing or clipboard paste.</li>
+        <li><strong>Push-to-talk (optional)</strong>Hold, talk, release — off by default.</li>
+        <li><strong>Self-test by hotkey</strong>Checks the whole pipeline end to end.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ==== Cost ledger ==== -->
+  <section class="section cost">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Cost</p>
+      <h2>What it costs</h2>
+      <p>Nowhere in this stack a <strong>subscription</strong>. You bring your own API keys and pay the providers' usage prices — a fraction of the $12–15/month that subscription dictation tools charge.</p>
+      <dl class="figures">
+        <div>
+          <dt><span class="fig-num">€0</span> <span class="fig-unit">the Groq path</span></dt>
+          <dd><strong>A genuine free tier, not a trial.</strong> Both Groq engines run on Groq's generous free tier — up to ~8 hours of audio a day, enough for daily use.</dd>
+        </div>
+        <div>
+          <dt><span class="fig-num">$0.12</span> <span class="fig-unit">per hour of audio</span></dt>
+          <dd><strong>The Soniox default.</strong> No free tier: top up a small prepaid balance and pay, from the first minute, only for what you actually transcribe.</dd>
+        </div>
+        <div>
+          <dt><span class="fig-num">~$3</span> <span class="fig-unit">per month, heavy use</span></dt>
+          <dd><strong>Measured, not estimated.</strong> The maintainer dictates ~25 hours of audio a month, averaged over half a year. Lighter use lands at around a dollar.</dd>
+        </div>
+      </dl>
+      <p class="cost-note">An honest note: the quality bar above — German good enough to send unread — is measured against the paid Soniox default. The Groq engines are strong; the bar hangs on Soniox.</p>
+    </div>
+  </section>
+
+  <!-- ==== Who it's for / expectation management ==== -->
+  <section class="audience-box">
+    <div class="wrap">
+      <p class="eyebrow" aria-hidden="true">For whom</p>
+      <h2>Who it's built for — and who it isn't</h2>
+      <div class="aud-cols">
+        <div class="aud-for">
+          <h3>A fit if you …</h3>
+          <ul>
+            <li>think technically — a terminal and a <code>.env</code> file don't scare you.</li>
+            <li>want no subscription, want to stay independent and be able to switch providers.</li>
+            <li>want to know where your data goes — and to be able to verify it.</li>
+            <li>talk to AI a lot in German and want to adapt the tool to yourself.</li>
+          </ul>
+        </div>
+        <div class="aud-not">
+          <h3>Probably not if you …</h3>
+          <ul>
+            <li>expect a polished GUI product with an onboarding wizard.</li>
+            <li>have no appetite for a terminal window — Thoughtborne runs from the console, not behind a UI.</li>
+            <li>would rather pay a subscription than enter an API key yourself.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==== Get started ==== -->
+  <section class="section get-started" id="get-started">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Setup</p>
+      <h2>Get started</h2>
+      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The setup lives in the repo: the standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
+      <p>Thoughtborne is a single Python script, not an installed product — lean, readable front to back, easy to adapt. The trade-off: it runs from a terminal window, not behind a GUI.</p>
+      <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
+           becomes the first option in this section; the download + GitHub pointers below
+           move after it. -->
+      <p class="actions">
+        <!-- Direct download of the current source tree (#103). Points at the main-branch
+             zip, not a tagged release: main is the maintained, current state of the tool
+             and this URL stays current with zero page edits, whereas the only
+             release tag (v1.0.0) trails main and would hand users stale code. Unpacks as
+             thoughtborne-windows-main — the folder the README's ZIP step already names.
+             Revisit only if a per-release tagging/asset process starts. -->
+        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows/archive/refs/heads/main.zip">Download ZIP</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Setup guide (README)</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/blob/main/llms-install.md">Agent-guided setup</a>
+      </p>
+      <p class="audience">The download is the source tree — unzip it, then follow the README. Built for people who think technically — who start a script in a terminal and drop an API key into a <code>.env</code> file.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <nav class="footer-links" aria-label="Project links">
+      <a href="https://github.com/timwessels/thoughtborne-windows">GitHub</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/issues">Issues</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/timwessels/thoughtborne-macos">macOS port</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.de.md" hreflang="de">Deutsche Dokumentation</a>
+      <a href="/en/legal.html">Imprint &amp; Privacy</a>
+    </nav>
+    <p class="footer-note">Thoughtborne has been the maintainer's daily tool for years and is actively maintained.</p>
+    <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. -->
+    <svg class="mark mark-footer" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
+  </div>
+</footer>
+
+</body>
+</html>
