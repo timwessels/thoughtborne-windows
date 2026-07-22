@@ -2376,7 +2376,8 @@ class ThoughtborneApp:
         return ['start_recording', tail, 'switch_api', 'exit_program']
 
     def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False,
-                         reason=None, provider=None, inconclusive=False):
+                         reason=None, provider=None, inconclusive=False,
+                         mode=None, truncated=False, cap=None, original_chars=None):
         """Map OutputManager completion events onto Cockpit strips/panels (#109).
 
         This is the on_task_complete callback (see OutputManager.__init__ for
@@ -2400,12 +2401,22 @@ class ThoughtborneApp:
             seq_shown = seq if (seq is not None and seq >= 0) else None
 
             if event == 'inserted':
-                self._emit_block(
-                    'inserted',
-                    lambda ansi, compact: console_ui.render_ok_strip(
-                        seq_shown, chars, sent, model, self._footer_keys(),
-                        self._prefix_for(self._footer_actions()), ansi=ansi, compact=compact),
-                    detail=f"seq={seq} chars={chars} sent={sent}")
+                if mode == 'typing' and truncated:
+                    # Typed insert hit the #7 length cap -> its own yellow strip.
+                    self._emit_block(
+                        'inserted-capped',
+                        lambda ansi, compact: console_ui.render_typed_capped(
+                            cap, original_chars, paste_key, model, self._footer_keys(),
+                            self._prefix_for(self._footer_actions()), ansi=ansi, compact=compact),
+                        detail=f"seq={seq} typed={chars} original={original_chars} cap={cap}")
+                else:
+                    self._emit_block(
+                        'inserted',
+                        lambda ansi, compact: console_ui.render_ok_strip(
+                            seq_shown, chars, sent, model, self._footer_keys(),
+                            self._prefix_for(self._footer_actions()),
+                            mode=mode, cap=cap, ansi=ansi, compact=compact),
+                        detail=f"seq={seq} chars={chars} sent={sent} mode={mode}")
             elif event == 'ready':
                 self._emit_block(
                     'ready',

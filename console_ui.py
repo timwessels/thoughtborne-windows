@@ -438,7 +438,26 @@ def render_rec_strip(type_key, paste_key, send_key, keep_key, cancel_key,
 
 
 def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
-                    *, ansi, compact):
+                    *, mode=None, cap=None, ansi, compact):
+    if mode == 'typing':
+        # Typed insert (keyboard.write) -- length-capped (#7). Show the ceiling
+        # beside the char count; a *truncated* one goes to render_typed_capped, so
+        # here chars <= cap. No seq block (the cap annotation takes that room).
+        if compact:
+            head = "typed + sent" if sent else "typed"
+            return [cline([("OK", (BOLD, GREEN)),
+                           (f"  {head} ({chars:,} chars, max {cap:,})", ())], ansi)]
+        what = "typed at the cursor + sent" if sent else "typed at the cursor"
+        annot = f"{chars:,} chars (max {cap:,})"
+        left = [("  ", ()), ("OK", (BOLD, GREEN)), (f"  {what}", ())]
+        left_vis = sum(len(t) for t, _ in left)
+        pad = max(1, INNER - left_vis - len(annot))
+        return [
+            *_strip_open(ansi),
+            sline(left + [(" " * pad + annot, ())], ansi),
+            *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
+            sbot(ansi),
+        ]
     what = "inserted at the cursor + sent" if sent else "inserted at the cursor"
     if compact:
         seq_part = f"seq {seq}, " if (seq is not None) else ""
@@ -449,6 +468,33 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
+        sbot(ansi),
+    ]
+
+
+def render_typed_capped(cap, original_chars, paste_key, model_label, footer_keys,
+                        key_prefix, *, ansi, compact):
+    """A typed insert that hit the #7 length cap. Benign success-with-notice, never
+    red: the text WAS inserted (capped), the full transcript is kept in history and
+    re-insertable via the clipboard hotkey (paste_key). Yellow CAPPED tag -- it is
+    a successful insert with a heads-up, not a failure."""
+    if compact:
+        return [
+            cline([("CAPPED", (BOLD, YELLOW)),
+                   (f"  typed capped at {cap:,} (of {original_chars:,})", ())], ansi),
+            cline(f"   full text in history -- {paste_key} re-inserts it", ansi),
+            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
+        ]
+    head = truncate_end(
+        f"typed insert limited to {cap:,} chars (of {original_chars:,})", INNER - 10)
+    hint = truncate_end(
+        f"full text kept in history -- {paste_key} re-inserts all of it (clipboard)",
+        INNER - 4)
+    return [
+        *_strip_open(ansi),
+        sline([("  ", ()), ("CAPPED", (BOLD, YELLOW)), (f"  {head}", ())], ansi),
+        sline([("  " + hint, ())], ansi),
         *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
         sbot(ansi),
     ]

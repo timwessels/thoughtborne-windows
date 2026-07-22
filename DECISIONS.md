@@ -120,3 +120,48 @@ the default hotkeys into the file; seeding the placeholder vocabulary; or a sile
 write to Windows Terminal's `settings.json`.
 
 Does not touch D-001.
+
+---
+
+## D-003 — Typed inserts are capped at 4,000 characters, not repaired
+
+Decided 2026-07-22 (#7, spike #161).
+
+The typing insert path (`keyboard.write()` / Win32 `SendInput`) silently loses most of a
+long transcript: past an app-dependent break point the target app's input queue
+overflows and drops the surplus keystrokes in order, while `SendInput` reports full
+success (its return value only covers injection, not the later drop in the target). It is
+a general Windows behavior — independently reproduced by Microsoft's own tooling, the
+AutoHotkey community, and MS Q&A, repeatedly for Notepad — not a bug we can cheaply fix:
+the break point moves with the receiving app's drain rate, so a robust repair would mean
+per-app tuning or typing slowly enough that a long insert takes minutes. The decision:
+
+- **Cap, don't repair.** Typed inserts are capped at **4,000 characters** — below the
+  lowest break seen on the maintainer's machine (a 5,897-char insert landed whole; the
+  break was 6,292 in Notepad, the most overflow-prone common target), ~32% margin. It also
+  lands on the documented absolute registry minimum for the message queue, a convergent
+  extra floor even in the pathological case. About seven minutes of continuous dictation
+  into a paste-hostile field; in months of heavy daily use no typed insert above this was
+  ever needed. The constant is trivially adjustable and lives in `typed_cap.py`.
+- **No chunking/pacing.** With the cap below the real break point nothing overflows under
+  it, so pacing would be dead weight; any chunk delay would have to guess the app's unknown
+  drain rate — exactly the fragile repair rejected here. (Spike #161, full model in
+  `_research/2026-07_typed-insert-drops/`.)
+- **Nothing is lost.** The full transcript always stays in `history/` and is re-insertable
+  in one piece via the clipboard hotkey; on truncation a short bracketed ASCII notice is
+  appended to the typed text (no newline — a newline would arrive as Enter and could submit
+  a single-line form field), and a calm yellow CAPPED strip explains it on the console (a
+  success, never a red error).
+- **All three routes covered.** The stop-hotkey typing path, the self-test, and the
+  clipboard path's paste-failure fallback to `keyboard.write()` all go through the one cap
+  helper `cap_typed_text()`.
+- **No auto-switch to clipboard above the cap.** Typing is *chosen* for paste-hostile
+  targets; silently switching to clipboard would fail in exactly the cases this path exists
+  for. A visible cap keeps the user in control.
+
+Do not reintroduce: an uncapped `keyboard.write()` on any typed route; chunking/pacing to
+"fix" the overflow; a silent auto-switch to clipboard above the threshold; a newline in the
+appended notice; or treating a truncation as a red FAILED (it is a successful, capped
+insert).
+
+Does not touch D-001 or D-002.

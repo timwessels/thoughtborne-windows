@@ -330,6 +330,10 @@ def check_ctrl_alt_counts():
                                    ansi=True, compact=False), 1),
         ("ok", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
                                  ansi=True, compact=False), 1),
+        ("ok/typing", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
+                                        mode="typing", cap=4000, ansi=True, compact=False), 1),
+        ("typed_capped", u.render_typed_capped(4000, 30818, "A", model, FOOTER, KEY_PREFIX,
+                                               ansi=True, compact=False), 1),
         ("waiting", u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX,
                                            ansi=True, compact=False), 1),
         ("cancelled", u.render_cancelled_strip(ansi=True, compact=False), 0),
@@ -491,6 +495,43 @@ def check_strip_structure():
             _record(f"{name}: expected one Ctrl+Alt lead, got {joined.count('Ctrl+Alt')}")
 
 
+# ---- #7 typed-insert cap: the OK/typing annotation + the CAPPED strip ---------
+def check_typed_cap_surfaces():
+    """#7: the OK/typing strip shows the ceiling beside the char count and drops
+    the seq block; the CAPPED strip is a calm YELLOW success-with-notice (never
+    red), naming the clipboard key and history, framed at full width."""
+    model = "Soniox Live"
+
+    ok = u.render_ok_strip(12, 3990, False, model, FOOTER, KEY_PREFIX,
+                           mode="typing", cap=4000, ansi=True, compact=False)
+    joined = strip("".join(ok))
+    if "typed at the cursor" not in joined:
+        _record("ok/typing: headline is not 'typed at the cursor'")
+    if "(max 4,000)" not in joined:
+        _record("ok/typing: missing the '(max 4,000)' annotation")
+    row1 = strip(ok[2])   # top border, +1 headroom line, then the OK row
+    if "seq " in row1:
+        _record(f"ok/typing: the typed strip still carries a seq block: {row1!r}")
+
+    cap = u.render_typed_capped(4000, 999999, "A", model, FOOTER, KEY_PREFIX,
+                                ansi=True, compact=False)
+    joinedc = "".join(cap)
+    codes = re.findall(r"\x1b\[([0-9;]+)m", joinedc)
+    if not any("33" in c.split(";") for c in codes):
+        _record("typed_capped: CAPPED tag is not yellow (SGR 33)")
+    if any("31" in c.split(";") for c in codes):
+        _record("typed_capped: carries red (SGR 31) -- a cap is a success, not an error")
+    txt = strip(joinedc)
+    for want, label in (("CAPPED", "the CAPPED tag"), ("history", "history"),
+                        ("A re-inserts", "the paste key")):
+        if want not in txt:
+            _record(f"typed_capped: does not carry {label}: {txt!r}")
+    for ln in cap:
+        v = strip(ln)
+        if v and len(v) != u.W:
+            _record(f"typed_capped framed line != {u.W}: {v!r}")
+
+
 # ---- #55 override edge: no shared modifier prefix (key_prefix=None) ----------
 def check_prefix_none_widths():
     """An override can leave the effective hotkeys without a shared modifier lead
@@ -571,6 +612,19 @@ def main():
                     seq=seq, chars=chars, type_key="A", paste_key="D", key_prefix=KEY_PREFIX),
                     stress=(seq == 99999 or chars == 99999))
 
+        # #7 typed insert: the cap annotation beside the char count (mode='typing',
+        # chars <= cap), and the yellow CAPPED strip for a truncated one.
+        for chars in (7, 184, 4000):
+            for sent in (False, True):
+                run("ok/typing", u.render_ok_strip, dict(
+                    seq=12, chars=chars, sent=sent, model_label=model, footer_keys=FOOTER,
+                    key_prefix=KEY_PREFIX, mode="typing", cap=4000))
+        for original_chars in (4001, 30818, 999999):
+            run("typed_capped", u.render_typed_capped, dict(
+                cap=4000, original_chars=original_chars, paste_key="A", model_label=model,
+                footer_keys=FOOTER, key_prefix=KEY_PREFIX),
+                stress=(original_chars == 999999))
+
         for seq in (None, 12, 99999):
             # #159: one FAILED render per reason (incl. the None catch-all that omits
             # the block) x both provider tokens, through the full ansi x compact matrix.
@@ -619,6 +673,11 @@ def main():
          start_key=START, with_wordmark=False)
     twin("ok", u.render_ok_strip, seq=12, chars=184, sent=False,
          model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
+    twin("ok/typing", u.render_ok_strip, seq=12, chars=184, sent=True,
+         model_label="Soniox Live", footer_keys=FOOTER, key_prefix=KEY_PREFIX,
+         mode="typing", cap=4000)
+    twin("typed_capped", u.render_typed_capped, cap=4000, original_chars=30818,
+         paste_key="A", model_label="Soniox Live", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
     twin("transcription_failed", u.render_transcription_failed, seq=12, retry_key=RETRY,
          model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
     twin("transcription_failed/reason", u.render_transcription_failed, seq=12, retry_key=RETRY,
@@ -652,6 +711,7 @@ def main():
     check_failed_reason_block()
     check_no_speech_open_key_width()
     check_strip_structure()
+    check_typed_cap_surfaces()
 
     # ---- #55 override edge: key_prefix=None framed render --------------------
     check_prefix_none_widths()

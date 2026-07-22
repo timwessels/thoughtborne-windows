@@ -157,6 +157,8 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 
 Transkripte werden immer in Aufnahme-Reihenfolge eingefügt, auch wenn mehrere Aufnahmen parallel verarbeitet werden.
 
+**Der Tipp-Einfügeweg hat eine Längenbegrenzung.** `Ctrl+Alt+H` fügt per simuliertem Tippen ein — der Ausweichweg für Apps, die Einfügen (Paste) blockieren. Windows verwirft bei sehr langem simuliertem Tippen den Großteil der Zeichen still, sobald die Ziel-App nicht mehr hinterherkommt; deshalb ist dieser Weg bewusst auf **4.000 Zeichen** begrenzt (rund sieben Minuten ununterbrochenes Diktat). Oberhalb der Grenze endet der getippte Text mit einem kurzen Hinweis in eckigen Klammern — verloren geht nichts: das vollständige Transkript bleibt in `history/` und lässt sich in einem Stück über den Zwischenablage-Hotkey (`Ctrl+Alt+A`) einfügen. Die Zwischenablage-Wege (`A`/`D`) sind nicht betroffen.
+
 **`Ü` ohne deutsche Tastatur:** `Ü` ist auf dem deutschen QWERTZ-Layout eine eigene Taste (rechts von `P`). Auf anderen Layouts, falls der Selbsttest nicht auslöst, die Aktion `test_transcription` im `hotkeys`-Block der `personal_settings.json` umbelegen (siehe Anpassung unten) — `config.py` behält die Defaults.
 
 ## Anpassung

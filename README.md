@@ -157,6 +157,8 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 
 Transcripts are always inserted in recording order, even when several recordings are processing in parallel.
 
+**The typing insert has a length cap.** `Ctrl+Alt+H` inserts by simulating keystrokes — the fallback for apps that block a paste. Windows silently drops most of a very long simulated-typing burst once the target app can't keep up, so this path is deliberately capped at **4,000 characters** (about seven minutes of continuous dictation). Past the cap the typed text ends with a short bracketed note, and nothing is lost: the full transcript stays in `history/` and can be inserted in one piece with the clipboard hotkey (`Ctrl+Alt+A`). The clipboard paths (`A`/`D`) are not affected.
+
 **`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, rebind the `test_transcription` action in the `hotkeys` block of `personal_settings.json` (see Customization below) — `config.py` keeps the defaults.
 
 ## Customization

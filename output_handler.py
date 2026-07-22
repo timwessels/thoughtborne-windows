@@ -37,6 +37,7 @@ from config import (
     TRANSCRIPT_HISTORY_SIZE, OUTPUT_QUEUE_TIMEOUT,
     CLIPBOARD_RESTORE_DELAY, KEY_RELEASE_DELAY, FILE_ONLY
 )
+from typed_cap import cap_typed_text, TYPED_INSERT_CAP
 
 logger = logging.getLogger('Thoughtborne.OutputHandler')
 
@@ -339,6 +340,17 @@ class TranscriptionTask:
     error_inconclusive: bool = False  # Soniox-Live V2->V4 lane ran empty with >=1 errored stage, minus a conclusive auth reject -> "came back empty, worth a retry" (#159)
 
 
+@dataclass
+class _InsertOutcome:
+    """Result of _insert_text_via_clipboard. Richer than the old bool so a
+    paste-failure fallback to typing (which caps, #7) can report what it typed."""
+    success: bool
+    typed_fallback: bool = False   # clipboard failed -> we typed instead
+    truncated: bool = False        # the typed fallback was capped (#7)
+    typed_chars: int = 0           # chars actually typed (body + notice)
+    original_chars: int = 0        # full transcript length before the cap
+
+
 class OutputManager:
     """Manages sequential text output and clipboard operations (Windows version)"""
 
@@ -349,9 +361,15 @@ class OutputManager:
         Args:
             on_task_complete_callback: Optional event callback, invoked from the
                 output thread when a task finishes (#37). Keyword contract:
-                  callback(event='inserted', seq=..., chars=..., sent=...)
+                  callback(event='inserted', seq=..., chars=..., sent=...,
+                           mode='typing'|None, truncated=<bool>, cap=<int|None>,
+                           original_chars=<int|None>)
                       -- transcript inserted; sent=True when Enter was pressed
-                         afterwards (the send flow)
+                         afterwards (the send flow). mode='typing' when the text
+                         was typed (keyboard.write), which is length-capped (#7):
+                         chars is what was typed, cap the ceiling, original_chars
+                         the full length, truncated=True when it was cut. Clipboard
+                         inserts omit these extra fields (mode absent).
                   callback(event='ready', seq=..., chars=...)
                       -- Y flow: processed but NOT inserted, waiting for the user
                   callback(event='failed', kind='transcription'|'insertion', seq=...)
@@ -512,7 +530,7 @@ class OutputManager:
             logger.error(f"Error sending Ctrl+V: {e}", exc_info=True)
             return False
 
-    def _insert_text_via_clipboard(self, text: str) -> bool:
+    def _insert_text_via_clipboard(self, text: str) -> "_InsertOutcome":
         """
         Insert text via clipboard with original content restoration (Windows version)
 
@@ -520,13 +538,14 @@ class OutputManager:
             text: Text to insert
 
         Returns:
-            True if successful, False otherwise
+            _InsertOutcome: success flags plus, when the paste failed and we fell
+            back to typing (which is length-capped, #7), what was typed.
         """
         try:
             # Wait until user has released all modifier keys
             if not self._ensure_no_modifiers_pressed():
                 logger.error("Cannot insert via clipboard - modifiers still pressed after timeout")
-                return False
+                return _InsertOutcome(success=False)
 
             _clipboard_diag("pre-read")
 
@@ -589,7 +608,7 @@ class OutputManager:
 
             if not paste_success:
                 logger.warning("Paste via hotkey failed")
-                return False
+                return _InsertOutcome(success=False)
 
             # Delay after insertion
             _diag_sample_window("post-paste", CLIPBOARD_RESTORE_DELAY)
@@ -684,19 +703,27 @@ class OutputManager:
                     f"(delta {delta:+d}, pasted text was {len(text)} chars): {verdict}"
                 )
 
-            return True
+            return _InsertOutcome(success=True)
 
         except Exception as e:
             logger.error(f"Error during clipboard insertion: {e}")
-            # Fallback to keyboard.write
+            # Fallback to keyboard.write -- capped like the primary typed path (#7)
             try:
                 logger.info("Trying fallback to keyboard.write()", extra=FILE_ONLY)
+                to_type, truncated, original_len = cap_typed_text(text)
                 with self.keyboard_lock:
-                    keyboard.write(text)
-                return True
+                    keyboard.write(to_type)
+                if truncated:
+                    logger.info(
+                        f"Typed fallback capped: {original_len} -> {len(to_type)} chars "
+                        f"(cap {TYPED_INSERT_CAP}); full transcript kept in history (#7)",
+                        extra=FILE_ONLY)
+                return _InsertOutcome(success=True, typed_fallback=True,
+                                      truncated=truncated, typed_chars=len(to_type),
+                                      original_chars=original_len)
             except Exception as e2:
                 logger.error(f"Fallback also failed: {e2}")
-                return False
+                return _InsertOutcome(success=False)
 
     def _output_manager_thread(self):
         """Thread that handles sequential text output"""
@@ -780,15 +807,19 @@ class OutputManager:
                     try:
                         if task.use_clipboard:
                             # Clipboard insertion
-                            success = self._insert_text_via_clipboard(task.transcript)
-                            if success:
+                            outcome = self._insert_text_via_clipboard(task.transcript)
+                            if outcome.success:
                                 # Log insertion
                                 if task.sequence_number < 0:
                                     logger.debug(f"Immediate text inserted via clipboard (Seq: {task.sequence_number}, {len(task.transcript)} chars)")
                                 else:
                                     logger.debug(f"Text for sequence {task.sequence_number} inserted via clipboard")
 
-                                # Press Enter if send_after_insert is enabled
+                                # Press Enter if send_after_insert is enabled.
+                                # On the rare paste-failed typed fallback this also
+                                # sends a capped text (notice included) -- accepted:
+                                # send is chosen for chat targets, not paste-hostile
+                                # ones, so the fallback almost never fires here (#7).
                                 if task.send_after_insert:
                                     logger.debug(f"Pressing Enter to send message (Seq: {task.sequence_number})")
                                     time.sleep(0.2)  # Short pause for safety
@@ -797,10 +828,22 @@ class OutputManager:
 
                                 # Call completion callback if registered
                                 if self.on_task_complete:
-                                    self.on_task_complete(event='inserted',
-                                                          seq=task.sequence_number,
-                                                          chars=len(task.transcript),
-                                                          sent=task.send_after_insert)
+                                    if outcome.typed_fallback:
+                                        # Clipboard failed and we typed instead -> report
+                                        # it as a typed insert so the cap surfaces (#7).
+                                        self.on_task_complete(event='inserted',
+                                                              seq=task.sequence_number,
+                                                              chars=outcome.typed_chars,
+                                                              sent=task.send_after_insert,
+                                                              mode='typing',
+                                                              truncated=outcome.truncated,
+                                                              cap=TYPED_INSERT_CAP,
+                                                              original_chars=outcome.original_chars)
+                                    else:
+                                        self.on_task_complete(event='inserted',
+                                                              seq=task.sequence_number,
+                                                              chars=len(task.transcript),
+                                                              sent=task.send_after_insert)
                             else:
                                 logger.error("Clipboard insertion failed")
                                 if self.on_task_complete:
@@ -823,16 +866,27 @@ class OutputManager:
                                                           seq=task.sequence_number)
                                 continue
 
+                            # Cap the typed text below the SendInput overflow point
+                            # (#7). Computed before the lock (pure/cheap), so the
+                            # keyboard_lock still wraps only the write.
+                            to_type, truncated, original_len = cap_typed_text(task.transcript)
                             with self.keyboard_lock:
-                                keyboard.write(task.transcript)
+                                keyboard.write(to_type)
+                            if truncated:
+                                logger.info(
+                                    f"Typed insert capped: {original_len} -> {len(to_type)} chars "
+                                    f"(cap {TYPED_INSERT_CAP}); full transcript kept in history (#7)",
+                                    extra=FILE_ONLY)
 
                             # Log insertion
                             if task.sequence_number < 0:
-                                logger.debug(f"Immediate text inserted (Seq: {task.sequence_number}, {len(task.transcript)} chars)")
+                                logger.debug(f"Immediate text inserted (Seq: {task.sequence_number}, {len(to_type)} chars)")
                             else:
                                 logger.debug(f"Text for sequence {task.sequence_number} inserted")
 
-                            # Press Enter if send_after_insert is enabled
+                            # Press Enter if send_after_insert is enabled. A capped
+                            # typed insert still presses Enter (sends body + notice) --
+                            # a benign accepted edge, not special-cased (#7).
                             if task.send_after_insert:
                                 logger.debug(f"Pressing Enter to send message (Seq: {task.sequence_number})")
                                 time.sleep(0.2)  # Short pause for safety
@@ -843,8 +897,12 @@ class OutputManager:
                             if self.on_task_complete:
                                 self.on_task_complete(event='inserted',
                                                       seq=task.sequence_number,
-                                                      chars=len(task.transcript),
-                                                      sent=task.send_after_insert)
+                                                      chars=len(to_type),
+                                                      sent=task.send_after_insert,
+                                                      mode='typing',
+                                                      truncated=truncated,
+                                                      cap=TYPED_INSERT_CAP,
+                                                      original_chars=original_len)
 
                     except Exception as e:
                         logger.error(f"Error during insertion: {e}")
