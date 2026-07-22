@@ -1,0 +1,86 @@
+# Deploys docs/ (the public site, thoughtborne.app) to the All-Inkl webspace
+# via FTPS on every push to main that touches docs/. See issue #146.
+#
+# Secrets:
+#   SITE_FTP_HOST        FTP host (kasserver)
+#   SITE_FTP_USER        FTP login scoped to the site folder
+#   SITE_FTP_PASSWORD    its password
+#   SITE_POSTAL_ADDRESS  HTML fragment replacing {{POSTAL_ADDRESS}} in the
+#                        legal pages at deploy time (issue #96 — the postal
+#                        address never enters the repository)
+
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fill legal contact block from secret
+        env:
+          POSTAL_ADDRESS: ${{ secrets.SITE_POSTAL_ADDRESS }}
+        run: |
+          if [ -z "$POSTAL_ADDRESS" ]; then
+            echo "::error::SITE_POSTAL_ADDRESS secret is empty"
+            exit 1
+          fi
+          files=$(grep -rl '{{POSTAL_ADDRESS}}' docs/ || true)
+          if [ -z "$files" ]; then
+            echo "No {{POSTAL_ADDRESS}} placeholder found — nothing to fill."
+          else
+            for f in $files; do
+              perl -pi -e 's/\{\{POSTAL_ADDRESS\}\}/$ENV{POSTAL_ADDRESS}/g' "$f"
+              echo "Filled contact block in $f"
+            done
+            if grep -rl '{{POSTAL_ADDRESS}}' docs/; then
+              echo "::error::Placeholder still present after replacement"
+              exit 1
+            fi
+          fi
+
+      - name: Deploy docs/ via FTPS
+        env:
+          FTP_HOST: ${{ secrets.SITE_FTP_HOST }}
+          FTP_USER: ${{ secrets.SITE_FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.SITE_FTP_PASSWORD }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -qq -y lftp
+          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate true
+          mirror -R --delete --verbose --exclude-glob CNAME docs/ /
+          bye
+          EOF
+
+      - name: Verify deployed site answers
+        env:
+          FTP_HOST: ${{ secrets.SITE_FTP_HOST }}
+        run: |
+          # The vhost serves the site even before DNS cutover; resolve the
+          # domain to the webspace host explicitly. TLS may not be issued
+          # yet pre-cutover, so fall back to HTTP for the parity ping.
+          IP=$(getent hosts "$FTP_HOST" | awk '{print $1; exit}')
+          echo "Webspace IP: $IP"
+          if curl -sSf --resolve "thoughtborne.app:443:$IP" https://thoughtborne.app/ -o /dev/null; then
+            echo "HTTPS OK"
+          elif curl -sSf --resolve "thoughtborne.app:80:$IP" http://thoughtborne.app/ -o /dev/null; then
+            echo "HTTP OK (TLS not issued yet — expected before DNS cutover)"
+          else
+            echo "::error::Deployed site does not answer on the webspace vhost"
+            exit 1
+          fi
