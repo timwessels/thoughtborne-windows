@@ -334,6 +334,7 @@ class TranscriptionTask:
     auto_insert: bool = True  # Whether to automatically insert text (False = only save for later)
     send_after_insert: bool = False  # Whether to press Enter after inserting (for sending messages)
     no_speech: bool = False  # Empty on every engine -> honest "no speech" verdict, not a failure (#133)
+    error_reason: Optional[str] = None  # Coarse failure category on a FAILED task (#138); rendered by #159
 
 
 class OutputManager:

@@ -52,6 +52,25 @@ follows:
   name as a `_seen` token), no count, no multi-recording bookkeeping, no states
   beyond that. Keeping this lean is the feature, per VISION.md principle #1
   (stability).
+- **2026-07-22 addendum (#138/#159).** The "empty is a final verdict — where it
+  can be told apart" clause now reaches every engine, not just Soniox Live. Since
+  #138 each engine reports a per-call error signal through the `_ErrorTag` sink
+  (an `errored` flag plus a coarse `reason`: auth / no-connection / rate-limited /
+  service-error), so a clean-but-empty run is told apart from a transport/API
+  outage on the Soniox upload slot and the Groq slots too. The verdict follows: a
+  selected engine that runs clean and returns zero chars earns the honest
+  NO SPEECH verdict (no marker in-session / marker deleted on retry); an engine
+  that errored stays the cautious FAILED + retryable path, now naming the reason
+  (#159). This is a **single-engine** verdict — the selected engine speaks for
+  itself; the earlier cross-provider confirmation chain was dropped 2026-07-22,
+  because a wrong single-engine verdict costs only the auto-retry offer (audio is
+  never deleted). A Groq clean-empty earns the full verdict like any other engine
+  (Whisper hallucinates on silence rather than returning empty, so an empty Groq
+  result is a sound silence signal when it occurs). The Soniox Live lane is
+  unchanged: its internal duration-gated V2→V4 file lane still runs on the
+  archived file and its aggregate signal feeds the verdict as before. Maintainer
+  approved 2026-07-21 (widening) and 2026-07-22 (chain-less). Not a supersede —
+  this extends D-001's own clause.
 
 Do not reintroduce: a per-start nag, a pending count in the panel, a
 consume-on-read marker (breaks cross-restart retry), or any automatic deletion of

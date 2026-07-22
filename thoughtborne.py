@@ -69,6 +69,7 @@ from transcriber import (
     _EngineTag,
     _ErrorTag,
     _one_line_error,
+    _grpc_error_reason,
 )
 from output_handler import OutputManager, TranscriptionTask
 
@@ -734,41 +735,51 @@ class ThoughtborneApp:
             # V2 sync or V4 async per recording, so it reports through a per-call
             # sink; every other slot maps straight from its type.
             self._ticker(f"[Seq: {sequence_number}] Transcribing with {transcriber.get_name()}...")
+            # #138: every engine now reports through the error sink, so a clean-
+            # but-empty run is told apart from a transport/API outage on every
+            # slot (not just Soniox Live). The hybrid 'soniox' slot also reports
+            # which engine (V2/V4) won through its engine sink (#62).
+            error_tag = _ErrorTag()
             if isinstance(transcriber, SonioxTranscriber):
                 self._ticker(f"[Seq: {sequence_number}] {transcriber.engine_choice_line(duration)}")
                 engine_tag = _EngineTag()
-                transcript = transcriber.transcribe(mp3_path, duration, engine_sink=engine_tag)
+                transcript = transcriber.transcribe(mp3_path, duration,
+                                                    engine_sink=engine_tag, error_sink=error_tag)
                 engine = engine_tag.code
             else:
-                transcript = transcriber.transcribe(mp3_path, duration)
+                transcript = transcriber.transcribe(mp3_path, duration, error_sink=error_tag)
                 engine = engine_code(transcriber)
             transcript = transcript.rstrip('\n')
+
+            in_session_any_error = error_tag.errored
+            in_session_reason = error_tag.reason
 
             # Issue #1: empty live transcript -> file-based fallback on the
             # already-archived MP3. Restricted to SonioxLiveTranscriber: empty
             # results from V2/V4-async/Groq already mean the
             # file-based path was tried and failed, so a second pass would not
-            # help. Runs before cleanup_temp_files so mp3_path still exists.
-            in_session_any_error = False
+            # help. Runs before cleanup_temp_files so mp3_path still exists. Its
+            # aggregate signal supersedes Live's own sink on the empty path.
             if not transcript and isinstance(transcriber, SonioxLiveTranscriber):
-                transcript, fallback_engine, in_session_any_error = self._run_empty_transcript_fallback(
-                    mp3_path=mp3_path,
-                    duration=duration,
-                    sequence_number=sequence_number,
-                    thread_name=thread_name,
-                )
+                transcript, fallback_engine, in_session_any_error, in_session_reason = \
+                    self._run_empty_transcript_fallback(
+                        mp3_path=mp3_path,
+                        duration=duration,
+                        sequence_number=sequence_number,
+                        thread_name=thread_name,
+                    )
                 if transcript:
                     engine = fallback_engine
 
-            # #133: an empty result is only an honest "no speech" verdict when the
-            # Soniox Live file-fallback chain actually ran end to end AND every stage
-            # came back clean (no transport/API error) -- the one place a silent
-            # recording is verifiable. A non-live engine (soniox/groq) returning empty
-            # is ambiguous: it swallows transport/API errors internally (transcriber.py
-            # returns "" on both auth and generic failures), so empty could be a real
-            # outage. Such a result stays the conservative FAILED + retryable path.
-            no_speech_verdict = (
-                isinstance(transcriber, SonioxLiveTranscriber) and not in_session_any_error)
+            # #138 (generalizing #133): a clean-but-empty run on ANY selected
+            # engine is the honest "no speech" verdict -- the engine ran end to
+            # end with no transport/API error and found zero chars (single-engine,
+            # no cross-checking). An errored run stays the conservative FAILED +
+            # retryable path, now carrying the reason for #159. For Soniox Live
+            # this is bit-identical to before: its file-fallback chain still
+            # supplies in_session_any_error, and isinstance(...) was always True
+            # on that path.
+            no_speech_verdict = not in_session_any_error
 
             # Save transcript, then tag the archived recording with the same
             # engine token so the audio<->transcript pair shows the engine (#62).
@@ -785,24 +796,27 @@ class ThoughtborneApp:
                 logger.info(f"[{thread_name}] Transcription for sequence {sequence_number} ready", extra=FILE_ONLY)
                 self._ticker(f"[Seq: {sequence_number}] Transcription completed, waiting for output...")
             elif no_speech_verdict:
-                # #133: the live chain ran and every stage came back clean-but-empty --
-                # the recording held no speech. A retry cannot help, so a genuinely
-                # silent dictation writes NO marker (killing #134's nag at the root):
-                # say so honestly (the calm 'no speech' panel) and arm no retry.
+                # A clean-but-empty run on the selected engine (#138, generalizing
+                # #133): no transport/API error, zero chars -- the recording held no
+                # speech. A retry cannot help, so a genuinely silent dictation writes
+                # NO marker (killing #134's nag at the root): say so honestly (the
+                # calm 'no speech' panel) and arm no retry.
                 logger.info(f"[{thread_name}] No speech in sequence {sequence_number} "
                             f"-- honest verdict, no retry marker", extra=FILE_ONLY)
                 task.no_speech = True
                 task.is_complete = True
             else:
-                # Empty without a clean live chain: either the live chain hit a
-                # transport/API error, or a non-live engine came back empty (and those
-                # cannot tell silence from a swallowed outage). Stay conservative -- the
-                # error task drives the FAILED panel via the OutputManager (#109) and
-                # arms the retry slot + persistent marker (#114/#24), so a switch-and-
-                # retry can route around an outage, exactly as before #133.
+                # Empty AND the engine flagged a transport/API error (#138: every
+                # slot reports through the error sink now, so this is the errored path
+                # on any engine -- a clean-but-empty run took the no-speech branch
+                # above). Stay conservative -- the error task drives the FAILED panel
+                # via the OutputManager (#109) and arms the retry slot + persistent
+                # marker (#114/#24), so a switch-and-retry can route around an outage,
+                # exactly as before #133.
                 logger.warning(f"[{thread_name}] Empty transcription for sequence {sequence_number} "
                                f"-- staying retryable", extra=FILE_ONLY)
                 task.is_error = True
+                task.error_reason = in_session_reason  # dormant until #159 renders it
                 task.is_complete = True
                 self._record_failed_slot(timestamp, duration)
 
@@ -880,7 +894,7 @@ class ThoughtborneApp:
         return True
 
     def _run_empty_transcript_fallback(self, mp3_path: str, duration: float,
-                                       sequence_number: int, thread_name: str) -> Tuple[str, str, bool]:
+                                       sequence_number: int, thread_name: str) -> Tuple[str, str, bool, Optional[str]]:
         """Fall back to a file-based Soniox API when SonioxLive returned empty.
 
         Triggered from process_recording_thread when SonioxLiveTranscriber yields
@@ -922,15 +936,18 @@ class ThoughtborneApp:
             thread_name: For log correlation.
 
         Returns:
-            (transcript, engine, any_error) -- the transcript plus the token of
-            the engine that produced it (ENGINE_TOKENS["soniox_v2"] or
-            ["soniox_v4"], #62), plus a flag that is meaningful only when the
+            (transcript, engine, any_error, reason) -- the transcript plus the
+            token of the engine that produced it (ENGINE_TOKENS["soniox_v2"] or
+            ["soniox_v4"], #62), plus two fields meaningful only when the
             transcript is empty: any_error is True when at least one stage failed
             with a transport/API error, and False when every stage that ran came
-            back clean-but-empty. The caller uses it to tell a real outage (keep
-            the retry marker) from a genuinely silent recording ("no speech", a
-            final verdict -- #133). On success any_error is False and ignored;
-            ("", "", False) is a clean all-empty, ("", "", True) an outage.
+            back clean-but-empty; reason is the coarse category of the last
+            errored stage (#138), or None on a clean all-empty. The caller uses
+            any_error to tell a real outage (keep the retry marker) from a
+            genuinely silent recording ("no speech", a final verdict -- #133), and
+            reason to name the outage on the FAILED panel (#159). On success both
+            are None/ignored; ("", "", False, None) is a clean all-empty,
+            ("", "", True, "no-connection") an outage.
         """
         try_v2_first = duration < SHORT_AUDIO_THRESHOLD
         primary_label = "Soniox V2 (sync)" if try_v2_first else "Soniox V4 (async)"
@@ -947,13 +964,17 @@ class ThoughtborneApp:
                      f"retrying from the saved audio file...")
 
         # any_error aggregates whether any stage hit a real transport/API error;
-        # it only matters when the final transcript is empty (#133).
+        # error_reason keeps the last errored stage's coarse category (#138).
+        # Both only matter when the final transcript is empty (#133/#159). On a
+        # network outage the two stages usually share a category anyway; "last
+        # wins" makes the final attempt on the archived file the one that speaks.
         any_error = False
+        error_reason = None
 
         # Short recordings: try V2, fall through to V4 on failure / empty.
         # Long recordings: V4 is the only option (V2 has a 60 s hard limit).
         if try_v2_first:
-            transcript, errored = self._try_fallback(
+            transcript, errored, stage_reason = self._try_fallback(
                 kind="v2",
                 mp3_path=mp3_path,
                 duration=duration,
@@ -961,8 +982,10 @@ class ThoughtborneApp:
                 thread_name=thread_name,
             )
             if transcript:
-                return transcript, ENGINE_TOKENS["soniox_v2"], False
-            any_error = any_error or errored
+                return transcript, ENGINE_TOKENS["soniox_v2"], False, None
+            if errored:
+                any_error = True
+                error_reason = stage_reason or "service-error"
 
             # V2 failed or returned empty. Spec #1 requires we still try V4
             # so that "Empty transcription" only surfaces when both fail (and
@@ -974,14 +997,16 @@ class ThoughtborneApp:
             )
             self._ticker(f"[Seq: {sequence_number}] Still empty -- trying the second file engine...")
 
-        transcript, errored = self._try_fallback(
+        transcript, errored, stage_reason = self._try_fallback(
             kind="v4",
             mp3_path=mp3_path,
             duration=duration,
             sequence_number=sequence_number,
             thread_name=thread_name,
         )
-        any_error = any_error or errored
+        if errored:
+            any_error = True
+            error_reason = stage_reason or "service-error"
 
         if not transcript:
             # Every file-based API we tried also returned nothing on top of
@@ -1000,10 +1025,11 @@ class ThoughtborneApp:
             self._ticker(f"[Seq: {sequence_number}] All fallbacks exhausted "
                          f"(live + file engines all failed)", error=True)
 
-        return transcript, (ENGINE_TOKENS["soniox_v4"] if transcript else ""), any_error
+        return (transcript, (ENGINE_TOKENS["soniox_v4"] if transcript else ""),
+                any_error, (error_reason if not transcript else None))
 
     def _try_fallback(self, kind: str, mp3_path: str, duration: float,
-                      sequence_number: int, thread_name: str) -> Tuple[str, bool]:
+                      sequence_number: int, thread_name: str) -> Tuple[str, bool, Optional[str]]:
         """Run a single fallback transcriber attempt. Helper for _run_empty_transcript_fallback.
 
         Lazily instantiates the requested transcriber (V2 or V4) under the init
@@ -1019,14 +1045,17 @@ class ThoughtborneApp:
             thread_name: For log correlation.
 
         Returns:
-            (transcript, errored). transcript is "" when this attempt failed or
-            returned empty. errored is True only for a real transport/API failure
-            (auth error, any raised exception, or a failure the V4 stage reported
-            through its error sink -- #141) -- the signal #133 needs to tell
-            "engine ran clean and found no speech" (errored=False, a final verdict)
-            apart from "the engine could not be reached" (errored=True, keep the
-            retry marker). A clean empty result and the SDK-not-installed skip (a
-            configuration state, not an outage) both report errored=False.
+            (transcript, errored, reason). transcript is "" when this attempt
+            failed or returned empty. errored is True only for a real transport/
+            API failure (auth error, any raised exception, or a failure the V4
+            stage reported through its error sink -- #141) -- the signal #133
+            needs to tell "engine ran clean and found no speech" (errored=False, a
+            final verdict) apart from "the engine could not be reached"
+            (errored=True, keep the retry marker). reason is the coarse category
+            of that failure (#138: auth / no-connection / rate-limited /
+            service-error), or None when errored is False or the sink left it
+            unset. A clean empty result and the SDK-not-installed skip (a
+            configuration state, not an outage) both report (…, False, None).
         """
         # This label reaches the console via the "raised" ERROR below, so its V4
         # half is generation-neutral (#124); V2/sync stays technical (legacy gRPC).
@@ -1051,10 +1080,11 @@ class ThoughtborneApp:
                     f"[{thread_name}] V2 fallback stage skipped for sequence "
                     f"{sequence_number} (Soniox SDK not installed)"
                 )
-                return "", False  # a config state, not a transport error (#133)
+                return "", False, None  # a config state, not a transport error (#133)
 
             start = time.time()
             errored = False
+            reason = None
             if kind == "v2":
                 # Raw V2 sync, without the slot's internal V4 fallback -- the
                 # cascade does its own V2 -> V4 hop (incl. on empty results)
@@ -1064,11 +1094,12 @@ class ThoughtborneApp:
                 # V4 swallows its transport/API errors and returns "" (its slot
                 # contract); the sink is how a real outage still reaches this
                 # chain's any_error aggregation instead of masquerading as a
-                # clean empty (#141).
+                # clean empty (#141), now with the coarse reason for #159 (#138).
                 error_tag = _ErrorTag()
                 transcript = fallback.transcribe(
                     mp3_path, duration, error_sink=error_tag).rstrip('\n')
                 errored = error_tag.errored
+                reason = error_tag.reason
             elapsed = time.time() - start
 
             if transcript:
@@ -1089,9 +1120,9 @@ class ThoughtborneApp:
                     extra=FILE_ONLY
                 )
 
-            # V2 clean run stays False; V4 reports a real outage through the
-            # sink so it reaches the chain's any_error aggregation (#141).
-            return transcript, errored
+            # V2 clean run stays (…, False, None); V4 reports a real outage and
+            # its category through the sink so both reach the chain (#141/#138).
+            return transcript, errored, reason
 
         except Exception as e:
             if kind == "v2" and SonioxTranscriber._is_auth_error(e):
@@ -1102,13 +1133,13 @@ class ThoughtborneApp:
                     f"sequence {sequence_number}: {e}",
                     exc_info=True
                 )
-                return "", True  # a broken key is a real failure -> keep the marker
+                return "", True, "auth"  # a broken key is a real failure -> keep the marker
             logger.error(
                 f"[{thread_name}] Fallback ({label}) raised for "
                 f"sequence {sequence_number}: {_one_line_error(e)}",
                 exc_info=True
             )
-            return "", True
+            return "", True, _grpc_error_reason(e)
 
     def handle_test_transcription(self):
         """Handle test transcription request"""
@@ -1796,12 +1827,13 @@ class ThoughtborneApp:
 
         try:
             self._ticker(f"[Seq: {sequence_number}] Retrying archived recording from {rec.origin_timestamp}...")
-            retry_any_error = False  # only the live branch runs the error-aware chain
+            retry_any_error = False
+            retry_reason = None
             if transcriber.is_live:
                 # A live session can't re-stream a file, so re-transcribe through
                 # the fixed duration-gated Soniox V2/V4 file chain, exactly as
                 # before; its FALLBACK ACTIVE block names the engine.
-                transcript, engine, retry_any_error = self._run_empty_transcript_fallback(
+                transcript, engine, retry_any_error, retry_reason = self._run_empty_transcript_fallback(
                     mp3_path=rec.archived_mp3_path,
                     duration=rec.duration,
                     sequence_number=sequence_number,
@@ -1811,26 +1843,30 @@ class ThoughtborneApp:
                 # Honor the selected file-capable engine (#107). Mirror
                 # process_recording_thread so the hybrid 'soniox' slot reports its
                 # per-recording V2/V4 choice through the sink -- engine_code would
-                # mistag a V4 recording as Son-v2 (its defensive default).
+                # mistag a V4 recording as Son-v2 (its defensive default) -- and so
+                # every engine reports errored + reason through the error sink (#138).
                 self._ticker(f"[Seq: {sequence_number}] Retrying via {transcriber.get_name()}...")
+                error_tag = _ErrorTag()
                 if isinstance(transcriber, SonioxTranscriber):
                     self._ticker(f"[Seq: {sequence_number}] {transcriber.engine_choice_line(rec.duration)}")
                     engine_tag = _EngineTag()
                     transcript = transcriber.transcribe(
-                        rec.archived_mp3_path, rec.duration, engine_sink=engine_tag)
+                        rec.archived_mp3_path, rec.duration, engine_sink=engine_tag, error_sink=error_tag)
                     engine = engine_tag.code
                 else:
-                    transcript = transcriber.transcribe(rec.archived_mp3_path, rec.duration)
+                    transcript = transcriber.transcribe(rec.archived_mp3_path, rec.duration, error_sink=error_tag)
                     engine = engine_code(transcriber)
+                retry_any_error = error_tag.errored
+                retry_reason = error_tag.reason
             transcript = transcript.rstrip('\n')
 
-            # #133: only the Soniox Live file chain (transcriber.is_live) can verify
-            # "no speech" -- it ran end to end with no transport/API error. A non-live
-            # engine (the file-capable soniox/groq slot chosen via Ctrl+Alt+L) that
-            # returns empty is ambiguous: it swallows transport/API errors internally,
-            # so empty could be a broken API. Such a retry stays conservative and
-            # retryable, so switch-and-retry remains the escape hatch out of an outage.
-            no_speech_verdict = transcriber.is_live and not retry_any_error
+            # #138 (generalizing #133): a clean-but-empty retry on ANY engine is
+            # the honest "no speech" verdict; an errored retry stays conservative
+            # and retryable, so switch-and-retry (Ctrl+Alt+L, then R) remains the
+            # escape hatch out of an outage, now naming the reason (#159). For
+            # Soniox Live this is bit-identical to before (is_live was always True
+            # on that path, and its file chain still supplies retry_any_error).
+            no_speech_verdict = not retry_any_error
 
             if transcript:
                 # Mirror a normal successful transcription (#91): save under the
@@ -1873,11 +1909,12 @@ class ThoughtborneApp:
                 logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready", extra=FILE_ONLY)
                 self._ticker(f"[Seq: {sequence_number}] Retry completed, waiting for output...")
             elif no_speech_verdict:
-                # #133: the live chain ran and every stage came back clean-but-empty --
-                # no speech, a final verdict a retry cannot change. Drop the marker (a
-                # second Ctrl+Alt+R then finds nothing to retry) and clear the in-memory
-                # slot, keep the audio in history, and say so honestly (the calm 'no
-                # speech' panel) instead of a misleading FAILED + retry hint.
+                # A clean-but-empty retry on the selected engine (#138, generalizing
+                # #133): no transport/API error -- no speech, a final verdict a retry
+                # cannot change. Drop the marker (a second Ctrl+Alt+R then finds
+                # nothing to retry) and clear the in-memory slot, keep the audio in
+                # history, and say so honestly (the calm 'no speech' panel) instead of
+                # a misleading FAILED + retry hint.
                 logger.info(f"[{thread_name}] Retry empty (no speech) for sequence {sequence_number} "
                             f"-- marker cleared, audio kept", extra=FILE_ONLY)
                 delete_retry_marker(rec.archived_mp3_path)
@@ -1885,10 +1922,11 @@ class ThoughtborneApp:
                 task.no_speech = True
                 task.is_complete = True
             else:
-                # Empty without a clean live chain: the live chain hit a transport/API
-                # error, OR a non-live engine came back empty (indistinguishable from a
-                # swallowed outage). Keep it retryable so switch-and-retry stays the
-                # escape hatch (#133 acceptance / the engine-switch rescue path), AND
+                # Empty AND the retry flagged a transport/API error (#138: every slot
+                # reports through the error sink now, so this is the errored path on
+                # any engine -- a clean-but-empty retry took the no-speech branch
+                # above). Keep it retryable so switch-and-retry stays the escape hatch
+                # (#133 acceptance / the engine-switch rescue path), AND
                 # reset the announcement to one more panel (#134 F-1): delete + fresh
                 # write leaves a single, un-announced marker -- the delete also clears
                 # any prior _seen flavor, which would otherwise keep the panel
@@ -1900,6 +1938,7 @@ class ThoughtborneApp:
                 delete_retry_marker(rec.archived_mp3_path)
                 write_retry_marker(rec.archived_mp3_path, rec.duration)
                 task.is_error = True
+                task.error_reason = retry_reason  # dormant until #159 renders it
                 task.is_complete = True
                 # Failed retry: the in-memory slot already points at rec, leave it retryable.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141).
+"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141/#138).
 
 Runs on plain Python -- no Windows, no PyAudio -- so the pure file logic of
 `audio_handler`'s marker functions is exercised programmatically (a durable
@@ -25,11 +25,16 @@ worker) are what this file proves:
     reset (delete + fresh write -> exactly one marker, un-announced again).
 
 A second layer drives the real worker methods (process_recording_thread /
-retry_recording_thread) against a minimal fake `self` to pin the #133 verdict
-ROUTING: an empty result earns the honest "no speech" verdict ONLY on a clean
-Soniox Live fallback chain; a non-live engine (soniox/groq) returning empty --
-indistinguishable from a swallowed transport error -- stays the conservative
-FAILED + retryable, so the Ctrl+Alt+L engine-switch rescue survives an outage.
+retry_recording_thread) against a minimal fake `self` to pin the verdict ROUTING.
+Since #138 the verdict is single-engine: a clean-but-empty run on ANY selected
+engine earns the honest "no speech" verdict (the engine ran end to end with no
+transport/API error and found zero chars); an errored run stays the conservative
+FAILED + retryable, carrying a coarse reason (auth / no-connection / rate-limited
+/ service-error) on the task for #159's panel. This generalizes the earlier
+live-only #133 verdict: every engine now reports through the per-call error sink,
+so a swallowed outage no longer masquerades as silence on the soniox/groq slots.
+Soniox Live keeps its internal duration-gated V2->V4 file lane, whose aggregate
+signal feeds the verdict exactly as before.
 
   - #141 closes a hole in that live chain on LONG recordings (>= 58 s): the async
     V4 stage is then the only file stage (the V2 sync stage is duration-gated
@@ -106,7 +111,30 @@ for _mod in ("keyboard", "pyperclip", "pyautogui"):
     sys.modules.setdefault(_mod, types.ModuleType(_mod))
 _fake_groq = types.ModuleType("groq")
 _fake_groq.Groq = type("Groq", (), {"__init__": lambda self, *a, **k: None})
-_fake_groq.AuthenticationError = type("AuthenticationError", (Exception,), {})
+# The exception hierarchy mirrors the real groq SDK's MRO closely enough for
+# _groq_error_reason's isinstance ladder (#138), so that mapper's direct unit
+# tests below run off-Windows without the SDK installed. APIStatusError carries a
+# settable status_code (the real one derives it from the httpx response).
+class _FakeGroqError(Exception):
+    pass
+class _FakeGroqAPIError(_FakeGroqError):
+    pass
+class _FakeGroqAPIStatusError(_FakeGroqAPIError):
+    def __init__(self, message="", *, status_code=None):
+        self.status_code = status_code
+class _FakeGroqAPIConnectionError(_FakeGroqAPIError):
+    pass
+class _FakeGroqAPITimeoutError(_FakeGroqAPIConnectionError):
+    pass
+class _FakeGroqAuthenticationError(_FakeGroqAPIStatusError):
+    pass
+class _FakeGroqRateLimitError(_FakeGroqAPIStatusError):
+    pass
+_fake_groq.AuthenticationError = _FakeGroqAuthenticationError
+_fake_groq.APIStatusError = _FakeGroqAPIStatusError
+_fake_groq.APIConnectionError = _FakeGroqAPIConnectionError
+_fake_groq.APITimeoutError = _FakeGroqAPITimeoutError
+_fake_groq.RateLimitError = _FakeGroqRateLimitError
 sys.modules.setdefault("groq", _fake_groq)
 
 import thoughtborne as tb  # noqa: E402
@@ -355,14 +383,31 @@ class _FakeLive(SonioxLiveTranscriber):
 
 
 class _FakeFile:
-    """A non-live, file-based engine that came back empty (as after a swallowed
-    transport error). Not a SonioxTranscriber subclass, so engine_code -> unknown."""
+    """A non-live, file-based engine that ran CLEAN and came back empty (never
+    touches the error sink) -- genuine silence. Not a SonioxTranscriber subclass,
+    so engine_code -> unknown. Since #138 this earns the no-speech verdict."""
     is_live = False
 
     def get_name(self):
-        return "Groq (fake)"
+        return "Groq (fake, clean-empty)"
 
     def transcribe(self, *a, **k):
+        return ""
+
+
+class _FakeFileOutage:
+    """A non-live, file-based engine that hit a transport/API error: returns ""
+    AND reports it through the sink (errored + a coarse reason), exactly as every
+    engine now does (#138). Its empty must stay FAILED + retryable, with the
+    reason landing on the task."""
+    is_live = False
+
+    def get_name(self):
+        return "Groq (fake, outage)"
+
+    def transcribe(self, *a, error_sink=None, **k):
+        if error_sink is not None:
+            error_sink.errored, error_sink.reason = True, "no-connection"
         return ""
 
 
@@ -373,10 +418,21 @@ class _FakeFile:
 # against them instead of stubbing the whole chain.
 class _FakeV4Outage:
     """V4 whose transcribe simulates a swallowed transport/API outage: returns ""
-    AND reports through the error sink, exactly as the real class does after #141."""
+    AND sets the sink's errored flag WITHOUT a reason -- so the chain's aggregation
+    exercises its default (errored-but-no-reason -> "service-error", #138)."""
     def transcribe(self, path, duration, *, error_sink=None):
         if error_sink is not None:
             error_sink.errored = True
+        return ""
+
+
+class _FakeV4OutageReason:
+    """V4 outage that also stamps a specific reason on the sink, as the real class
+    does after #138 -- proves a categorized reason propagates through the chain to
+    the failed task."""
+    def transcribe(self, path, duration, *, error_sink=None):
+        if error_sink is not None:
+            error_sink.errored, error_sink.reason = True, "no-connection"
         return ""
 
 
@@ -446,7 +502,7 @@ class _FakeApp:
         self.processing_counter = 0
         self.audio_recorder = _FakeAudio()
         self.output_manager = _FakeOutput()
-        self._fallback_result = fallback_result   # (transcript, engine, any_error)
+        self._fallback_result = fallback_result   # (transcript, engine, any_error, reason)
         self.record_failed_called = False
         self.resolve_failed_called = False
 
@@ -507,26 +563,47 @@ def _drive_retry(app, rec, seq, transcriber):
     return app.output_manager.tasks[-1], cap.records
 
 
-def test_insession_nonlive_empty_is_error_not_no_speech():
-    """The regression: a non-live engine's empty result must be FAILED + retryable,
-    never the honest 'no speech' verdict (its empty can hide a transport error)."""
+def test_insession_nonlive_errored_empty_is_failed_with_reason():
+    """A non-live engine that ERRORED (reported through the sink) and returned
+    empty must be FAILED + retryable, and the reason must land on the task (#138).
+    This is the recast of the pre-#138 test: back then a bare non-live empty was
+    unconditionally FAILED; now the errored signal is what makes it FAILED."""
     _reset()
     app = _FakeApp()
     tb.ThoughtborneApp.process_recording_thread(
         app, frames=[b"x"], duration=1.0, sequence_number=7,
-        timestamp="20260718_090000_007", transcriber=_FakeFile())
+        timestamp="20260718_090000_007", transcriber=_FakeFileOutage())
     task = app.output_manager.tasks[-1]
     assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
-    assert task.is_error is True, "non-live empty must be a FAILED verdict"
-    assert task.no_speech is False, "non-live empty must NOT be no_speech (the regression)"
+    assert task.is_error is True, "an errored non-live empty must be a FAILED verdict"
+    assert task.no_speech is False, "an errored non-live empty must NOT be no_speech"
+    assert task.error_reason == "no-connection", \
+        f"the sink's reason must land on the failed task (#138): {task.error_reason}"
     assert app.record_failed_called is True, "the retry slot must be armed"
+
+
+def test_insession_nonlive_clean_empty_is_no_speech():
+    """The #138 behavior change: a non-live engine that ran CLEAN and returned
+    empty (never touched the sink) now earns the honest 'no speech' verdict, just
+    like Soniox Live -- single-engine, each engine speaks for itself."""
+    _reset()
+    app = _FakeApp()
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=1.0, sequence_number=71,
+        timestamp="20260718_090000_071", transcriber=_FakeFile())
+    task = app.output_manager.tasks[-1]
+    assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
+    assert task.no_speech is True, "a clean-empty non-live run now earns no-speech (#138)"
+    assert task.is_error is False, "no-speech is not a failure"
+    assert task.error_reason is None, "a clean run carries no reason"
+    assert app.record_failed_called is False, "no retry slot for a genuinely silent recording"
 
 
 def test_insession_live_clean_empty_is_no_speech():
     """The intended #133 behavior: a Soniox Live chain that ran clean and empty
     earns the honest 'no speech' verdict and arms no retry."""
     _reset()
-    app = _FakeApp(fallback_result=("", "", False))   # chain ran, no error
+    app = _FakeApp(fallback_result=("", "", False, None))   # chain ran, no error
     tb.ThoughtborneApp.process_recording_thread(
         app, frames=[b"x"], duration=1.0, sequence_number=8,
         timestamp="20260718_090000_008", transcriber=_FakeLive())
@@ -538,9 +615,10 @@ def test_insession_live_clean_empty_is_no_speech():
 
 
 def test_insession_live_transport_error_is_error():
-    """A Soniox Live chain that hit a transport error stays FAILED + retryable."""
+    """A Soniox Live chain that hit a transport error stays FAILED + retryable,
+    and the chain's reason lands on the task (#138)."""
     _reset()
-    app = _FakeApp(fallback_result=("", "", True))    # chain hit a transport error
+    app = _FakeApp(fallback_result=("", "", True, "no-connection"))  # chain hit a transport error
     tb.ThoughtborneApp.process_recording_thread(
         app, frames=[b"x"], duration=1.0, sequence_number=9,
         timestamp="20260718_090000_009", transcriber=_FakeLive())
@@ -548,21 +626,41 @@ def test_insession_live_transport_error_is_error():
     assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
     assert task.is_error is True, "a live transport error stays retryable"
     assert task.no_speech is False
+    assert task.error_reason == "no-connection", f"the chain's reason must land on the task: {task.error_reason}"
     assert app.record_failed_called is True
 
 
-def test_retry_nonlive_empty_keeps_marker_retryable():
-    """The retry-path regression: a non-live engine chosen via Ctrl+Alt+L that
-    returns empty must keep the recording retryable (marker persists), never drop
-    the marker as a no-speech verdict would -- that is the engine-switch escape."""
+def test_retry_nonlive_errored_empty_keeps_marker_with_reason():
+    """The retry path mirrors #138: a non-live engine (chosen via Ctrl+Alt+L) that
+    ERRORED and returned empty keeps the recording retryable (marker persists) and
+    carries the reason on the task -- switch-and-retry stays the outage escape."""
     _reset()
     rec = _armed_rec()
-    task, errors = _drive_retry(_FakeApp(), rec, 11, _FakeFile())
+    app = _FakeApp()
+    task, errors = _drive_retry(app, rec, 11, _FakeFileOutage())
     assert not any("Error retrying" in m for m in errors), \
         f"the routing must run, not the catch-all: {errors}"
-    assert task.is_error is True, "non-live empty retry must stay a FAILED verdict"
-    assert task.no_speech is False, "non-live empty retry must NOT be no_speech (the regression)"
+    assert task.is_error is True, "an errored non-live empty retry must stay FAILED"
+    assert task.no_speech is False, "an errored non-live empty retry must NOT be no_speech"
+    assert task.error_reason == "no-connection", \
+        f"the sink's reason must land on the failed retry task (#138): {task.error_reason}"
     assert len(_markers()) == 1, f"the marker must persist -- still retryable: {_markers()}"
+
+
+def test_retry_nonlive_clean_empty_is_no_speech_drops_marker():
+    """The #138 behavior change on the retry path: a non-live engine that ran CLEAN
+    and returned empty now earns the no-speech verdict -- the marker is dropped and
+    the slot resolved, exactly as a clean Soniox Live retry chain does."""
+    _reset()
+    rec = _armed_rec()
+    app = _FakeApp()
+    task, errors = _drive_retry(app, rec, 111, _FakeFile())
+    assert not any("Error retrying" in m for m in errors), \
+        f"the routing must run, not the catch-all: {errors}"
+    assert task.no_speech is True, "a clean-empty non-live retry now earns no-speech (#138)"
+    assert task.is_error is False
+    assert app.resolve_failed_called is True, "the slot is resolved -- retry cannot help"
+    assert _markers() == [], f"the marker must be cleared: {_markers()}"
 
 
 def test_retry_live_clean_empty_is_no_speech_drops_marker():
@@ -570,7 +668,7 @@ def test_retry_live_clean_empty_is_no_speech_drops_marker():
     the marker is dropped (a second Ctrl+Alt+R finds nothing to retry)."""
     _reset()
     rec = _armed_rec()
-    app = _FakeApp(fallback_result=("", "", False))
+    app = _FakeApp(fallback_result=("", "", False, None))
     task, errors = _drive_retry(app, rec, 12, _FakeLive())
     assert not any("Error retrying" in m for m in errors), \
         f"the routing must run, not the catch-all: {errors}"
@@ -582,15 +680,17 @@ def test_retry_live_clean_empty_is_no_speech_drops_marker():
 
 def test_retry_live_transport_error_keeps_marker():
     """A Soniox Live retry chain that hit a transport error stays retryable AND
-    resets the announcement (delete + fresh write -> exactly one un-announced marker)."""
+    resets the announcement (delete + fresh write -> exactly one un-announced
+    marker); the chain's reason lands on the task (#138)."""
     _reset()
     rec = _armed_rec()
-    app = _FakeApp(fallback_result=("", "", True))
+    app = _FakeApp(fallback_result=("", "", True, "service-error"))
     task, errors = _drive_retry(app, rec, 13, _FakeLive())
     assert not any("Error retrying" in m for m in errors), \
         f"the routing must run, not the catch-all: {errors}"
     assert task.is_error is True, "a live transport error retry stays retryable"
     assert task.no_speech is False
+    assert task.error_reason == "service-error", f"the chain's reason must land on the task: {task.error_reason}"
     assert app.resolve_failed_called is False
     assert _markers() == ["voice_20260718_085900_001_d1000.needsretry"], \
         f"exactly one un-announced marker must remain: {_markers()}"
@@ -615,7 +715,23 @@ def test_long_v4_outage_keeps_marker():
     assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
     assert task.is_error is True, "a long-recording V4 outage must be a FAILED verdict (#141)"
     assert task.no_speech is False, "the V4 outage must NOT read as no_speech (the regression)"
+    assert task.error_reason == "service-error", \
+        f"an errored stage with no reason must default to service-error (#138): {task.error_reason}"
     assert app.record_failed_called is True, "the retry slot must be armed"
+
+
+def test_long_v4_outage_reason_propagates_to_task():
+    """A categorized V4 outage (the real class stamps a reason since #138) must
+    propagate that reason through the fallback chain to the failed task."""
+    _reset()
+    app = _RealChainApp(_FakeV4OutageReason())
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=60.0, sequence_number=411,
+        timestamp="20260718_090000_411", transcriber=_FakeLive())
+    task = app.output_manager.tasks[-1]
+    assert task.is_error is True, "a categorized V4 outage is still FAILED"
+    assert task.error_reason == "no-connection", \
+        f"the V4 stage's specific reason must reach the task (#138): {task.error_reason}"
 
 
 def test_long_v4_clean_empty_is_no_speech():
@@ -647,24 +763,82 @@ def test_short_v2_skipped_v4_outage_keeps_marker():
     assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
     assert task.is_error is True, "a short-path V4 outage (V2 SDK-less) must be FAILED (#141)"
     assert task.no_speech is False
+    assert task.error_reason == "service-error", \
+        f"the V4 stage's outage reason (defaulted) must reach the task (#138): {task.error_reason}"
     assert app.record_failed_called is True
+
+
+# ---- #138: the soniox-slot V4-sink-hole (the highest-risk wiring point) -----
+# The hybrid SonioxTranscriber slot must thread its error_sink into its internal
+# V4 call. If it did not, a V4 outage while the soniox slot is SELECTED would
+# return clean-empty and earn a false NO SPEECH verdict (marker deleted) -- the
+# #141-class bug, now on the slot path. These drive the REAL SonioxTranscriber
+# (built via __new__, its V4 stage faked) end to end through the worker.
+def _make_soniox_slot(fake_v4, v2_available=False):
+    """A real SonioxTranscriber built via __new__ (no API-key / SDK init), with
+    its internal V4 stage swapped for a fake and V2 gated off so a recording goes
+    straight to V4 -- exercising the slot's own error_sink threading (#138)."""
+    slot = tr.SonioxTranscriber.__new__(tr.SonioxTranscriber)
+    slot._v2_available = v2_available
+    slot._v4 = fake_v4
+    slot._v2_speech_context = None
+    return slot
+
+
+def test_insession_soniox_slot_v4_outage_is_failed():
+    """A V4 outage while the soniox slot is selected must reach FAILED + retryable
+    with the V4 reason on the task -- never a false NO SPEECH (the V4-sink-hole)."""
+    _reset()
+    app = _FakeApp()
+    slot = _make_soniox_slot(_FakeV4OutageReason())   # V2 SDK-less -> straight to V4
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=60.0, sequence_number=51,
+        timestamp="20260718_090000_051", transcriber=slot)
+    task = app.output_manager.tasks[-1]
+    assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
+    assert task.is_error is True, "a V4 outage on the soniox slot must be FAILED (V4-sink-hole)"
+    assert task.no_speech is False, "must NOT read as no_speech (the #141-class regression on the slot)"
+    assert task.error_reason == "no-connection", \
+        f"the V4 reason must thread through the slot's sink to the task: {task.error_reason}"
+    assert app.record_failed_called is True
+
+
+def test_insession_soniox_slot_v4_clean_empty_is_no_speech():
+    """The boundary: the soniox slot running clean and empty (V4 completed, no
+    error) earns the no-speech verdict -- the slot must not spuriously set the sink."""
+    _reset()
+    app = _FakeApp()
+    slot = _make_soniox_slot(_FakeV4CleanEmpty())
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=60.0, sequence_number=52,
+        timestamp="20260718_090000_052", transcriber=slot)
+    task = app.output_manager.tasks[-1]
+    assert task.no_speech is True, "a clean-empty soniox slot earns no-speech (#138)"
+    assert task.is_error is False
+    assert task.error_reason is None
+    assert app.record_failed_called is False
 
 
 def test_try_fallback_v4_tuple_semantics():
     """The narrowest pin on the new wiring: _try_fallback(kind='v4') returns
-    (transcript, errored) with errored driven purely by the V4 stage's sink --
-    outage -> ('', True), clean empty -> ('', False), success -> (text, False)."""
+    (transcript, errored, reason), all three driven purely by the V4 stage's sink
+    -- outage-without-reason -> ('', True, None) (the aggregator defaults it later),
+    categorized outage -> ('', True, 'no-connection'), clean empty -> ('', False,
+    None), success -> (text, False, None)."""
     _reset()
     mp3 = _mp3("voice_20260718_090000_044")
     assert _RealChainApp(_FakeV4Outage())._try_fallback(
         kind="v4", mp3_path=mp3, duration=60.0,
-        sequence_number=44, thread_name="T") == ("", True)
+        sequence_number=44, thread_name="T") == ("", True, None)
+    assert _RealChainApp(_FakeV4OutageReason())._try_fallback(
+        kind="v4", mp3_path=mp3, duration=60.0,
+        sequence_number=44, thread_name="T") == ("", True, "no-connection")
     assert _RealChainApp(_FakeV4CleanEmpty())._try_fallback(
         kind="v4", mp3_path=mp3, duration=60.0,
-        sequence_number=44, thread_name="T") == ("", False)
+        sequence_number=44, thread_name="T") == ("", False, None)
     assert _RealChainApp(_FakeV4Success())._try_fallback(
         kind="v4", mp3_path=mp3, duration=60.0,
-        sequence_number=44, thread_name="T") == ("recovered text", False)
+        sequence_number=44, thread_name="T") == ("recovered text", False, None)
 
 
 def test_retry_long_v4_outage_marker_persists():
@@ -680,6 +854,8 @@ def test_retry_long_v4_outage_marker_persists():
         f"the routing must run, not the catch-all: {errors}"
     assert task.is_error is True, "a long-recording V4 outage retry stays retryable (#141)"
     assert task.no_speech is False
+    assert task.error_reason == "service-error", \
+        f"the retry path must also carry the outage reason (#138): {task.error_reason}"
     assert app.resolve_failed_called is False
     assert _markers() == ["voice_20260718_085900_041_d60000.needsretry"], \
         f"exactly one un-announced marker must remain: {_markers()}"
@@ -783,6 +959,7 @@ def test_v4_job_error_sets_sink_and_reads_error_message():
     )
     assert text == "", "a job error returns empty"
     assert tag.errored is True, "a job error must set the sink (#141)"
+    assert tag.reason == "service-error", f"a job error is service-error (#138): {tag.reason}"
     assert any("insufficient credits" in m for m in errors), \
         f"the real error_message must be logged, not 'Unknown error': {errors}"
 
@@ -795,6 +972,7 @@ def test_v4_poll_timeout_sets_sink():
     )
     assert text == ""
     assert tag.errored is True, "a poll timeout must set the sink (#141)"
+    assert tag.reason == "service-error", f"a poll timeout is service-error (#138): {tag.reason}"
 
 
 def test_v4_http_error_sets_sink():
@@ -805,6 +983,7 @@ def test_v4_http_error_sets_sink():
     )
     assert text == ""
     assert tag.errored is True, "an HTTP transport error must set the sink (#141)"
+    assert tag.reason == "service-error", f"a 500 maps to service-error (#138): {tag.reason}"
 
 
 def test_v4_network_exception_sets_sink():
@@ -816,6 +995,8 @@ def test_v4_network_exception_sets_sink():
     )
     assert text == ""
     assert tag.errored is True, "a network exception must set the sink (#141)"
+    assert tag.reason == "no-connection", \
+        f"a connect/timeout exception maps to no-connection (#138): {tag.reason}"
 
 
 def test_v4_clean_empty_does_not_set_sink():
@@ -827,6 +1008,7 @@ def test_v4_clean_empty_does_not_set_sink():
     )
     assert text == "", "a completed-but-empty run returns empty"
     assert tag.errored is False, "a clean-empty run must NOT set the sink (#141)"
+    assert tag.reason is None, "a clean-empty run carries no reason (#138)"
 
 
 def test_v4_failed_status_sets_sink():
@@ -843,8 +1025,72 @@ def test_v4_failed_status_sets_sink():
     )
     assert text == ""
     assert tag.errored is True, "the 'failed' status branch must set the sink (#141)"
+    assert tag.reason == "service-error", f"the 'failed' status is service-error (#138): {tag.reason}"
     assert any("transcription failed" in m for m in errors), \
         f"'failed' must hit the error/failed branch, not poll into the timeout: {errors}"
+
+
+# ---- #138/#159 direct unit tests for the three coarse-category mappers -------
+# _grpc_error_reason / _groq_error_reason / _http_status_reason turn a provider
+# failure into the coarse reason string #159 shows the user, so pin every branch
+# of each. The grpc and http mappers are duck-typed (no grpc/httpx import forced),
+# so plain fakes suffice; the groq mapper runs an isinstance ladder, so its inputs
+# are instances of the fake groq hierarchy built in the preamble (real groq
+# construction needs httpx Response/Request objects).
+
+class _GrpcCode:
+    """Duck-types a grpc StatusCode enum member -- only .name is read."""
+    def __init__(self, name):
+        self.name = name
+
+
+class _GrpcError:
+    """Duck-types a grpc.RpcError: a callable .code() returning a _GrpcCode."""
+    def __init__(self, name):
+        self._name = name
+
+    def code(self):
+        return _GrpcCode(self._name)
+
+
+class _GrpcErrorNoCode:
+    """An error object with no .code attribute at all -> service-error, no crash."""
+
+
+def test_grpc_error_reason_maps_every_branch():
+    assert tr._grpc_error_reason(_GrpcError("UNAUTHENTICATED")) == "auth"
+    assert tr._grpc_error_reason(_GrpcError("UNAVAILABLE")) == "no-connection"
+    assert tr._grpc_error_reason(_GrpcError("DEADLINE_EXCEEDED")) == "no-connection"
+    assert tr._grpc_error_reason(_GrpcError("RESOURCE_EXHAUSTED")) == "rate-limited"
+    assert tr._grpc_error_reason(_GrpcError("INTERNAL")) == "service-error", \
+        "an uncategorized status code falls through to service-error"
+    assert tr._grpc_error_reason(_GrpcErrorNoCode()) == "service-error", \
+        "no .code() at all -> service-error rather than a crash"
+
+
+def test_groq_error_reason_maps_every_branch():
+    # Instances of the fake groq hierarchy (see preamble): isinstance-compatible
+    # with the classes _groq_error_reason imports, so every branch runs without
+    # the real SDK. The 401-via-APIStatusError case is synthetic (a real 401
+    # arrives as AuthenticationError) but it pins the inner status-code line.
+    assert tr._groq_error_reason(_FakeGroqAuthenticationError()) == "auth"
+    assert tr._groq_error_reason(_FakeGroqAPIConnectionError()) == "no-connection"
+    assert tr._groq_error_reason(_FakeGroqAPITimeoutError()) == "no-connection"
+    assert tr._groq_error_reason(_FakeGroqRateLimitError()) == "rate-limited"
+    assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=429)) == "rate-limited"
+    assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=401)) == "auth"
+    assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=500)) == "service-error", \
+        "a 5xx APIStatusError is service-error"
+    assert tr._groq_error_reason(RuntimeError("boom")) == "service-error", \
+        "an uncategorized exception falls through to service-error"
+
+
+def test_http_status_reason_maps_every_branch():
+    assert tr._http_status_reason(401) == "auth"
+    assert tr._http_status_reason(429) == "rate-limited"
+    assert tr._http_status_reason(500) == "service-error"
+    assert tr._http_status_reason(403) == "service-error", \
+        "a non-401/429 4xx is service-error (the default)"
 
 
 CASES = [
@@ -860,18 +1106,26 @@ CASES = [
     test_verdict_clean_empty_deletes_marker,
     test_verdict_transport_error_resets_announcement,
     test_orphan_and_unparseable_removed_on_read,
-    # #133 verdict routing (drives the real worker methods)
-    test_insession_nonlive_empty_is_error_not_no_speech,
+    # #133/#138 verdict routing (drives the real worker methods): the verdict is
+    # now single-engine -- clean-empty -> no_speech on ANY engine, errored -> FAILED
+    # + reason.
+    test_insession_nonlive_errored_empty_is_failed_with_reason,
+    test_insession_nonlive_clean_empty_is_no_speech,
     test_insession_live_clean_empty_is_no_speech,
     test_insession_live_transport_error_is_error,
-    test_retry_nonlive_empty_keeps_marker_retryable,
+    test_retry_nonlive_errored_empty_keeps_marker_with_reason,
+    test_retry_nonlive_clean_empty_is_no_speech_drops_marker,
     test_retry_live_clean_empty_is_no_speech_drops_marker,
     test_retry_live_transport_error_keeps_marker,
     # #141 async-engine outage on long recordings -- Tier 1 (real chain,
     # faked V4 stage)
     test_long_v4_outage_keeps_marker,
+    test_long_v4_outage_reason_propagates_to_task,
     test_long_v4_clean_empty_is_no_speech,
     test_short_v2_skipped_v4_outage_keeps_marker,
+    # #138 soniox-slot V4-sink-hole (real SonioxTranscriber, faked V4 stage)
+    test_insession_soniox_slot_v4_outage_is_failed,
+    test_insession_soniox_slot_v4_clean_empty_is_no_speech,
     test_try_fallback_v4_tuple_semantics,
     test_retry_long_v4_outage_marker_persists,
     # #141 Tier 2 (real SonioxV4Transcriber, scripted fake httpx)
@@ -881,6 +1135,10 @@ CASES = [
     test_v4_network_exception_sets_sink,
     test_v4_clean_empty_does_not_set_sink,
     test_v4_failed_status_sets_sink,
+    # #138/#159 direct unit tests for the three coarse-category mappers
+    test_grpc_error_reason_maps_every_branch,
+    test_groq_error_reason_maps_every_branch,
+    test_http_status_reason_maps_every_branch,
 ]
 
 

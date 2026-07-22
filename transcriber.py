@@ -66,17 +66,26 @@ class _EngineTag:
 
 
 class _ErrorTag:
-    """Mutable one-shot holder so SonioxV4Transcriber.transcribe can report that
-    the call failed with a transport/API error rather than completing
-    clean-but-empty (#141), without changing the ABC's `transcribe() -> str`
-    contract. Same shape and thread-safety rationale as _EngineTag above: the
-    caller allocates one per call and reads .errored afterwards, so it is safe
+    """Mutable one-shot holder so an engine's transcribe can report that the call
+    failed with a transport/API error rather than completing clean-but-empty
+    (#141), without changing the ABC's `transcribe() -> str` contract. Every
+    engine sets it on its error paths since #138, so a clean-but-empty result is
+    told apart from an outage on every slot -- what generalizes the honest
+    no-speech verdict beyond Soniox Live.
+
+    Same shape and thread-safety rationale as _EngineTag above: the caller
+    allocates one per call and reads .errored / .reason afterwards, so it is safe
     across the parallel transcriptions -- unlike a mutable attribute on the
-    shared transcriber singleton."""
-    __slots__ = ("errored",)
+    shared transcriber singleton.
+
+    reason is a coarse category for #159's panel, meaningful only when errored:
+    "auth" | "no-connection" | "rate-limited" | "service-error" (unknown errors
+    default to "service-error"); None on a clean run."""
+    __slots__ = ("errored", "reason")
 
     def __init__(self):
         self.errored = False
+        self.reason = None
 
 
 def _one_line_error(error: BaseException) -> str:
@@ -108,6 +117,75 @@ def _one_line_error(error: BaseException) -> str:
     text = str(error).strip()
     first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
     return f"{type(error).__name__}: {first}" if first else type(error).__name__
+
+
+# ---- coarse error categories for the per-call sink (#138) ------------------
+# Each maps a provider-specific failure onto one of the four _ErrorTag reasons
+# (auth / no-connection / rate-limited / service-error). Unknown -> service-error.
+
+# Class names, not isinstance, so neither grpc nor httpx is force-imported here
+# and a partially-stubbed httpx (as in the tests) is never attribute-probed. A
+# builtin ConnectionError/TimeoutError from a raw socket layer maps too.
+_CONNECTION_ERROR_NAMES = frozenset({
+    "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+    "PoolTimeout", "TimeoutException", "RemoteProtocolError",
+    "ConnectionError", "TimeoutError",
+})
+
+
+def _grpc_error_reason(e) -> str:
+    """gRPC RpcError -> coarse reason (#138). Duck-typed so the optional grpc
+    import is never forced; a non-gRPC exception falls through to service-error."""
+    code = getattr(e, "code", None)
+    name = ""
+    if callable(code):
+        try:
+            name = code().name
+        except Exception:
+            name = ""
+    return {
+        "UNAUTHENTICATED": "auth",
+        "UNAVAILABLE": "no-connection",
+        "DEADLINE_EXCEEDED": "no-connection",
+        "RESOURCE_EXHAUSTED": "rate-limited",
+    }.get(name, "service-error")
+
+
+def _groq_error_reason(e) -> str:
+    """Groq SDK exception -> coarse reason (#138). The import is lazy so the
+    module never depends on these symbols at import time."""
+    from groq import (AuthenticationError, APIConnectionError, APITimeoutError,
+                      RateLimitError, APIStatusError)
+    if isinstance(e, AuthenticationError):
+        return "auth"
+    if isinstance(e, (APIConnectionError, APITimeoutError)):
+        return "no-connection"
+    if isinstance(e, RateLimitError):
+        return "rate-limited"
+    if isinstance(e, APIStatusError):
+        sc = getattr(e, "status_code", None)
+        if sc == 401:
+            return "auth"
+        if sc == 429:
+            return "rate-limited"
+        return "service-error"     # 5xx and other 4xx incl. 402 (credits)
+    return "service-error"
+
+
+def _http_status_reason(status_code) -> str:
+    """Soniox V4 httpx status code -> coarse reason (#138)."""
+    if status_code == 401:
+        return "auth"
+    if status_code == 429:
+        return "rate-limited"
+    return "service-error"         # 5xx / 402 / other 4xx
+
+
+def _httpx_exc_reason(e) -> str:
+    """A generic exception raised in the Soniox V4 REST path -> coarse reason
+    (#138). A connect/timeout error (httpx's or the builtin) is no-connection;
+    everything else is service-error."""
+    return "no-connection" if type(e).__name__ in _CONNECTION_ERROR_NAMES else "service-error"
 
 
 class AbstractTranscriber(ABC):
@@ -426,14 +504,19 @@ class GroqTranscriber(AbstractTranscriber):
 
         return transcript
     
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
+                   error_sink: Optional['_ErrorTag'] = None) -> str:
         """
         Transcribe an audio file using Groq Whisper API
-        
+
         Args:
             audio_file_path: Path to the audio file
             duration_seconds: Duration of the audio in seconds
-            
+            error_sink: Optional _ErrorTag the caller reads afterwards to learn
+                that this call failed with a transport/API error instead of
+                completing clean-but-empty (#138). Set on every error path with a
+                coarse reason; never set on a completed run, however empty.
+
         Returns:
             Transcribed text
         """
@@ -473,9 +556,13 @@ class GroqTranscriber(AbstractTranscriber):
             # DEBUG keeps the trace file-only so the [AUTH] line stands alone
             # on the console (#32)
             logger.debug(f"Error during Groq transcription: {e}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored, error_sink.reason = True, "auth"
             return ""
         except Exception as e:
             logger.error(f"Error during Groq transcription: {e}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored, error_sink.reason = True, _groq_error_reason(e)
             return ""
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
@@ -730,7 +817,8 @@ class SonioxTranscriber(AbstractTranscriber):
         return isinstance(e, grpc.RpcError) and e.code() == grpc.StatusCode.UNAUTHENTICATED
 
     def transcribe(self, audio_file_path: str, duration_seconds: float, *,
-                   engine_sink: Optional['_EngineTag'] = None) -> str:
+                   engine_sink: Optional['_EngineTag'] = None,
+                   error_sink: Optional['_ErrorTag'] = None) -> str:
         """Transcribe an audio file via the hybrid V2-sync/V4-async slot (#31).
 
         Recordings under SHORT_AUDIO_THRESHOLD run V2 sync exactly as before
@@ -747,6 +835,11 @@ class SonioxTranscriber(AbstractTranscriber):
                 produced the text (long recording, missing SDK, or V2-raised
                 fallback). Only set on a returned result the
                 caller keeps; the caller ignores it on an empty transcript.
+            error_sink: Optional _ErrorTag the caller reads afterwards to tell a
+                clean-but-empty slot result from a transport/API outage (#138). A
+                clean V2 empty leaves it untouched (genuine silence); V2 auth sets
+                it; whenever the internal V4 stage runs it owns the sink, so a V4
+                outage on the slot surfaces here instead of masquerading as clean.
 
         Returns:
             Transcribed text
@@ -770,6 +863,8 @@ class SonioxTranscriber(AbstractTranscriber):
                     # produce a second 401 and a duplicate [AUTH] line (#32).
                     self._report_auth_failure("SONIOX_API_KEY")
                     logger.debug(f"Error during Soniox transcription: {e}", exc_info=True)
+                    if error_sink is not None:
+                        error_sink.errored, error_sink.reason = True, "auth"
                     return ""
                 try:
                     reason = e.code().name  # grpc.RpcError carries the status
@@ -785,14 +880,17 @@ class SonioxTranscriber(AbstractTranscriber):
                 logger.debug(f"V2 sync failure detail: {e}", exc_info=True)
                 if engine_sink is not None:
                     engine_sink.code = ENGINE_TOKENS["soniox_v4"]
-                return self._v4.transcribe(audio_file_path, duration_seconds)
+                # The V2 failure's own category is deliberately not stamped here:
+                # if V4 recovers clean-empty it was genuine silence, and if V4
+                # errors its sink wins (#138).
+                return self._v4.transcribe(audio_file_path, duration_seconds, error_sink=error_sink)
 
         if duration_seconds >= SHORT_AUDIO_THRESHOLD:
             logger.info(f"Long recording ({duration_seconds:.1f}s >= "
                         f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)", extra=FILE_ONLY)
         if engine_sink is not None:
             engine_sink.code = ENGINE_TOKENS["soniox_v4"]
-        return self._v4.transcribe(audio_file_path, duration_seconds)
+        return self._v4.transcribe(audio_file_path, duration_seconds, error_sink=error_sink)
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """
@@ -863,9 +961,10 @@ class SonioxV4Transcriber(AbstractTranscriber):
             duration_seconds: Duration of the audio in seconds
             error_sink: Optional _ErrorTag the caller reads afterwards to learn
                 that this call failed with a transport/API error instead of
-                completing clean-but-empty (#141). Set on every error path (job
-                status error, poll timeout, HTTP error, unexpected exception);
-                never set on a completed run, however empty the text.
+                completing clean-but-empty (#141), with a coarse reason category
+                (#138). Set on every error path (job status error, poll timeout,
+                HTTP error, unexpected exception); never set on a completed run,
+                however empty the text.
 
         Returns:
             Transcribed text
@@ -937,14 +1036,14 @@ class SonioxV4Transcriber(AbstractTranscriber):
                     error_msg = resp.json().get("error_message") or "Unknown error"
                     logger.error(f"{self.get_name()} transcription failed: {error_msg}")
                     if error_sink is not None:
-                        error_sink.errored = True
+                        error_sink.errored, error_sink.reason = True, "service-error"
                     return ""
 
                 time.sleep(SONIOX_ASYNC_POLL_INTERVAL)
             else:
                 logger.error(f"{self.get_name()} polling timeout after {SONIOX_ASYNC_MAX_POLL_ATTEMPTS} attempts")
                 if error_sink is not None:
-                    error_sink.errored = True
+                    error_sink.errored, error_sink.reason = True, "service-error"
                 return ""
 
             # Step 4: Get transcript
@@ -974,12 +1073,12 @@ class SonioxV4Transcriber(AbstractTranscriber):
             else:
                 logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
             if error_sink is not None:
-                error_sink.errored = True
+                error_sink.errored, error_sink.reason = True, _http_status_reason(e.response.status_code)
             return ""
         except Exception as e:
             logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
             if error_sink is not None:
-                error_sink.errored = True
+                error_sink.errored, error_sink.reason = True, _httpx_exc_reason(e)
             return ""
 
         finally:
@@ -1432,7 +1531,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             logger.info(f"Soniox Live receiver thread stopped "
                        f"({len(self._final_tokens)} final tokens collected)", extra=FILE_ONLY)
 
-    def transcribe(self, audio_file_path: str, duration_seconds: float) -> str:
+    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
+                   error_sink: Optional['_ErrorTag'] = None) -> str:
         """Finalize the live session and return the transcript.
 
         For the Live transcriber, this does NOT use audio_file_path.
@@ -1443,6 +1543,11 @@ class SonioxLiveTranscriber(AbstractTranscriber):
         Args:
             audio_file_path: Path to archived audio file (for logging only)
             duration_seconds: Duration of the recording
+            error_sink: Optional _ErrorTag set on a session error (auth on a 401
+                close, else service-error) for ABC uniformity and #138. In the
+                current worker flow an empty live transcript always runs the
+                internal V2->V4 file lane, whose aggregate signal supersedes this
+                sink -- so it is honest bookkeeping, not what feeds the verdict.
 
         Returns:
             Transcribed text
@@ -1504,6 +1609,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             # Step 3: Wait for receiver to finish
             if not self._result_ready.wait(timeout=SONIOX_LIVE_FINALIZE_TIMEOUT):
                 logger.error(f"Soniox Live finalize timeout after {SONIOX_LIVE_FINALIZE_TIMEOUT}s")
+                if error_sink is not None:
+                    error_sink.errored, error_sink.reason = True, "service-error"
                 return ""
 
             # Step 4: Check for errors
@@ -1514,6 +1621,9 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                     logger.debug(f"Soniox Live session had error: {self._session_error}")
                 else:
                     logger.error(f"Soniox Live session had error: {self._session_error}")
+                if error_sink is not None:
+                    error_sink.errored = True
+                    error_sink.reason = "auth" if self._session_auth_error else "service-error"
                 return ""
 
             # Step 5: Assemble text from final tokens
@@ -1529,6 +1639,8 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
         except Exception as e:
             logger.error(f"Error during Soniox Live finalization: {e}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored, error_sink.reason = True, "service-error"
             return ""
         finally:
             self._close_session_internal()
