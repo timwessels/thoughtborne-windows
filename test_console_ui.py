@@ -262,7 +262,10 @@ def check_accent_state():
         u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True, compact=False),
         u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX, ansi=True, compact=False),
         u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True, compact=False),
-        u.render_transcription_failed(12, RETRY, PATHS[3], model, FFOOTER, KEY_PREFIX,
+        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,
+                                      ansi=True, compact=False),
+        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #159 reason block
+                                      reason="no-connection", provider="Soniox",
                                       ansi=True, compact=False),
         u.render_device_loss(12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False),
         u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False),
@@ -332,7 +335,13 @@ def check_ctrl_alt_counts():
         ("cancelled", u.render_cancelled_strip(ansi=True, compact=False), 0),
         ("saved", u.render_saved_strip(12.3, RETRY, ansi=True, compact=False), 1),
         ("transcription_failed", u.render_transcription_failed(
-            12, RETRY, PATHS[3], model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+        ("transcription_failed/reason", u.render_transcription_failed(   # #159 reason block: still 1
+            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-connection",
+            provider="Groq", ansi=True, compact=False), 1),
+        ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth -> Settings: still 1
+            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="auth",
+            provider="Soniox", ansi=True, compact=False), 1),
         ("insert_failed", u.render_insert_failed(
             12, "A", "D", model, FOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
         ("device_loss", u.render_device_loss(
@@ -350,12 +359,88 @@ def check_ctrl_alt_counts():
             ansi=True, compact=False), 1),
         ("noapi", u.render_noapi_panel(
             [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True, compact=False), 0),
-        ("no_speech", u.render_no_speech(ansi=True, compact=False), 0),
+        ("no_speech", u.render_no_speech(OPEN, ansi=True, compact=False), 1),   # #159: open-history hint
     ]
     for name, lines, expected in cases:
         n = strip("".join(lines)).count("Ctrl+Alt")
         if n != expected:
             _record(f"Ctrl+Alt count: {name} has {n}, expected {expected}")
+
+
+def check_failed_reason_block():
+    """#159: the FAILED reason block says why -- CYAN (never the masthead-exclusive
+    ACCENT), L1 left-anchored / L2 right-anchored, auth points at Settings (not
+    [AUTH]/.env), an uncategorized failure keeps the generic hint, and the
+    inconclusive flag shows 'came back empty' over the raw category."""
+    model = "Soniox Live"
+
+    def render(**kw):
+        return u.render_transcription_failed(
+            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False, **kw)
+
+    # Every categorized reason renders a CYAN two-line block, never ACCENT.
+    for reason in ("no-connection", "service-error", "rate-limited", "auth"):
+        joined = "".join(render(reason=reason, provider="Soniox"))
+        if ACC in joined:
+            _record(f"failed/{reason}: reason block used ACCENT (masthead-exclusive)")
+        codes = re.findall(r"\x1b\[([0-9;]+)m", joined)
+        if not any("36" in c.split(";") for c in codes):
+            _record(f"failed/{reason}: reason block is not CYAN (SGR 36)")
+
+    # Provider token is interpolated (short form, never the long display name).
+    groq = strip("".join(render(reason="no-connection", provider="Groq")))
+    if "Groq" not in groq:
+        _record(f"failed: provider token not interpolated: {groq!r}")
+
+    # auth points at Settings, not [AUTH] / .env, and shows the key message -- a
+    # rejected key is a conclusive verdict, never the inconclusive 'came back
+    # empty' (#159: auth is never marked inconclusive, so it keeps its own guidance).
+    auth = strip("".join(render(reason="auth", provider="Soniox")))
+    if "Settings" not in auth:
+        _record("failed/auth: does not mention Settings")
+    if "[AUTH]" in auth or ".env" in auth:
+        _record(f"failed/auth: still references [AUTH]/.env: {auth!r}")
+    if "turned down the API key" not in auth:
+        _record("failed/auth: did not show the auth key message")
+    if "came back empty" in auth:
+        _record("failed/auth: showed the inconclusive message instead of the auth reason")
+
+    # None reason -> no reason block, generic retry hint retained.
+    none_lines = strip("".join(render()))
+    if "retry this recording" not in none_lines:
+        _record("failed/None: lost the generic retry hint")
+    if "came back empty" in none_lines or "Wi-Fi" in none_lines:
+        _record("failed/None: rendered a reason block for an uncategorized failure")
+
+    # inconclusive -> 'came back empty' over the raw category, paired with a
+    # transient reason (no-connection). auth is excluded upstream (#159), so it is
+    # not the example here -- the worker never marks a rejected key inconclusive.
+    inc = strip("".join(render(reason="no-connection", provider="Soniox", inconclusive=True)))
+    if "came back empty" not in inc:
+        _record("failed/inconclusive: did not show the 'came back empty' message")
+    if "reach the Soniox server" in inc or "Wi-Fi" in inc:
+        _record("failed/inconclusive: showed the raw category instead of inconclusive")
+
+    # L1 left-anchored at col 2, L2 right-anchored with a 2-cell margin.
+    lines = render(reason="no-connection", provider="Soniox")
+    l1, l2 = strip(lines[2]), strip(lines[3])
+    if l1[1:3] != "  " or l1[3] == " ":
+        _record(f"failed L1 not left-anchored at col 2: {l1!r}")
+    inner = l2[1:-1]
+    if not (inner.endswith("  ") and inner[-3] != " "):
+        _record(f"failed L2 not right-anchored (2-cell margin): {l2!r}")
+
+
+def check_no_speech_open_key_width():
+    """#159/#55: the NO SPEECH open-history hint embeds the full open_history combo.
+    An unusually long #55 override must not push the framed line past the 70-cell
+    panel width -- the embed is truncate_end-guarded like every other variable embed
+    in the module. check_block flags any framed line whose length != W."""
+    long_open = "Ctrl+Shift+Alt+F12"   # a pathologically long #55 override
+    for ansi in (True, False):
+        check_block("no_speech_long_open",
+                    u.render_no_speech(long_open, ansi=ansi, compact=False),
+                    ansi=ansi, compact=False, stress=False)
 
 
 def check_strip_structure():
@@ -487,11 +572,21 @@ def main():
                     stress=(seq == 99999 or chars == 99999))
 
         for seq in (None, 12, 99999):
-            for path in PATHS:
-                run("transcription_failed", u.render_transcription_failed, dict(
-                    seq=seq, retry_key=RETRY, env_dir=path, model_label=model, footer_keys=FFOOTER,
-                    key_prefix=KEY_PREFIX),
-                    stress=(seq == 99999))
+            # #159: one FAILED render per reason (incl. the None catch-all that omits
+            # the block) x both provider tokens, through the full ansi x compact matrix.
+            for reason in (None, "no-connection", "service-error", "rate-limited", "auth"):
+                for provider in ("Soniox", "Groq"):
+                    run("transcription_failed", u.render_transcription_failed, dict(
+                        seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
+                        key_prefix=KEY_PREFIX, reason=reason, provider=provider),
+                        stress=(seq == 99999))
+            # inconclusive (Soniox-Live V2->V4 lane empty + errored): the flag wins
+            # over the category, so the "came back empty" message shows.
+            run("transcription_failed", u.render_transcription_failed, dict(
+                seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
+                key_prefix=KEY_PREFIX, reason="service-error", provider="Soniox",
+                inconclusive=True),
+                stress=(seq == 99999))
             run("insert_failed", u.render_insert_failed, dict(
                 seq=seq, type_key="A", paste_key="D", model_label=model, footer_keys=FOOTER,
                 key_prefix=KEY_PREFIX),
@@ -504,7 +599,8 @@ def main():
                     hotkeys_ok=hk, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY))
 
     # No speech found (#133): a benign yellow verdict, no api-dependent fixture.
-    run("no_speech", u.render_no_speech, {})
+    # #159 adds the mic hint + the open-history pointer (the panel's sole Ctrl+Alt).
+    run("no_speech", u.render_no_speech, dict(open_key=OPEN))
 
     # No-API: MISSING (keys only) and PROBLEMS (with a non-key failure)
     run("noapi", u.render_noapi_panel, dict(
@@ -524,10 +620,13 @@ def main():
     twin("ok", u.render_ok_strip, seq=12, chars=184, sent=False,
          model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
     twin("transcription_failed", u.render_transcription_failed, seq=12, retry_key=RETRY,
-         env_dir=PATHS[3], model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
+         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
+    twin("transcription_failed/reason", u.render_transcription_failed, seq=12, retry_key=RETRY,
+         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX,
+         reason="no-connection", provider="Soniox")
     twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
-    twin("no_speech", u.render_no_speech)
+    twin("no_speech", u.render_no_speech, open_key=OPEN)
     twin("noapi", u.render_noapi_panel, missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"])],
          other_failures=[], env_dir=PATHS[1])
 
@@ -550,6 +649,8 @@ def main():
     check_accent_state()
     check_masthead_layout()
     check_ctrl_alt_counts()
+    check_failed_reason_block()
+    check_no_speech_open_key_width()
     check_strip_structure()
 
     # ---- #55 override edge: key_prefix=None framed render --------------------

@@ -510,35 +510,89 @@ def _failed_top(tag, rest, ansi, tag_codes=(BOLD, RED)):
     return _tag_headline(LAMP + " " + tag, tag_codes, "  " + rest, ansi)
 
 
-def render_transcription_failed(seq, retry_key, env_dir, model_label,
-                                footer_keys, key_prefix, *, ansi, compact):
+# #159: FAILED reason -> (what happened, the one realistic next step). {P} = the
+# short provider token ("Soniox"/"Groq"), never the long display name (width).
+# CYAN, never ACCENT (masthead-exclusive). The "inconclusive" row is the Soniox
+# Live V2->V4 file lane ending empty with >=1 errored stage -- shown regardless of
+# the reason category. reason=None (uncategorized failure) omits the block.
+_REASON_LINES = {
+    "no-connection": ("Couldn't reach the {P} server", "Is the Wi-Fi down again?"),
+    "service-error": ('The {P} server just says "error"',
+                      "Retry, wait, ...investigate -- or just switch the model"),
+    "rate-limited": ("{P} is catching its breath (rate limit)",
+                     "Too many requests -- give it a minute, then retry"),
+    "auth": ("{P} turned down the API key",
+             "Typo in Settings? Key no longer active at {P}?"),
+    "inconclusive": ("The recording came back empty",
+                     "Might be silence, might be a hiccup -- worth a retry"),
+}
+_REASON_LINES_COMPACT = {
+    "no-connection": ("can't reach {P}", "Wi-Fi down again?"),
+    "service-error": ('{P} says "error"', "retry, wait, or switch model"),
+    "rate-limited": ("{P} rate limit", "wait a minute, then retry"),
+    "auth": ("{P} rejected the key", "typo? or key inactive?"),
+    "inconclusive": ("the recording came back empty", "silence or a hiccup? retry"),
+}
+
+
+def _reason_pair(reason, provider, inconclusive, compact):
+    """The (line1, line2) explanation for a FAILED reason, provider-filled, or None
+    for an uncategorized failure (reason=None) -- then the panel omits the block.
+    error_inconclusive wins over the category (the Soniox Live empty-lane case)."""
+    table = _REASON_LINES_COMPACT if compact else _REASON_LINES
+    pair = table.get("inconclusive" if inconclusive else reason)
+    if pair is None:
+        return None
+    p = provider or "Soniox"
+    return pair[0].replace("{P}", p), pair[1].replace("{P}", p)
+
+
+def render_transcription_failed(seq, retry_key, model_label, footer_keys,
+                                key_prefix, *, reason=None, provider=None,
+                                inconclusive=False, ansi, compact):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
-    env = truncate_path_middle(env_dir, INNER - len("  (.env is in )"))
+    pair = _reason_pair(reason, provider, inconclusive, compact)
+    is_auth = reason == "auth" and not inconclusive
     if compact:
-        return [
+        out = [
             cline([(LAMP + " FAILED", (BOLD, RED)),
                    (f"  transcription failed{seq_part}", ())], ansi),
             cline("   nothing was inserted", ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline(f"  press {retry_key} to retry this recording", ansi),
-            cline("  [AUTH] above? fix the key in .env,", ansi),
-            cline(f"  then restart  (.env: {truncate_path_middle(env_dir, 20)})", ansi),
-            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
         ]
-    # Framed: the footer key line carries the sole Ctrl+Alt (its `R retry` anchors
-    # the bare retry letter used here) -- one Ctrl+Alt per box (#115).
+        if pair:
+            out.append(cline([("   " + pair[0], (BOLD, CYAN))], ansi))
+            out.append(cline([("   " + pair[1], (CYAN,))], ansi))
+        out.append(cline([("WHAT NOW", (BOLD,))], ansi))
+        if is_auth:
+            out.append(cline("  fix the key in Settings, then restart", ansi))
+        else:
+            out.append(cline(f"  press {retry_key} to retry, or switch model", ansi))
+        out.append(cline([("model: ", ()), (model_label, (BOLD,))], ansi))
+        return out
+    # Framed: the footer key line carries the sole Ctrl+Alt (its `R retry` /
+    # `L model` anchor the bare letters used here) -- one Ctrl+Alt per box (#115).
     retry_letter = retry_key.rpartition('+')[2]
-    return [
+    switch_letter = next((k for k, w in footer_keys if w == "model"), "L")
+    lines = [
         dtop(ansi),
         _failed_top("FAILED", f"transcription failed{seq_part} -- nothing inserted", ansi),
-        dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline([(f"  press {retry_letter} to retry this recording", (BOLD,))], ansi),
-        dline("  if an [AUTH] line shows above: fix the key in .env, restart", ansi),
-        dline([(f"  (.env is in {env})", (DIM,))], ansi),
-        dsep(ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
-        dbot(ansi),
     ]
+    if pair:
+        l1 = truncate_end(pair[0], INNER - 4)
+        l2 = truncate_end(pair[1], INNER - 4)
+        lines.append(dline([("  " + l1, (BOLD, CYAN))], ansi))          # what: left
+        pad = INNER - 2 - len(l2)                                       # next step: right
+        lines.append(dline([(" " * max(1, pad) + l2, (CYAN,))], ansi))
+        lines.append(dline("", ansi))
+    lines.append(dzone([("WHAT NOW", (BOLD,))], ansi))
+    if is_auth:
+        lines.append(dline([("  fix the key, then restart -- the recording will wait for you", (BOLD,))], ansi))
+        lines.append(dline([('  set the key in Settings (Start menu "Thoughtborne Settings")', (DIM,))], ansi))
+    else:
+        lines.append(dline([(f"  press {retry_letter} to retry this recording", (BOLD,))], ansi))
+        lines.append(dline(f"  or switch the model ({switch_letter}), then retry", ansi))
+    lines += [dsep(ansi), *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi), dbot(ansi)]
+    return lines
 
 
 def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
@@ -715,11 +769,14 @@ def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
     return lines
 
 
-def render_no_speech(*, ansi, compact):
+def render_no_speech(open_key, *, ansi, compact):
     """A recording that transcribed to empty on every engine held no speech (#133).
     A deliberately calm yellow panel -- benign, not an error: no red, no WHAT-NOW
-    zone, no hotkey (a retry cannot help, and the audio is kept in history). Mirrors
-    the RECOVERED/SAVED yellow-lamp voice without offering an action."""
+    zone, no retry hotkey (a retry cannot help, and the audio is kept in history).
+    Two hints (#159): the mic may have delivered silence while you spoke (a real
+    field case), and the archived file is one key away for a listen -- `open_key`
+    is the open-history hotkey (respects #55 overrides), the panel's sole Ctrl+Alt.
+    Mirrors the RECOVERED/SAVED yellow-lamp voice without offering an action."""
     head = "no speech found in this recording"
     detail = "the audio is kept in history -- a retry cannot help"
     if compact:
@@ -727,11 +784,16 @@ def render_no_speech(*, ansi, compact):
             cline([(LAMP + " NO SPEECH", (BOLD, YELLOW)),
                    ("  no speech in this recording", ())], ansi),
             cline("   kept in history -- a retry cannot help", ansi),
+            cline("   talking? the mic may have sent silence", ansi),
+            cline(f"   listen to it: {open_key} opens history", ansi),
         ]
     return [
         dtop(ansi),
         _tag_headline(LAMP + " NO SPEECH", (BOLD, YELLOW), "  " + head, ansi),
         dline("    " + detail, ansi),
+        dline("    You were talking? Then the mic sent silence -- check input", ansi),
+        dline("    " + truncate_end(  # guard a long #55 open_history override (#159)
+            f"to be sure, give the file a listen: {open_key} opens history", INNER - 6), ansi),
         dbot(ansi),
     ]
 

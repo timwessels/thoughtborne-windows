@@ -335,6 +335,8 @@ class TranscriptionTask:
     send_after_insert: bool = False  # Whether to press Enter after inserting (for sending messages)
     no_speech: bool = False  # Empty on every engine -> honest "no speech" verdict, not a failure (#133)
     error_reason: Optional[str] = None  # Coarse failure category on a FAILED task (#138); rendered by #159
+    error_provider: Optional[str] = None  # Short engine family that produced the failure (#159): "Soniox"/"Groq"
+    error_inconclusive: bool = False  # Soniox-Live V2->V4 lane ran empty with >=1 errored stage, minus a conclusive auth reject -> "came back empty, worth a retry" (#159)
 
 
 class OutputManager:
@@ -353,7 +355,11 @@ class OutputManager:
                   callback(event='ready', seq=..., chars=...)
                       -- Y flow: processed but NOT inserted, waiting for the user
                   callback(event='failed', kind='transcription'|'insertion', seq=...)
-                      -- nothing was inserted
+                      -- nothing was inserted; a transcription failure also carries
+                         reason=<coarse category #138> / provider=<"Soniox"|"Groq">
+                         / inconclusive=<Soniox-Live empty-lane, #159>, so the
+                         FAILED panel can say why (all None/False on an
+                         uncategorized failure)
                 Must not block: it runs inline in the sequential output loop.
         """
         self.output_queue: Dict[int, TranscriptionTask] = {}
@@ -859,7 +865,10 @@ class OutputManager:
                     if self.on_task_complete:
                         self.on_task_complete(event='failed',
                                               kind='transcription',
-                                              seq=task.sequence_number)
+                                              seq=task.sequence_number,
+                                              reason=task.error_reason,
+                                              provider=task.error_provider,
+                                              inconclusive=task.error_inconclusive)
 
             except Exception as e:
                 logger.error(f"Error in output manager: {e}", exc_info=True)

@@ -139,7 +139,7 @@ sys.modules.setdefault("groq", _fake_groq)
 
 import thoughtborne as tb  # noqa: E402
 import transcriber as tr  # noqa: E402
-from output_handler import TranscriptionTask  # noqa: E402,F401
+from output_handler import TranscriptionTask, OutputManager  # noqa: E402,F401
 from transcriber import SonioxLiveTranscriber  # noqa: E402
 
 # Undo thoughtborne's import-time global side effects: it swaps sys.stdout/stderr
@@ -579,6 +579,8 @@ def test_insession_nonlive_errored_empty_is_failed_with_reason():
     assert task.no_speech is False, "an errored non-live empty must NOT be no_speech"
     assert task.error_reason == "no-connection", \
         f"the sink's reason must land on the failed task (#138): {task.error_reason}"
+    assert task.error_inconclusive is False, \
+        "a non-live engine's own error keeps its category, not the 'came back empty' flag (#159)"
     assert app.record_failed_called is True, "the retry slot must be armed"
 
 
@@ -627,6 +629,9 @@ def test_insession_live_transport_error_is_error():
     assert task.is_error is True, "a live transport error stays retryable"
     assert task.no_speech is False
     assert task.error_reason == "no-connection", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is True, \
+        "a live FAILED came via the empty V2->V4 lane -> the 'came back empty' flag (#159)"
     assert app.record_failed_called is True
 
 
@@ -644,6 +649,8 @@ def test_retry_nonlive_errored_empty_keeps_marker_with_reason():
     assert task.no_speech is False, "an errored non-live empty retry must NOT be no_speech"
     assert task.error_reason == "no-connection", \
         f"the sink's reason must land on the failed retry task (#138): {task.error_reason}"
+    assert task.error_inconclusive is False, \
+        "a non-live retry error keeps its category, not the 'came back empty' flag (#159)"
     assert len(_markers()) == 1, f"the marker must persist -- still retryable: {_markers()}"
 
 
@@ -691,9 +698,53 @@ def test_retry_live_transport_error_keeps_marker():
     assert task.is_error is True, "a live transport error retry stays retryable"
     assert task.no_speech is False
     assert task.error_reason == "service-error", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is True, \
+        "a live retry FAILED came via the empty V2->V4 lane -> the 'came back empty' flag (#159)"
     assert app.resolve_failed_called is False
     assert _markers() == ["voice_20260718_085900_001_d1000.needsretry"], \
         f"exactly one un-announced marker must remain: {_markers()}"
+
+
+def test_insession_live_auth_error_not_inconclusive():
+    """#159: a Soniox Live chain that failed on AUTH (a rejected key) stays FAILED +
+    retryable, but must NOT be marked inconclusive -- auth is a conclusive verdict,
+    so the panel gives the auth guidance (fix the key in Settings), never the
+    'came back empty -- worth a retry' line. Mirror of the transport-error case with
+    reason=auth: without the fix, the live lane would flag inconclusive and the auth
+    category would be swallowed."""
+    _reset()
+    app = _FakeApp(fallback_result=("", "", True, "auth"))   # chain rejected on auth
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=1.0, sequence_number=91,
+        timestamp="20260718_090000_091", transcriber=_FakeLive())
+    task = app.output_manager.tasks[-1]
+    assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
+    assert task.is_error is True, "an auth failure stays retryable"
+    assert task.error_reason == "auth", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is False, \
+        "auth is conclusive -- never the 'came back empty' inconclusive flag (#159)"
+    assert app.record_failed_called is True
+
+
+def test_retry_live_auth_error_not_inconclusive():
+    """#159 on the retry path: a Soniox Live retry chain that failed on AUTH stays
+    retryable but must NOT be inconclusive -- the panel gives the auth guidance, not
+    the 'came back empty' line. Mirror of test_retry_live_transport_error_keeps_marker
+    with reason=auth."""
+    _reset()
+    rec = _armed_rec()
+    app = _FakeApp(fallback_result=("", "", True, "auth"))
+    task, errors = _drive_retry(app, rec, 93, _FakeLive())
+    assert not any("Error retrying" in m for m in errors), \
+        f"the routing must run, not the catch-all: {errors}"
+    assert task.is_error is True, "a live auth-error retry stays retryable"
+    assert task.error_reason == "auth", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is False, \
+        "auth is conclusive -- never the 'came back empty' inconclusive flag (#159)"
+    assert app.resolve_failed_called is False
 
 
 # ---- #141: the async-engine outage hole on long recordings ----------------
@@ -1093,6 +1144,45 @@ def test_http_status_reason_maps_every_branch():
         "a non-401/429 4xx is service-error (the default)"
 
 
+# ---- #159: provider-family token + the sink->task->callback path -------------
+def test_error_provider_maps_family():
+    """#159: _error_provider collapses every transcriber to the short family token
+    the FAILED reason line interpolates -- Groq to 'Groq', every Soniox variant
+    (live / upload slot / V2 / V4) to 'Soniox'."""
+    groq = tr.GroqTranscriber.__new__(tr.GroqTranscriber)   # __new__: no API-key init
+    assert tb._error_provider(groq) == "Groq"
+    assert tb._error_provider(_FakeLive()) == "Soniox", "Soniox Live -> Soniox"
+    assert tb._error_provider(_make_soniox_slot(_FakeV4CleanEmpty())) == "Soniox", \
+        "the Soniox upload slot -> Soniox"
+
+
+def test_output_manager_forwards_reason_provider_inconclusive():
+    """#159 acceptance (consumer side): the OutputManager forwards a FAILED task's
+    reason / provider / inconclusive to the on_task_complete callback, so the panel
+    can say why. Drives the REAL output loop with a capturing callback."""
+    captured = {}
+    fired = threading.Event()
+
+    def cb(**kw):
+        if kw.get("event") == "failed":
+            captured.update(kw)
+            fired.set()
+
+    om = OutputManager(on_task_complete_callback=cb)
+    try:
+        om.add_task(TranscriptionTask(
+            sequence_number=0, timestamp="20260722_000000_000",
+            is_error=True, is_complete=True,
+            error_reason="rate-limited", error_provider="Groq", error_inconclusive=False))
+        assert fired.wait(3.0), "the failed callback never fired"
+    finally:
+        om.stop()
+    assert captured.get("kind") == "transcription", f"kind must forward: {captured}"
+    assert captured.get("reason") == "rate-limited", f"reason must forward to the callback: {captured}"
+    assert captured.get("provider") == "Groq", f"provider must forward to the callback: {captured}"
+    assert captured.get("inconclusive") is False, f"inconclusive must forward to the callback: {captured}"
+
+
 CASES = [
     test_write_arms_unannounced,
     test_mark_announced_still_arms_silently,
@@ -1117,6 +1207,9 @@ CASES = [
     test_retry_nonlive_clean_empty_is_no_speech_drops_marker,
     test_retry_live_clean_empty_is_no_speech_drops_marker,
     test_retry_live_transport_error_keeps_marker,
+    # #159: auth is conclusive -> the live empty-lane must NOT mark it inconclusive
+    test_insession_live_auth_error_not_inconclusive,
+    test_retry_live_auth_error_not_inconclusive,
     # #141 async-engine outage on long recordings -- Tier 1 (real chain,
     # faked V4 stage)
     test_long_v4_outage_keeps_marker,
@@ -1139,6 +1232,9 @@ CASES = [
     test_grpc_error_reason_maps_every_branch,
     test_groq_error_reason_maps_every_branch,
     test_http_status_reason_maps_every_branch,
+    # #159 provider-family token + the sink->task->callback propagation
+    test_error_provider_maps_family,
+    test_output_manager_forwards_reason_provider_inconclusive,
 ]
 
 

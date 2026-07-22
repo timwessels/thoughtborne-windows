@@ -63,6 +63,7 @@ from transcriber import (
     create_transcriber,
     engine_code,
     MissingAPIKeyError,
+    GroqTranscriber,
     SonioxLiveTranscriber,
     SonioxTranscriber,
     SonioxV4Transcriber,
@@ -132,6 +133,14 @@ def _describe_construction_failure(error: Exception) -> str:
     if isinstance(error, MissingAPIKeyError):
         return f"{error.env_var} missing"
     return f"{type(error).__name__}: {error}"
+
+
+def _error_provider(transcriber) -> str:
+    """Short engine-family token for the FAILED reason line (#159): every Soniox
+    variant (live/slot/V2/V4) collapses to 'Soniox', Groq to 'Groq'. Names the
+    family that actually produced the failure -- which can differ from the
+    currently-selected model shown in the footer (intentional, #159)."""
+    return "Groq" if isinstance(transcriber, GroqTranscriber) else "Soniox"
 
 
 class DroppingQueueHandler(QueueHandler):
@@ -816,7 +825,17 @@ class ThoughtborneApp:
                 logger.warning(f"[{thread_name}] Empty transcription for sequence {sequence_number} "
                                f"-- staying retryable", extra=FILE_ONLY)
                 task.is_error = True
-                task.error_reason = in_session_reason  # dormant until #159 renders it
+                task.error_reason = in_session_reason  # #159 renders it on the FAILED panel
+                task.error_provider = _error_provider(transcriber)
+                # #159: reaching FAILED as Soniox Live means the empty live lane ran
+                # the V2->V4 file chain and it too came back empty with >=1 errored
+                # stage -- the "came back empty, worth a retry" case, shown over the
+                # bare category. A non-live engine's own error keeps its category.
+                # Auth is the exception: a rejected key is a conclusive verdict, not
+                # "inconclusive", so it keeps the auth guidance (fix the key) rather
+                # than the retry nudge -- the flag must match its own name.
+                task.error_inconclusive = (isinstance(transcriber, SonioxLiveTranscriber)
+                                           and in_session_reason != "auth")
                 task.is_complete = True
                 self._record_failed_slot(timestamp, duration)
 
@@ -1938,7 +1957,14 @@ class ThoughtborneApp:
                 delete_retry_marker(rec.archived_mp3_path)
                 write_retry_marker(rec.archived_mp3_path, rec.duration)
                 task.is_error = True
-                task.error_reason = retry_reason  # dormant until #159 renders it
+                task.error_reason = retry_reason  # #159 renders it on the FAILED panel
+                task.error_provider = _error_provider(transcriber)
+                # #159: a live retry reaches FAILED only through the V2->V4 file
+                # chain -- the empty-lane "worth a retry" case (mirror of the
+                # in-session branch). is_live is True only for Soniox Live. Auth is
+                # the exception: a rejected key is conclusive, so it keeps the auth
+                # guidance rather than the "came back empty" retry nudge.
+                task.error_inconclusive = transcriber.is_live and retry_reason != "auth"
                 task.is_complete = True
                 # Failed retry: the in-memory slot already points at rec, leave it retryable.
 
@@ -2349,7 +2375,8 @@ class ThoughtborneApp:
         tail = 'retry_last_failed' if retry else 'open_history'
         return ['start_recording', tail, 'switch_api', 'exit_program']
 
-    def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False):
+    def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False,
+                         reason=None, provider=None, inconclusive=False):
         """Map OutputManager completion events onto Cockpit strips/panels (#109).
 
         This is the on_task_complete callback (see OutputManager.__init__ for
@@ -2359,7 +2386,8 @@ class ThoughtborneApp:
         Events:
             'inserted'  -- transcript inserted (OK strip); sent=True for the send flow.
             'ready'     -- Y flow: processed, waiting for a manual insert (WAITING).
-            'failed'    -- kind='transcription' (FAILED panel) or 'insertion'.
+            'failed'    -- kind='transcription' (FAILED panel; reason/provider/
+                           inconclusive name why it failed, #159) or 'insertion'.
             'no_speech' -- clean-but-empty on every engine (NO SPEECH panel, #133).
         """
         try:
@@ -2399,17 +2427,20 @@ class ThoughtborneApp:
                 self._emit_block(
                     'transcription-failed',
                     lambda ansi, compact: console_ui.render_transcription_failed(
-                        seq_shown, retry_key, str(SCRIPT_DIR), model,
+                        seq_shown, retry_key, model,
                         self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
+                        reason=reason, provider=provider, inconclusive=inconclusive,
                         ansi=ansi, compact=compact),
-                    detail=f"seq={seq}")
+                    detail=f"seq={seq} reason={reason} provider={provider}")
             elif event == 'no_speech':
                 # #133: a benign 'no speech found' verdict, not a failure -- no retry
-                # hint, no hotkey. The recording is kept in history; a retry cannot help.
+                # hint, no retry hotkey. The recording is kept in history; a retry
+                # cannot help. The open-history hotkey (#159) lets the user listen.
+                open_key = self._format_hotkey(HOTKEYS['open_history'])
                 self._emit_block(
                     'no-speech',
                     lambda ansi, compact: console_ui.render_no_speech(
-                        ansi=ansi, compact=compact),
+                        open_key, ansi=ansi, compact=compact),
                     detail=f"seq={seq}")
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
