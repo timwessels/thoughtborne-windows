@@ -165,3 +165,54 @@ appended notice; or treating a truncation as a red FAILED (it is a successful, c
 insert).
 
 Does not touch D-001 or D-002.
+
+
+## D-004 — A second instance refuses rather than running deaf
+
+Decided 2026-07-26 (#166, #165).
+
+Global hotkeys are exclusive in Windows, so only one Thoughtborne can hold them. A
+second start — most often an elevated one launched to dictate into an admin window
+while a normal one is already up — used to run anyway, deaf: it registered zero
+hotkeys, printed a red wall of failures, then showed READY as if fine, and its
+`Ctrl+Alt+4` was answered by the first instance (so the user killed the working one).
+With push-to-talk on it could also open the microphone, two processes fighting for the
+mic and the caret. The decision:
+
+- **Refuse, don't run deaf.** A single-instance guard — a named Windows mutex checked
+  at the very top of `main()`, before any migration, recording loop, or hotkey
+  registration — detects an existing instance and makes the second start show a calm,
+  non-red notice for a few seconds and exit on its own (exit code 0, so the launcher
+  window closes itself). No zombie, no push-to-talk double-recording, no `Ctrl+Alt+4`
+  trap.
+- **The name is fixed, not path-derived**, and the mutex carries a permissive security
+  descriptor; an elevation mismatch (`ERROR_ACCESS_DENIED`) counts as "already running"
+  exactly like `ERROR_ALREADY_EXISTS`. A second copy on disk, elevated or not, is still
+  a second instance. The name is session-scoped (no `Global\` prefix), matching the
+  session scope of global hotkeys, so two Windows users each keep their own instance.
+- **The OS owns the lock's lifetime.** The kernel releases the mutex when the process
+  dies, including a hard kill, so a crash never leaves a stale lock — the next start is
+  an ordinary single instance.
+- **A documented opt-out** (`THOUGHTBORNE_ALLOW_SECOND_INSTANCE`) lets a developer run a
+  second copy for non-hotkey work; the default is guard-on.
+- **The trade-off, accepted honestly.** A first instance that is wedged (not answering
+  `Ctrl+Alt+4`) blocks every new start until it is ended — so the notice tells the user
+  they can end that window in Task Manager. Locking out a live, hotkey-holding instance
+  is the right default; the escape hatch is naming the wedge case in the notice.
+- **Honest registration verdict, independent of the guard.** `_register_hotkeys()`
+  reports success only when every hotkey registered; a shortfall no longer logs "All
+  hotkeys registered successfully" nor shows READY, and a genuine partial loss (a
+  foreign app owning one combo) gets a yellow panel worded for a partial, not a total,
+  loss. The pre-existing second-instance defences (the sidecar lock, the migration-race
+  guard, the recovery probe) stay — after a crash the mutex is free and they remain
+  load-bearing. Redundant is not dead.
+
+Do not reintroduce: a path-derived mutex name; treating only `ERROR_ALREADY_EXISTS` as
+"already running" (the elevation case returns `ERROR_ACCESS_DENIED`); closing the mutex
+handle before process exit; an unconditional "All hotkeys registered successfully" line
+or a READY masthead on a registration shortfall; a second instance that runs on without
+hotkeys.
+
+Respects D-001 — the guard runs before startup recovery, so the surviving instance's
+remind-once/retryable marker behaviour is unchanged; only the duplicate arming by a
+second process disappears. Does not touch D-002 or D-003.

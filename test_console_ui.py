@@ -364,6 +364,8 @@ def check_ctrl_alt_counts():
         ("noapi", u.render_noapi_panel(
             [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True, compact=False), 0),
         ("no_speech", u.render_no_speech(OPEN, ansi=True, compact=False), 1),   # #159: open-history hint
+        ("already_running", u.render_already_running(ansi=True, compact=False), 0),   # #166: no hotkey embed
+        ("hotkeys_partial", u.render_hotkeys_partial(10, 11, ansi=True, compact=False), 0),   # #166
     ]
     for name, lines, expected in cases:
         n = strip("".join(lines)).count("Ctrl+Alt")
@@ -656,6 +658,13 @@ def main():
     # #159 adds the mic hint + the open-history pointer (the panel's sole Ctrl+Alt).
     run("no_speech", u.render_no_speech, dict(open_key=OPEN))
 
+    # Single-instance guard + honest hotkey verdict (#166), both api-independent:
+    # the calm ALREADY RUNNING notice (CYAN, never red) and the partial-
+    # registration advisory (YELLOW, never red -- most keys still work). run()
+    # sweeps ansi x compact and check_block enforces "not red" on both.
+    run("already_running", u.render_already_running, {})
+    run("hotkeys_partial", u.render_hotkeys_partial, dict(registered=10, expected=11))
+
     # No-API: MISSING (keys only) and PROBLEMS (with a non-key failure)
     run("noapi", u.render_noapi_panel, dict(
         missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"]),
@@ -686,6 +695,8 @@ def main():
     twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("no_speech", u.render_no_speech, open_key=OPEN)
+    twin("already_running", u.render_already_running)
+    twin("hotkeys_partial", u.render_hotkeys_partial, registered=10, expected=11)
     twin("noapi", u.render_noapi_panel, missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"])],
          other_failures=[], env_dir=PATHS[1])
 

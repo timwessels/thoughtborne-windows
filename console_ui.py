@@ -732,6 +732,54 @@ def render_hotkeys_failed(*, ansi, compact):
     ]
 
 
+def render_hotkeys_partial(registered, expected, *, ansi, compact):
+    """Some -- not all -- hotkeys registered (#166 honest verdict). A foreign app
+    likely owns one combo. NOT red: the tool runs and most keys work, so this is a
+    yellow advisory, not the total-loss FAILED panel (which stays red for 0/N)."""
+    head = f"{registered} of {expected} hotkeys registered"
+    if compact:
+        return [
+            cline([(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW)),
+                   ("  " + f"{registered}/{expected}", ())], ansi),
+            cline("   another app likely owns a combo", ansi),
+            cline("   close it or rebind, then restart", ansi),
+        ]
+    return [
+        dtop(ansi),
+        _tag_headline(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW), "  " + head, ansi),
+        dline("    another app likely owns one combo -- see the log for which", ansi),
+        dzone([("WHAT NOW", (BOLD,))], ansi),
+        dline("  close the other app, or rebind it in config.py, then restart", ansi),
+        dbot(ansi),
+    ]
+
+
+def render_already_running(*, ansi, compact):
+    """A second start found an instance already holding the hotkeys (#166). Calm,
+    never red -- nothing is broken; the tool already runs elsewhere and this start
+    closes itself. The wedged-instance hint (a first instance not answering the
+    exit hotkey, #128) is a required DIM line so the user knows the escape hatch.
+    Final wording is a later #160 voice concern; structure + non-red is the point."""
+    if compact:
+        return [
+            cline([("ALREADY RUNNING", (BOLD, CYAN)), ("  another window has it", ())], ansi),
+            cline("   nothing broken -- this one isn't needed", ansi),
+            cline("   (wedged? end it via Task Manager)", ansi),
+            cline("   closing ...", ansi),
+        ]
+    return [
+        dtop(ansi),
+        dline([("  ", ()), ("ALREADY RUNNING", (BOLD, CYAN))], ansi),
+        dline("", ansi),
+        dline("  Thoughtborne is up in another window -- that one has the keys.", ansi),
+        dline("  Nothing broken here; this window just isn't needed.", ansi),
+        dline("", ansi),
+        dline([("  (that window not responding? end it there, or via Task Manager)", (DIM,))], ansi),
+        dline([("  closing ...", (DIM,))], ansi),
+        dbot(ansi),
+    ]
+
+
 def render_switch_failed(current_label, lineup, switch_key, missing=None,
                          *, ansi, compact):
     """`missing`: the env-var names of the skipped entries (see switch_api). When

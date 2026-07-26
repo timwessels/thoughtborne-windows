@@ -2488,8 +2488,9 @@ class ThoughtborneApp:
     def _register_hotkeys(self) -> bool:
         """Register all hotkeys using Win32 RegisterHotKey API.
 
-        Returns True when the hotkey listener is up; run() gates its
-        success messaging on this."""
+        Returns True only when every hotkey registered; a shortfall (a foreign
+        app owns a combo, or a registration timeout) returns False so run()
+        shows a panel matching reality instead of the READY masthead (#166)."""
         logger.info("Registering hotkeys via RegisterHotKey...", extra=FILE_ONLY)
 
         self.hotkey_manager = HotkeyManager()
@@ -2523,18 +2524,21 @@ class ThoughtborneApp:
             logger.error("Failed to start HotkeyManager", extra=FILE_ONLY)  # FAILED panel is the surface
             return False
 
-        # File log keeps the full per-key wall (file-only) and the greppable
-        # success line (AGENTS heartbeat); the console gets one dim summary, or a
-        # visible WARNING when some keys were lost to another app (#61/#109).
-        logger.info("All hotkeys registered successfully via RegisterHotKey", extra=FILE_ONLY)
+        # File log keeps the full per-key wall (file-only); the console gets one
+        # dim summary, or a visible WARNING when some keys were lost to another app
+        # (#61/#109). The greppable success line (AGENTS heartbeat) and the True
+        # verdict are both gated on a full house now (#166): a shortfall no longer
+        # claims success nor shows READY -- it stays text-identical on the happy
+        # path so the documented grep holds.
         registered = self.hotkey_manager.registered_count
         expected = self.hotkey_manager.expected_count
         summary = f"hotkeys: {registered}/{expected} registered -- full log: {LOG_FILE.name}"
-        if registered < expected:
-            logger.warning(summary)
-        else:
+        if registered == expected:
+            logger.info("All hotkeys registered successfully via RegisterHotKey", extra=FILE_ONLY)
             logger.info(summary)
-        return True
+            return True
+        logger.warning(summary)
+        return False
 
     def run(self):
         """Main application loop"""
@@ -2655,12 +2659,25 @@ class ThoughtborneApp:
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
                     ansi=ansi, compact=compact))
         else:
-            # No READY invitation after a failed registration -- the tool keeps
-            # running without hotkeys (status quo), but the panel must say so.
-            self._emit_block(
-                'hotkeys-failed',
-                lambda ansi, compact: console_ui.render_hotkeys_failed(
-                    ansi=ansi, compact=compact))
+            # No READY invitation after a shortfall -- the tool keeps running
+            # (status quo), but the panel must say so. Split total vs partial
+            # (#166): at 0/N every combo is lost (a second instance, or a
+            # registration timeout), so render_hotkeys_failed's "cannot react to
+            # key presses" is true; a partial loss (e.g. 10/11 -- a foreign app
+            # owning one combo) leaves most keys working, so a yellow advisory is
+            # shown instead of the red total-loss wording.
+            reg = self.hotkey_manager.registered_count
+            exp = self.hotkey_manager.expected_count
+            if reg == 0:
+                self._emit_block(
+                    'hotkeys-failed',
+                    lambda ansi, compact: console_ui.render_hotkeys_failed(
+                        ansi=ansi, compact=compact))
+            else:
+                self._emit_block(
+                    'hotkeys-partial',
+                    lambda ansi, compact: console_ui.render_hotkeys_partial(
+                        reg, exp, ansi=ansi, compact=compact))
 
         # Recovery notice as its own prominent block, emitted last so it sits at
         # the bottom of the scrollback below READY and can't be scrolled off
@@ -2728,8 +2745,152 @@ class ThoughtborneApp:
             pass
 
 
+# ===== SINGLE-INSTANCE GUARD (#166) =====
+# Global hotkeys are exclusive in Windows, so a second Thoughtborne would register
+# zero hotkeys and run deaf -- most often an elevated copy started to dictate into
+# an admin window while a normal one is already up. A named mutex, checked at the
+# top of main(), lets the second start recognise the first and bow out. The handle
+# is deliberately kept open for the whole process (never CloseHandle'd): the kernel
+# frees the mutex on process death -- including a hard kill (#56) -- so a crash can
+# never leave a stale lock behind. The existing second-instance defences (the
+# sidecar lock, the migration-race guard, the recovery probe) stay load-bearing:
+# after a crash the mutex is free and the restart is an ordinary single instance.
+_INSTANCE_MUTEX_HANDLE = None
+
+
+def _second_instance_running() -> bool:
+    """True if another Thoughtborne instance already holds the single-instance
+    mutex (#166). Fail-open in every uncertain case -- a non-Windows platform, a
+    NULL handle for an unexpected reason, any exception -> False, so a guard fault
+    can never block a legitimate start. The developer opt-out
+    (THOUGHTBORNE_ALLOW_SECOND_INSTANCE) likewise always returns False -- this copy
+    is meant to run alongside -- but, unlike those short-circuits, it still creates
+    and holds the mutex so a *later* normal instance recognises it and refuses. Both
+    ERROR_ALREADY_EXISTS and ERROR_ACCESS_DENIED count as "already running": a mutex
+    created by an elevated (high-integrity) first instance denies a medium-integrity
+    second one's open with ACCESS_DENIED rather than ALREADY_EXISTS, and that
+    elevation pair is the main case, not an edge."""
+    if os.name != 'nt':
+        return False
+    # Developer opt-out for running a second copy for non-hotkey work (#166). Read
+    # via os.getenv -- config's load_dotenv has already populated os.environ. This
+    # copy always starts, but it does NOT early-return: it still creates and holds
+    # the mutex below, so a *later* normal instance recognises this one and refuses.
+    # Without that, the opt-out copy would leave the name free and the next normal
+    # start would run on deaf without hotkeys -- the very bug the guard shuts (D-004).
+    optout_val = (os.getenv('THOUGHTBORNE_ALLOW_SECOND_INSTANCE') or '').strip().lower()
+    optout = bool(optout_val) and optout_val not in ('0', 'false', 'no')
+    if optout:
+        logger.info("Single-instance guard bypassed via THOUGHTBORNE_ALLOW_SECOND_INSTANCE",
+                    extra=FILE_ONLY)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
+
+        ERROR_ALREADY_EXISTS = 183
+        ERROR_ACCESS_DENIED = 5
+
+        class SECURITY_ATTRIBUTES(ctypes.Structure):
+            _fields_ = [("nLength", wintypes.DWORD),
+                        ("lpSecurityDescriptor", wintypes.LPVOID),
+                        ("bInheritHandle", wintypes.BOOL)]
+
+        # Permissive security descriptor so a medium-integrity second process can
+        # open a mutex an elevated first one created: the DACL grants Everyone (WD)
+        # generic-all, and a Low mandatory label (LW, no-write-up) drops the
+        # object's integrity barrier. This is the belt; the ACCESS_DENIED handling
+        # below is the suspenders (the mandatory-label policy can still deny a
+        # medium->high open even with a perfect DACL).
+        advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+        advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD,
+            ctypes.POINTER(wintypes.LPVOID), ctypes.POINTER(wintypes.ULONG)]
+        psd = wintypes.LPVOID()
+        sddl = "D:(A;;GA;;;WD)S:(ML;;NW;;;LW)"
+        sd_ok = advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl, 1, ctypes.byref(psd), None)   # 1 = SDDL_REVISION_1
+
+        sa = SECURITY_ATTRIBUTES()
+        sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
+        # Store the raw address (int), not the c_void_p wrapper -- assigning an int
+        # to a c_void_p field is unambiguous; None -> default SD (still caught by
+        # the ACCESS_DENIED fallback below).
+        sa.lpSecurityDescriptor = psd.value if sd_ok else None
+        sa.bInheritHandle = False
+
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CreateMutexW.argtypes = [
+            ctypes.POINTER(SECURITY_ATTRIBUTES), wintypes.BOOL, wintypes.LPCWSTR]
+        # Fixed, not path-derived (a second copy on disk is still a second
+        # instance), and session-scoped (no Global\ prefix): it matches the
+        # session/desktop scope of global hotkeys, so two Windows users each keep
+        # their own instance while the same-session elevation pair is still caught.
+        name = "Thoughtborne-SingleInstance"
+        ctypes.set_last_error(0)        # make the get_last_error() below self-contained
+        handle = kernel32.CreateMutexW(ctypes.byref(sa), False, name)
+        err = ctypes.get_last_error()   # read immediately (use_last_error=True)
+
+        if sd_ok and psd:
+            kernel32.LocalFree.argtypes = [wintypes.LPVOID]
+            kernel32.LocalFree.restype = wintypes.LPVOID
+            kernel32.LocalFree(psd)     # the SD was copied into the kernel object
+
+        if not handle:
+            # Could not even open the name -- on the same session almost certainly
+            # ACCESS_DENIED from a higher-integrity owner, i.e. already running.
+            if err == ERROR_ACCESS_DENIED:
+                # The opt-out copy starts regardless (never a second instance to
+                # refuse); a normal one treats a denied open as "already running".
+                return not optout
+            logger.warning(f"Single-instance guard: CreateMutexW failed (err {err}); "
+                           f"starting anyway", extra=FILE_ONLY)   # fail-open
+            return False
+
+        # We hold a handle. Keep it for the whole process (see the module note) --
+        # in the opt-out case too, so a later normal instance sees this copy.
+        global _INSTANCE_MUTEX_HANDLE
+        _INSTANCE_MUTEX_HANDLE = handle
+        if optout:
+            # Opt-out means "run a second copy", not "refuse if one exists": this
+            # instance is never the one to bow out, whatever ERROR_* reports.
+            return False
+        return err in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED)
+    except Exception as e:
+        logger.warning(f"Single-instance guard errored ({e}); starting anyway", extra=FILE_ONLY)
+        return False   # fail-open, always
+
+
+def _refuse_second_instance():
+    """Show the calm ALREADY-RUNNING notice (#166) for a few seconds, then exit 0
+    so Thoughtborne.bat closes the window by itself (:done_clean). The notice is
+    console-only, so the file log keeps exactly the one FILE_ONLY line below -- no
+    phantom "starting"/"Program ended" pair (both fall out of the early exit, so
+    the AGENTS running-check on the real instance is never misled)."""
+    logger.info("Second instance refused: Thoughtborne already running", extra=FILE_ONLY)
+    try:
+        compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
+        lines = console_ui.render_already_running(ansi=_ANSI_ENABLED, compact=compact)
+        # Console-only (console_logger has no file handler); the sleep gives the
+        # QueueListener daemon time to drain the panel before the process exits.
+        console_logger.info("\n".join([""] + lines), extra={'raw_console': True})
+    except Exception as e:
+        logger.debug(f"Already-running notice render failed: {e}")
+        print("\nThoughtborne is already running in another window -- closing.")
+    time.sleep(4)
+    sys.exit(0)   # 0 -> Thoughtborne.bat :done_clean closes the window silently
+
+
 def main():
     """Main entry point"""
+    # Single-instance guard (#166): refuse a second, deaf start up front -- before
+    # any migration, the recording loop, or hotkey registration -- so a second
+    # (often elevated) instance can't run without hotkeys and still grab the mic
+    # via push-to-talk. Shows a calm notice, then exits 0.
+    if _second_instance_running():
+        _refuse_second_instance()   # renders the notice, then sys.exit(0)
+
     # Map Ctrl+Break to KeyboardInterrupt instead of instant process death so
     # the run()-finally -> cleanup() path can salvage an active recording
     # (#49). SIGBREAK exists on Windows only, hence the AttributeError guard.

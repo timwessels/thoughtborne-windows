@@ -39,7 +39,12 @@ WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 
 # ===== Win32 Functions =====
-user32 = ctypes.windll.user32
+# user32 via a private WinDLL(use_last_error=True): ctypes then captures the Win32
+# LastError after each call, so the RegisterHotKey failure path can read the real
+# code via get_last_error() -- 1409 "already registered by another application"
+# instead of a stale 0 (#165). It also de-shares our argtypes/restype from the
+# ctypes.windll cache that keyboard/pyperclip/pyautogui mutate.
+user32 = ctypes.WinDLL('user32', use_last_error=True)
 kernel32 = ctypes.windll.kernel32
 
 RegisterHotKey = user32.RegisterHotKey
