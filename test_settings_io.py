@@ -43,6 +43,11 @@ What is covered:
     None preserves an existing ui block untouched (and creates none when absent),
     "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
     absent-file write with a language seeds a fresh ui block.
+  - settings_io.resolve_first_run / env_has_key (#163): the settings app's window-
+    mode decision -- flag OR no stored key -> the first-run wizard, a stored key with
+    no flag -> the plain dialog; the shared key-presence predicate and the read_env
+    seam (a readable keyed .env -> plain, an ANSI .env -> wizard, matching
+    _had_stored_key).
 
 Hands-on gates (a separate test issue, not reachable here): the real Tk state-bit
 values in decode_key_event, and the live "Test key" round-trip against real keys.
@@ -642,6 +647,43 @@ def check_ui_language(tmp):
     check("vocabulary" not in data, "UI-new: absent-file write seeded a vocabulary block")
 
 
+# ---- first-run mode decision (#163) ------------------------------------------
+def check_first_run_decision(tmp):
+    # env_has_key: the shared key-presence predicate (also feeds the GUI's
+    # _had_stored_key, so the mode decision can never drift from it).
+    check(not sio.env_has_key({}), "env_has_key: empty env is no key")
+    check(sio.env_has_key({"GROQ_API_KEY": "g"}), "env_has_key: Groq key not seen")
+    check(sio.env_has_key({"SONIOX_API_KEY": "s"}), "env_has_key: Soniox key not seen")
+    check(not sio.env_has_key({"GROQ_API_KEY": "   "}), "env_has_key: whitespace is no key")
+    check(not sio.env_has_key({"GROQ_API_KEY": ""}), "env_has_key: empty string is no key")
+
+    # resolve_first_run: flag OR no-key -> wizard; stored key + no flag -> plain dialog.
+    check(sio.resolve_first_run(False, {}) is True,
+          "fresh install (no key, no flag) must open the wizard")            # criterion 1
+    check(sio.resolve_first_run(False, {"GROQ_API_KEY": "g"}) is False,
+          "re-run over a keyed install must open the plain dialog")          # criterion 2
+    check(sio.resolve_first_run(False, {"SONIOX_API_KEY": "s"}) is False,
+          "a stored Soniox key with no flag must open the plain dialog")
+    check(sio.resolve_first_run(True, {"GROQ_API_KEY": "g"}) is True,
+          "explicit --first-run must win even when a key is stored")
+    check(sio.resolve_first_run(True, {}) is True,
+          "explicit --first-run with no key must open the wizard")
+    check(sio.resolve_first_run(False, {"GROQ_API_KEY": "  "}) is True,
+          "a whitespace-only key is no key -> wizard")
+
+    # Seam to the real reader: read_env feeds the decision as it does _had_stored_key.
+    p = tmp / "env_fr_key"
+    p.write_text("GROQ_API_KEY=gsk_real\n", encoding="utf-8")
+    check(sio.resolve_first_run(False, sio.read_env(p)) is False,
+          "a readable .env with a key -> plain dialog")
+    # an ANSI/cp1252 .env degrades to {} in read_env -> no key -> wizard, matching
+    # _had_stored_key (reuses the B3 cp1252 pattern from check_regressions).
+    p = tmp / "env_fr_ansi"
+    p.write_bytes("# Umlaut-Kommentar: Präfix\nGROQ_API_KEY=secret\n".encode("cp1252"))
+    check(sio.resolve_first_run(False, sio.read_env(p)) is True,
+          "an ANSI .env reads as no key -> wizard (consistent with _had_stored_key)")
+
+
 def _show():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -662,6 +704,7 @@ def main():
         check_env(tmp)
         check_personal_settings(tmp)
         check_ui_language(tmp)
+        check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
         check(not leftovers, f"atomic write left temp files behind: {leftovers}")

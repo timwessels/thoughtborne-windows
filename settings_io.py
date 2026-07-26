@@ -184,6 +184,31 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
 
 
 # =============================================================================
+# first-run mode decision (#163)
+# =============================================================================
+def env_has_key(env: dict) -> bool:
+    """True iff a read_env() result holds a non-empty managed API key (Groq or
+    Soniox). The single key-presence predicate: the settings app's _had_stored_key
+    and resolve_first_run below both flow from it, so the window-mode decision can
+    never drift from what the app treats as "a key is stored". A blank/whitespace
+    value is no key (mirrors write_env dropping a blank so it never clobbers a stored
+    key); an unreadable/ANSI .env, which read_env already degrades to {}, reads as no
+    key here too."""
+    return bool(env.get("GROQ_API_KEY", "").strip()
+                or env.get("SONIOX_API_KEY", "").strip())
+
+
+def resolve_first_run(flag: bool, env: dict) -> bool:
+    """The settings app's window-mode decision (#163). Open the first-run wizard when
+    the explicit --first-run flag is set (thoughtborne.py's keyless-start hook) OR when
+    no readable API key is stored yet (the installer hand-off and every other keyless
+    open, which pass no flag); a stored key with no flag -> the plain settings dialog.
+    Pure, so the whole decision is off-Windows testable. It changes only WHICH mode the
+    window opens in, never how config is written -- respects D-002."""
+    return bool(flag) or not env_has_key(env)
+
+
+# =============================================================================
 # personal_settings.json (surgical merge)
 # =============================================================================
 # The blocks whose `_comment` lead the managed-skeleton seeds on an absent-file

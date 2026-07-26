@@ -3,9 +3,10 @@ Graphical settings + first-run onboarding app for Thoughtborne (#144).
 
 One tkinter window that doubles as the first-run wizard (rail: Back / Next /
 "Save & start") and the everyday settings dialog (rail: Save / Cancel) -- the two
-modes differ ONLY by the `--first-run` CLI flag; the three tabs (Provider ->
-Hotkeys -> Behavior) are identical in both ("one window, one face"). German or
-English, switchable in the header.
+modes differ by the `--first-run` CLI flag, or an auto-promote to the wizard when no
+API key is stored yet (#163); the three tabs (Provider -> Hotkeys -> Behavior) are
+identical in both ("one window, one face"). German or English, switchable in the
+header.
 
 Pure stdlib: tkinter + ctypes + threading + queue + subprocess + webbrowser. This
 module holds NO IO or validation logic of its own -- every file read/write, key
@@ -182,8 +183,7 @@ class SettingsApp:
         # never clobbers a stored key (settings_io), so an empty field on top of a
         # stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
         # that rarer case is caught downstream -- write_env aborts such a save.)
-        self._had_stored_key = bool(env.get("GROQ_API_KEY", "").strip()
-                                    or env.get("SONIOX_API_KEY", "").strip())
+        self._had_stored_key = settings_io.env_has_key(env)
 
         # fonts derived from the theme default
         self.default_font = tkfont.nametofont("TkDefaultFont")
@@ -823,7 +823,8 @@ class SettingsApp:
 def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--first-run", action="store_true",
-                        help="open in first-run wizard mode (set by the no-key hook)")
+                        help="force first-run wizard mode; the app also auto-promotes "
+                             "to it when no API key is stored yet (#163)")
     args, _ = parser.parse_known_args()
 
     _enable_high_dpi()
@@ -841,7 +842,13 @@ def main():
     # needed.
     _size_window(root)
 
-    SettingsApp(root, first_run=args.first_run)
+    # #163: open the wizard on the explicit flag (thoughtborne.py's keyless hook) OR
+    # when no readable key is stored yet -- so the installer hand-off, which passes no
+    # flag, lands on the guided wizard on a fresh keyless machine, while a re-run over a
+    # keyed install still opens the plain settings dialog. read_env never raises.
+    env = settings_io.read_env(config.SCRIPT_DIR / ".env")
+    first_run = settings_io.resolve_first_run(args.first_run, env)
+    SettingsApp(root, first_run=first_run)
     root.mainloop()
 
 
