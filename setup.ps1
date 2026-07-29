@@ -261,7 +261,8 @@ function Install-Thoughtborne {
 
     # 5) Fetch the code snapshot (temp-staged so an aborted/corrupt download never
     #    touches the live install) and copy it in under the data denylist. Asset
-    #    names (setup.ps1 / thoughtborne.zip) to be confirmed at #145.
+    #    names (setup.ps1 / thoughtborne.zip) are fixed by the release ritual
+    #    (RELEASING.md, D-006).
     if ($version -eq 'latest') {
         $zipUrl = 'https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip'
     } else {
@@ -296,7 +297,8 @@ function Install-Thoughtborne {
         }
         # Strip-if-present: a ZIP with exactly one top-level dir and no top-level
         # files is a wrapper layout -- descend into it. Otherwise the extract root
-        # is the tree root. (The real layout is pinned at #145; this handles both.)
+        # is the tree root. (The release ritual ships a flat tree, RELEASING.md;
+        # the strip stays as defensive tolerance for a wrapper layout.)
         $rootItems = @(Get-ChildItem -LiteralPath $extractDir -Force)
         $topFiles = @($rootItems | Where-Object { -not $_.PSIsContainer })
         $topDirs = @($rootItems | Where-Object { $_.PSIsContainer })

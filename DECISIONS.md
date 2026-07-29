@@ -281,3 +281,45 @@ the settings-app chain that would break the stdlib-only rescue lane; or a commit
 Respects D-002 — this changes only which interpreter runs the settings app, not
 how or when the app writes `.env` / `personal_settings.json`. Does not touch D-001,
 D-003, or D-004.
+
+---
+
+## D-006 — Release assets: two fixed-name files, the ZIP is `git archive` of the tag
+
+Decided 2026-07-29 (#145).
+
+A tagged GitHub release is the installer's source of truth (#76): `setup.ps1`
+fetches from `releases/latest/download/<asset>`, a stable alias GitHub resolves to
+the newest non-prerelease. That coupling fixes an asset contract:
+
+- **Exactly two assets, fixed names.** Every release carries `thoughtborne.zip`
+  (the code) and `setup.ps1` (the standalone installer). The names are wired into
+  `setup.ps1` (the `latest/download/thoughtborne.zip` and versioned
+  `releases/download/$version/thoughtborne.zip` URLs) and the sandbox harness —
+  renaming one silently 404s the installer at runtime.
+- **The ZIP is `git archive` of the tag — whole tree, flat, fixed name.** It ships
+  the entire tracked tree at the tagged commit, built with `git archive` (not a
+  filesystem zip), with no wrapper directory and no version stamp in the name.
+  `git archive` is the only builder that applies `.gitattributes`; a `zip -r` over
+  a working tree would ship LF `.bat` files and cmd.exe would mis-parse the
+  launcher labels. Whole-tree (no `export-ignore` trimming) so a later "shrink the
+  ZIP" cannot silently drop a load-bearing file — the size cost (~650 KB) is
+  negligible and the dev-only files sit inertly in the install dir.
+- **The `setup.ps1` asset comes from the same tag.** The standalone `setup.ps1` is
+  taken from the tagged commit (`git show vX.Y.Z:setup.ps1`), so the one-liner
+  lane's script and the copy inside the ZIP are byte-identical and can never drift
+  (#157).
+- **Published as Latest, never a pre-release.** `releases/latest/download/`
+  resolves only to the newest non-prerelease; a pre-release publish would leave the
+  installer's fetch URL on the previous release and 404.
+
+The ritual that produces all this is `RELEASING.md`; `build-release-zip.sh` builds
+and dry-run verifies the assets without tagging or publishing.
+
+Do not reintroduce: renaming either asset; a version-stamped ZIP name; trimming the
+ZIP via `.gitattributes export-ignore`; a filesystem zip that loses the `.bat`
+CRLF; or publishing the release as a pre-release (breaks `latest/download`).
+
+Respects D-002 — `setup.ps1` still collects no secrets and writes no config (the
+settings app remains the only config writer). Does not touch D-001, D-003, D-004,
+or D-005.
