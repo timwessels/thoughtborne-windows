@@ -216,3 +216,68 @@ hotkeys.
 Respects D-001 — the guard runs before startup recovery, so the surviving instance's
 remind-once/retryable marker behaviour is unchanged; only the duplicate arming by a
 second process disappears. Does not touch D-002 or D-003.
+
+---
+
+## D-005 — Settings-app launcher: venv-first (probed), system Python is the rescue lane
+
+Decided 2026-07-29 (#171).
+
+`Thoughtborne-Settings.bat` selects a Python interpreter in three ordered stages,
+and the order is deliberate:
+
+- **Project venv first, health-probed.** When `.venv\Scripts\pythonw.exe` exists,
+  the launcher confirms the venv actually works — `.venv\Scripts\python.exe -c
+  "import tkinter"`, run console-inheriting (~0.1 s, no extra window, output
+  silenced) — before detaching the windowed app via the venv `pythonw.exe`. This
+  is the same interpreter the tool itself runs on (`Thoughtborne.bat` -> `uv run`),
+  so the settings app and the tool never diverge on Python version. The probe is
+  what makes venv-first strictly better than the old system-Python-first order: a
+  present-but-broken venv (base interpreter removed by `uv cache clean` / `uv
+  python uninstall`) fails the probe and falls through, instead of a detached
+  `pythonw` dying invisibly with no way to report the error.
+- **System Python is the rescue lane.** With no healthy venv, a real system
+  `pythonw`/`python` on PATH (WindowsApps store stubs filtered out) runs the app.
+  This lane works *only because the app is pure stdlib* — no venv, no uv, no
+  third-party packages required (the one `dotenv` import in `config.py` is
+  try/except-guarded, and `key_check.py` uses `urllib` on purpose). Keeping the
+  settings-app import chain stdlib-only is therefore a load-bearing constraint of
+  this decision, not an incidental property.
+- **uv bootstrap last.** With no system Python either, `uv run pythonw
+  thoughtborne_settings.py` (uv on PATH, then `%USERPROFILE%\.local\bin\uv.exe`)
+  creates the venv on the spot. This is the git-clone cold-start case; plain
+  `uv run` with its sync is correct here — syncing is the point of this stage.
+
+Probe depth is the plain `import tkinter`, not a `Tk()` construction. The import
+proves the interpreter launches and tkinter loads — covering the realistic
+breakages (deleted base interpreter, half-built venv). The historic
+`init.tcl`-not-found class only surfaces at `Tk()` construction; a probe deep
+enough to catch it would create and destroy a real window on every launch, a
+flicker risk borne by every user forever to catch a case that is rare on the
+shipped uv-managed CPython. The minimal probe is the accepted floor; the residual
+gap is documented, not silent.
+
+Deliberate non-decision: **no committed `.python-version` pin.** `uv.lock` already
+pins identical package versions across Python 3.10–3.13, so a pin buys no
+reproducibility; it would instead force an interpreter download on machines that
+already have a perfectly suitable Python. The one known-bad interpreter version is
+excluded surgically in `requires-python` (companion issue #172, commit 94e5cf5),
+not by pinning a single good one.
+
+`Thoughtborne.bat` is intentionally *not* changed to match: it stays on full
+`uv run thoughtborne.py`, because sync-on-start is the tool's update mechanism
+after a `git pull` (the settings app has no dependencies to sync). The first-run
+hook in `thoughtborne.py` already launches the app on the venv interpreter (via
+`sys.executable`'s sibling `pythonw`), so all four launch routes — double-click
+`.bat`, both Start-menu shortcuts, the setup.ps1 handoff, and the in-tool
+first-run hook — reach the venv interpreter when a healthy venv exists.
+
+Do not reintroduce: system-Python-first ordering for the settings launcher; an
+unprobed venv launch (a broken venv would die invisibly under detached `pythonw`);
+dropping the WindowsApps-stub filter from the rescue lane; a third-party import in
+the settings-app chain that would break the stdlib-only rescue lane; or a committed
+`.python-version` pin.
+
+Respects D-002 — this changes only which interpreter runs the settings app, not
+how or when the app writes `.env` / `personal_settings.json`. Does not touch D-001,
+D-003, or D-004.
