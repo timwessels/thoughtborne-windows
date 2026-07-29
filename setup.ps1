@@ -72,8 +72,23 @@ function Test-DenylistMatch {
     return $false
 }
 
+function Test-SameDir {
+    # True when two paths name the same directory. Normalizes separators, '.'/'..'
+    # and a trailing slash, and compares case-insensitively (Windows paths). An
+    # empty side (e.g. $PSScriptRoot on the piped irm|iex lane) is never a match.
+    # Does NOT resolve 8.3 short names -- an accepted residual gap: the install dir
+    # and the running wrapper share one long path in practice (#157).
+    param([string]$A, [string]$B)
+    if ((-not $A) -or (-not $B)) { return $false }
+    try {
+        $na = [System.IO.Path]::GetFullPath($A).TrimEnd('\')
+        $nb = [System.IO.Path]::GetFullPath($B).TrimEnd('\')
+    } catch { return $false }
+    return [string]::Equals($na, $nb, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 function Copy-TreeWithDenylist {
-    param([string]$Source, [string]$Destination)
+    param([string]$Source, [string]$Destination, [string[]]$ExcludeName = @())
     # Copy each top-level entry (files and whole subtrees) into the install dir,
     # skipping any name on the data denylist. First-segment matching is enough:
     # the denylist protects whole top-level files/folders (history/, .env, ...).
@@ -82,6 +97,7 @@ function Copy-TreeWithDenylist {
     # half-copied tree ($ErrorActionPreference is 'Continue' at the top level).
     Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
         if (Test-DenylistMatch -Name $_.Name) { return }
+        if ($ExcludeName -contains $_.Name) { return }   # e.g. the running setup.bat (#157)
         Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force -ErrorAction Stop
     }
 }
@@ -269,9 +285,23 @@ function Install-Thoughtborne {
         $zipUrl = "https://github.com/timwessels/thoughtborne-windows/releases/download/$version/thoughtborne.zip"
     }
 
+    # In-place update self-overwrite guard (#157, D-007). On the update lane the
+    # running setup.bat is $PSScriptRoot\setup.bat (setup.bat launches us via
+    # %~dp0setup.ps1), and cmd.exe streams that .bat by byte offset while we run --
+    # replacing it mid-run misparses its tail the moment its bytes ever differ from
+    # the on-disk copy. Skip exactly that one file when the copy target IS the
+    # script's own folder. setup.ps1 is preparsed by -File and safe to refresh, so
+    # only setup.bat is held back; a wrapper change reaches an existing install on a
+    # fresh (re-)install, not an in-place update (an accepted, documented trade).
+    $excludeCopy = @()
+    if (Test-SameDir $PSScriptRoot $installDir) { $excludeCopy = @('setup.bat') }
+
     if ($DryRun) {
         Write-Host ("[dry-run] would download: {0}" -f $zipUrl)
         Write-Host ("[dry-run] would extract, strip any single wrapper folder, and copy into: {0}" -f $installDir)
+        if ($excludeCopy.Count -gt 0) {
+            Write-Host "[dry-run] in-place update: would keep the running setup.bat (not self-overwritten, #157)"
+        }
         Write-Host ("[dry-run] user-data denylist (never copied/deleted): {0}" -f ($DataDenylist -join ', '))
     } else {
         $tempDir = Join-Path $env:TEMP ('thoughtborne-setup-' + [guid]::NewGuid().ToString())
@@ -310,7 +340,7 @@ function Install-Thoughtborne {
         New-Item -ItemType Directory -Path $installDir -Force | Out-Null
         Write-Host "Installing files ..."
         try {
-            Copy-TreeWithDenylist -Source $treeRoot -Destination $installDir
+            Copy-TreeWithDenylist -Source $treeRoot -Destination $installDir -ExcludeName $excludeCopy
         } catch {
             Write-Host ("ERROR: copying files into '{0}' failed: {1}" -f $installDir, $_.Exception.Message)
             Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue

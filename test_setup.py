@@ -186,6 +186,19 @@ def test_setup_ps1_bat_lane_exit_signal():
         "setup.ps1 never sets LASTEXITCODE=0 on success -- a stale value could leak (#76 finding 12)"
 
 
+def test_inplace_wrapper_protected():
+    # #157 (D-007): the paste-free in-place update must not overwrite the setup.bat
+    # cmd.exe is still streaming by byte offset -- that would misparse its tail.
+    # setup.ps1 skips setup.bat from the copy when the copy target is the script's
+    # own folder ($PSScriptRoot == $installDir, the in-place lane). Drift alarm only
+    # -- the real update-lane behavior is a sandbox / hands-on `test`-issue check.
+    text = read_text("setup.ps1")
+    assert "$PSScriptRoot" in text, "no $PSScriptRoot reference -- cannot detect the in-place lane"
+    assert "ExcludeName" in text, "Copy-TreeWithDenylist has no ExcludeName exclusion path"
+    assert re.search(r"@\(\s*'setup\.bat'\s*\)", text), \
+        "setup.bat is not the excluded name on the in-place lane"
+
+
 def test_gitignore_covers_sandbox_secrets():
     # The sandbox harness writes a real-key temp.env and per-run out-*/ folders into
     # the tracked sandbox/ dir, and a `local` run drops throwaway setup.ps1/.bat
@@ -209,6 +222,7 @@ CASES = [
     test_setup_bat_wrapper,
     test_setup_bat_error_handling,
     test_setup_ps1_bat_lane_exit_signal,
+    test_inplace_wrapper_protected,
     test_gitignore_covers_sandbox_secrets,
 ]
 

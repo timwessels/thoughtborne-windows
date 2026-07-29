@@ -323,3 +323,46 @@ CRLF; or publishing the release as a pre-release (breaks `latest/download`).
 Respects D-002 — `setup.ps1` still collects no secrets and writes no config (the
 settings app remains the only config writer). Does not touch D-001, D-003, D-004,
 or D-005.
+
+---
+
+## D-007 — In-place update never overwrites the running `setup.bat`
+
+Decided 2026-07-29 (#157).
+
+The installer's paste-free **in-place update lane** runs the local `setup.bat`
+from the install dir, which launches `setup.ps1` via `%~dp0setup.ps1`. cmd.exe
+streams a batch file by byte offset *at runtime* — it re-reads the next line from
+disk after each command — so replacing the `setup.bat` it is still executing
+misparses the file's tail the moment those bytes ever differ from the on-disk
+copy (a wrong/garbled exit code, a skipped failure-pause, a syntax error). The
+decision:
+
+- **Skip `setup.bat` from the copy on the in-place lane, and only there.**
+  `setup.ps1` excludes `setup.bat` from the tree copy exactly when the copy target
+  is its own folder, detected as `$PSScriptRoot == $installDir` (compared as
+  normalized directories, case-insensitive). That equality *is* the danger
+  condition: the running wrapper lives in `$PSScriptRoot`, and the copy overwrites
+  `$installDir`. A fresh ZIP install (`$PSScriptRoot` = unpack folder ≠ install
+  dir) and the `irm | iex` one-liner (`$PSScriptRoot` empty) both still ship
+  `setup.bat` — correct, there is no running wrapper to protect.
+- **`setup.ps1` keeps updating.** It is preparsed by the `-File` lane (the whole
+  AST is in memory before the first line runs), so overwriting it mid-run is
+  harmless. Only the thin wrapper is held back — the code and `setup.ps1` refresh
+  as before.
+- **The accepted trade.** A change to the near-frozen `setup.bat` reaches an
+  existing install on a fresh (re-)install (One-liner/ZIP), not via an in-place
+  update. That is the normal fresh-install path, not an extra user step. The
+  wrapper contract (`powershell -File setup.ps1 %*` + `THOUGHTBORNE_FROM_BAT`) is
+  stable and test-guarded, so an old wrapper drives a newer `setup.ps1` fine.
+- **Mechanical, not a promise.** The safety is guaranteed in code, so the wrapper
+  may still evolve; a future wrapper change simply does not propagate in-place
+  instead of silently re-arming the mis-parse.
+
+Do not reintroduce: copying `setup.bat` over itself on the in-place lane; freezing
+`setup.ps1` too; or a path-derived install-dir assumption (the lane is detected by
+directory equality, not by deriving `$installDir` from `$PSScriptRoot`).
+
+Respects D-006 — the release ZIP still carries `setup.bat` (whole-tree `git
+archive`); the exclusion is a runtime copy-target choice, not an asset change.
+Does not touch D-001 through D-005.
