@@ -152,6 +152,7 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 | `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen (aus der archivierten Aufnahme) |
 | `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
 | `Ctrl+Alt+6` | Den Ordner mit Aufnahmen & Transkripten (`history/`) im Explorer öffnen |
+| `Ctrl+Alt+G` | Die Einstellungs-App öffnen (Zahnrad) |
 | `Ctrl+Alt+Ü` | Selbsttest: die mitgelieferte `test_audio.mp3` transkribieren |
 | `Ctrl+Alt+4` | Programm beenden |
 

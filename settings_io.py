@@ -507,8 +507,8 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
 # F-keys, three families -- F8 = engine, F9 = record, F10 = deliver; a BARE key is
 # the daily op (F9 records, F10 delivers), CTRL is the important sibling case
 # (cancel / send / switch engine), CTRL+ALT the rare/technical one (deliver without
-# insert / via typing). Housekeeping (open_history / test_transcription /
-# exit_program) is kept identical to the shipped Ctrl+Alt scheme so switching preset
+# insert / via typing). Housekeeping (open_history / open_settings /
+# test_transcription / exit_program) is kept identical to the shipped Ctrl+Alt scheme so switching preset
 # means no relearning. cancel_recording / exit_program keep single-element LISTS to
 # match their list-shaped defaults (apply_hotkey_overrides preserves shape). Bare f8
 # is intentionally left unassigned -- reserved for a future push-to-talk hold key.
@@ -523,6 +523,7 @@ PRESET_FKEYS = {
     "test_transcription": "ctrl+alt+ü",
     "switch_api": "ctrl+f8",
     "open_history": "ctrl+alt+6",
+    "open_settings": "ctrl+alt+g",   # housekeeping stays on Ctrl+Alt (#164)
     "exit_program": ["ctrl+alt+4"],
 }
 

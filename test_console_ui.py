@@ -118,12 +118,12 @@ def _fmt(combo):
 
 
 def keys_and_prefix():
-    """The 11 key letters (KEY_ACTIONS order) plus the shared modifier prefix,
+    """The 12 key letters (KEY_ACTIONS order) plus the shared modifier prefix,
     exactly as the app derives them from config.HOTKEYS."""
     order = ["start_recording", "stop_recording_keyboard", "stop_recording_clipboard",
              "stop_recording_send", "stop_recording_no_insert", "cancel_recording",
              "retry_last_failed", "switch_api", "open_history",
-             "test_transcription", "exit_program"]
+             "test_transcription", "exit_program", "open_settings"]
     combos = []
     for k in order:
         v = HOTKEYS[k]
@@ -544,7 +544,7 @@ def check_prefix_none_widths():
     lineup = lineup_for(DEFAULT_API)
     mixed_keys = ["F9", "Ctrl+Alt+A", "Ctrl+Alt+D", "Ctrl+Alt+H", "Ctrl+Alt+Y",
                   "Ctrl+Alt+X", "Ctrl+Shift+F12", "Ctrl+Alt+L", "Ctrl+Alt+6",
-                  "Ctrl+Alt+Ü", "Ctrl+Alt+4"]
+                  "Ctrl+Alt+Ü", "Ctrl+Alt+4", "Ctrl+Alt+G"]
     bare_footer = [("F9", "record"), ("F6", "history"), ("F10", "model"), ("F4", "quit")]
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
@@ -702,10 +702,15 @@ def main():
 
     # ---- grid + seq column anchors (default config) --------------------------
     grid = u._keys_grid_lines(KEYS, KEY_PREFIX, True)
-    for i in range(min(3, len(grid))):
+    if len(grid) != 4:
+        _record(f"KEYS grid: expected 4 rows (3+3+3+3), got {len(grid)}")
+    for i in range(len(grid)):
         content = strip(grid[i])[1:-1]   # drop the ║ borders -> cells at cols 2/24/46
         if content[24] == " " or content[46] == " ":
             _record(f"KEYS grid row {i} anchor 24/46 broken: {content!r}")
+    last = strip(grid[-1])[1:-1]         # bottom row: G settings (gear) at col 46 (#164)
+    if "settings (gear)" not in last or last[46] != "G":
+        _record(f"KEYS grid: 'G settings (gear)' not bottom-right: {last!r}")
     ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
                            ansi=True, compact=False)
     row1 = strip(ok[2])   # top border, +1 headroom line, then the OK row (#109 fold-in)

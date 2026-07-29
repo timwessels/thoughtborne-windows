@@ -640,6 +640,7 @@ DEFAULT_HOTKEYS = {
     'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
     'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
     'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
+    'open_settings': 'ctrl+alt+g',             # G = Open the settings app (gear) (#164)
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 

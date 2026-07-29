@@ -91,12 +91,12 @@ STRIP_HEADER_GLYPH = "•"   # bullet before the name; conhost-safe, plain twin 
 ACTIVE_LOGO_MARK = LOGO_MARK_A5        # None | LOGO_MARK_A5 | LOGO_MARK_B1
 ACTIVE_STRIP_HEADER = "THOUGHTBORNE"   # None | "THOUGHTBORNE" (optionally a glyph)
 
-# ---- KEYS grid copy (design order matches the 11 letters the app supplies) --
+# ---- KEYS grid copy (design order matches the 12 letters the app supplies) --
 KEY_ACTIONS = [
     "start recording", "stop, type text", "stop, paste",
     "stop, paste+Enter", "stop, keep only", "cancel recording",
     "retry last failed", "switch model", "open history",
-    "self-test", "quit",
+    "self-test", "quit", "settings (gear)",
 ]
 
 SEQCOL = 41  # column where the OK/WAITING strip's seq/chars block starts
@@ -253,7 +253,7 @@ def _lineup_lines(lineup, ansi):
 
 
 def _keys_grid_lines(keys, key_prefix, ansi):
-    """KEYS grid rows. keys: 11 key-letter strings in KEY_ACTIONS order. Anchors
+    """KEYS grid rows. keys: 12 key-letter strings in KEY_ACTIONS order. Anchors
     at columns 2/24/46 for single-letter keys under a shared prefix; degrades to
     a full-combo list when there is no common prefix."""
     if key_prefix is None:

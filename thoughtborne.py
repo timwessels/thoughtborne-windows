@@ -1285,23 +1285,32 @@ class ThoughtborneApp:
         sys.exit(1)
 
     @staticmethod
-    def _launch_first_run_settings() -> bool:
-        """Detached-launch the settings app in first-run mode (#144). Prefers
-        pythonw (no stray console beside the wizard) and never raises -- a False
-        return keeps the caller's SETUP-NEEDED console fallback. The app is pure
-        stdlib, so the interpreter running Thoughtborne can run it directly."""
+    def _launch_settings_app(*extra_args) -> bool:
+        """Detached-launch the settings app (#144/#164). Prefers pythonw (no stray
+        console beside the window) and never raises -- a False return lets the
+        caller fall back. The app is pure stdlib, so the interpreter running
+        Thoughtborne can run it directly. extra_args selects the mode:
+        '--first-run' forces the wizard (the keyless-start hook, #163); no args
+        opens the normal settings dialog when a key is stored (the Ctrl+Alt+G
+        hotkey, #164)."""
         settings_script = SCRIPT_DIR / "thoughtborne_settings.py"
         if not settings_script.exists():
             return False
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         interpreter = str(pythonw) if pythonw.exists() else sys.executable
         try:
-            subprocess.Popen([interpreter, str(settings_script), "--first-run"],
+            subprocess.Popen([interpreter, str(settings_script), *extra_args],
                              cwd=str(SCRIPT_DIR))
             return True
         except Exception as e:
-            logger.debug(f"Could not launch the first-run settings app: {e}")
+            logger.debug(f"Could not launch the settings app: {e}")
             return False
+
+    @staticmethod
+    def _launch_first_run_settings() -> bool:
+        """First-run wizard spawn (#144/#163), the keyless-start hook -- a thin
+        wrapper over _launch_settings_app with the --first-run flag."""
+        return ThoughtborneApp._launch_settings_app("--first-run")
 
     @staticmethod
     def _print_no_api_error_block(failures):
@@ -2013,6 +2022,24 @@ class ThoughtborneApp:
         except OSError as e:
             logger.error(f"Could not open the history folder {HISTORY_FOLDER}: {e}")
 
+    def on_open_settings(self):
+        """Open the settings app from the running tool (#164; Ctrl+Alt+G,
+        'G as in gear'). Runs on the listener thread -> logger.* only (#11).
+
+        Ignored while a recording is active -- like the other non-stop keys,
+        opening a window mid-dictation would steal focus from the insertion
+        target. Spawns the settings app in normal (non-wizard) mode,
+        detached/non-blocking; never raises. v1 may spawn a fresh window on
+        every press (no single-instance plumbing)."""
+        if self.audio_recorder.is_recording:
+            logger.debug("open_settings ignored -- a recording is active")
+            return
+        if self._launch_settings_app():
+            logger.info("Opened the settings app (Ctrl+Alt+G)")
+        else:
+            logger.error("Could not open the settings app "
+                         "(thoughtborne_settings.py missing or launch failed)")
+
     def on_exit_program(self):
         """Callback for exit program"""
         self.stop_program()
@@ -2328,13 +2355,13 @@ class ThoughtborneApp:
                 for a in AVAILABLE_APIS]
 
     def _keys_grid_data(self):
-        """The 11 KEYS-grid letters (console_ui.KEY_ACTIONS order) plus the
+        """The 12 KEYS-grid letters (console_ui.KEY_ACTIONS order) plus the
         shared modifier prefix, from config.HOTKEYS. Degrades to full combos
         with prefix=None if the config ever mixes prefixes (edge, documented)."""
         order = ['start_recording', 'stop_recording_keyboard', 'stop_recording_clipboard',
                  'stop_recording_send', 'stop_recording_no_insert', 'cancel_recording',
                  'retry_last_failed', 'switch_api', 'open_history', 'test_transcription',
-                 'exit_program']
+                 'exit_program', 'open_settings']
         combos = [HOTKEYS[n][0] if isinstance(HOTKEYS[n], list) else HOTKEYS[n]
                   for n in order]
         prefixes = {c.rpartition('+')[0] for c in combos}
@@ -2506,6 +2533,7 @@ class ThoughtborneApp:
             'test_transcription': self.on_test_transcription,
             'switch_api': self.on_switch_api,
             'open_history': self.on_open_history,
+            'open_settings': self.on_open_settings,   # #164
         }
 
         for hotkey_name, callback in single_hotkeys.items():

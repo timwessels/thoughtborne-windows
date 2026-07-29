@@ -23,7 +23,7 @@ Two wording contracts are load-bearing (mirror them if either source changes):
 # =============================================================================
 # String tables. _EN and _DE MUST carry the identical key set (verified by
 # test_settings_io.check_i18n). Keys are grouped as in the spec's string table;
-# `action.*` keys cover config.DEFAULT_HOTKEYS' 11 action names.
+# `action.*` keys cover config.DEFAULT_HOTKEYS' 12 action names.
 # =============================================================================
 _EN = {
     # ---- shell & rail ----
@@ -141,6 +141,7 @@ _EN = {
     "action.retry_last_failed": "Retry last failed transcription",
     "action.switch_api": "Switch engine",
     "action.open_history": "Open history folder",
+    "action.open_settings": "Open settings (gear)",
     "action.test_transcription": "Self-test (bundled test audio)",
     "action.exit_program": "Exit Thoughtborne",
 
@@ -337,6 +338,7 @@ _DE = {
     "action.retry_last_failed": "Letzte fehlgeschlagene Transkription wiederholen",
     "action.switch_api": "Engine wechseln",
     "action.open_history": "History-Ordner öffnen",
+    "action.open_settings": "Einstellungen öffnen (Zahnrad)",
     "action.test_transcription": "Selbsttest (mitgeliefertes Test-Audio)",
     "action.exit_program": "Thoughtborne beenden",
 

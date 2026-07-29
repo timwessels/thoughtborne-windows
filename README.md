@@ -152,6 +152,7 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
 | `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
 | `Ctrl+Alt+6` | Open the recordings & transcripts folder (`history/`) in Explorer |
+| `Ctrl+Alt+G` | Open the settings app (G as in gear) |
 | `Ctrl+Alt+Ü` | Self-test: transcribe the bundled `test_audio.mp3` |
 | `Ctrl+Alt+4` | Exit |
 
