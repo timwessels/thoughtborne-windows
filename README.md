@@ -198,6 +198,8 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 
 **PyAudio installation fails (pip path).** PyAudio ships official Windows wheels for Python 3.10–3.13 — `pip install` needs no compiler there. A build error usually means Python 3.14: switch to 3.13 or use the uv path (uv picks a suitable Python automatically).
 
+**The settings app won't open on Python 3.13.0.** That exact CPython patch has a bug that breaks tkinter inside a virtual environment on Windows, so the settings/onboarding window crashes on launch (`Can't find a usable init.tcl`) — the dictation tool itself is unaffected. Use Python 3.13.1 or newer, or any 3.10–3.12; every version except 3.13.0 is fine. The uv path already avoids this (it won't build a venv on 3.13.0); on the pip path, pick the interpreter yourself (e.g. `py -3.12 -m venv .venv`).
+
 **`python` opens the Microsoft Store.** That is the Store alias stub on a machine without Python — use the `py` launcher (as in the pip commands above) or the uv path.
 
 **`winget` not found.** Install uv via the [official installer instructions](https://docs.astral.sh/uv/getting-started/installation/), or use the pip path.

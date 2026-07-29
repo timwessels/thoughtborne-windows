@@ -16,7 +16,13 @@ authors = [{ name = "Tim Wessels" }]
 # (checked 2026-06-11). On 3.14, installation falls back to a source build
 # that fails without MSVC + PortAudio. Raise the bound only when PyAudio
 # (or a successor) provides cp314 wheels.
-requires-python = ">=3.10,<3.14"
+# Exclude 3.13.0: that exact patch has an upstream CPython bug that breaks
+# tkinter inside a venv on Windows -- _tkinter resolves the Tcl/Tk data dirs
+# against sys.prefix (the venv) instead of sys.base_prefix (the base install),
+# so Tk() fails with "Can't find a usable init.tcl". It hits the settings app
+# (#144), not the dictation tool. Fixed in 3.13.1; every other version is fine.
+# CPython issue: https://github.com/python/cpython/issues/125235 (#172).
+requires-python = ">=3.10,!=3.13.0,<3.14"
 dependencies = [
     "groq>=0.29,<2",
     "pyaudio>=0.2.11",
