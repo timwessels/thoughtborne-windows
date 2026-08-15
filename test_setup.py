@@ -39,6 +39,12 @@ def read_text(name):
 _BOMS = (b"\xef\xbb\xbf", b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff",
          b"\xff\xfe", b"\xfe\xff")
 
+# #181: the sandbox install-verification harness files.
+WSB = "sandbox/thoughtborne-install-test.wsb"
+VERIFY = "sandbox/verify-in-sandbox.ps1"
+LAUNCHER = "sandbox/run-sandbox.ps1"
+WSB_HOST_PLACEHOLDER = "SANDBOX_HOSTFOLDER_ABS_PATH"
+
 
 # ======================================================================
 # Hard invariants
@@ -235,8 +241,68 @@ def test_gitignore_covers_sandbox_secrets():
     # copies there. None are caught by the plain `.env` / `*.log` rules, so a stray
     # `git add -A` would stage the key unless pinned here (#76 finding 1).
     gi = (REPO / ".gitignore").read_text(encoding="utf-8")
-    for pat in ("sandbox/temp.env", "sandbox/out-*", "sandbox/setup.ps1", "sandbox/setup.bat"):
+    for pat in ("sandbox/temp.env", "sandbox/out-*", "sandbox/setup.ps1",
+                "sandbox/setup.bat", "sandbox/*.local.wsb"):
         assert pat in gi, f".gitignore is missing {pat!r} -- a sandbox artifact could be committed"
+
+
+# ======================================================================
+# #181 sandbox install-verification harness (drift alarms -- behavior
+# lives in the sandbox / hands-on, same as the rest of this file)
+# ======================================================================
+
+def test_wsb_template_portable():
+    # The committed .wsb must ship portable -- no maintainer-specific absolute host
+    # path, no __EDIT_ME__. run-sandbox.ps1 fills the real path into a %TEMP% copy
+    # at run time; the tracked template carries only the placeholder token.
+    wsb = read_text(WSB)
+    assert "__EDIT_ME__" not in wsb, "sandbox .wsb still carries __EDIT_ME__"
+    # [^<]* (not .*? with DOTALL): the class cannot span another tag, so a comment
+    # that mentions the element cannot swallow the match -- robust by construction.
+    m = re.search(r"<HostFolder>([^<]*)</HostFolder>", wsb)
+    assert m, "sandbox .wsb has no <HostFolder> element"
+    host = m.group(1).strip()
+    assert not re.match(r"^[A-Za-z]:\\", host), \
+        f"committed .wsb carries an absolute host path {host!r} -- must stay a placeholder"
+    assert host == WSB_HOST_PLACEHOLDER, \
+        f".wsb host folder is {host!r}, expected placeholder {WSB_HOST_PLACEHOLDER!r}"
+
+
+def test_sandbox_scripts_ascii():
+    # House style: every committed sandbox script stays ASCII / no BOM, like setup.ps1.
+    for name in (VERIFY, LAUNCHER, WSB):
+        data = read_bytes(name)
+        for bom in _BOMS:
+            assert not data.startswith(bom), f"{name}: starts with a BOM"
+        bad = [i for i, b in enumerate(data) if b >= 0x80]
+        assert not bad, f"{name}: non-ASCII byte(s) at offset(s) {bad[:5]}"
+
+
+def test_sandbox_launcher_present_and_safe():
+    # The host launcher exists and only STARTS the throwaway sandbox: it references
+    # Windows Sandbox and names verify-in-sandbox.ps1 (the driver it splices args
+    # into). Host-safety -- it must never CALL the installer on the host -- is
+    # carried by review + the launcher's structure; a narrow negative check backs
+    # it up without tripping on comments or the local-mode presence probe.
+    text = read_text(LAUNCHER)
+    assert "WindowsSandbox" in text, "launcher does not start Windows Sandbox"
+    assert "verify-in-sandbox.ps1" in text, \
+        "launcher does not reference the in-sandbox driver"
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("#"):
+            continue                      # comments may name setup.ps1
+        assert not re.search(r"(&\s*|Start-Process\s+|-File\s+|-FilePath\s+)\S*setup\.ps1", s), \
+            f"launcher appears to run the installer on the host: {s!r}"
+
+
+def test_verify_threads_version():
+    # The in-sandbox driver threads a release version so a pre-release can be tested
+    # (D-006): it exports THOUGHTBORNE_VERSION and builds a versioned release URL,
+    # not only latest/download.
+    text = read_text(VERIFY)
+    assert "THOUGHTBORNE_VERSION" in text, "driver never sets THOUGHTBORNE_VERSION"
+    assert "releases/download/" in text, "driver builds no versioned release URL"
 
 
 CASES = [
@@ -255,6 +321,10 @@ CASES = [
     test_setup_ps1_bat_lane_exit_signal,
     test_inplace_wrapper_protected,
     test_gitignore_covers_sandbox_secrets,
+    test_wsb_template_portable,
+    test_sandbox_scripts_ascii,
+    test_sandbox_launcher_present_and_safe,
+    test_verify_threads_version,
 ]
 
 

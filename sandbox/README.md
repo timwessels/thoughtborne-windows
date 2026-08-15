@@ -1,17 +1,20 @@
 # Windows-Sandbox install verification (#76)
 
 A throwaway-VM harness that runs the real Thoughtborne install path end to end on
-a clean Windows and checks it reaches a working state (hotkeys registered). It is
-the standard **pre-release sanity check** for the installer, and the place the
-`test_setup.py` static guard's honest gaps (real execution-policy bypass, real uv
-bootstrap and `uv sync`, real ZIP fetch/extract, shortcut creation, the actual
-end-to-end launch) get exercised for real.
+a clean Windows and checks it reaches a working state -- hotkeys registered, then
+the end-to-end self-test transcribes. It is the standard **pre-release sanity
+check** for the installer, and the place the `test_setup.py` static guard's honest
+gaps (real execution-policy bypass, real uv bootstrap and `uv sync`, real ZIP
+fetch/extract, shortcut creation, the actual end-to-end launch) get exercised for
+real.
 
-**This is a working skeleton with TODO markers**, not a finished harness. The
-static structure is committed; the parts that can only be validated on a real
-Windows 11 **Pro/Enterprise** box (screenshot capture, exact launch/poll timing,
-the `Ctrl+Alt+Ü` self-test automation) are marked `TODO` in
-`verify-in-sandbox.ps1` and need a hands-on pass before this is trusted green.
+The harness is **finished** and driven from the host by `run-sandbox.ps1`: you run
+one script, it starts a disposable sandbox, the sandbox installs and launches
+Thoughtborne on its own, and a verdict file comes back. The committed
+`thoughtborne-install-test.wsb` is a **portable template** -- do not hand-edit it;
+the launcher fills the real host path into a `%TEMP%` copy at run time (see
+*Files*). The harness structure is drift-guarded by `test_setup.py` (#181); the two
+things only a real Windows box can settle are listed under *What it does not cover*.
 
 ## Requirements
 
@@ -25,13 +28,23 @@ the `Ctrl+Alt+Ü` self-test automation) are marked `TODO` in
 
 ## Files
 
-- `thoughtborne-install-test.wsb` -- the sandbox config. Maps this `sandbox/`
-  folder in and runs `verify-in-sandbox.ps1` at logon. **Edit the `<HostFolder>`
-  path first** (marked `__EDIT_ME__`): Windows Sandbox needs an absolute host
-  path and does not expand env vars, so it cannot ship portable.
-- `verify-in-sandbox.ps1` -- the in-sandbox driver: install -> drop a throwaway
-  key -> launch -> poll `thoughtborne.log` for `All hotkeys registered
-  successfully` -> copy logs out -> write a `RESULT.txt` verdict.
+- `run-sandbox.ps1` -- **the host-side launcher (this is what you run).** It
+  preflights (Windows Sandbox present, `temp.env` present, and for a `local` run a
+  `setup.ps1` copy present), copies the `.wsb` template to `%TEMP%` with the real
+  host path and `-Mode`/`-Version` spliced in, starts the disposable sandbox by CLI
+  (`WindowsSandbox.exe`), and polls the mapped folder for this run's
+  `out-<timestamp>\RESULT.txt`. It **never** runs the installer on the host -- the
+  real install path executes only inside the throwaway VM.
+- `thoughtborne-install-test.wsb` -- the sandbox config, a **portable template**.
+  Maps this `sandbox/` folder in and runs `verify-in-sandbox.ps1` at logon. Its
+  `<HostFolder>` holds the placeholder token `SANDBOX_HOSTFOLDER_ABS_PATH`; **do
+  not hand-edit it** -- `run-sandbox.ps1` substitutes the real absolute path into a
+  `%TEMP%` copy at run time (Windows Sandbox needs an absolute host path and does
+  not expand env vars, so the tracked file cannot ship a machine-specific path).
+- `verify-in-sandbox.ps1` -- the in-sandbox driver: install -> drop the throwaway
+  key -> launch via the real Start-menu shortcut -> poll `thoughtborne.log` for
+  `All hotkeys registered successfully` -> fire the `Ctrl+Alt+Ü` self-test and poll
+  for a transcription -> copy logs + screenshots out -> write a `RESULT.txt` verdict.
 
 ## The throwaway API key (required)
 
@@ -39,25 +52,32 @@ Drop a file named **`temp.env`** in this folder before running, holding one
 working key line, e.g. `SONIOX_API_KEY=...` or `GROQ_API_KEY=...`. Without it the
 harness reports `SKIP`: on a keyless start the tool opens the #144 onboarding
 wizard and exits **before** registering hotkeys, so the "hotkeys registered"
-assertion could never fire. **Never commit `temp.env`** -- it is a real key.
-The repo `.gitignore` excludes it (and the per-run `out-<timestamp>/` folders, and
-the throwaway `setup.ps1` / `setup.bat` copies below); keep it out of any commit
-regardless.
+assertion could never fire (and the self-test has no engine to transcribe with).
+**Never commit `temp.env`** -- it is a real key. The repo `.gitignore` excludes it
+(and the per-run `out-<timestamp>/` folders, the throwaway `setup.ps1` / `setup.bat`
+copies below, and any `*.local.wsb`); keep it out of any commit regardless.
 
 ## Run it
 
-1. Edit `<HostFolder>` in `thoughtborne-install-test.wsb` to this folder's
-   absolute path on your machine.
-2. Put a `temp.env` here (see above).
-3. For a `local` run (the default), copy the installer into this folder first:
-   `setup.ps1` from the repo root is **required** -- the mapped folder is all the
-   sandbox sees, and the driver runs the `setup.ps1` it finds here (copy `setup.bat`
-   too if you want to exercise the double-click wrapper). Both are gitignored here
-   as throwaway copies; the canonical ones live in the repo root. An `oneliner` run
-   skips this step -- it fetches the published `setup.ps1` from the release URL.
-4. Double-click `thoughtborne-install-test.wsb`. The sandbox boots, runs the
-   driver, and writes results into a new `out-<timestamp>\` folder here
-   (`RESULT.txt` plus the captured `thoughtborne.log`).
+1. Put a `temp.env` here (see above).
+2. For a `local` run, copy the installer into this folder first: `setup.ps1` from
+   the repo root is **required** -- the mapped folder is all the sandbox sees, and
+   the driver runs the `setup.ps1` it finds here (copy `setup.bat` too if you want
+   to exercise the double-click wrapper). Both are gitignored here as throwaway
+   copies; the canonical ones live in the repo root. An `oneliner` run skips this
+   step -- it fetches the published `setup.ps1` from the release URL.
+3. Run `run-sandbox.ps1` -- from the host, or from WSL via `powershell.exe ... -File`:
+
+   ```
+   powershell.exe -NoProfile -ExecutionPolicy Bypass \
+     -File "$(wslpath -w sandbox/run-sandbox.ps1)" -Mode oneliner -Version v1.1.0-rc
+   ```
+
+   It generates the run config, launches the throwaway sandbox, and polls for a new
+   `out-<timestamp>\` folder here (`RESULT.txt` plus the captured `thoughtborne.log`
+   and screenshots). `-Mode local` (the default) tests the copied-in `setup.ps1`;
+   `-Version` is optional (empty => the release `latest` alias). The verdict is a
+   file, so an agent driving this from WSL never blocks on the sandbox-desktop GUI.
 
 Expected during a successful run: after `uv sync`, `setup.ps1` creates the two
 Start-menu shortcuts and **auto-launches the #144 settings wizard** (same handoff
@@ -67,7 +87,7 @@ around the wizard window being on screen.
 
 ## Modes
 
-`verify-in-sandbox.ps1 -Mode`:
+`run-sandbox.ps1 -Mode` (threaded through to `verify-in-sandbox.ps1`):
 
 - `local` (default) -- runs the `setup.ps1` copied in via the mapped folder. Good
   for testing a work-in-progress script offline. **Caveat:** `setup.ps1` still
@@ -75,11 +95,40 @@ around the wizard window being on screen.
   published `thoughtborne.zip` to finish the copy step; before then it exercises
   the preamble, guards, and uv bootstrap only.
 - `oneliner` -- fetches and runs the *published* `setup.ps1` from the release
-  `latest/download` URL: the real end-user path. Needs a published release.
+  `latest/download` URL (or the `-Version` tag's URL): the real end-user path.
+  Needs a published release.
 
-## What it does not cover (yet)
+## Verdicts
 
-The `TODO` markers: a dependency-free screenshot capture, the real launch/poll
-timing under a first-run `uv sync` (which may download a ~22 MB Python), and
-firing the `Ctrl+Alt+Ü` self-test from automation. Settle these on the Win11 Pro
-box; they are why this ships as a skeleton rather than a green check.
+`RESULT.txt`'s first line is the verdict; the launcher prints it and maps it to
+its own exit code:
+
+- **`PASS`** (exit 0) -- install + hotkeys registered + self-test transcribed.
+- **`PARTIAL`** (exit 2) -- install and hotkeys OK, but the self-test could not be
+  confirmed transcribing (injection unconfirmed, or fired but no transcription).
+  The `RESULT.txt` detail line names the cause. Non-zero on purpose, so a bare
+  exit-code check never waves a run through whose self-test did not confirm.
+- **`FAIL`** (exit 1) -- install, boot, or hotkey registration is broken
+  (release-blocking).
+- **`SKIP`** (exit 3) -- no `temp.env`, so the run cannot even reach hotkey
+  registration.
+
+The launcher also exits **4** when no verdict lands within its timeout
+(`-ResultTimeoutSec`, default 900 s -- a first run does a real `uv sync` with a
+~22 MB Python download inside the install call). Inspect the open sandbox window
+and the newest `out-*` folder in that case.
+
+## What it does not cover
+
+Two things only a real machine or full VM can settle -- the sandbox cannot:
+
+- **Defender / AMSI and Edge SmartScreen fidelity.** Windows Sandbox does not
+  reproduce the host's Defender real-time scanning or Edge's "not commonly
+  downloaded" gating, and the one-liner's `WebClient` fetch bypasses Edge /
+  SmartScreen entirely. Whether the install path stays clean under real Defender /
+  AMSI and SmartScreen is a real-box / VM check.
+- **First confirmation of the self-test path.** The `Ctrl+Alt+Ü` self-test injects
+  the registered chord as synthetic input and expects `RegisterHotKey` to fire;
+  this path is reasoned from the code, not yet run for real. Until a first real
+  pass confirms it, a run where injection does not trip the hotkey stays `PARTIAL`
+  (install is fine), not `FAIL`, and the cause is named in `RESULT.txt`.

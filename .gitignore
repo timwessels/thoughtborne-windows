@@ -86,6 +86,7 @@ sandbox/temp.env
 sandbox/out-*/
 sandbox/setup.ps1
 sandbox/setup.bat
+sandbox/*.local.wsb
 
 # User personalization (Soniox context terms etc.)
 # Template: personal_settings.example.json (committed)

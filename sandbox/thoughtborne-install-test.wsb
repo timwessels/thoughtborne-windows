@@ -1,20 +1,25 @@
 <Configuration>
   <!--
-    Windows Sandbox config for the #76 install verification (Win11 Pro/Enterprise
-    only; the sandbox feature is unavailable on Home). See sandbox/README.md.
+    Windows Sandbox config for the #76/#181 install verification (Win11
+    Pro/Enterprise only; the sandbox feature is unavailable on Home). See
+    sandbox/README.md.
 
-    TODO (host-specific): set <HostFolder> below to the ABSOLUTE path of this
-    "sandbox" folder on THIS machine. Windows Sandbox requires an absolute host
-    path and does not expand environment variables here, so it cannot be
-    committed portable -- edit it before first use. Example:
-        C:\Users\<you>\thoughtborne\sandbox
+    PORTABLE TEMPLATE -- do NOT hand-edit the mapped host-folder line below. It
+    holds the placeholder token SANDBOX_HOSTFOLDER_ABS_PATH on purpose: the host
+    launcher run-sandbox.ps1 copies this file to %TEMP% at run time and there
+    substitutes the real absolute path of this "sandbox" folder (Windows Sandbox
+    needs an absolute host path and does not expand environment variables). The
+    tracked file stays a placeholder so it never carries a machine-specific path.
+
     The mapped folder carries the harness in, the throwaway key file in, and the
-    logs/screenshots out (ReadOnly=false).
+    logs/screenshots out (ReadOnly=false). The LogonCommand is argument-free here
+    (defaults to 'local' mode if this template is ever launched by hand);
+    run-sandbox.ps1 appends -Mode/-Version to the %TEMP% copy it generates.
   -->
   <Networking>Enable</Networking>
   <MappedFolders>
     <MappedFolder>
-      <HostFolder>__EDIT_ME__\thoughtborne\sandbox</HostFolder>
+      <HostFolder>SANDBOX_HOSTFOLDER_ABS_PATH</HostFolder>
       <SandboxFolder>C:\thoughtborne-share</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>
