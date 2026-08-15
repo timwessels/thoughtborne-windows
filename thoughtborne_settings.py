@@ -4,9 +4,9 @@ Graphical settings + first-run onboarding app for Thoughtborne (#144).
 One tkinter window that doubles as the first-run wizard (rail: Back / Next /
 "Save & start") and the everyday settings dialog (rail: Save / Cancel) -- the two
 modes differ by the `--first-run` CLI flag, or an auto-promote to the wizard when no
-API key is stored yet (#163); the three tabs (Provider -> Hotkeys -> Behavior) are
-identical in both ("one window, one face"). German or English, switchable in the
-header.
+API key is stored yet (#163); the tabs (Overview -> Provider -> Hotkeys -> Behavior
+-> How you dictate) are identical in both ("one window, one face"). German or
+English, switchable in the header.
 
 Pure stdlib: tkinter + ctypes + threading + queue + subprocess + webbrowser. This
 module holds NO IO or validation logic of its own -- every file read/write, key
@@ -88,7 +88,7 @@ AMBER = "#8A6D00"
 # stray import off-Windows can't fail at module load.
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-_TAB_KEYS = ("provider.tab", "hotkeys.tab", "behavior.tab", "done.tab")
+_TAB_KEYS = ("welcome.tab", "provider.tab", "hotkeys.tab", "behavior.tab", "done.tab")
 
 
 def _enable_high_dpi() -> None:
@@ -323,6 +323,28 @@ class SettingsApp:
                  lambda e, uk=url_key: webbrowser.open(strings.t(uk, self.lang)))
         return lbl
 
+    def _tab_link(self, parent, text_key, tab_key):
+        """A blue, underlined, hand-cursor label that selects another notebook tab
+        (in-app navigation, #197). Unlike _link (which opens a URL) it stays inside
+        the window; text re-renders through the standard text registry (via _reg),
+        not _link_widgets (that registry is URL-keyed). The target is addressed by
+        tab KEY, so a tab reorder can never point the jump at the wrong page."""
+        lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2")
+        font = tkfont.Font(font=lbl.cget("font"))
+        font.configure(underline=True)
+        lbl.configure(font=font)
+        self._reg(lbl, text_key)
+        lbl.bind("<Button-1>", lambda e, tk_=tab_key: self._goto_tab(tk_))
+        return lbl
+
+    def _goto_tab(self, tab_key):
+        # Select by _TAB_KEYS position, never a magic int; a mistyped/removed key
+        # just does nothing rather than crashing the click.
+        try:
+            self.notebook.select(_TAB_KEYS.index(tab_key))
+        except Exception:
+            pass
+
     def _mark_dirty(self):
         self.dirty = True
 
@@ -340,6 +362,10 @@ class SettingsApp:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(side="top", fill="both", expand=True, padx=8, pady=(2, 0))
         self._tab_frames = [
+            # welcome FIRST so its _scrollable_tab appends _tab_canvases[0], keeping
+            # that list index-parallel to _tab_frames (#180); Python evaluates the
+            # list literal left-to-right, so listing it first guarantees it.
+            self._build_welcome_tab(),
             self._build_provider_tab(),
             self._build_hotkeys_tab(),
             self._build_behavior_tab(),
@@ -449,6 +475,56 @@ class SettingsApp:
         canvas.bind("<Configure>", _on_canvas_config)
 
         return outer, body
+
+    # ---- welcome / overview tab ----
+    def _build_welcome_tab(self):
+        # The orientation page that opens the app in both modes (#197): what the tool
+        # is, that the console is a hotkey-driven status display, BYOK in two
+        # sentences, the live dictation loop, and contextual links into the other
+        # tabs. Teasers and pointers only -- the canonical BYOK text stays on the
+        # Provider tab and the full loop on the done tab. Built via _scrollable_tab
+        # like every other page (mandatory for the index-parallel canvas, #180).
+        outer, f = self._scrollable_tab()
+
+        # 1) What it is (one-breath intro).
+        ih = ttk.Label(f, font=self.heading_font)
+        self._reg(ih, "welcome.intro.heading")
+        ih.pack(anchor="w")
+        self._prose(f, "welcome.intro.body").pack(fill="x", pady=(2, 8))
+
+        # 2) The dictation loop from the LIVE hotkey state ({start}/{stop}) -- a
+        #    shorter teaser than done.loop.body. The label is a format string, so it
+        #    is NOT _reg-istered; _render_welcome_page fills it by hand.
+        self.welcome_loop_lbl = self._prose_dyn(f)
+        self.welcome_loop_lbl.pack(fill="x", pady=(0, 2))
+        self._tab_link(f, "welcome.loop.link", "done.tab").pack(anchor="w", pady=(0, 8))
+
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=8)
+
+        # 3) The console is a status display (honest about the failed-start exception).
+        ch = ttk.Label(f, font=self.heading_font)
+        self._reg(ch, "welcome.console.heading")
+        ch.pack(anchor="w")
+        self._prose(f, "welcome.console.body").pack(fill="x", pady=(2, 8))
+
+        # 4) BYOK -- two-sentence teaser; the canonical long form is on the Provider tab.
+        bh = ttk.Label(f, font=self.heading_font)
+        self._reg(bh, "welcome.byok.heading")
+        bh.pack(anchor="w")
+        self._prose(f, "welcome.byok.body").pack(fill="x", pady=(2, 2))
+        self._tab_link(f, "welcome.byok.link", "provider.tab").pack(anchor="w", pady=(0, 8))
+
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=8)
+
+        # 5) Where to go next -- in-app nav to the remaining tabs + the external README.
+        nh = ttk.Label(f, font=self.heading_font)
+        self._reg(nh, "welcome.next.heading")
+        nh.pack(anchor="w")
+        self._prose(f, "welcome.next.body", foreground=GREY).pack(fill="x", pady=(2, 4))
+        self._tab_link(f, "welcome.link.hotkeys", "hotkeys.tab").pack(anchor="w")
+        self._tab_link(f, "welcome.link.behavior", "behavior.tab").pack(anchor="w")
+        self._link(f, "welcome.link.readme", "url.readme").pack(anchor="w", pady=(2, 0))
+        return outer
 
     # ---- provider tab ----
     def _build_provider_tab(self):
@@ -656,6 +732,7 @@ class SettingsApp:
         self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
+        self._render_welcome_page()
 
     # combo prettifier (display only; storage stays canonical lowercase)
     def _pretty_combo(self, value):
@@ -784,6 +861,7 @@ class SettingsApp:
         self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
+        self._render_welcome_page()
         return "break"
 
     def _collision_holder(self, name, combo):
@@ -850,7 +928,7 @@ class SettingsApp:
     # ---- done / closing tab ----
     def _build_done_tab(self):
         # The closing / reference page (#178): teaches the dictation loop and the
-        # live-configured control keys. Built in BOTH modes (a 4th tab in settings
+        # live-configured control keys. Built in BOTH modes (a full tab in settings
         # mode too, so the tab count never forks _TAB_KEYS); the heading adapts and
         # the farewell line is first-run only.
         outer, f = self._scrollable_tab()
@@ -885,6 +963,15 @@ class SettingsApp:
         self.done_controls_lbl.config(
             text=strings.t("done.controls.body", self.lang).format(
                 exit_key=ex, settings_key=gear))
+
+    def _render_welcome_page(self):
+        # The welcome loop teaser from the LIVE hotkey state -- same {start}/{stop}
+        # contract as _render_done_page, wired at the same three sites, so a
+        # preset/rebind shows here at once. Pin-guarded in the test.
+        start = self._pretty_combo(self.hotkeys_state["start_recording"])
+        stop = self._pretty_combo(self.hotkeys_state["stop_recording_clipboard"])
+        self.welcome_loop_lbl.config(
+            text=strings.t("welcome.loop.body", self.lang).format(start=start, stop=stop))
 
     def _render_capture_limit(self):
         ex = self._pretty_combo(self.hotkeys_state["exit_program"])
@@ -1071,6 +1158,7 @@ class SettingsApp:
         self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
+        self._render_welcome_page()
         self._render_rail()
         self.root.title(strings.t(
             "app.title.firstrun" if self.first_run else "app.title.settings", self.lang))

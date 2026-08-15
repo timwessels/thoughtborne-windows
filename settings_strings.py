@@ -31,8 +31,8 @@ _EN = {
     "app.title.firstrun": "Thoughtborne Setup",
     "welcome.heading": "Welcome to Thoughtborne",
     "welcome.sub": ("Let's get you set up — an API key, your hotkeys, a few "
-                    "preferences. Three short pages, and everything here can be "
-                    "changed later in this same window."),
+                    "preferences. Everything here can be changed later in this "
+                    "same window."),
     "lang.de": "Deutsch",
     "lang.en": "English",
     "btn.back": "Back",
@@ -42,6 +42,41 @@ _EN = {
     "btn.save_start": "Save & start Thoughtborne",
     "btn.save_close": "Save & close",
     "footer.next_start": "Changes take effect the next time Thoughtborne starts.",
+
+    # ---- welcome / overview tab ----
+    "welcome.tab": "Overview",
+    "welcome.intro.heading": "What Thoughtborne does",
+    "welcome.intro.body": (
+        "Thoughtborne turns speech into text in any Windows program. You dictate; "
+        "the transcript appears right where your cursor is, as if you had typed it. "
+        "It is built above all for talking to AI — the text should be good enough to "
+        "send to a language model unread."),
+    "welcome.loop.body": (
+        "The whole loop: click into a text field, press {start}, speak, then press "
+        "{stop} — and the text is there. It works in every application."),
+    "welcome.loop.link": "→ How you dictate, in detail",
+    "welcome.console.heading": "The console is a status display",
+    "welcome.console.body": (
+        "The black console window is a status monitor — it shows what Thoughtborne "
+        "is doing while you dictate. You control everything through hotkeys, so in "
+        "normal use you never type into it; dictation keeps working even with the "
+        "window hidden. The one exception is a failed start: then the console asks "
+        "you to press Enter to close it."),
+    "welcome.byok.heading": "You bring your own key (BYOK)",
+    "welcome.byok.body": (
+        "Thoughtborne has no subscription and no middleman — you use your own "
+        "account at a transcription provider and pay only for what you use, with a "
+        "free option to start. The Provider tab explains what that means and walks "
+        "you through getting a key."),
+    "welcome.byok.link": "→ Provider & API key",
+    "welcome.next.heading": "Set things up",
+    "welcome.next.body": (
+        "Use the tabs to add your key, choose your hotkeys, and pick your startup "
+        "engine — or read the full picture in the README."),
+    "welcome.link.hotkeys": "→ Hotkeys",
+    "welcome.link.behavior": "→ Startup & windows",
+    "welcome.link.readme": "→ Full README (opens in your browser)",
+    "url.readme": "https://github.com/timwessels/thoughtborne-windows",
 
     # ---- provider tab ----
     "provider.tab": "Provider & API key",
@@ -259,8 +294,8 @@ _DE = {
     "app.title.firstrun": "Thoughtborne-Einrichtung",
     "welcome.heading": "Willkommen bei Thoughtborne",
     "welcome.sub": ("Kurz einrichten — ein API-Key, die Hotkeys, ein paar "
-                    "Einstellungen. Drei kurze Seiten, und alles hier lässt sich "
-                    "später in genau diesem Fenster wieder ändern."),
+                    "Einstellungen. Alles hier lässt sich später in genau diesem "
+                    "Fenster wieder ändern."),
     "lang.de": "Deutsch",
     "lang.en": "English",
     "btn.back": "Zurück",
@@ -270,6 +305,45 @@ _DE = {
     "btn.save_start": "Speichern & Thoughtborne starten",
     "btn.save_close": "Speichern & schließen",
     "footer.next_start": "Änderungen gelten ab dem nächsten Start von Thoughtborne.",
+
+    # ---- welcome / overview tab ----
+    "welcome.tab": "Überblick",
+    "welcome.intro.heading": "Was Thoughtborne macht",
+    "welcome.intro.body": (
+        "Thoughtborne macht aus Sprache Text — in jedem Windows-Programm. Du "
+        "diktierst, und das Transkript erscheint genau dort, wo dein Cursor steht, "
+        "als hättest du es getippt. Gebaut ist es vor allem fürs Sprechen mit KI: "
+        "Der Text soll gut genug sein, um ihn ungelesen an ein Sprachmodell zu "
+        "schicken."),
+    "welcome.loop.body": (
+        "Der ganze Ablauf: in ein Textfeld klicken, {start} drücken, sprechen, dann "
+        "{stop} drücken — und der Text steht da. Das funktioniert in jeder "
+        "Anwendung."),
+    "welcome.loop.link": "→ So diktierst du, ausführlich",
+    "welcome.console.heading": "Die Konsole ist eine Statusanzeige",
+    "welcome.console.body": (
+        "Das schwarze Konsolenfenster ist ein Status-Monitor — es zeigt, was "
+        "Thoughtborne gerade tut, während du diktierst. Gesteuert wird alles über "
+        "Hotkeys; im normalen Betrieb tippst du also nie hinein, und Diktieren "
+        "funktioniert auch bei verstecktem Fenster. Die einzige Ausnahme ist ein "
+        "fehlgeschlagener Start: Dann bittet die Konsole dich, zum Schließen Enter "
+        "zu drücken."),
+    "welcome.byok.heading": "Du bringst deinen eigenen Key mit (BYOK)",
+    "welcome.byok.body": (
+        "Thoughtborne hat kein Abo und keinen Zwischenhändler — du nutzt dein "
+        "eigenes Konto bei einem Transkriptionsdienst und zahlst nur, was du "
+        "verbrauchst, mit einem kostenlosen Einstieg. Der Anbieter-Tab erklärt, was "
+        "das heißt, und führt dich zum Key."),
+    "welcome.byok.link": "→ Anbieter & API-Key",
+    "welcome.next.heading": "Jetzt einrichten",
+    "welcome.next.body": (
+        "Über die Tabs trägst du deinen Key ein, wählst deine Hotkeys und legst die "
+        "Start-Engine fest — oder liest im README das ganze Bild."),
+    "welcome.link.hotkeys": "→ Hotkeys",
+    "welcome.link.behavior": "→ Start & Fenster",
+    "welcome.link.readme": "→ Vollständiges README (öffnet im Browser)",
+    "url.readme": ("https://github.com/timwessels/thoughtborne-windows/blob/"
+                   "main/README.de.md"),
 
     # ---- provider tab ----
     "provider.tab": "Anbieter & API-Key",

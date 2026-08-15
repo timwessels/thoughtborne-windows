@@ -601,6 +601,8 @@ def check_i18n():
               f"i18n: placeholder mismatch in {k}: EN{sorted(en)} DE{sorted(de)}")
     check(set(re.findall(r"{(\w+)}", sstr._EN["done.loop.body"])) == {"start", "stop"},
           "done.loop.body must use exactly {start} and {stop}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["welcome.loop.body"])) == {"start", "stop"},
+          "welcome.loop.body must use exactly {start} and {stop}")
     check(set(re.findall(r"{(\w+)}", sstr._EN["done.controls.body"]))
           == {"exit_key", "settings_key"},
           "done.controls.body must use exactly {exit_key} and {settings_key}")
