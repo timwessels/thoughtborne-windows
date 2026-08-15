@@ -140,6 +140,16 @@ class SettingsApp:
         self._combo_labels = {}     # action -> tk.Label
         self._armed = None          # the action currently capturing a keypress
 
+        # Per-tab scroll region (#180): a canvas per notebook page, filled by
+        # _scrollable_tab in tab-build order so its index parallels _tab_frames;
+        # _active_canvas is the visible tab's canvas (the wheel/key scroll target).
+        self._tab_canvases = []
+        self._active_canvas = None
+        # Bank sub-120 wheel deltas so precision touchpads (which send deltas well
+        # under one 120-notch) accumulate into whole scroll steps instead of each
+        # truncating to zero (#180).
+        self._wheel_accum = 0
+
         self.dirty = False
         self._lang_toggled = False
 
@@ -290,7 +300,19 @@ class SettingsApp:
         ]
         for frame, key in zip(self._tab_frames, _TAB_KEYS):
             self.notebook.add(frame, text=strings.t(key, self.lang))
-        self.notebook.bind("<<NotebookTabChanged>>", self.update_rail)
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # Wheel + keyboard scrolling for the visible tab (#180). ONE global handler
+        # set keyed to self._active_canvas, which _on_tab_changed swaps on tab change --
+        # deterministic, and it sidesteps the <Enter>/<Leave> rebind idiom that misfires
+        # here (the body's labels are canvas descendants, so pointer-into-content fires
+        # <Leave> on the canvas). PageUp/PageDown/Home/End only -- not the arrows, which
+        # would hijack the caret in the key Entry fields and the capture labels.
+        if self._tab_canvases:
+            self._active_canvas = self._tab_canvases[0]
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
+        for seq in ("<Prior>", "<Next>", "<Home>", "<End>"):
+            self.root.bind_all(seq, self._on_scroll_key)
 
     def _build_header(self):
         header = ttk.Frame(self.root, padding=(12, 10, 12, 6))
@@ -326,9 +348,64 @@ class SettingsApp:
             self.footer_lbl = ttk.Label(rail, foreground=GREY)
             self.footer_lbl.pack(side="left")
 
+    def _scrollable_tab(self):
+        """A notebook page whose body scrolls vertically when it overflows (#180).
+
+        Returns (outer, body): `outer` is what the caller hands to notebook.add();
+        `body` is the padded frame the caller packs into exactly as it used to pack
+        into a plain ttk.Frame(self.notebook, padding=12). The header and rail live on
+        self.root, OUTSIDE every one of these, so they can never be scrolled away or
+        clipped -- only a tab's own content scrolls. Vertical only: the inner body is
+        pinned to the canvas width, so fill='x' children and the _prose wrap behave
+        exactly as before and nothing ever needs horizontal scrolling."""
+        outer = ttk.Frame(self.notebook)
+        outer.rowconfigure(0, weight=1)
+        outer.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+        # Match the themed frame background so the canvas never shows a white band
+        # behind or below the ttk content (vista's TFrame is light grey, not white).
+        try:
+            bg = ttk.Style().lookup("TFrame", "background")
+            if bg:
+                canvas.configure(background=bg)
+        except Exception:
+            pass
+
+        vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas, padding=12)
+        win = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        # vbar is grid()/grid_remove()'d on demand by _autohide (starts hidden).
+        self._tab_canvases.append(canvas)   # index parallels self._tab_frames
+
+        def _autohide(lo, hi):
+            # Show the bar only when the body actually overflows the viewport.
+            if float(lo) <= 0.0 and float(hi) >= 1.0:
+                vbar.grid_remove()
+            else:
+                vbar.grid(row=0, column=1, sticky="ns")
+            vbar.set(lo, hi)
+        canvas.configure(yscrollcommand=_autohide)
+
+        def _on_body_config(event, c=canvas):
+            bbox = c.bbox("all")
+            if bbox:                       # guard: an empty body returns None
+                c.configure(scrollregion=bbox)
+        body.bind("<Configure>", _on_body_config)
+
+        def _on_canvas_config(event, c=canvas, w=win):
+            # Pin the inner body to the canvas width so fill='x' children get a bounded
+            # width and _prose wraps -- restores the exact precondition _wrap depends on.
+            c.itemconfigure(w, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_config)
+
+        return outer, body
+
     # ---- provider tab ----
     def _build_provider_tab(self):
-        f = ttk.Frame(self.notebook, padding=12)
+        outer, f = self._scrollable_tab()
         h = ttk.Label(f, font=self.heading_font)
         self._reg(h, "provider.keys.heading")
         h.pack(anchor="w")
@@ -342,7 +419,7 @@ class SettingsApp:
                                   "provider.soniox.body", "url.soniox_console",
                                   "provider.field.soniox")
         self._prose(f, "provider.keep_note", foreground=GREY).pack(fill="x", pady=(6, 0))
-        return f
+        return outer
 
     def _build_provider_card(self, parent, provider, heading_key, body_key,
                              url_key, field_key):
@@ -469,7 +546,7 @@ class SettingsApp:
 
     # ---- hotkeys tab ----
     def _build_hotkeys_tab(self):
-        f = ttk.Frame(self.notebook, padding=12)
+        outer, f = self._scrollable_tab()
         self._prose(f, "hotkeys.intro").pack(fill="x")
         prow = ttk.Frame(f)
         prow.pack(fill="x", pady=8)
@@ -511,7 +588,7 @@ class SettingsApp:
         self.capture_lbl.pack(fill="x", pady=(4, 2))
         self.status_lbl = ttk.Label(f, justify="left")
         self.status_lbl.pack(fill="x")
-        return f
+        return outer
 
     def _build_preset_card(self, parent, which, title_key, body_key, side):
         card = ttk.LabelFrame(parent, padding=8)
@@ -682,7 +759,7 @@ class SettingsApp:
 
     # ---- behavior tab ----
     def _build_behavior_tab(self):
-        f = ttk.Frame(self.notebook, padding=12)
+        outer, f = self._scrollable_tab()
         eh = ttk.Label(f, font=self.heading_font)
         self._reg(eh, "behavior.engine.heading")
         eh.pack(anchor="w")
@@ -690,6 +767,12 @@ class SettingsApp:
         self.engine_combo = ttk.Combobox(f, state="readonly")
         self.engine_combo.pack(anchor="w", fill="x")
         self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine)
+        # #180: a readonly combobox natively changes its value on the mouse wheel, and
+        # our global wheel handler (the 'all' bindtag) would ALSO scroll the page over
+        # it. This instance-level "break" halts both, so the wheel over the engine
+        # picker is inert -- a deliberate, contained side effect (it no longer changes
+        # the engine on scroll either; move off it to scroll the page).
+        self.engine_combo.bind("<MouseWheel>", lambda e: "break")
 
         # Pointer to the Soniox recognition vocabulary (#178) -- names only the
         # section + file, so it never depends on wording #177 may add to the example.
@@ -715,7 +798,7 @@ class SettingsApp:
         ah.pack(anchor="w")
         self._prose(f, "behavior.admin.body").pack(fill="x", pady=(2, 4))
         self._link(f, "behavior.admin.link", "url.admin_recipe").pack(anchor="w")
-        return f
+        return outer
 
     # ---- done / closing tab ----
     def _build_done_tab(self):
@@ -723,7 +806,7 @@ class SettingsApp:
         # live-configured control keys. Built in BOTH modes (a 4th tab in settings
         # mode too, so the tab count never forks _TAB_KEYS); the heading adapts and
         # the farewell line is first-run only.
-        f = ttk.Frame(self.notebook, padding=12)
+        outer, f = self._scrollable_tab()
         h = ttk.Label(f, font=self.heading_font)
         self._reg(h, "done.heading.firstrun" if self.first_run else "done.heading.settings")
         h.pack(anchor="w")
@@ -740,7 +823,7 @@ class SettingsApp:
 
         if self.first_run:                # the farewell belongs to the wizard only
             self._prose(f, "done.threewindow.body", foreground=GREY).pack(fill="x")
-        return f
+        return outer
 
     def _render_done_page(self):
         # The loop + control keys, from the LIVE hotkey state (never the shipped
@@ -834,6 +917,69 @@ class SettingsApp:
             # else "Save & close" -- matching _save's deliberate no-start when keyless.
             key = "btn.save_start" if self._has_any_key() else "btn.save_close"
         self.next_btn.config(text=strings.t(key, self.lang))
+
+    # ---------------------------------------------------------- per-tab scrolling
+    def _on_tab_changed(self, event=None):
+        # The <<NotebookTabChanged>> handler (#180): keep the rail behaviour, then make
+        # the newly visible tab's canvas the wheel/key scroll target and open it at the
+        # top (never mid-scroll after a shrink).
+        self.update_rail(event)
+        idx = self.notebook.index("current")
+        if 0 <= idx < len(self._tab_canvases):
+            self._active_canvas = self._tab_canvases[idx]
+            self._active_canvas.yview_moveto(0.0)
+            self._wheel_accum = 0     # no leftover delta carries across tabs
+
+    def _overflows(self, c):
+        bbox = c.bbox("all")
+        return bool(bbox) and bbox[3] > c.winfo_height()
+
+    def _entry_has_focus(self):
+        # True when the keyboard focus sits in a text entry (the two key fields, or the
+        # readonly engine combobox -- both subclass Entry). Home/End must then move the
+        # caret, not double as a scroll. focus_get can raise mid-teardown -- guard it.
+        try:
+            return isinstance(self.root.focus_get(), (tk.Entry, ttk.Entry))
+        except Exception:
+            return False
+
+    def _on_mousewheel(self, event):
+        # A modal dialog / open dropdown holds a grab; leave its own wheel handling
+        # alone and never scroll the (hidden) main content underneath it.
+        if self.root.grab_current() is not None:
+            return
+        c = self._active_canvas
+        if c is not None and self._overflows(c):
+            # Bank the delta and spend it in whole 120-notches: truncating each
+            # event to int(delta / 120) drops the sub-120 deltas that precision
+            # touchpads send, stalling slow two-finger scrolls. A classic mouse
+            # (delta == +-120) still moves exactly one unit per notch.
+            self._wheel_accum += event.delta
+            steps = int(self._wheel_accum / 120)
+            if steps:
+                self._wheel_accum -= steps * 120
+                c.yview_scroll(-steps, "units")
+
+    def _on_scroll_key(self, event):
+        if self.root.grab_current() is not None:
+            return
+        c = self._active_canvas
+        if c is None or not self._overflows(c):
+            return
+        k = event.keysym
+        # Home/End in a focused Entry belong to the caret; PageUp/PageDown are inert in
+        # a single-line Entry, so they always scroll -- which keeps top/bottom reachable
+        # by keyboard even while a key field has focus.
+        if k in ("Home", "End") and self._entry_has_focus():
+            return
+        if k == "Prior":
+            c.yview_scroll(-1, "pages")
+        elif k == "Next":
+            c.yview_scroll(1, "pages")
+        elif k == "Home":
+            c.yview_moveto(0.0)
+        elif k == "End":
+            c.yview_moveto(1.0)
 
     def _on_back(self):
         idx = self.notebook.index("current")
