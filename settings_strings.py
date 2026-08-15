@@ -86,6 +86,9 @@ _EN = {
     "btn.test_key": "Test key",
     "test.testing": "Testing…",
     "test.valid": "Key works",
+    "test.valid.soniox_balance": (
+        "This checks the key, not your balance — a new Soniox account must add "
+        "credit first, or the first dictation fails with a payment error."),
     "test.invalid": "Key rejected — check for typos, or copy it fresh from the console.",
     "test.unreachable": (
         "Couldn't reach the server — check your internet connection. Saving works "
@@ -312,6 +315,9 @@ _DE = {
     "btn.test_key": "Key testen",
     "test.testing": "Teste…",
     "test.valid": "Key funktioniert",
+    "test.valid.soniox_balance": (
+        "Das prüft den Key, nicht dein Guthaben — ein neues Soniox-Konto muss erst "
+        "Guthaben aufladen, sonst scheitert das erste Diktat mit einem Zahlungsfehler."),
     "test.invalid": "Key abgelehnt — auf Tippfehler prüfen oder frisch aus der Console kopieren.",
     "test.unreachable": (
         "Server nicht erreichbar — Internetverbindung prüfen. Speichern geht "

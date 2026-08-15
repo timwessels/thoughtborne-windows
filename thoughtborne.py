@@ -384,6 +384,13 @@ def _enable_vt_mode() -> bool:
 
 _ANSI_ENABLED = _enable_vt_mode()
 
+# Process exit codes the launcher (Thoughtborne.bat) reads. 0 = clean exit
+# (Ctrl+Alt+4, or the first-run wizard launched); 3 = a pure no-API-key setup
+# exit (#53) -- the bat then stays quiet about uv/internet, which a missing key
+# has nothing to do with. Any other non-zero code keeps the bat's generic
+# dependency hint, where "check uv/your connection" can actually help.
+EXIT_NO_API_KEY = 3
+
 # SGR codes for the few _style() call sites left in this module (the dim ticker
 # and the console log formatter). The full palette is single-sourced in
 # console_ui (#109); the panels/strips style themselves there. Only bold, red,
@@ -831,11 +838,13 @@ class ThoughtborneApp:
                 # the V2->V4 file chain and it too came back empty with >=1 errored
                 # stage -- the "came back empty, worth a retry" case, shown over the
                 # bare category. A non-live engine's own error keeps its category.
-                # Auth is the exception: a rejected key is a conclusive verdict, not
-                # "inconclusive", so it keeps the auth guidance (fix the key) rather
-                # than the retry nudge -- the flag must match its own name.
+                # Auth and no-credit are the exceptions: a rejected key and an empty
+                # balance are both conclusive verdicts (a blind retry can't help until
+                # each is fixed), so they keep their own guidance rather than the "came
+                # back empty -- worth a retry" nudge -- the flag must match its own name
+                # (#179 extends the auth carve-out to no-credit).
                 task.error_inconclusive = (isinstance(transcriber, SonioxLiveTranscriber)
-                                           and in_session_reason != "auth")
+                                           and in_session_reason not in ("auth", "no-credit"))
                 task.is_complete = True
                 self._record_failed_slot(timestamp, duration)
 
@@ -1200,7 +1209,7 @@ class ThoughtborneApp:
                     'self-test-failed',
                     lambda ansi, compact: console_ui.render_selftest_failed(
                         "self-test failed -- no transcription received",
-                        ("check your API key in .env,",
+                        ("check your API key in Settings,",
                          f"then see {LOG_FILE.name} for details"),
                         ansi=ansi, compact=compact))
 
@@ -1282,7 +1291,12 @@ class ThoughtborneApp:
         self._print_no_api_error_block(failures)
         print("Press Enter to exit...")
         input()
-        sys.exit(1)
+        # #53: a pure no-keys exit is a setup step, not a uv/Python failure -- signal
+        # the launcher (Thoughtborne.bat) to stay quiet about internet/uv with a
+        # dedicated exit code. A construction error that is NOT just a missing key
+        # keeps exit 1, so the bat's uv/dependency hint still fires where it can help.
+        # all_missing_key was computed above (the wizard-launch guard).
+        sys.exit(EXIT_NO_API_KEY if all_missing_key else 1)
 
     @staticmethod
     def _launch_settings_app(*extra_args) -> bool:
@@ -1473,8 +1487,20 @@ class ThoughtborneApp:
             logger.debug("on_start_recording: marker C - before audio_recorder.start_recording()")
             # Start recording (this also opens the audio stream)
             if not self.audio_recorder.start_recording():
-                logger.error("Failed to start recording - audio stream could not be opened")
-                logger.error("Could not open audio stream. Check audio device connection.")
+                # The audio stream could not be opened (no device, or Windows denied
+                # mic access). The two detail lines stay file-only; the user gets the
+                # panel instead of a red wall (#179). _emit_block only enqueues, so it
+                # is safe on this listener thread, like the REC strip below (#11).
+                logger.error("Failed to start recording - audio stream could not be opened",
+                             extra=FILE_ONLY)
+                logger.error("Could not open audio stream. Check audio device connection.",
+                             extra=FILE_ONLY)
+                self._emit_block(
+                    'mic-failed',
+                    lambda ansi, compact: console_ui.render_mic_failed(
+                        self.transcriber.get_name(),
+                        self._footer_keys(), self._prefix_for(self._footer_actions()),
+                        ansi=ansi, compact=compact))
                 return
             logger.debug("on_start_recording: marker D - audio_recorder.start_recording() returned OK")
 
@@ -1970,10 +1996,11 @@ class ThoughtborneApp:
                 task.error_provider = _error_provider(transcriber)
                 # #159: a live retry reaches FAILED only through the V2->V4 file
                 # chain -- the empty-lane "worth a retry" case (mirror of the
-                # in-session branch). is_live is True only for Soniox Live. Auth is
-                # the exception: a rejected key is conclusive, so it keeps the auth
-                # guidance rather than the "came back empty" retry nudge.
-                task.error_inconclusive = transcriber.is_live and retry_reason != "auth"
+                # in-session branch). is_live is True only for Soniox Live. Auth and
+                # no-credit are the exceptions: a rejected key and an empty balance are
+                # conclusive, so they keep their own guidance rather than the "came back
+                # empty" retry nudge (#179 extends the auth carve-out to no-credit).
+                task.error_inconclusive = transcriber.is_live and retry_reason not in ("auth", "no-credit")
                 task.is_complete = True
                 # Failed retry: the in-memory slot already points at rec, leave it retryable.
 

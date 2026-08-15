@@ -71,6 +71,15 @@ follows:
   archived file and its aggregate signal feeds the verdict as before. Maintainer
   approved 2026-07-21 (widening) and 2026-07-22 (chain-less). Not a supersede —
   this extends D-001's own clause.
+- **2026-08-15 addendum (#179).** A fifth reason category, `no-credit` (an HTTP
+  402 — an unfunded account — told apart from the generic `service-error`), joins
+  the four above so the FAILED panel names the real cause and points at the
+  top-up. Like `auth`, a 402 is a conclusive verdict (a blind retry can't help
+  until the balance is topped up), so it is excluded from the `error_inconclusive`
+  presentation flag alongside `auth`. Respects D-001 — a 402 is still an *errored*
+  call, so the recording stays on the cautious, retryable FAILED side and is never
+  turned into a NO SPEECH verdict. Not a supersede; extends the addendum's own
+  reason enumeration.
 
 Do not reintroduce: a per-start nag, a pending count in the panel, a
 consume-on-read marker (breaks cross-restart retry), or any automatic deletion of

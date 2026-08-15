@@ -747,6 +747,48 @@ def test_retry_live_auth_error_not_inconclusive():
     assert app.resolve_failed_called is False
 
 
+def test_insession_live_credits_error_not_inconclusive():
+    """#179: a Soniox Live chain whose file-fallback hit a 402 (no-credit) stays
+    FAILED + retryable, but must NOT be marked inconclusive -- an empty balance is a
+    conclusive verdict, so the panel gives the credits guidance (top up your
+    balance), never the 'came back empty -- worth a retry' line. This is the trap the
+    #179 fix guards: without excluding no-credit alongside auth at the in-session
+    inconclusive site, the live lane would flag inconclusive on the default engine and
+    the 402 message would never appear. Mirror of the auth guard with reason=no-credit."""
+    _reset()
+    app = _FakeApp(fallback_result=("", "", True, "no-credit"))   # chain hit a 402
+    tb.ThoughtborneApp.process_recording_thread(
+        app, frames=[b"x"], duration=1.0, sequence_number=94,
+        timestamp="20260718_090000_094", transcriber=_FakeLive())
+    task = app.output_manager.tasks[-1]
+    assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
+    assert task.is_error is True, "a no-credit failure stays retryable"
+    assert task.error_reason == "no-credit", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is False, \
+        "no-credit is conclusive -- never the 'came back empty' inconclusive flag (#179)"
+    assert app.record_failed_called is True
+
+
+def test_retry_live_credits_error_not_inconclusive():
+    """#179 on the retry path: a Soniox Live retry chain that failed on a 402
+    (no-credit) stays retryable but must NOT be inconclusive -- the panel gives the
+    credits guidance, not the 'came back empty' line. Mirror of the auth retry guard
+    with reason=no-credit; guards the retry-lane inconclusive site."""
+    _reset()
+    rec = _armed_rec()
+    app = _FakeApp(fallback_result=("", "", True, "no-credit"))
+    task, errors = _drive_retry(app, rec, 95, _FakeLive())
+    assert not any("Error retrying" in m for m in errors), \
+        f"the routing must run, not the catch-all: {errors}"
+    assert task.is_error is True, "a live no-credit-error retry stays retryable"
+    assert task.error_reason == "no-credit", f"the chain's reason must land on the task: {task.error_reason}"
+    assert task.error_provider == "Soniox", "the failing family is Soniox (live + its file lane, #159)"
+    assert task.error_inconclusive is False, \
+        "no-credit is conclusive -- never the 'came back empty' inconclusive flag (#179)"
+    assert app.resolve_failed_called is False
+
+
 # ---- #141: the async-engine outage hole on long recordings ----------------
 # Tier 1 drives the REAL fallback chain against a faked V4 stage, so the wiring
 # from the sink through _try_fallback / _run_empty_transcript_fallback to the
@@ -1130,6 +1172,8 @@ def test_groq_error_reason_maps_every_branch():
     assert tr._groq_error_reason(_FakeGroqRateLimitError()) == "rate-limited"
     assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=429)) == "rate-limited"
     assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=401)) == "auth"
+    assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=402)) == "no-credit", \
+        "a 402 APIStatusError is an unfunded account -> no-credit (#179)"
     assert tr._groq_error_reason(_FakeGroqAPIStatusError(status_code=500)) == "service-error", \
         "a 5xx APIStatusError is service-error"
     assert tr._groq_error_reason(RuntimeError("boom")) == "service-error", \
@@ -1138,10 +1182,12 @@ def test_groq_error_reason_maps_every_branch():
 
 def test_http_status_reason_maps_every_branch():
     assert tr._http_status_reason(401) == "auth"
+    assert tr._http_status_reason(402) == "no-credit", \
+        "a 402 is an unfunded account -> no-credit (#179)"
     assert tr._http_status_reason(429) == "rate-limited"
     assert tr._http_status_reason(500) == "service-error"
     assert tr._http_status_reason(403) == "service-error", \
-        "a non-401/429 4xx is service-error (the default)"
+        "a non-401/402/429 4xx is service-error (the default)"
 
 
 # ---- #159: provider-family token + the sink->task->callback path -------------
@@ -1210,6 +1256,9 @@ CASES = [
     # #159: auth is conclusive -> the live empty-lane must NOT mark it inconclusive
     test_insession_live_auth_error_not_inconclusive,
     test_retry_live_auth_error_not_inconclusive,
+    # #179: no-credit (402) is conclusive too -> same carve-out from inconclusive
+    test_insession_live_credits_error_not_inconclusive,
+    test_retry_live_credits_error_not_inconclusive,
     # #141 async-engine outage on long recordings -- Tier 1 (real chain,
     # faked V4 stage)
     test_long_v4_outage_keeps_marker,

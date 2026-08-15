@@ -569,6 +569,8 @@ _REASON_LINES = {
                      "Too many requests -- give it a minute, then retry"),
     "auth": ("{P} turned down the API key",
              "Typo in Settings? Key no longer active at {P}?"),
+    "no-credit": ("The {P} account is out of credit",
+                  "Add a little credit in the {P} console"),
     "inconclusive": ("The recording came back empty",
                      "Might be silence, might be a hiccup -- worth a retry"),
 }
@@ -577,6 +579,7 @@ _REASON_LINES_COMPACT = {
     "service-error": ('{P} says "error"', "retry, wait, or switch model"),
     "rate-limited": ("{P} rate limit", "wait a minute, then retry"),
     "auth": ("{P} rejected the key", "typo? or key inactive?"),
+    "no-credit": ("{P} account out of credit", "top up in the {P} console"),
     "inconclusive": ("the recording came back empty", "silence or a hiccup? retry"),
 }
 
@@ -599,6 +602,7 @@ def render_transcription_failed(seq, retry_key, model_label, footer_keys,
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     pair = _reason_pair(reason, provider, inconclusive, compact)
     is_auth = reason == "auth" and not inconclusive
+    is_credits = reason == "no-credit" and not inconclusive   # #179
     if compact:
         out = [
             cline([(LAMP + " FAILED", (BOLD, RED)),
@@ -611,6 +615,8 @@ def render_transcription_failed(seq, retry_key, model_label, footer_keys,
         out.append(cline([("WHAT NOW", (BOLD,))], ansi))
         if is_auth:
             out.append(cline("  fix the key in Settings, then restart", ansi))
+        elif is_credits:
+            out.append(cline(f"  top up your balance, then press {retry_key}", ansi))
         else:
             out.append(cline(f"  press {retry_key} to retry, or switch model", ansi))
         out.append(cline([("model: ", ()), (model_label, (BOLD,))], ansi))
@@ -634,6 +640,10 @@ def render_transcription_failed(seq, retry_key, model_label, footer_keys,
     if is_auth:
         lines.append(dline([("  fix the key, then restart -- the recording will wait for you", (BOLD,))], ansi))
         lines.append(dline([('  set the key in Settings (Start menu "Thoughtborne Settings")', (DIM,))], ansi))
+    elif is_credits:
+        p = provider or "Soniox"
+        lines.append(dline([(f"  top up your balance, then press {retry_letter} -- it will wait for you", (BOLD,))], ansi))
+        lines.append(dline([(f"  add a little credit in the {p} console", (DIM,))], ansi))
     else:
         lines.append(dline([(f"  press {retry_letter} to retry this recording", (BOLD,))], ansi))
         lines.append(dline(f"  or switch the model ({switch_letter}), then retry", ansi))
@@ -714,6 +724,36 @@ def render_device_loss(duration, retry_key, model_label, footer_keys, key_prefix
     ]
 
 
+def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi, compact):
+    """The audio stream could not be opened on Ctrl+Alt+W (on_start_recording's
+    `if not self.audio_recorder.start_recording():` branch in thoughtborne.py):
+    no input device, or Windows denied microphone access. Replaces the two red log
+    lines with a panel (#179). Red like render_device_loss (an audio FAILED where
+    the hotkeys still work, so the footer is honest), but non-retry -- nothing was
+    captured; the fix is external, then press W to record again (the footer's
+    `W record` carries that)."""
+    if compact:
+        return [
+            cline([(LAMP + " FAILED", (BOLD, RED)), ("  microphone won't open", ())], ansi),
+            cline([("   nothing was recorded", ())], ansi),
+            cline([("WHAT NOW", (BOLD,))], ansi),
+            cline([("   is a mic connected and selected?", ())], ansi),
+            cline([("   Windows: allow mic access (Privacy)", ())], ansi),
+            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
+        ]
+    return [
+        dtop(ansi),
+        _failed_top("FAILED", "the microphone could not be opened", ansi),
+        dline("    nothing was recorded", ansi),
+        dzone([("WHAT NOW", (BOLD,))], ansi),
+        dline("  Is a microphone connected and set as the input device?", ansi),
+        dline("  Windows: Settings > Privacy > Microphone must allow apps", ansi),
+        dsep(ansi),
+        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
+        dbot(ansi),
+    ]
+
+
 def render_hotkeys_failed(*, ansi, compact):
     if compact:
         return [
@@ -749,7 +789,7 @@ def render_hotkeys_partial(registered, expected, *, ansi, compact):
         _tag_headline(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW), "  " + head, ansi),
         dline("    another app likely owns one combo -- see the log for which", ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline("  close the other app, or rebind it in config.py, then restart", ansi),
+        dline("  close the other app, or rebind it in Settings, then restart", ansi),
         dbot(ansi),
     ]
 
@@ -906,9 +946,9 @@ def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
             cline("  1. .env.example lists where to sign up:", ansi),
             cline("       GROQ_API_KEY    - free", ansi),
             cline("       SONIOX_API_KEY  - prepaid, best German", ansi),
-            cline("  2. copy .env.example to .env", ansi),
-            cline("  3. paste your key after the = in Notepad", ansi),
-            cline("  4. restart Thoughtborne", ansi),
+            cline("  2. open Thoughtborne Settings (Start menu),", ansi),
+            cline("     or copy .env.example to .env", ansi),
+            cline("  3. paste your key, then restart", ansi),
             cline([(zone, (BOLD,))], ansi),
         ]
         out += _noapi_zone_lines(missing, other_failures, ansi, compact=True)
@@ -923,9 +963,9 @@ def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
         dline("  1. Get a key -- .env.example lists where to sign up:", ansi),
         dline("       GROQ_API_KEY    - free, no payment details needed", ansi),
         dline("       SONIOX_API_KEY  - prepaid, best German accuracy", ansi),
-        dline("  2. Copy .env.example and name the copy .env", ansi),
-        dline("  3. Open .env in Notepad, paste your key after the = sign", ansi),
-        dline("  4. Start Thoughtborne again (double-click Thoughtborne.bat)", ansi),
+        dline("  2. Enter it in Thoughtborne Settings (Start menu), or", ansi),
+        dline("     copy .env.example to .env and paste the key there", ansi),
+        dline("  3. Start Thoughtborne again (double-click Thoughtborne.bat)", ansi),
         dzone([(zone, (BOLD,))], ansi),
     ]
     lines += _noapi_zone_lines(missing, other_failures, ansi, compact=False)

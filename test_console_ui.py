@@ -40,7 +40,7 @@ SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬�
 
 RED_OK = {  # renderings allowed to carry red (error states)
     "transcription_failed", "insert_failed", "selftest_failed",
-    "device_loss", "hotkeys_failed", "switch_failed",
+    "device_loss", "mic_failed", "hotkeys_failed", "switch_failed",
 }
 
 failures = []
@@ -267,6 +267,10 @@ def check_accent_state():
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #159 reason block
                                       reason="no-connection", provider="Soniox",
                                       ansi=True, compact=False),
+        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #179 credits block
+                                      reason="no-credit", provider="Soniox",
+                                      ansi=True, compact=False),
+        u.render_mic_failed(model, FFOOTER, KEY_PREFIX, ansi=True, compact=False),   # #179
         u.render_device_loss(12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False),
         u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False),
     ]
@@ -346,13 +350,18 @@ def check_ctrl_alt_counts():
         ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth -> Settings: still 1
             12, RETRY, model, FFOOTER, KEY_PREFIX, reason="auth",
             provider="Soniox", ansi=True, compact=False), 1),
+        ("transcription_failed/credits", u.render_transcription_failed(  # #179 no-credit: still 1
+            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-credit",
+            provider="Soniox", ansi=True, compact=False), 1),
         ("insert_failed", u.render_insert_failed(
             12, "A", "D", model, FOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
         ("device_loss", u.render_device_loss(
             12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+        ("mic_failed", u.render_mic_failed(   # #179: footer carries the sole Ctrl+Alt
+            model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
         ("selftest_failed", u.render_selftest_failed(
             "self-test failed -- no transcription received",
-            ("check your API key in .env,", f"then see {LOG_FILE.name} for details"),
+            ("check your API key in Settings,", f"then see {LOG_FILE.name} for details"),
             ansi=True, compact=False), 0),
         ("hotkeys_failed", u.render_hotkeys_failed(ansi=True, compact=False), 0),
         ("switch_failed", u.render_switch_failed(
@@ -385,7 +394,7 @@ def check_failed_reason_block():
             12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False, **kw)
 
     # Every categorized reason renders a CYAN two-line block, never ACCENT.
-    for reason in ("no-connection", "service-error", "rate-limited", "auth"):
+    for reason in ("no-connection", "service-error", "rate-limited", "auth", "no-credit"):
         joined = "".join(render(reason=reason, provider="Soniox"))
         if ACC in joined:
             _record(f"failed/{reason}: reason block used ACCENT (masthead-exclusive)")
@@ -410,6 +419,27 @@ def check_failed_reason_block():
         _record("failed/auth: did not show the auth key message")
     if "came back empty" in auth:
         _record("failed/auth: showed the inconclusive message instead of the auth reason")
+
+    # #179: no-credit (402) shows its own credits block + top-up WHAT-NOW, provider
+    # interpolated, and -- like auth -- is a conclusive verdict, never the
+    # inconclusive 'came back empty' line when inconclusive=False.
+    credit = strip("".join(render(reason="no-credit", provider="Soniox")))
+    if "out of credit" not in credit:
+        _record("failed/no-credit: did not state the account is out of credit")
+    if "top up your balance" not in credit:
+        _record("failed/no-credit: WHAT-NOW does not offer the top-up step")
+    if "Soniox console" not in credit:
+        _record("failed/no-credit: does not name the Soniox console for the top-up")
+    if "came back empty" in credit:
+        _record("failed/no-credit: showed the inconclusive message instead of the credits reason")
+    if ".env" in credit or "config.py" in credit:
+        _record(f"failed/no-credit: references a stale signpost: {credit!r}")
+    # provider interpolated into the credits lines (a Groq 402 must not say "Soniox
+    # console"). The footer's model: line still shows the selected engine, so check
+    # the console-token forms specifically rather than any "Soniox" substring.
+    groq_credit = strip("".join(render(reason="no-credit", provider="Groq")))
+    if "Groq console" not in groq_credit or "Soniox console" in groq_credit:
+        _record(f"failed/no-credit: provider token not interpolated in the top-up line: {groq_credit!r}")
 
     # None reason -> no reason block, generic retry hint retained.
     none_lines = strip("".join(render()))
@@ -599,9 +629,11 @@ def main():
         run("device_loss", u.render_device_loss,
             dict(duration=12.0, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
                  key_prefix=KEY_PREFIX))
+        run("mic_failed", u.render_mic_failed,   # #179: audio stream would not open
+            dict(model_label=model, footer_keys=FFOOTER, key_prefix=KEY_PREFIX))
         run("selftest_failed", u.render_selftest_failed, dict(   # mirrors the app copy (thoughtborne.py)
             reason="self-test failed -- no transcription received",
-            action_lines=("check your API key in .env,", f"then see {LOG_FILE.name} for details")))
+            action_lines=("check your API key in Settings,", f"then see {LOG_FILE.name} for details")))
 
         for seq in (None, 12, 99999):
             for chars in (7, 184, 99999):
@@ -630,7 +662,7 @@ def main():
         for seq in (None, 12, 99999):
             # #159: one FAILED render per reason (incl. the None catch-all that omits
             # the block) x both provider tokens, through the full ansi x compact matrix.
-            for reason in (None, "no-connection", "service-error", "rate-limited", "auth"):
+            for reason in (None, "no-connection", "service-error", "rate-limited", "auth", "no-credit"):
                 for provider in ("Soniox", "Groq"):
                     run("transcription_failed", u.render_transcription_failed, dict(
                         seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
@@ -692,6 +724,11 @@ def main():
     twin("transcription_failed/reason", u.render_transcription_failed, seq=12, retry_key=RETRY,
          model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX,
          reason="no-connection", provider="Soniox")
+    twin("transcription_failed/credits", u.render_transcription_failed, seq=12, retry_key=RETRY,
+         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX,
+         reason="no-credit", provider="Soniox")
+    twin("mic_failed", u.render_mic_failed, model_label="Soniox Live",
+         footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
     twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("no_speech", u.render_no_speech, open_key=OPEN)

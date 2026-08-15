@@ -128,6 +128,7 @@ class SettingsApp:
         self._reveal_btns = {}
         self._test_btns = {}
         self._indicators = {}
+        self._soniox_balance_note = None   # #179: shown only after a green Soniox test
         self._revealed = {"groq": False, "soniox": False}
         self._test_state = {}       # provider -> None | "testing" | KeyStatus
         # A generation stamp per provider, bumped on every test launch AND on every
@@ -369,6 +370,13 @@ class SettingsApp:
         ind = ttk.Label(card)
         ind.pack(anchor="w", pady=(2, 0))
         self._indicators[provider] = ind
+        # #179: a Soniox-only reminder under the card that a green test proves the
+        # key, not the account balance. Toggled from _render_indicator by the test
+        # verdict; not _reg-istered (its text is state-driven, re-rendered via
+        # render_all() -> _render_indicator on a language switch).
+        if provider == "soniox":
+            self._soniox_balance_note = self._prose_dyn(card, foreground=GREY)
+            self._soniox_balance_note.pack(anchor="w", pady=(2, 0))
 
     def _toggle_reveal(self, provider):
         revealed = not self._revealed[provider]
@@ -437,6 +445,13 @@ class SettingsApp:
     def _render_indicator(self, provider):
         lbl = self._indicators[provider]
         state = self._test_state.get(provider)
+        # #179: the Soniox balance reminder rides on a VALID verdict only -- cleared
+        # for idle / testing / rejected / unreachable. Runs before the early returns
+        # so a field edit (state -> None) also clears a previously shown note.
+        if provider == "soniox" and self._soniox_balance_note is not None:
+            self._soniox_balance_note.config(
+                text=strings.t("test.valid.soniox_balance", self.lang)
+                if state == KeyStatus.VALID else "")
         if state is None:
             lbl.config(text="", foreground=GREY)
             return

@@ -49,6 +49,10 @@ echo (on the first start, uv downloads Python and the dependencies once)
 "%UV_CMD%" run thoughtborne.py
 set "RC=%errorlevel%"
 if "%RC%"=="0" goto done_clean
+rem Code 3 = EXIT_NO_API_KEY (#53): a no-API-key setup exit, not a uv/Python
+rem failure. The tool already showed the SETUP NEEDED panel and paused, so close
+rem silently instead of printing the uv/internet hint below (which would misdirect).
+if "%RC%"=="3" goto done_clean
 echo.
 echo Thoughtborne exited with an error (code %RC%).
 echo If this was the first start, check your internet connection:

@@ -79,8 +79,8 @@ class _ErrorTag:
     shared transcriber singleton.
 
     reason is a coarse category for #159's panel, meaningful only when errored:
-    "auth" | "no-connection" | "rate-limited" | "service-error" (unknown errors
-    default to "service-error"); None on a clean run."""
+    "auth" | "no-connection" | "rate-limited" | "service-error" | "no-credit"
+    (#179; unknown errors default to "service-error"); None on a clean run."""
     __slots__ = ("errored", "reason")
 
     def __init__(self):
@@ -120,8 +120,9 @@ def _one_line_error(error: BaseException) -> str:
 
 
 # ---- coarse error categories for the per-call sink (#138) ------------------
-# Each maps a provider-specific failure onto one of the four _ErrorTag reasons
-# (auth / no-connection / rate-limited / service-error). Unknown -> service-error.
+# Each maps a provider-specific failure onto one of the _ErrorTag reasons
+# (auth / no-connection / rate-limited / service-error / no-credit). Unknown ->
+# service-error. no-credit is an HTTP 402 -- an unfunded account (#179).
 
 # Class names, not isinstance, so neither grpc nor httpx is force-imported here
 # and a partially-stubbed httpx (as in the tests) is never attribute-probed. A
@@ -166,9 +167,11 @@ def _groq_error_reason(e) -> str:
         sc = getattr(e, "status_code", None)
         if sc == 401:
             return "auth"
+        if sc == 402:
+            return "no-credit"     # unfunded account (#179)
         if sc == 429:
             return "rate-limited"
-        return "service-error"     # 5xx and other 4xx incl. 402 (credits)
+        return "service-error"     # 5xx and other 4xx
     return "service-error"
 
 
@@ -176,9 +179,11 @@ def _http_status_reason(status_code) -> str:
     """Soniox V4 httpx status code -> coarse reason (#138)."""
     if status_code == 401:
         return "auth"
+    if status_code == 402:
+        return "no-credit"         # unfunded account (#179)
     if status_code == 429:
         return "rate-limited"
-    return "service-error"         # 5xx / 402 / other 4xx
+    return "service-error"         # 5xx / other 4xx
 
 
 def _httpx_exc_reason(e) -> str:
