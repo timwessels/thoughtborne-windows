@@ -36,10 +36,30 @@ tool first.
 
 import argparse
 import copy
+import os
 import queue
 import subprocess
+import sys
 import threading
+import time
 import webbrowser
+
+# Startup-timing instrumentation (#195): stamp the earliest in-process moment -- in
+# both clocks -- and read the tool's cross-process spawn stamp BEFORE the heavy imports
+# below, so the breakdown written at first paint can tell the pythonw/venv cold start
+# (the previously unmeasured part: OS process creation + interpreter/venv start up to
+# this first Python line) apart from imports and tkinter construction. Two clocks
+# because they answer different questions: perf_counter (_T_MODTOP) drives the local
+# phase deltas; a wall clock (_WALL_ENTRY via time.time) is comparable across processes,
+# so _WALL_ENTRY - _SPAWN_TS is the spawn->entry cold start and time.time() - _SPAWN_TS
+# at first map is the spawn->visible total. All best-effort -- a missing/garbled spawn
+# stamp just drops the cross-process deltas.
+_T_MODTOP = time.perf_counter()
+_WALL_ENTRY = time.time()
+try:
+    _SPAWN_TS = float(os.environ.get("THOUGHTBORNE_SPAWN_TS", ""))
+except (TypeError, ValueError):
+    _SPAWN_TS = None
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -48,10 +68,13 @@ import tkinter.font as tkfont
 import config
 import engine_memory
 import key_check
+import settings_instance
 import settings_io
 import settings_strings as strings
 from hotkey_parse import parse_hotkey_lexical
 from key_check import KeyStatus
+
+_T_IMPORTS = time.perf_counter()
 
 # ---- colors (glyph + color + text together; red stays for the rejected key) ----
 LINK_COLOR = "#0B5CAB"
@@ -204,6 +227,17 @@ class SettingsApp:
         if lang not in ("de", "en"):
             lang = strings.detect_ui_language()
         self.lang = lang
+
+        # Title the window as early as possible (#196, D-009): the focus-existing
+        # remedy matches on this exact title, and _build_ui below can take a moment
+        # (#178/#180 growth) during which an untitled "tk" window would be unfindable
+        # by a repeat launch. render_all() re-sets the same value harmlessly later.
+        try:
+            self.root.title(strings.t(
+                "app.title.firstrun" if self.first_run else "app.title.settings",
+                self.lang))
+        except tk.TclError:
+            pass
 
         # tk vars (root already exists)
         self.lang_var = tk.StringVar(value=self.lang)
@@ -1131,6 +1165,47 @@ class SettingsApp:
         self.root.destroy()
 
 
+def _bind_startup_timing(root, t_tk, t_size, t_construct, first_run):
+    """Write one startup-timing line to thoughtborne.log at first window map (#195),
+    so the spawn-to-visible latency is diagnosable on a real machine. Quiet and
+    file-only; everything guarded -- instrumentation must never delay or break the
+    app. The app has no logger of its own, so a single plain append beside the tool's
+    own 'Opened the settings app' line is the cheapest sink: no RotatingFileHandler
+    (a two-process rotation would race), just one open-append at a rare user event. A
+    line missed by the tool's own log rotation mid-append is harmless -- try/except
+    swallows it and the check can simply be repeated."""
+    state = {"done": False}
+
+    def _on_first_map(_evt):
+        if state["done"]:
+            return
+        state["done"] = True
+        try:
+            t_map = time.perf_counter()
+            parts = []
+            if _SPAWN_TS is not None:
+                parts.append(f"spawn->entry={_WALL_ENTRY - _SPAWN_TS:.2f}s")
+            parts.append(f"import={_T_IMPORTS - _T_MODTOP:.2f}s")
+            parts.append(f"tk.Tk={t_tk - _T_IMPORTS:.2f}s")
+            parts.append(f"size={t_size - t_tk:.2f}s")
+            parts.append(f"construct={t_construct - t_size:.2f}s")
+            parts.append(f"first-map={t_map - t_construct:.2f}s")
+            if _SPAWN_TS is not None:
+                parts.append(f"total={time.time() - _SPAWN_TS:.2f}s")
+            mode = "firstrun" if first_run else "settings"
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            line = f"{stamp} [SETTINGS] startup: {' '.join(parts)} mode={mode}\n"
+            with open(config.LOG_FILE, "a", encoding="utf-8") as fh:
+                fh.write(line)
+        except Exception:
+            pass
+
+    try:
+        root.bind("<Map>", _on_first_map, add="+")
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--first-run", action="store_true",
@@ -1138,8 +1213,22 @@ def main():
                              "to it when no API key is stored yet (#163)")
     args, _ = parser.parse_known_args()
 
+    # Single-instance guard (#196, D-009): keep the settings app to one window. A
+    # second launch -- from either spawn path (Ctrl+Alt+G / --first-run, or the
+    # Thoughtborne-Settings.bat double-click) -- brings the existing window to the
+    # front and exits silently, rather than stacking a second independent editor of
+    # .env / personal_settings.json (D-002). Focus IS the feedback for a GUI, so no
+    # notice (unlike the tool's D-004 refuse). Checked before tk.Tk() so no window is
+    # built only to be discarded. settings_instance is fail-open: any guard fault
+    # just starts normally, never costing a launch.
+    _handle, already = settings_instance.create_instance_mutex()
+    if already:
+        settings_instance.focus_existing_settings_window()   # best-effort raise
+        sys.exit(0)
+
     _enable_high_dpi()
     root = tk.Tk()
+    t_tk = time.perf_counter()
     try:
         root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
     except Exception:
@@ -1152,6 +1241,7 @@ def main():
     # pops a modal load-failure dialog; the sizing is pure DPI + screen, no widgets
     # needed.
     _size_window(root)
+    t_size = time.perf_counter()
 
     # #163: open the wizard on the explicit flag (thoughtborne.py's keyless hook) OR
     # when no readable key is stored yet -- so the installer hand-off, which passes no
@@ -1160,6 +1250,9 @@ def main():
     env = settings_io.read_env(config.SCRIPT_DIR / ".env")
     first_run = settings_io.resolve_first_run(args.first_run, env)
     SettingsApp(root, first_run=first_run)
+    t_construct = time.perf_counter()
+
+    _bind_startup_timing(root, t_tk, t_size, t_construct, first_run)
     root.mainloop()
 
 

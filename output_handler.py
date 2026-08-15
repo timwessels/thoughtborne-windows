@@ -383,6 +383,12 @@ class OutputManager:
         self.output_queue: Dict[int, TranscriptionTask] = {}
         self.output_queue_lock = threading.Lock()
         self.output_condition = threading.Condition(self.output_queue_lock)
+        # True from the moment a task is popped for output until it is fully handled
+        # (#196). Read by has_pending_output() under output_queue_lock; set only by
+        # the single output thread while it holds that lock, so it needs no counter --
+        # one task is inserted at a time. Covers the pop->paste tail that the tool's
+        # processing_counter no longer does (the counter drops at add_task time).
+        self._inserting = False
         self.on_task_complete = on_task_complete_callback
 
         self.next_sequence_to_output = 0
@@ -429,6 +435,20 @@ class OutputManager:
         with self.output_condition:
             self.output_queue[task.sequence_number] = task
             self.output_condition.notify()
+
+    def has_pending_output(self) -> bool:
+        """True while a completed transcript is queued for insertion or an insert is
+        in flight (#196). Lets the tool widen its 'ignore Ctrl+Alt+G' window past the
+        recording itself to the transcribe-and-insert tail, so a settings window
+        can't open and steal the paste's focus target. `any(is_complete)` because an
+        incomplete task is still in transcription -- already covered by the tool's
+        processing_counter; what this adds is the completed-but-not-yet-popped task
+        and, via _inserting, the popped-but-not-yet-pasted one. Read under the queue
+        lock; the output thread only mutates _inserting while holding the same lock."""
+        with self.output_queue_lock:
+            if self._inserting:
+                return True
+            return any(t.is_complete for t in self.output_queue.values())
 
     def update_last_transcript(self, text: str):
         """Update the last transcript (thread-safe)"""
@@ -732,6 +752,10 @@ class OutputManager:
         while self.running:
             try:
                 with self.output_condition:
+                    # Idle until a task is popped below; _inserting reflects "a task
+                    # is being handled" and is reset here on every fresh wait so it is
+                    # False whenever the thread is parked (#196).
+                    self._inserting = False
                     # Wait until something needs to be done
                     while self.running:
                         # Check if next sequence is ready (positive sequence numbers)
@@ -740,6 +764,7 @@ class OutputManager:
                             if task.is_complete:
                                 # This sequence is ready!
                                 del self.output_queue[self.next_sequence_to_output]
+                                self._inserting = True   # popped -> handling in flight
                                 break
 
                         # Check for immediate tasks (negative sequence numbers)
@@ -751,6 +776,7 @@ class OutputManager:
                             immediate_tasks.sort(key=lambda t: t.sequence_number, reverse=True)
                             task = immediate_tasks[0]
                             del self.output_queue[task.sequence_number]
+                            self._inserting = True       # popped -> handling in flight
                             break
 
                         # Nothing to do - wait with timeout

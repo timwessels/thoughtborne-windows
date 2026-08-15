@@ -465,3 +465,80 @@ Respects D-002 — `settings_io.py` remains the only writer of `.env` and
 read-plus-record-on-pick through `engine_memory`, and it never clears the file.
 Does not touch D-001 or D-003 through D-007; the settings app's import chain stays
 stdlib-only, as D-005 requires.
+
+---
+
+## D-009 — Settings app: one window, focus don't refuse; ignore extends to pending inserts
+
+Decided 2026-08-15 (#195, #196).
+
+The graphical settings app gets its own single-instance guard, and the running
+tool's `Ctrl+Alt+G` ignore behaviour is widened and made visible. The decisions:
+
+- **One window, enforced by a *distinct* named mutex.** The app checks a named
+  Windows mutex, `Thoughtborne-Settings-SingleInstance`, at the very top of `main()`
+  before `tk.Tk()` (new stdlib module `settings_instance.py`). The name is
+  deliberately different from the tool's `Thoughtborne-SingleInstance` (D-004): a
+  shared name would make a running tool block every settings launch and vice versa.
+  The mechanics are D-004's — permissive security descriptor, session-scoped (no
+  `Global\`), `ERROR_ACCESS_DENIED` counted as "already running" alongside
+  `ERROR_ALREADY_EXISTS` so an elevated and a normal instance recognise each other,
+  and the handle held for the whole process so the kernel frees it on any exit.
+- **Focus, don't refuse — a GUI's remedy differs from the tool's.** Where a second
+  tool instance shows the calm ALREADY-RUNNING notice and exits (D-004), a second
+  settings instance instead *focuses the existing window* (`EnumWindows` + exact
+  title match + `ShowWindow(SW_RESTORE)` + `BringWindowToTop` + `SetForegroundWindow`,
+  `AttachThreadInput` as the documented fallback) and exits 0 silently. Bringing the
+  window to the front IS the feedback; a notice would be noise. The title match is
+  exact against the four known localized titles (settings/first-run × DE/EN, computed
+  from `settings_strings` so it can't drift) — a bare "Thoughtborne" prefix is refused
+  because it would also match the tool's console window. To keep that match findable,
+  the window is titled early in `SettingsApp.__init__` — before the slow `_build_ui`
+  growth (#178/#180), though after `tk.Tk()`, `_size_window`, `read_env` and the
+  `__init__` preamble, so the untitled `"tk"` window lives for those first milliseconds
+  to tens of milliseconds. That span is harmless anyway: a not-yet-mapped window is
+  filtered out of the focus enumeration by `IsWindowVisible`, and the early title is
+  what actually guards the realistic race — a fast repeat-press during the construction
+  growth. Focus is
+  best-effort: an unfindable window (a near-simultaneous double start whose first
+  window is not yet titled) or a cross-integrity UIPI block just means the second
+  instance exits without raising — the "at most one window" guarantee still holds.
+- **The in-app guard covers both spawn paths.** `Ctrl+Alt+G` / `--first-run` (via
+  `_launch_settings_app`) and `Thoughtborne-Settings.bat` (double-click / Start menu /
+  setup.ps1 hand-off) both reach the same guard. No spawner-side dedupe in the tool:
+  every launch either becomes the one window or focuses it, which is exactly the
+  "repeat press raises the window" behaviour wanted; deduping in the tool would
+  suppress the raise. A tool-side fast-focus that skips the spawn on a repeat press
+  (so a cold pythonw start isn't paid just to focus-and-exit) was deliberately *not*
+  built: it is an optimisation against the #195 latency, which is to be measured
+  first — the in-app mutex is the guarantee regardless.
+- **No silent swallow, and a wider ignore window.** An ignored `Ctrl+Alt+G` press now
+  prints a calm console line (INFO), not just a DEBUG entry the INFO-pinned console
+  never shows. And the ignore condition widens from `is_recording` to *recording or a
+  pending insertion* (`processing_counter > 0`, or the output manager reports a
+  queued-and-complete or in-flight insert via `has_pending_output()`): a press in the
+  seconds between the stop key and the paste could otherwise open a window and steal
+  the insertion's focus target. The response is drop-with-feedback, not defer — a
+  deferred auto-open must never front-run a pending insert, and feedback-only meets
+  the need without that extra state (the user can simply press again once the
+  dictation lands). The output manager tracks the pop→paste tail with a single
+  `_inserting` flag under its queue lock, since the tool's `processing_counter` drops
+  the moment a task is handed off, before the paste.
+- **Startup timing is measured, not guessed.** The app records a one-line breakdown to
+  `thoughtborne.log` (spawn→entry via a tool-passed wall-clock stamp, imports,
+  `tk.Tk()`, construction, first map), written once at first `<Map>`, quiet and
+  file-only, all in try/except, so the spawn-to-visible latency (#195) is diagnosable
+  on the live machine instead of inferred. No `RotatingFileHandler` — a two-process
+  rotation would race; a plain append at a rare user event is enough.
+
+Do not reintroduce: sharing the tool's mutex name for the settings app; a settings
+second-instance that refuses-with-notice instead of focusing; a prefix title match
+that can hit the tool's console window; a deferred settings auto-open that could
+front-run a pending insertion; or a DEBUG-only sign for an ignored press.
+
+Respects D-002 — the fix prevents a second config *editor* from existing; the
+`settings_io` write contract is untouched. Respects D-004 as the mutex mechanism
+precedent; the remedy (focus vs refuse) and the name deliberately differ. Respects
+D-005 — the mutex/focus is stdlib `ctypes`, no third-party single-instance package,
+so the settings-app import chain stays stdlib-only. Does not touch D-001, D-003,
+D-006, D-007, or D-008.

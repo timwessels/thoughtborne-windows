@@ -1337,9 +1337,14 @@ class ThoughtborneApp:
             return False
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         interpreter = str(pythonw) if pythonw.exists() else sys.executable
+        # Pass a wall-clock spawn stamp so the app can measure the otherwise
+        # invisible process-creation + interpreter/venv cold start (#195). A plain
+        # env var, comparable across processes (time.time); the app drops it silently
+        # when absent (the .bat / double-click path never sets it).
+        env = {**os.environ, "THOUGHTBORNE_SPAWN_TS": repr(time.time())}
         try:
             subprocess.Popen([interpreter, str(settings_script), *extra_args],
-                             cwd=str(SCRIPT_DIR))
+                             cwd=str(SCRIPT_DIR), env=env)
             return True
         except Exception as e:
             logger.debug(f"Could not launch the settings app: {e}")
@@ -2083,17 +2088,35 @@ class ThoughtborneApp:
         except OSError as e:
             logger.error(f"Could not open the history folder {HISTORY_FOLDER}: {e}")
 
+    def _insertion_pending(self) -> bool:
+        """True while a transcript is still being produced or waiting to be inserted
+        (#196): a processing worker is in flight (processing_counter), or the output
+        manager holds a completed-but-not-yet-pasted task. Bridges the gap between
+        is_recording -- already False once the stop key lands -- and the actual
+        paste. The counter drops the moment a task is handed to the output manager,
+        so the output-side query covers the pop->paste tail the counter no longer
+        does."""
+        with self.processing_lock:
+            if self.processing_counter > 0:
+                return True
+        return self.output_manager.has_pending_output()
+
     def on_open_settings(self):
         """Open the settings app from the running tool (#164; Ctrl+Alt+G,
         'G as in gear'). Runs on the listener thread -> logger.* only (#11).
 
-        Ignored while a recording is active -- like the other non-stop keys,
-        opening a window mid-dictation would steal focus from the insertion
-        target. Spawns the settings app in normal (non-wizard) mode,
-        detached/non-blocking; never raises. v1 may spawn a fresh window on
-        every press (no single-instance plumbing)."""
+        Ignored while a recording is active OR an insertion is still pending
+        (#196): opening a window mid-dictation, or in the seconds between the stop
+        key and the paste, would steal focus from the insertion target. An ignored
+        press now prints a calm, reason-aware console line (INFO) instead of a DEBUG
+        line the INFO-pinned console never shows. Spawns the settings app in normal
+        (non-wizard) mode, detached/non-blocking; never raises. The app enforces a
+        single window itself (D-009), so a repeat press focuses the existing one."""
         if self.audio_recorder.is_recording:
-            logger.debug("open_settings ignored -- a recording is active")
+            logger.info("Settings not opened -- recording in progress (Ctrl+Alt+G)")
+            return
+        if self._insertion_pending():
+            logger.info("Settings not opened -- finishing the last dictation (Ctrl+Alt+G)")
             return
         if self._launch_settings_app():
             logger.info("Opened the settings app (Ctrl+Alt+G)")
