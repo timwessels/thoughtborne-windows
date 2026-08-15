@@ -55,6 +55,7 @@ values in decode_key_event, and the live "Test key" round-trip against real keys
 import json
 import logging
 import os
+import re
 import socket
 import stat
 import sys
@@ -585,6 +586,25 @@ def check_i18n():
     check(sstr.detect_ui_language() in ("de", "en"),
           "detect_ui_language() off-Windows must return 'de' or 'en'")
 
+    # Placeholder parity (#178): the key-set check above proves DE and EN carry the
+    # same keys, but not that a format string uses the same {…} tokens in both -- a
+    # mismatch passes i18n and then crashes .format() in one language at runtime.
+    # Guard every string generically -- covers existing, new, and future format
+    # strings -- then pin the exact render contract of the #178 ones below. The
+    # key-set equality asserted above makes sstr._DE[k] safe while iterating _EN.
+    for k in sstr._EN:
+        en = set(re.findall(r"{(\w+)}", sstr._EN[k]))
+        de = set(re.findall(r"{(\w+)}", sstr._DE[k]))
+        check(en == de,
+              f"i18n: placeholder mismatch in {k}: EN{sorted(en)} DE{sorted(de)}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["done.loop.body"])) == {"start", "stop"},
+          "done.loop.body must use exactly {start} and {stop}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["done.controls.body"]))
+          == {"exit_key", "settings_key"},
+          "done.controls.body must use exactly {exit_key} and {settings_key}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["hotkeys.capture_limit"])) == {"exit_key"},
+          "hotkeys.capture_limit must use exactly {exit_key}")
+
 
 # ---- settings_io ui.language merge (#144, F6) --------------------------------
 def check_ui_language(tmp):
@@ -645,6 +665,23 @@ def check_ui_language(tmp):
           "UI-new: language missing on absent-file write")
     check("_comment" in data.get("ui", {}), "UI-new: example _comment lead not carried")
     check("vocabulary" not in data, "UI-new: absent-file write seeded a vocabulary block")
+
+
+# ---- startup-engine preselection (#178) --------------------------------------
+def check_preselect():
+    P = sio.preselect_startup_api
+    check(P(True, False) == "groq-large", "preselect: Groq-only -> groq-large")
+    check(P(False, True) == config.BUILTIN_DEFAULT_API,
+          "preselect: Soniox-only -> built-in default")
+    check(P(True, True) == config.BUILTIN_DEFAULT_API,
+          "preselect: both keys -> built-in default (explicit pick wins in the UI)")
+    check(P(False, False) == config.BUILTIN_DEFAULT_API,
+          "preselect: neither key -> built-in default")
+    # Both returned tokens must be selectable engines -- the UI does
+    # AVAILABLE_APIS.index(target), which would raise on an unknown token.
+    for token in ("groq-large", config.BUILTIN_DEFAULT_API):
+        check(token in config.AVAILABLE_APIS,
+              f"preselect: {token!r} is not in AVAILABLE_APIS")
 
 
 # ---- first-run mode decision (#163) ------------------------------------------
@@ -714,6 +751,7 @@ def main():
     check_key_check_malformed()
     check_key_check_strip()
     check_i18n()
+    check_preselect()
 
     if SHOW:
         _show()

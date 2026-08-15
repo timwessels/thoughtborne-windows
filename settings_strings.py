@@ -40,6 +40,7 @@ _EN = {
     "btn.save": "Save",
     "btn.cancel": "Cancel",
     "btn.save_start": "Save & start Thoughtborne",
+    "btn.save_close": "Save & close",
     "footer.next_start": "Changes take effect the next time Thoughtborne starts.",
 
     # ---- provider tab ----
@@ -122,6 +123,10 @@ _EN = {
         "Click Change next to an action, then press the new combo. Letters, "
         "digits, F1–F24 and the ü key work — F-keys also bare, everything else "
         "with Ctrl and/or Alt."),
+    "hotkeys.capture_limit": (
+        "While Thoughtborne is running, a combo it already holds can't be captured "
+        "here — Windows fires the action instead of passing the key press through. "
+        "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
     "btn.change_key": "Change…",
     "hotkeys.more_suffix": "(+{n} more)",
     "capture.prompt": "Press the new combo … (Esc cancels)",
@@ -146,7 +151,7 @@ _EN = {
     "action.exit_program": "Exit Thoughtborne",
 
     # ---- behavior tab ----
-    "behavior.tab": "Behavior",
+    "behavior.tab": "Startup & windows",
     "behavior.engine.heading": "Engine at startup",
     "behavior.engine.body": (
         "The transcription engine Thoughtborne starts on. While the tool runs, "
@@ -157,6 +162,12 @@ _EN = {
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
     "engine.desc.groq": "fast, free",
+    "behavior.vocab.heading": "Recognition vocabulary",
+    "behavior.vocab.body": (
+        "Recurring proper names, technical terms or acronyms are recognized more "
+        "reliably on the Soniox engines once you list them: edit the \"vocabulary\" "
+        "section of personal_settings.json in the Thoughtborne folder. The Groq "
+        "engines ignore it."),
     "behavior.tray.heading": "Console out of the taskbar (tray)",
     "behavior.tray.body": (
         "The console is a status monitor — dictation keeps working with the window "
@@ -184,13 +195,35 @@ _EN = {
     "behavior.admin.link": "README — Troubleshooting",
     "url.admin_recipe": "https://github.com/timwessels/thoughtborne-windows#troubleshooting",
 
+    # ---- done / closing tab ----
+    "done.tab": "How you dictate",
+    "done.heading.firstrun": "Done — here's how you dictate",
+    "done.heading.settings": "How you dictate",
+    "done.loop.body": (
+        "Click into any text field, press {start}, speak, then press {stop} — the "
+        "transcript appears at the cursor. It works in every application; the "
+        "console only shows what is happening."),
+    "done.controls.body": (
+        "{exit_key} quits Thoughtborne. {settings_key} reopens this settings window "
+        "while the tool is running."),
+    "done.startkey.body": (
+        "To start Thoughtborne with one key press: in the Start menu, right-click "
+        "the Thoughtborne entry → Properties → click the \"Shortcut key\" field and "
+        "press a free combo (e.g. Ctrl+Alt+1). Windows honors it only for Start-menu "
+        "and Desktop shortcuts."),
+    "done.threewindow.body": (
+        "Any leftover black setup window can be closed — Thoughtborne runs from its "
+        "own console."),
+
     # ---- dialogs & warnings ----
     "dlg.discard.title": "Discard changes?",
     "dlg.discard.body": "There are unsaved changes. Close without saving?",
     "dlg.nokey.title": "No API key",
     "dlg.nokey.body": (
         "No API key is entered, and none was found on this PC — Thoughtborne can't "
-        "transcribe without one. Save anyway?"),
+        "transcribe without one. Your hotkeys and preferences will still be saved. "
+        "You can add a key any time via the Start menu → Thoughtborne Settings. Save "
+        "and close now?"),
     "dlg.hotkeywarn.title": "Hotkey problems",
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
@@ -231,6 +264,7 @@ _DE = {
     "btn.save": "Speichern",
     "btn.cancel": "Abbrechen",
     "btn.save_start": "Speichern & Thoughtborne starten",
+    "btn.save_close": "Speichern & schließen",
     "footer.next_start": "Änderungen gelten ab dem nächsten Start von Thoughtborne.",
 
     # ---- provider tab ----
@@ -316,6 +350,11 @@ _DE = {
         "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
         "Buchstaben, Ziffern, F1–F24 und die ü-Taste funktionieren — F-Tasten auch "
         "blank, alles andere mit Ctrl und/oder Alt."),
+    "hotkeys.capture_limit": (
+        "Solange Thoughtborne läuft, lässt sich eine bereits belegte Kombination "
+        "hier nicht aufnehmen — Windows löst stattdessen die Aktion aus, statt den "
+        "Tastendruck durchzureichen. Vorher Thoughtborne beenden ({exit_key}) oder "
+        "eine unbelegte Kombination wählen."),
     "btn.change_key": "Ändern…",
     "hotkeys.more_suffix": "(+{n} weitere)",
     "capture.prompt": "Neue Kombination drücken … (Esc bricht ab)",
@@ -343,7 +382,7 @@ _DE = {
     "action.exit_program": "Thoughtborne beenden",
 
     # ---- behavior tab ----
-    "behavior.tab": "Verhalten",
+    "behavior.tab": "Start & Fenster",
     "behavior.engine.heading": "Engine beim Start",
     "behavior.engine.body": (
         "Die Transkriptions-Engine, mit der Thoughtborne startet. Im laufenden "
@@ -355,6 +394,12 @@ _DE = {
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",
     "engine.desc.groq": "schnell, kostenlos",
+    "behavior.vocab.heading": "Erkennungs-Vokabular",
+    "behavior.vocab.body": (
+        "Wiederkehrende Eigennamen, Fachbegriffe oder Abkürzungen erkennen die "
+        "Soniox-Engines zuverlässiger, wenn sie hinterlegt sind: dazu den Abschnitt "
+        "„vocabulary“ in personal_settings.json im Thoughtborne-Ordner bearbeiten. "
+        "Die Groq-Engines ignorieren ihn."),
     "behavior.tray.heading": "Konsole aus der Taskleiste (Tray)",
     "behavior.tray.body": (
         "Die Konsole ist ein Status-Monitor — Diktieren funktioniert auch bei "
@@ -384,13 +429,35 @@ _DE = {
     "url.admin_recipe": ("https://github.com/timwessels/thoughtborne-windows/blob/"
                          "main/README.de.md#troubleshooting"),
 
+    # ---- done / closing tab ----
+    "done.tab": "So diktierst du",
+    "done.heading.firstrun": "Fertig — so diktierst du",
+    "done.heading.settings": "So diktierst du",
+    "done.loop.body": (
+        "In ein Textfeld klicken, {start} drücken, sprechen, dann {stop} drücken — "
+        "das Transkript erscheint an der Eingabemarke. Das funktioniert in jeder "
+        "Anwendung; die Konsole zeigt nur an, was gerade passiert."),
+    "done.controls.body": (
+        "{exit_key} beendet Thoughtborne. {settings_key} öffnet dieses "
+        "Einstellungsfenster wieder, solange das Tool läuft."),
+    "done.startkey.body": (
+        "Um Thoughtborne per Tastendruck zu starten: im Startmenü den Eintrag "
+        "Thoughtborne rechtsklicken → Eigenschaften → ins Feld „Tastenkombination“ "
+        "klicken und eine freie Kombination drücken (z. B. Ctrl+Alt+1). Windows "
+        "berücksichtigt sie nur bei Startmenü- und Desktop-Verknüpfungen."),
+    "done.threewindow.body": (
+        "Ein noch offenes schwarzes Setup-Fenster kannst du schließen — Thoughtborne "
+        "läuft in seiner eigenen Konsole."),
+
     # ---- dialogs & warnings ----
     "dlg.discard.title": "Änderungen verwerfen?",
     "dlg.discard.body": "Es gibt ungespeicherte Änderungen. Ohne Speichern schließen?",
     "dlg.nokey.title": "Kein API-Key",
     "dlg.nokey.body": (
         "Es ist kein API-Key eingetragen, und es wurde keiner gefunden — ohne Key "
-        "kann Thoughtborne nicht transkribieren. Trotzdem speichern?"),
+        "kann Thoughtborne nicht transkribieren. Deine Hotkeys und Einstellungen "
+        "werden trotzdem gespeichert. Einen Key kannst du jederzeit über Startmenü → "
+        "Thoughtborne-Einstellungen ergänzen. Jetzt speichern und schließen?"),
     "dlg.hotkeywarn.title": "Hotkey-Probleme",
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "

@@ -62,7 +62,7 @@ AMBER = "#8A6D00"
 # stray import off-Windows can't fail at module load.
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-_TAB_KEYS = ("provider.tab", "hotkeys.tab", "behavior.tab")
+_TAB_KEYS = ("provider.tab", "hotkeys.tab", "behavior.tab", "done.tab")
 
 
 def _enable_high_dpi() -> None:
@@ -165,6 +165,14 @@ class SettingsApp:
         if api not in config.AVAILABLE_APIS:
             api = config.BUILTIN_DEFAULT_API
         self.engine_index = config.AVAILABLE_APIS.index(api)
+        # #178 engine preselection: in the first-run wizard, entering a key can
+        # preselect the matching startup engine -- until the user picks one
+        # explicitly. A stored non-default engine is itself a prior explicit choice
+        # (write_personal_settings only persists defaults.api when it differs from the
+        # built-in), so start locked in that case; a fresh wizard on the built-in
+        # default stays unlocked so the key can preselect.
+        self._engine_user_chose = (config.AVAILABLE_APIS[self.engine_index]
+                                   != config.BUILTIN_DEFAULT_API)
 
         ui = personal.get("ui")
         self._had_ui_block = isinstance(ui, dict)
@@ -233,6 +241,18 @@ class SettingsApp:
         lbl.bind("<Configure>", _wrap)
         return lbl
 
+    def _prose_dyn(self, parent, **kw):
+        """A wrapping explainer label that is deliberately NOT registered for
+        language re-render -- its text is a format string (e.g. done.loop.body with
+        {start}/{stop}), so render_all must not blind-t() it into raw '{start}'. Its
+        owner re-renders it by hand from semantic state (the live hotkey combos)."""
+        lbl = ttk.Label(parent, justify="left", **kw)
+
+        def _wrap(event, w=lbl):
+            w.configure(wraplength=max(event.width - 8, 120))
+        lbl.bind("<Configure>", _wrap)
+        return lbl
+
     def _link(self, parent, text_key, url_key):
         """A blue, underlined, hand-cursor label that opens url_key in a browser."""
         lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2")
@@ -265,6 +285,7 @@ class SettingsApp:
             self._build_provider_tab(),
             self._build_hotkeys_tab(),
             self._build_behavior_tab(),
+            self._build_done_tab(),
         ]
         for frame, key in zip(self._tab_frames, _TAB_KEYS):
             self.notebook.add(frame, text=strings.t(key, self.lang))
@@ -370,6 +391,7 @@ class SettingsApp:
         self._test_btns[provider].config(state="normal")
         self._render_indicator(provider)
         self._mark_dirty()
+        self._maybe_preselect_engine()   # #178: key-driven startup-engine preselect
 
     def _test_key(self, provider):
         var = self.groq_var if provider == "groq" else self.soniox_var
@@ -446,6 +468,13 @@ class SettingsApp:
         ch.pack(anchor="w", pady=(6, 0))
         self._prose(f, "hotkeys.custom.body").pack(fill="x", pady=(0, 4))
 
+        # A dynamic advisory (#178): a combo the running tool already holds can't be
+        # captured here. Rendered from hotkeys_state so the {exit_key} hint tracks a
+        # rebind of exit_program (its own attribute -- never overwrite capture_lbl /
+        # status_lbl below).
+        self.capture_limit_lbl = self._prose_dyn(f, foreground=GREY)
+        self.capture_limit_lbl.pack(fill="x", pady=(0, 4))
+
         grid = ttk.Frame(f)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
@@ -486,6 +515,8 @@ class SettingsApp:
         self._mark_dirty()
         self._render_hotkey_grid()
         self._render_hotkey_status()
+        self._render_capture_limit()
+        self._render_done_page()
 
     # combo prettifier (display only; storage stays canonical lowercase)
     def _pretty_combo(self, value):
@@ -612,6 +643,8 @@ class SettingsApp:
         self._disarm()
         self._mark_dirty()
         self._render_hotkey_status()
+        self._render_capture_limit()
+        self._render_done_page()
         return "break"
 
     def _collision_holder(self, name, combo):
@@ -643,6 +676,13 @@ class SettingsApp:
         self.engine_combo.pack(anchor="w", fill="x")
         self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine)
 
+        # Pointer to the Soniox recognition vocabulary (#178) -- names only the
+        # section + file, so it never depends on wording #177 may add to the example.
+        vh = ttk.Label(f, font=self.heading_font)
+        self._reg(vh, "behavior.vocab.heading")
+        vh.pack(anchor="w", pady=(8, 0))
+        self._prose(f, "behavior.vocab.body", foreground=GREY).pack(fill="x", pady=(2, 0))
+
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=10)
 
         th = ttk.Label(f, font=self.heading_font)
@@ -662,6 +702,50 @@ class SettingsApp:
         self._link(f, "behavior.admin.link", "url.admin_recipe").pack(anchor="w")
         return f
 
+    # ---- done / closing tab ----
+    def _build_done_tab(self):
+        # The closing / reference page (#178): teaches the dictation loop and the
+        # live-configured control keys. Built in BOTH modes (a 4th tab in settings
+        # mode too, so the tab count never forks _TAB_KEYS); the heading adapts and
+        # the farewell line is first-run only.
+        f = ttk.Frame(self.notebook, padding=12)
+        h = ttk.Label(f, font=self.heading_font)
+        self._reg(h, "done.heading.firstrun" if self.first_run else "done.heading.settings")
+        h.pack(anchor="w")
+
+        # Dynamic (format-string) lines -- rendered from the live hotkey combos in
+        # _render_done_page, so they are NOT registered for blind re-render.
+        self.done_loop_lbl = self._prose_dyn(f)
+        self.done_loop_lbl.pack(fill="x", pady=(6, 6))
+        self.done_controls_lbl = self._prose_dyn(f, foreground=GREY)
+        self.done_controls_lbl.pack(fill="x", pady=(0, 8))
+
+        # Static reference (both modes): starting the tool by a shortcut key.
+        self._prose(f, "done.startkey.body", foreground=GREY).pack(fill="x", pady=(0, 8))
+
+        if self.first_run:                # the farewell belongs to the wizard only
+            self._prose(f, "done.threewindow.body", foreground=GREY).pack(fill="x")
+        return f
+
+    def _render_done_page(self):
+        # The loop + control keys, from the LIVE hotkey state (never the shipped
+        # defaults) -- called wherever hotkeys_state changes so a preset/rebind shows
+        # here at once. The {…} placeholders are DE/EN-parity-guarded in the test.
+        start = self._pretty_combo(self.hotkeys_state["start_recording"])
+        stop = self._pretty_combo(self.hotkeys_state["stop_recording_clipboard"])
+        ex = self._pretty_combo(self.hotkeys_state["exit_program"])
+        gear = self._pretty_combo(self.hotkeys_state["open_settings"])
+        self.done_loop_lbl.config(
+            text=strings.t("done.loop.body", self.lang).format(start=start, stop=stop))
+        self.done_controls_lbl.config(
+            text=strings.t("done.controls.body", self.lang).format(
+                exit_key=ex, settings_key=gear))
+
+    def _render_capture_limit(self):
+        ex = self._pretty_combo(self.hotkeys_state["exit_program"])
+        self.capture_limit_lbl.config(
+            text=strings.t("hotkeys.capture_limit", self.lang).format(exit_key=ex))
+
     def _render_engine_combo(self):
         values = [f"{config.API_DISPLAY[a]['label']} — "
                   f"{strings.t('engine.desc.' + a, self.lang)}"
@@ -671,8 +755,25 @@ class SettingsApp:
 
     def _on_engine(self, event=None):
         # Track selection by index into AVAILABLE_APIS, never by parsing the string.
+        # An explicit pick locks out the #178 key-driven preselection for good.
         self.engine_index = self.engine_combo.current()
+        self._engine_user_chose = True
         self._mark_dirty()
+
+    def _maybe_preselect_engine(self):
+        # #178: in the first-run wizard, let the entered key preselect the matching
+        # startup engine -- Groq-only -> Groq Whisper Large v3, else the built-in
+        # default (Soniox Live). Preselection only: gated to first-run and skipped
+        # once the user has picked an engine explicitly (an explicit choice wins).
+        if not self.first_run or self._engine_user_chose:
+            return
+        target = settings_io.preselect_startup_api(
+            bool(self.groq_var.get().strip()), bool(self.soniox_var.get().strip()))
+        self.engine_index = config.AVAILABLE_APIS.index(target)
+        try:
+            self.engine_combo.current(self.engine_index)   # reflect live, even off-tab
+        except Exception:
+            pass
 
     def _open_terminal(self):
         # No documented wt.exe flag opens the settings pane directly (web re-checked
@@ -694,6 +795,15 @@ class SettingsApp:
         self._mark_dirty()
         self.render_all()
 
+    def _has_any_key(self):
+        """True iff a key is entered OR one is already stored. The single predicate
+        behind both the honest last-tab button (#178) and the "Save & start" launch
+        guard in _save, so the button label can never promise a start the guard then
+        refuses. A blank field never clobbers a stored key (settings_io), so an empty
+        field on top of a stored key still counts as keyed."""
+        return bool(self.groq_var.get().strip() or self.soniox_var.get().strip()
+                    or self._had_stored_key)
+
     def update_rail(self, event=None):
         """Recompute the first-run rail. Settings mode is static (a no-op) but the
         binding stays wired so there is one code path, not scattered mode forks."""
@@ -702,8 +812,13 @@ class SettingsApp:
         idx = self.notebook.index("current")
         last = len(self._tab_frames) - 1
         self.back_btn.config(state="disabled" if idx == 0 else "normal")
-        self.next_btn.config(
-            text=strings.t("btn.next" if idx < last else "btn.save_start", self.lang))
+        if idx < last:
+            key = "btn.next"
+        else:
+            # Honest last-tab label (#178): promise a start only when a key is present,
+            # else "Save & close" -- matching _save's deliberate no-start when keyless.
+            key = "btn.save_start" if self._has_any_key() else "btn.save_close"
+        self.next_btn.config(text=strings.t(key, self.lang))
 
     def _on_back(self):
         idx = self.notebook.index("current")
@@ -746,17 +861,18 @@ class SettingsApp:
         self._render_engine_combo()
         self._render_hotkey_grid()
         self._render_hotkey_status()
+        self._render_capture_limit()
+        self._render_done_page()
         self._render_rail()
         self.root.title(strings.t(
             "app.title.firstrun" if self.first_run else "app.title.settings", self.lang))
 
     # ------------------------------------------------------------- save / close
     def _save(self, start_after=False):
-        # A key is present if one is entered OR one is already stored (a blank field
-        # never clobbers a stored key -- settings_io). So an empty field on top of a
-        # stored key is NOT keyless, and the "no key" warning must not fire there.
-        has_key = bool(self.groq_var.get().strip() or self.soniox_var.get().strip()
-                       or self._had_stored_key)
+        # A key is present if one is entered OR one is already stored (_has_any_key --
+        # a blank field never clobbers a stored key, so an empty field on top of a
+        # stored key is NOT keyless, and the "no key" warning must not fire there).
+        has_key = self._has_any_key()
         # Pre-save checks (order matters): no key at all, then hotkey warnings.
         if not has_key:
             if not messagebox.askyesno(strings.t("dlg.nokey.title", self.lang),

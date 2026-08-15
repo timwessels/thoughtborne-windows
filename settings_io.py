@@ -209,6 +209,24 @@ def resolve_first_run(flag: bool, env: dict) -> bool:
 
 
 # =============================================================================
+# startup-engine preselection (#178)
+# =============================================================================
+def preselect_startup_api(groq_present: bool, soniox_present: bool) -> str:
+    """Which startup engine matches the keys the user just entered -- a
+    preselection only; the settings app still lets an explicit engine pick win. A
+    Groq key with no Soniox key -> 'groq-large' (Groq Whisper Large v3), the same
+    engine the running tool falls back to when Soniox is absent, so the
+    preselection just makes explicit what the tool would do anyway (and "accurate"
+    beats "fast" for the dictation quality bar). Every other case -- Soniox present,
+    both keys, or neither -- keeps config.BUILTIN_DEFAULT_API (Soniox Live), the
+    shipped default. Pure: reads and writes no file, so it stays off-Windows testable
+    and respects D-002."""
+    if groq_present and not soniox_present:
+        return "groq-large"
+    return config.BUILTIN_DEFAULT_API
+
+
+# =============================================================================
 # personal_settings.json (surgical merge)
 # =============================================================================
 # The blocks whose `_comment` lead the managed-skeleton seeds on an absent-file
