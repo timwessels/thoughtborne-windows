@@ -91,11 +91,12 @@ if ($Mode -eq 'local') {
 # regex-replacement metacharacters -- a literal replace avoids mangling the path.
 $wsbText = (Get-Content -LiteralPath $template -Raw).Replace($placeholder, $here)
 
-$argSuffix = " -Mode $Mode"
-if ($Version) { $argSuffix += " -Version $Version" }
-# The template's command ends exactly with 'verify-in-sandbox.ps1</Command>';
-# splice the run args in just before the close tag.
-$wsbText = $wsbText.Replace('verify-in-sandbox.ps1</Command>', "verify-in-sandbox.ps1$argSuffix</Command>")
+$verifyArgs = "-Mode $Mode"
+if ($Version) { $verifyArgs += " -Version $Version" }
+# The template's LogonCommand waits for the mapped folder to mount, then runs the
+# driver as `& $d SANDBOX_VERIFY_ARGS` (see verify-in-sandbox.ps1). Fill that
+# placeholder with this run's -Mode/-Version.
+$wsbText = $wsbText.Replace('SANDBOX_VERIFY_ARGS', $verifyArgs)
 
 $runWsb = Join-Path $env:TEMP ('thoughtborne-sandbox-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.wsb')
 Set-Content -LiteralPath $runWsb -Value $wsbText -Encoding ascii

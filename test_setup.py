@@ -282,6 +282,23 @@ def test_wsb_networking_default():
         "sandbox .wsb declares Enable networking -- breaks the mapped-folder writeback on the current Store app; use Default"
 
 
+def test_wsb_logoncommand_waits_for_mount():
+    # Drift alarm (#181 E2E): the LogonCommand must WAIT for the mapped folder to
+    # mount before running the driver. On the current Windows Sandbox Store app the
+    # LogonCommand can fire before C:\thoughtborne-share is mounted; a bare -File
+    # load of the driver then fails instantly with no retry, the sandbox boots but
+    # never writes out-*/RESULT.txt. A revert to the bare form reintroduces that
+    # silent, verdictless stall -- fail loudly here. Extract the <Command> so the
+    # explanatory comment above it cannot satisfy the check.
+    wsb = read_text(WSB)
+    m = re.search(r"<Command>(.*?)</Command>", wsb, re.S)
+    assert m, "sandbox .wsb has no <Command> in its LogonCommand"
+    cmd = m.group(1)
+    assert "verify-in-sandbox.ps1" in cmd, "LogonCommand does not run verify-in-sandbox.ps1"
+    assert "Test-Path" in cmd and "Start-Sleep" in cmd, \
+        "LogonCommand lacks the mapped-folder mount-wait poll loop -- races the mount, no verdict"
+
+
 def test_sandbox_scripts_ascii():
     # House style: every committed sandbox script stays ASCII / no BOM, like setup.ps1.
     for name in (VERIFY, LAUNCHER, WSB):
@@ -337,6 +354,7 @@ CASES = [
     test_gitignore_covers_sandbox_secrets,
     test_wsb_template_portable,
     test_wsb_networking_default,
+    test_wsb_logoncommand_waits_for_mount,
     test_sandbox_scripts_ascii,
     test_sandbox_launcher_present_and_safe,
     test_verify_threads_version,
