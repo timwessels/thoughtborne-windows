@@ -14,12 +14,15 @@ rewrite.
     never clobbers a stored key.
   - `personal_settings.json` keeps every unmanaged block and every `_comment`
     untouched; hotkeys are written as a diff against `config.DEFAULT_HOTKEYS` (the
-    default scheme writes no hotkey entries). `defaults.api` is written on demand
-    (#193, D-008): a `default_api` string is an active pick and is written only
-    when it differs from `config.BUILTIN_DEFAULT_API`, while `default_api=None`
-    means the engine field was never selected in and leaves the file's value
-    exactly as found -- otherwise an unrelated save would delete a hand-written
-    pin naming the built-in default. On an absent file only the managed
+    default scheme writes no hotkey entries). `defaults.api` follows a three-valued
+    `default_api` contract (#193/#198, D-008/D-002): `None` leaves the file's value
+    exactly as found (an untouched engine field -- so an unrelated save never deletes
+    a hand-written pin, invalid junk included); the distinct `REMOVE_API_PIN` sentinel
+    force-drops the pin (the two-mode control's remember-mode chosen over a pin); and
+    a real engine id writes it verbatim, INCLUDING when it equals
+    `config.BUILTIN_DEFAULT_API` -- "always start with X" is exactly the frozen copy
+    the old diff-against-the-default rule avoided, so the diff rule for `defaults.api`
+    is gone for this surface (the hotkeys diff rule stays). On an absent file only the managed
     blocks are written -- NEVER the example's placeholder `vocabulary` (its dummy
     terms would otherwise become live Soniox vocabulary, a real data bug). The
     GUI-only `ui` block (the settings app's own display language, #144) is a third
@@ -241,6 +244,13 @@ def preselect_startup_api(groq_present: bool, soniox_present: bool) -> str:
 # write_personal_settings.
 MANAGED_BLOCKS = ("hotkeys", "defaults")
 
+# The distinct "drop the pin" signal for write_personal_settings' `default_api`
+# (#198, D-002 addendum). Matched by identity, never equality: an empty string ""
+# is exactly the accidental value that must NOT be allowed to silently nuke a pin,
+# so a sentinel object is both safer and self-documenting. Three-valued contract:
+# None = leave defaults.api as found / REMOVE_API_PIN = drop it / a real id = write.
+REMOVE_API_PIN = object()
+
 
 def read_personal_settings(path) -> tuple:
     """Return (data, warning). A valid file -> (dict, None). A MISSING file ->
@@ -310,13 +320,15 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
       - hotkeys: the diff of `hotkeys_effective` vs `config.DEFAULT_HOTKEYS` in
         #55's partial-override shape; an empty diff leaves only the block's
         `_comment` (or drops the block). A leading `_comment` is preserved.
-      - defaults.api (on demand, like ui.language below): `default_api=None` means
-        "no engine was picked this save" and leaves the file's `defaults.api`
-        exactly as found -- untouched, unread, uncorrected (#193, D-008). A real
-        engine id is an ACTIVE pick: written when it differs from
-        `config.BUILTIN_DEFAULT_API`, else the key is dropped -- so actively
-        picking the built-in default still removes a pin. Any sibling keys +
-        `_comment` in `defaults` stay either way.
+      - defaults.api (on demand, like ui.language below; three-valued, #193/#198,
+        D-008/D-002): `default_api=None` means "no engine was picked this save" and
+        leaves the file's `defaults.api` exactly as found -- untouched, unread,
+        uncorrected. `REMOVE_API_PIN` force-drops the key (remember-mode chosen over
+        a pin). A real engine id is written verbatim, INCLUDING when it equals
+        `config.BUILTIN_DEFAULT_API` -- the two-mode "always start with X" fixed pin
+        is exactly the frozen copy the old diff-against-the-default rule avoided, so
+        that gate is gone here. Any sibling keys + `_comment` in `defaults` stay in
+        every case; the block drops if it becomes empty.
       - ui.language (#144, GUI-only): written ONLY when `ui_language` is `"de"` or
         `"en"`. `ui_language=None` leaves any `ui` block exactly as found (and
         creates none), so a user who never toggled the language keeps a clean file.
@@ -352,21 +364,23 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
     else:
         data.pop("hotkeys", None)
 
-    # ---- defaults.api: on demand; an active pick writes, None leaves as found --
-    # None is the "engine field untouched" case (#193, D-008). The diff rule below
-    # drops any value equal to the built-in default, so applying it to a value the
-    # user never touched would silently delete a hand-written `"api": "soniox-live"`
-    # pin on an unrelated save -- and with a remembered engine present that would
-    # change the next start. Leaving the key alone also preserves an INVALID value
-    # (deliberate: the tool warns about it at every start, which is the honest way
-    # to surface a typo -- deleting what the user typed is not).
+    # ---- defaults.api: on demand; three-valued signal (#193/#198, D-008/D-002) ---
+    # None (the "engine field untouched" case) leaves the key exactly as found:
+    # rewriting it would run the removed diff rule over a value the user never
+    # touched and could delete a hand-written `"api": "soniox-live"` pin on an
+    # unrelated save -- and with a remembered engine present that changes the next
+    # start. Leaving it also preserves an INVALID value (the tool warns at every
+    # start, the honest way to surface a typo). REMOVE_API_PIN force-drops the key
+    # (remember-mode chosen over a pin). A real id is written verbatim, the built-in
+    # default included -- "always start with X" is the frozen copy that used to be
+    # diffed away; the diff-against-the-default gate is intentionally gone here.
     if default_api is not None:
         def_block = data.get("defaults")
         new_def = dict(def_block) if isinstance(def_block, dict) else {}
-        if default_api and default_api != config.BUILTIN_DEFAULT_API:
-            new_def["api"] = default_api
-        else:
+        if default_api is REMOVE_API_PIN:
             new_def.pop("api", None)
+        else:
+            new_def["api"] = default_api
         if new_def:
             data["defaults"] = new_def
         else:
@@ -391,6 +405,46 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
 
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     _atomic_write(path, content)
+
+
+def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_loaded,
+                               remember_display_now, remember_display_loaded):
+    """Derive the two on-save engine signals for the #198 two-mode control.
+
+    Returns `(default_api_signal, memory_api)`:
+      - `default_api_signal` is handed to `write_personal_settings`: `None` (leave
+        `defaults.api` as found), `REMOVE_API_PIN` (drop the pin), or an engine id
+        (write it verbatim, the built-in default included).
+      - `memory_api` is the engine to record via `engine_memory.write_last_engine`,
+        or `None` to leave the memory untouched.
+
+    Pure so the whole table is off-Windows testable -- the GUI itself is hands-on
+    only, and this is the riskiest logic in the field. `mode` is "fixed" or
+    "remember"; `engine_*` is the fixed-dropdown engine id; `remember_display_*` is
+    the engine shown next to the remember radio, moved only by the #178 wizard
+    preselect.
+
+    Fixed-mode writes the pin whenever the mode or the chosen engine actually changed
+    (an untouched fixed pin stays byte-identical via `None`), and never writes the
+    memory -- the written pin is what makes the choice take effect. Leaving a pin for
+    remember-mode drops it and leaves the memory alone (the untouched memory keeps
+    deciding, truthfully). Staying in remember-mode writes the memory only when the
+    wizard preselect actually moved the remembered display (D-008: the app's sole
+    memory write); an otherwise untouched remember save touches neither file. The two
+    return values are mutually exclusive by construction -- a `REMOVE` only fires when
+    a pin was left (`mode_loaded == "fixed"`), a memory write only when staying in
+    remember-mode -- so a save never does both.
+    """
+    if mode_now == "fixed":
+        if mode_loaded != "fixed" or engine_now != engine_loaded:
+            return engine_now, None
+        return None, None
+    # remember mode
+    if mode_loaded == "fixed":
+        return REMOVE_API_PIN, None
+    if remember_display_now != remember_display_loaded:
+        return None, remember_display_now
+    return None, None
 
 
 def _example_block_comment(example_path, block):

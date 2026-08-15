@@ -110,7 +110,9 @@ write contract:
   override — only actions that differ from `DEFAULT_HOTKEYS`; `defaults.api` only when
   it differs from the built-in default (D-008 narrows *when* that diff runs, without
   changing it: only for an engine actively selected in the app — an untouched engine
-  field leaves `defaults.api` exactly as found). A user on the default scheme leaves no frozen
+  field leaves `defaults.api` exactly as found; the `defaults.api` half of this diff
+  was then dropped 2026-08-16 (#198) for the settings app — see the addendum below —
+  while the hotkeys diff is unchanged). A user on the default scheme leaves no frozen
   copy behind, so a future change to the shipped defaults still reaches them.
 - **Never seed the example verbatim.** A first write with no existing file produces a
   minimal file with only the managed blocks (carrying the example's `_comment` leads);
@@ -124,6 +126,21 @@ write contract:
 - **Guidance, not takeover, for external files.** The Windows Terminal tray toggles
   (#143) are explained and pointed to, never written by the app (that file is
   Terminal's own, JSONC, and global to every Terminal window).
+
+**2026-08-16 addendum (#198).** The `defaults.api` diff-against-the-shipped-default
+rule is **dropped for the settings app**. Its two-mode engine control (see the D-008
+addendum) writes a fixed-mode pin **verbatim, including when it equals the built-in
+default**, because "always start with X" is precisely the frozen copy the diff rule
+avoided — and here that frozen copy is the user's intent, not an accident. The
+don't-freeze-the-default benefit is preserved structurally, not by value comparison:
+a user content with the default now lives in **remember-mode**, which writes no pin at
+all. To express this, `settings_io.write_personal_settings` gains a three-valued
+`default_api` contract — `None` leaves the pin exactly as found (an untouched save), a
+distinct `REMOVE_API_PIN` sentinel force-drops it (remember-mode chosen over a pin),
+and an engine id writes it verbatim. The **hotkeys** diff rule is untouched, and
+freezing the default hotkeys stays forbidden; only the `defaults.api` value comparison
+goes away, and only for this surface. Not a supersede — D-002's other guarantees
+stand. Maintainer approved 2026-08-15 (#198).
 
 Do not reintroduce: a full-file rewrite that drops user comments or unmanaged blocks;
 a save that silently overwrites an unreadable or undecodable settings file; freezing
@@ -453,11 +470,37 @@ it the next time it starts — but only where nothing is configured:
   is also the one the next start will use. Two markers, two different facts; a
   third one for "remembered" would crowd the lineup to repeat what the `>` row
   already shows.
+- **2026-08-16 addendum (#198).** The settings app's engine field is now an explicit
+  **two-mode control** rather than a single dropdown whose active mode was invisible:
+  *(•) start with the engine I last switched to* (remember-mode — the memory, shown
+  read-only) versus *( ) always start with:* one fixed engine (a `defaults.api` pin).
+  This sharpens *Displaying vs. Selecting* above:
+  - **A fixed pick writes the pin and no longer writes the memory.** The written pin
+    is what makes the choice take effect — including on the built-in default, which the
+    settings app now writes **verbatim** (the D-002 addendum drops the
+    diff-against-the-default gate for this surface). Stamping the memory on a pin would
+    overwrite the user's last real `Ctrl+Alt+L` switch and corrupt the memory's
+    self-definition, so it is not done; the memory stays warm and truthful for if the
+    pin is later removed.
+  - **Remember-mode chosen over a pin removes the pin** (via the `REMOVE_API_PIN`
+    signal) and never touches the memory — the untouched memory keeps deciding.
+  - **The app's only memory write is the #178 wizard preselect** in remember-mode: a
+    fresh user defaults to remember-mode, and a key-driven preselect that actually
+    moves the remembered engine (the Groq-only case) records it as the *memory* rather
+    than a pin, keeping the newcomer in the #193 zero-config world while preserving
+    #178's no-visible-skip first start. This changes #178's earlier pin+memory write
+    to a memory-only write (CHANGELOG).
+  The on-save signal derivation is extracted to a pure, off-Windows-tested
+  `settings_io.resolve_engine_save_signal(...)`. Precedence (config > memory > default)
+  and the leave-as-found (`default_api=None`) data-safety contract are **extended, not
+  weakened**; the "writing an untouched engine field back to the file" rule still holds
+  (untouched → `None`). Not a supersede. Maintainer approved 2026-08-15 (#198).
 
 Do not reintroduce: writing `personal_settings.json` from the running tool;
 persisting the carousel's fall-through engine; a "default"-worded fallback note on
 a start that never tried the default; a value-comparison test for "is a default
-configured"; writing an untouched engine field back to the file (it deletes pins);
+configured"; writing an untouched engine field back to the file (it creates or normalizes a pin
+the user never set);
 or a settings-app engine field that shows `defaults.api` alone.
 
 Respects D-002 — `settings_io.py` remains the only writer of `.env` and

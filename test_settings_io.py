@@ -15,12 +15,16 @@ What is covered:
     stored key), and no temp file left behind (atomicity).
   - settings_io.write_personal_settings / read_personal_settings: surgical merge
     (every unmanaged block + every _comment preserved), hotkeys written as a diff
-    vs config.DEFAULT_HOTKEYS (default scheme -> no entries), defaults.api omitted
-    when an ACTIVE pick equals the built-in default while `default_api=None` (the
-    untouched engine field) leaves the file's value exactly as found -- a
-    hand-written or even invalid pin included (#193, D-008), the absent-file
-    minimal dict that must NOT contain the example's placeholder vocabulary (a real
-    data bug), and the corrupt-JSON warning (not a crash).
+    vs config.DEFAULT_HOTKEYS (default scheme -> no entries), and the three-valued
+    defaults.api contract (#193/#198, D-008/D-002): `default_api=None` (the untouched
+    engine field) leaves the file's value exactly as found -- a hand-written or even
+    invalid pin included; a real id is written VERBATIM, the built-in default
+    included (the two-mode fixed pin -- "always start with X"); and REMOVE_API_PIN
+    force-drops the key, preserving siblings + _comment. Plus the absent-file minimal
+    dict that must NOT contain the example's placeholder vocabulary (a real data
+    bug), and the corrupt-JSON warning (not a crash).
+  - settings_io.resolve_engine_save_signal (#198): the pure on-save derivation of
+    (default_api_signal, memory_api) across the whole two-mode decision table.
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -188,7 +192,9 @@ def check_personal_settings(tmp):
     eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, data["hotkeys"])
     check(eff == sio.preset_fkeys() and not warns, "A: hotkeys diff round-trip mismatch")
 
-    # B -- Ctrl+Alt preset -> no hotkey entries; built-in api -> defaults.api omitted
+    # B -- Ctrl+Alt preset -> no hotkey entries; the built-in default -> written
+    # VERBATIM as the pin (the #198 fixed-mode widening: "always start with the
+    # default" is exactly the frozen copy the old diff-against-builtin rule dropped).
     p = tmp / "ps_b.json"
     p.write_text(EXAMPLE_PS.read_text(encoding="utf-8"), encoding="utf-8")
     sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
@@ -197,7 +203,8 @@ def check_personal_settings(tmp):
     hk_entries = {k: v for k, v in data.get("hotkeys", {}).items() if not k.startswith("_")}
     check(hk_entries == {}, f"B: default scheme wrote hotkey entries: {hk_entries}")
     check("_comment" in data.get("hotkeys", {}), "B: hotkeys _comment dropped")
-    check("api" not in data.get("defaults", {}), "B: defaults.api written for the built-in default")
+    check(data.get("defaults", {}).get("api") == config.BUILTIN_DEFAULT_API,
+          "B: the built-in default was not written verbatim (the fixed-mode widening)")
     check("_comment" in data.get("defaults", {}), "B: defaults _comment dropped")
     check(data.get("vocabulary") == example["vocabulary"], "B: vocabulary not preserved")
 
@@ -608,6 +615,10 @@ def check_i18n():
           "done.controls.body must use exactly {exit_key} and {settings_key}")
     check(set(re.findall(r"{(\w+)}", sstr._EN["hotkeys.capture_limit"])) == {"exit_key"},
           "hotkeys.capture_limit must use exactly {exit_key}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["behavior.engine.remember.current"])) == {"engine"},
+          "behavior.engine.remember.current must use exactly {engine}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["behavior.engine.remember.none"])) == {"engine"},
+          "behavior.engine.remember.none must use exactly {engine}")
 
 
 # ---- settings_io ui.language merge (#144, F6) --------------------------------
@@ -690,12 +701,15 @@ def check_preselect():
 
 # ---- settings_io defaults.api merge (#193, D-008) ----------------------------
 def check_engine_pin(tmp):
-    """`default_api=None` means "the engine field was not touched": the file's
-    `defaults.api` is left exactly as found. Without that, an untouched save runs
-    the diff rule over a value the user hand-wrote and silently deletes a pin equal
-    to the built-in default -- which, with a remembered engine present, flips the
-    next start. An ACTIVE pick keeps the diff rule (that is what lets picking the
-    built-in default remove a pin at all)."""
+    """The three-valued `default_api` contract (#193/#198, D-008/D-002).
+    `default_api=None` means "the engine field was not touched": the file's
+    `defaults.api` is left exactly as found -- without that, an untouched save would
+    silently delete a hand-written pin (a value equal to the built-in default
+    included, which with a remembered engine present flips the next start) and an
+    invalid hand-typed value. A real id is written VERBATIM, the built-in default
+    included (the #198 fixed-mode "always start with X" pin). `REMOVE_API_PIN`
+    force-drops the key (remember-mode chosen over a pin), preserving siblings +
+    `_comment`."""
     # (a) untouched save leaves a pin ON the built-in default byte-identical.
     p = tmp / "ps_pin_builtin.json"
     original = {"defaults": {"_comment": "keep me", "api": config.BUILTIN_DEFAULT_API},
@@ -743,8 +757,10 @@ def check_engine_pin(tmp):
     check("defaults" not in data,
           f"PIN-absent: an untouched save created a defaults block: {data.get('defaults')}")
 
-    # (d) an ACTIVE pick still decides -- overwrite, and remove on the built-in
-    # default (the path that makes picking Soniox Live in the app take effect).
+    # (d) an active fixed pick: a real id OVERWRITES, the built-in default is WRITTEN
+    # verbatim (the #198 widening -- picking Soniox Live in "always start with" pins
+    # it so it survives a later Ctrl+Alt+L switch), and REMOVE_API_PIN DROPS the pin
+    # (remember-mode chosen over it), the _comment preserved in every case.
     p = tmp / "ps_pin_active.json"
     p.write_text(json.dumps({"defaults": {"_comment": "c", "api": "groq"}}, indent=2) + "\n",
                  encoding="utf-8")
@@ -757,10 +773,109 @@ def check_engine_pin(tmp):
                                 default_api=config.BUILTIN_DEFAULT_API,
                                 example_path=EXAMPLE_PS)
     data, _ = sio.read_personal_settings(p)
-    check("api" not in data.get("defaults", {}),
-          f"PIN-active: picking the built-in default did not remove the pin: {data.get('defaults')}")
+    check(data.get("defaults", {}).get("api") == config.BUILTIN_DEFAULT_API,
+          f"PIN-active: the built-in default was not written verbatim: {data.get('defaults')}")
     check(data.get("defaults", {}).get("_comment") == "c",
-          "PIN-active: the defaults _comment was dropped with the pin")
+          "PIN-active: the defaults _comment was dropped writing the built-in pin")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check("api" not in data.get("defaults", {}),
+          f"PIN-active: REMOVE_API_PIN did not drop the pin: {data.get('defaults')}")
+    check(data.get("defaults", {}).get("_comment") == "c",
+          "PIN-active: REMOVE_API_PIN dropped the defaults _comment")
+
+    # (e) force-write the built-in default from a NO-PIN / absent file -> present
+    # (the "always start with the default" acceptance, #198).
+    p = tmp / "ps_pin_write_builtin.json"
+    p.write_text(json.dumps({"vocabulary": {"terms": ["x"]}}, indent=2) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("defaults", {}).get("api") == config.BUILTIN_DEFAULT_API,
+          f"PIN-write-builtin: the built-in default was not written from a no-pin file: {data.get('defaults')}")
+
+    # (f) REMOVE_API_PIN over a file with NO defaults block is a no-op (creates none);
+    # over a block with siblings it drops only api and keeps the rest.
+    p = tmp / "ps_pin_remove_absent.json"
+    p.write_text(json.dumps({"vocabulary": {"terms": ["x"]}}, indent=2) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check("defaults" not in data,
+          f"PIN-remove-absent: REMOVE_API_PIN created a defaults block on a file with none: {data.get('defaults')}")
+    p = tmp / "ps_pin_remove_siblings.json"
+    p.write_text(json.dumps({"defaults": {"_comment": "c", "api": "groq", "other": 1}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check("api" not in data.get("defaults", {}), "PIN-remove-siblings: api not removed")
+    check(data.get("defaults", {}).get("_comment") == "c"
+          and data.get("defaults", {}).get("other") == 1,
+          f"PIN-remove-siblings: sibling keys not preserved: {data.get('defaults')}")
+
+
+# ---- on-save engine signal (#198, D-008/D-002) -------------------------------
+def check_engine_save_signal():
+    """resolve_engine_save_signal across the whole two-mode decision table -- the
+    riskiest logic in the field, exhaustively tested off-Windows (the GUI itself is
+    hands-on only). Returns (default_api_signal, memory_api): None=leave /
+    REMOVE_API_PIN=drop / an id=verbatim-write for the pin, and an id or None for
+    the memory. The two never fire together."""
+    R = sio.resolve_engine_save_signal
+    B = config.BUILTIN_DEFAULT_API
+
+    # fixed, untouched (mode + engine unchanged) -> leave the pin, no memory
+    check(R(mode_now="fixed", mode_loaded="fixed", engine_now="groq",
+            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
+          == (None, None),
+          "signal: untouched fixed should leave the pin (None) and write no memory")
+
+    # fixed, engine changed -> write the new id verbatim, no memory
+    check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox",
+            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
+          == ("soniox", None),
+          "signal: a changed fixed engine should write it verbatim, no memory")
+
+    # remember -> fixed, any engine incl. the built-in default -> write it verbatim
+    check(R(mode_now="fixed", mode_loaded="remember", engine_now=B,
+            engine_loaded=B, remember_display_now=B, remember_display_loaded=B)
+          == (B, None),
+          "signal: flipping to fixed on the built-in default should write it verbatim, no memory")
+
+    # fixed -> remember (a pin was left) -> REMOVE the pin, no memory
+    check(R(mode_now="remember", mode_loaded="fixed", engine_now="groq",
+            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
+          == (sio.REMOVE_API_PIN, None),
+          "signal: leaving a pin for remember-mode should drop it (REMOVE_API_PIN), no memory")
+
+    # remember, untouched -> touch neither file
+    check(R(mode_now="remember", mode_loaded="remember", engine_now="groq",
+            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
+          == (None, None),
+          "signal: an untouched remember save should touch neither file")
+
+    # remember, wizard preselect moved the remembered display -> memory only, no pin
+    check(R(mode_now="remember", mode_loaded="remember", engine_now="groq-large",
+            engine_loaded=B, remember_display_now="groq-large", remember_display_loaded=B)
+          == (None, "groq-large"),
+          "signal: a moved wizard preselect should write the memory only, no pin")
+
+    # round-trip fixed -> remember -> fixed, same engine -> no spurious rewrite
+    check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox-live",
+            engine_loaded="soniox-live", remember_display_now=B, remember_display_loaded=B)
+          == (None, None),
+          "signal: a same-engine fixed round-trip should not rewrite the pin")
+
+    # REMOVE and the memory write are mutually exclusive by construction -- even
+    # when the display also moved, a fixed->remember flip drops the pin and never
+    # records a memory.
+    sig, mem = R(mode_now="remember", mode_loaded="fixed", engine_now="groq",
+                 engine_loaded="soniox", remember_display_now="groq-large",
+                 remember_display_loaded=B)
+    check(sig is sio.REMOVE_API_PIN and mem is None,
+          "signal: REMOVE must never coincide with a memory write")
 
 
 # ---- first-run mode decision (#163) ------------------------------------------
@@ -832,6 +947,7 @@ def main():
     check_key_check_strip()
     check_i18n()
     check_preselect()
+    check_engine_save_signal()
 
     if SHOW:
         _show()

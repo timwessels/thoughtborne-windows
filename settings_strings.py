@@ -192,11 +192,18 @@ _EN = {
     "behavior.tab": "Startup & windows",
     "behavior.engine.heading": "Engine at startup",
     "behavior.engine.body": (
-        "The transcription engine Thoughtborne starts on. While the tool runs, "
-        "Ctrl+Alt+L cycles through all four engines at any time — and the engine "
-        "you switch to is remembered as the new starting point, so this field "
-        "shows it too. The engines differ mainly in speed versus tidiness; the "
-        "model lineup in the README has the details."),
+        "How Thoughtborne chooses its engine at startup — pick one of two modes. "
+        "Keep starting on the engine you last switched to with Ctrl+Alt+L "
+        "(Thoughtborne remembers it for you), or always start on one fixed engine "
+        "no matter what you switch to while dictating. Either way, Ctrl+Alt+L still "
+        "cycles through all four engines at any time while the tool runs. The "
+        "engines differ mainly in speed versus tidiness; the model lineup in the "
+        "README has the details."),
+    "behavior.engine.mode.remember": "Start with the engine I last switched to (Ctrl+Alt+L)",
+    "behavior.engine.mode.fixed": "Always start with:",
+    "behavior.engine.remember.current": "Currently remembered: {engine}",
+    "behavior.engine.remember.none": (
+        "No switch recorded yet — starts on the built-in default ({engine})"),
     "engine.desc.soniox-live": "verbatim, instant",
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
@@ -466,11 +473,18 @@ _DE = {
     "behavior.tab": "Start & Fenster",
     "behavior.engine.heading": "Engine beim Start",
     "behavior.engine.body": (
-        "Die Transkriptions-Engine, mit der Thoughtborne startet. Im laufenden "
-        "Betrieb schaltet Ctrl+Alt+L jederzeit durch alle vier Engines — und die "
-        "Engine, auf die man wechselt, wird als neuer Startpunkt gemerkt und "
-        "steht dann auch hier. Die Engines unterscheiden sich vor allem in Tempo "
-        "gegen Sauberkeit; Details in der Modell-Aufstellung im README."),
+        "Wie Thoughtborne beim Start seine Engine wählt — zwei Modi zur Wahl. "
+        "Entweder mit der Engine starten, auf die du zuletzt per Ctrl+Alt+L "
+        "gewechselt hast (Thoughtborne merkt sie sich), oder immer mit einer festen "
+        "Engine starten, egal was du beim Diktieren umschaltest. In beiden Fällen "
+        "wechselt Ctrl+Alt+L im laufenden Betrieb jederzeit durch alle vier Engines. "
+        "Die Engines unterscheiden sich vor allem in Tempo gegen Sauberkeit; Details "
+        "in der Modell-Aufstellung im README."),
+    "behavior.engine.mode.remember": "Mit der zuletzt per Ctrl+Alt+L gewählten Engine starten",
+    "behavior.engine.mode.fixed": "Immer starten mit:",
+    "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
+    "behavior.engine.remember.none": (
+        "Noch kein Wechsel gemerkt — startet auf dem Standard ({engine})"),
     "engine.desc.soniox-live": "wortgetreu, sofort fertig",
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",
