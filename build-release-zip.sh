@@ -78,7 +78,7 @@ done
 
 # No user data or repo metadata may leak into the asset.
 must_not_have=(
-    .git .env personal_settings.json history .venv CLAUDE.local.md
+    .git .env personal_settings.json runtime_state.json history .venv CLAUDE.local.md
 )
 for f in "${must_not_have[@]}"; do
     [ -e "$EXTRACT/$f" ] && note "leaked into asset: $f"

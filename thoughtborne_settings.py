@@ -11,10 +11,12 @@ header.
 Pure stdlib: tkinter + ctypes + threading + queue + subprocess + webbrowser. This
 module holds NO IO or validation logic of its own -- every file read/write, key
 check, hotkey decode/validate/collision check, and preset is a call into the CP1
-modules (`settings_io`, `key_check`, `config`, `settings_strings`). Tk is not
-thread-safe, so the "Test key" round-trip runs on a daemon worker and marshals its
-result back through a `queue.Queue` polled by `root.after` -- widgets are only ever
-touched on the UI thread.
+modules (`settings_io`, `key_check`, `config`, `settings_strings`) plus
+`engine_memory` for the #193 last-engine state file (all stdlib-only, so the D-005
+system-Python rescue lane keeps working). Tk is not thread-safe, so the "Test key"
+round-trip runs on a daemon worker and marshals its result back through a
+`queue.Queue` polled by `root.after` -- widgets are only ever touched on the UI
+thread.
 
 Every Windows-only call (High-DPI awareness, launching wt.exe / Thoughtborne.bat)
 lives inside a function behind try/except, so importing this module can never hard-
@@ -44,6 +46,7 @@ from tkinter import ttk, messagebox
 import tkinter.font as tkfont
 
 import config
+import engine_memory
 import key_check
 import settings_io
 import settings_strings as strings
@@ -169,21 +172,31 @@ class SettingsApp:
         # Start from exactly what the running tool would register (junk tolerated).
         self.hotkeys_state = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, hk)[0]
 
+        # The engine field shows the engine the tool would actually START on
+        # (#193, D-008): the `defaults.api` pin if the file carries a valid one,
+        # else the engine remembered from the last Ctrl+Alt+L switch, else the
+        # built-in default. Showing only the pin would name an engine the tool
+        # will not open on whenever a memory exists.
         api = None
         dblk = personal.get("defaults")
         if isinstance(dblk, dict):
             api = dblk.get("api")
-        if api not in config.AVAILABLE_APIS:
-            api = config.BUILTIN_DEFAULT_API
-        self.engine_index = config.AVAILABLE_APIS.index(api)
+        self._pinned_api = api if api in config.AVAILABLE_APIS else None
+        remembered = engine_memory.read_last_engine(
+            engine_memory.state_path(config.SCRIPT_DIR), config.AVAILABLE_APIS)
+        shown = self._pinned_api or remembered or config.BUILTIN_DEFAULT_API
+        self.engine_index = config.AVAILABLE_APIS.index(shown)
+        # Save-time dirty check (#193): only a field an engine was actually
+        # SELECTED in -- by the user, or by #178's preselect below -- is persisted,
+        # so merely displaying a remembered engine never promotes it into a pin.
+        self._engine_index_loaded = self.engine_index
         # #178 engine preselection: in the first-run wizard, entering a key can
         # preselect the matching startup engine -- until the user picks one
-        # explicitly. A stored non-default engine is itself a prior explicit choice
-        # (write_personal_settings only persists defaults.api when it differs from the
-        # built-in), so start locked in that case; a fresh wizard on the built-in
-        # default stays unlocked so the key can preselect.
-        self._engine_user_chose = (config.AVAILABLE_APIS[self.engine_index]
-                                   != config.BUILTIN_DEFAULT_API)
+        # explicitly. A pin is itself a prior explicit choice, so start locked when
+        # one exists (presence, not difference -- D-008); a fresh wizard without a
+        # pin stays unlocked so the key can preselect, and a merely remembered
+        # engine does not block it either (a keyless newcomer is who #178 serves).
+        self._engine_user_chose = self._pinned_api is not None
 
         ui = personal.get("ui")
         self._had_ui_block = isinstance(ui, dict)
@@ -1047,6 +1060,18 @@ class SettingsApp:
         # Write rule for ui.language: persist iff toggled this session or the file
         # already carried a ui block -- else None, so a no-choice user stays clean.
         ui_lang = self.lang if (self._lang_toggled or self._had_ui_block) else None
+
+        # Engine field (#193, D-008): the field can be *showing* a remembered
+        # engine, so only an engine actually selected in this session -- by the
+        # user, or by #178's key-driven preselect in the wizard -- is persisted.
+        # Untouched -> `default_api=None`, which tells settings_io to leave the
+        # file's `defaults.api` exactly as found (a hand-written pin included) and
+        # lets the memory keep deciding. Selected -> write it as before AND record
+        # it as the last selected engine, so both surfaces agree afterwards -- that
+        # second write is what makes picking the built-in default take effect at
+        # all, since settings_io drops a pin equal to it (D-002).
+        picked_api = config.AVAILABLE_APIS[self.engine_index]
+        engine_picked = self.engine_index != self._engine_index_loaded
         try:
             settings_io.write_env(
                 config.SCRIPT_DIR / ".env",
@@ -1056,7 +1081,7 @@ class SettingsApp:
             settings_io.write_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json",
                 hotkeys_effective=self.hotkeys_state,
-                default_api=config.AVAILABLE_APIS[self.engine_index],
+                default_api=picked_api if engine_picked else None,
                 example_path=config.SCRIPT_DIR / "personal_settings.example.json",
                 ui_language=ui_lang)
         except Exception as e:
@@ -1068,6 +1093,15 @@ class SettingsApp:
                 strings.t("dlg.savefail.title", self.lang),
                 strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
             return
+
+        if engine_picked:
+            # After the settings files are safely on disk, and best-effort by
+            # contract (never raises, returns False on failure): a lost memory
+            # write costs only the remembered value, never the save -- so it stays
+            # silent rather than firing an error dialog over the saved settings.
+            engine_memory.write_last_engine(
+                engine_memory.state_path(config.SCRIPT_DIR), picked_api,
+                config.AVAILABLE_APIS)
 
         self.dirty = False
         # "Save & start" only launches the tool when a key is present: with none, the

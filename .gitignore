@@ -92,5 +92,14 @@ sandbox/*.local.wsb
 # Template: personal_settings.example.json (committed)
 personal_settings.json
 
+# Runtime state the tool writes about itself (the last selected engine, #193).
+# Machine-written, not a settings file -- personal_settings.json is the
+# user-authored one. Safe to delete; recreated on the next engine switch.
+# The second line is the atomic write's temp shape (mkstemp with a
+# `.runtime_state.json.` prefix): it is removed on success, but a crash or a
+# full disk mid-write can strand one, and that must not turn up in `git add -A`.
+runtime_state.json
+.runtime_state.json.*.tmp
+
 # Claude Code local-only notes (personal/session-specific; CLAUDE.md is committed)
 CLAUDE.local.md

@@ -179,6 +179,11 @@ MAX_PARALLEL_TRANSCRIPTIONS = 3
 # A personal_settings 'defaults.api' override reassigns DEFAULT_API (not this).
 BUILTIN_DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
 DEFAULT_API = BUILTIN_DEFAULT_API
+# True once a valid personal_settings 'defaults.api' has been accepted below (#193,
+# D-008): PRESENCE decides, not difference -- a hand-written "api": "soniox-live"
+# pins the built-in default deliberately and must outrank the remembered engine
+# (engine_memory.py) exactly like any other explicit value.
+DEFAULT_API_IS_EXPLICIT = False
 AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API DISPLAY (single source of truth, #30/#37) =====
@@ -594,10 +599,15 @@ if _personal_settings_path.exists():
             if _api is not None:
                 if isinstance(_api, str) and _api in AVAILABLE_APIS:
                     DEFAULT_API = _api
+                    DEFAULT_API_IS_EXPLICIT = True   # outranks the #193 memory
                 else:
+                    # An invalid value leaves the flag False, so the remembered
+                    # engine applies (#193) -- both outcomes are "not what you
+                    # typed", and this is the friendlier of the two.
                     _config_logger.warning(
                         f"defaults.api '{_api}' unknown (need one of "
-                        f"{AVAILABLE_APIS}); using '{DEFAULT_API}'")
+                        f"{AVAILABLE_APIS}); not applied -- starting on the "
+                        f"remembered engine or '{DEFAULT_API}'")
     except (json.JSONDecodeError, OSError) as _e:
         _config_logger.warning(f"Could not load {_personal_settings_path.name}: {_e}")
 

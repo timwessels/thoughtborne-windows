@@ -38,11 +38,12 @@ from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 # Import our modules
 import console_ui
+import engine_memory
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    SCRIPT_DIR, DEFAULT_API, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
+    SCRIPT_DIR, DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
@@ -552,7 +553,29 @@ class ThoughtborneApp:
         # Initialize components
         try:
             self.audio_recorder = AudioRecorder()
-            self._startup_fallback_note = None  # set when startup lands off DEFAULT_API (#40)
+            self._startup_fallback_note = None  # set when startup lands off the intended engine (#40)
+            # Startup engine (#193, D-008): an explicit personal_settings
+            # 'defaults.api' (#55) outranks the engine remembered from the last
+            # Ctrl+Alt+L switch -- deliberate configuration beats an implicitly
+            # recorded preference; the memory fills the gap where nothing is
+            # configured. A missing, corrupt, or stale state file reads as None
+            # and the normal default chain applies.
+            self._state_path = engine_memory.state_path(SCRIPT_DIR)
+            remembered = engine_memory.read_last_engine(self._state_path, AVAILABLE_APIS)
+            self._start_api, self._start_api_source = engine_memory.resolve_startup_engine(
+                remembered=remembered,
+                configured=DEFAULT_API if DEFAULT_API_IS_EXPLICIT else None,
+                builtin_default=DEFAULT_API)
+            if self._start_api_source == "memory":
+                start_reason = "remembered from the last session"
+            elif self._start_api_source == "config":
+                start_reason = ("personal_settings defaults.api"
+                                + (f"; remembered '{remembered}' not applied"
+                                   if remembered and remembered != self._start_api else ""))
+            else:
+                start_reason = "built-in default; no remembered engine"
+            logger.info(f"Startup engine: '{self._start_api}' ({start_reason}, #193)",
+                        extra=FILE_ONLY)
             self.current_api, self.transcriber = self._create_startup_transcriber()
             self.output_manager = OutputManager(on_task_complete_callback=self._on_output_event)
         except Exception as e:
@@ -1228,22 +1251,20 @@ class ThoughtborneApp:
     def _create_startup_transcriber(self):
         """Construct the startup transcriber, falling through the carousel (#40).
 
-        Tries DEFAULT_API first, then the remaining AVAILABLE_APIS entries in
-        carousel order. Returns (api_name, transcriber). When no entry is
-        constructible (typically a newcomer without any key), prints an
+        Tries the resolved startup engine first (#193: the configured or
+        remembered one, else DEFAULT_API), then the remaining AVAILABLE_APIS
+        entries in carousel order. Returns (api_name, transcriber). When no entry
+        is constructible (typically a newcomer without any key), prints an
         actionable error block and exits cleanly -- API keys are read once at
         import (config.py), so a restart after editing .env is required either
         way. Runs on the main thread before hotkeys exist, so print() is safe.
         """
-        try:
-            start_index = AVAILABLE_APIS.index(DEFAULT_API)
-            candidates = [AVAILABLE_APIS[(start_index + step) % len(AVAILABLE_APIS)]
-                          for step in range(len(AVAILABLE_APIS))]
-        except ValueError:
-            # DEFAULT_API was edited to something unknown (config.py): try it
-            # first anyway -- the factory's "Unknown API" error then shows up
-            # as a skip line naming it -- and fall through to the real entries.
-            candidates = [DEFAULT_API] + list(AVAILABLE_APIS)
+        start_api = self._start_api
+        # The rotation lives in engine_memory so the shipped order is what the
+        # off-Windows test exercises, including its unknown-start branch (a
+        # hand-edited config.DEFAULT_API; a remembered engine is whitelist-
+        # validated on read).
+        candidates = engine_memory.carousel_from(start_api, AVAILABLE_APIS)
 
         failures = []  # (api_name, exception) in attempt order
         for api_name in candidates:
@@ -1259,20 +1280,24 @@ class ThoughtborneApp:
                 logger.debug(f"Construction failed for {api_name}: {e}", exc_info=True)
                 continue
 
-            if api_name != DEFAULT_API:
+            if api_name != start_api:
                 missing = sorted({err.env_var for _, err in failures
                                   if isinstance(err, MissingAPIKeyError)})
+                # Name what the user expected to start on: saying "default" for a
+                # remembered start would claim the default was tried when it never
+                # was (#193).
+                intent = "last used" if self._start_api_source == "memory" else "default"
                 reason = (f"{' / '.join(missing)} missing" if missing
-                          else f"default API '{DEFAULT_API}' unavailable")
+                          else f"{intent} API '{start_api}' unavailable")
                 # File log keeps the slot-id form (greppable, unchanged); the
                 # masthead NOTE shows display labels (#109). Both file-only --
                 # the panel is the console surface.
-                logger.warning(f"{reason} -> started on {api_name} (default: {DEFAULT_API})",
+                logger.warning(f"{reason} -> started on {api_name} ({intent}: {start_api})",
                                extra=FILE_ONLY)
                 started = API_DISPLAY.get(api_name, {}).get("label", api_name)
-                default_label = API_DISPLAY.get(DEFAULT_API, {}).get("label", DEFAULT_API)
+                start_label = API_DISPLAY.get(start_api, {}).get("label", start_api)
                 self._startup_fallback_note = (
-                    f"{reason} -> started on {started} (default: {default_label})")
+                    f"{reason} -> started on {started} ({intent}: {start_label})")
             return api_name, transcriber
 
         # First-run onboarding (#144): a true no-key first start -- every attempt
@@ -1396,6 +1421,15 @@ class ThoughtborneApp:
                     lambda ansi, compact: console_ui.render_switched_panel(
                         new_label, self._lineup_data(), switch_key,
                         ansi=ansi, compact=compact))
+                # Remember the pick for the next start (#193, D-008). After the
+                # panel, so nothing user-visible waits on the disk, and never
+                # raising (engine_memory's contract) so it cannot disturb the
+                # listener thread. Recorded even while a defaults.api pin outranks
+                # it: the file stays truthful, and warm if the pin is ever removed.
+                if not engine_memory.write_last_engine(self._state_path, next_api, AVAILABLE_APIS):
+                    logger.warning(f"Could not record '{next_api}' in "
+                                   f"{engine_memory.STATE_FILENAME} -- the next start "
+                                   f"will not open on it", extra=FILE_ONLY)
                 return
 
             # Full circle: no other entry is constructible -- stay put.

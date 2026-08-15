@@ -38,7 +38,7 @@
   },
 
   "defaults": {
-    "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (soniox-live). Must be one of: soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
+    "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (soniox-live). Must be one of: soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Setting 'api' also outranks the engine the tool remembers from your last Ctrl+Alt+L switch (kept in its own runtime_state.json) — an explicit choice here wins, and without it the remembered engine is used. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
   },
 
   "ui": {

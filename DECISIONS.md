@@ -108,7 +108,9 @@ write contract:
   whose JSON is corrupt takes the overwrite path, and only after the app has warned.
 - **Diff against the shipped defaults.** Hotkeys are written as a #55 partial
   override — only actions that differ from `DEFAULT_HOTKEYS`; `defaults.api` only when
-  it differs from the built-in default. A user on the default scheme leaves no frozen
+  it differs from the built-in default (D-008 narrows *when* that diff runs, without
+  changing it: only for an engine actively selected in the app — an untouched engine
+  field leaves `defaults.api` exactly as found). A user on the default scheme leaves no frozen
   copy behind, so a future change to the shipped defaults still reaches them.
 - **Never seed the example verbatim.** A first write with no existing file produces a
   minimal file with only the managed blocks (carrying the example's `_comment` leads);
@@ -375,3 +377,91 @@ directory equality, not by deriving `$installDir` from `$PSScriptRoot`).
 Respects D-006 — the release ZIP still carries `setup.bat` (whole-tree `git
 archive`); the exclusion is a runtime copy-target choice, not an asset change.
 Does not touch D-001 through D-005.
+
+---
+
+## D-008 — Startup engine: an explicit `defaults.api` outranks the remembered one
+
+Decided 2026-08-15 (#193).
+
+Thoughtborne records the engine you last selected with `Ctrl+Alt+L` and opens on
+it the next time it starts — but only where nothing is configured:
+
+- **Config wins over the memory.** A valid `defaults.api` is deliberate, durable,
+  and set through a visible control (the settings app's engine field, the
+  documented `personal_settings.json` block); the memory is implicit, invisible,
+  and recorded from a key the docs frame as the route-around-an-outage escape
+  hatch. Config-wins still solves both cases #193 names — those users have no
+  `defaults.api` at all — and it makes the feature inert for every install that
+  configured one.
+- **"Configured" means present and valid, not different.** `config.DEFAULT_API_IS_EXPLICIT`
+  is set when the override is accepted, so a hand-written `"api": "soniox-live"`
+  is honored as the explicit pin it is. An *invalid* value warns (as before) and
+  leaves the flag false, so the memory applies — both outcomes are "not what you
+  typed", and this is the friendlier one.
+- **"Configured" also means *in `personal_settings.json`*.** A `DEFAULT_API`
+  edited directly in `config.py` does not set the flag, so it loses to a
+  remembered engine and takes effect only when nothing is remembered. That
+  follows from the rule above rather than contradicting it: the only signal a
+  hand-edited constant could give is "differs from the built-in value", and
+  difference is exactly what this decision refuses to read as intent — a pin *on*
+  the built-in default must count. `defaults.api` is the documented, detectable
+  control, so the docs (README, `README.de`, `llms-install.md`) point there for a
+  startup engine that outranks the memory and mention the constant as the weaker
+  alternative.
+- **Only a real switch is recorded, and it is recorded always.** A successful
+  `Ctrl+Alt+L` writes the file; the startup carousel's fall-through never does —
+  it is an outage, not a choice, and persisting it would make the memory
+  self-reinforcing (one Soniox outage and you are on Groq forever). The write
+  happens even while a pin outranks it, so the file stays truthful and stays warm
+  if the pin is ever removed. The asymmetry that follows is deliberate: pressing
+  `Ctrl+Alt+L` *because* an engine is down still records the pick — a keypress is
+  intent, and the tool cannot tell "I want Groq now" from "I want Groq from now
+  on" — while the automatic fall-through, which the user never asked for, does not.
+- **A separate, tool-written state file.** `runtime_state.json` (gitignored,
+  beside `.env` and the log) keeps machine-written state apart from
+  user-authored config; reads and writes are best-effort, and a missing, corrupt,
+  or stale value falls back silently to the normal default chain. Both surfaces —
+  the running tool and the settings app — write it without coordinating: the write
+  is atomic, it carries one value, and the last writer wins, which is the honest
+  outcome when two windows disagree about the engine. Consistent with D-002's
+  no-coordination stance on the two apps sharing a folder.
+- **The settings app shows the effective engine, and only a *selection* changes
+  the file.** Its engine field would otherwise read `defaults.api` alone and so
+  name an engine the tool will not start on whenever a memory exists. It therefore
+  displays the pin, else the remembered engine, else the built-in default — and
+  distinguishes displaying from selecting.
+  **Displaying:** a save in which no engine was selected passes `default_api=None`
+  to `settings_io.write_personal_settings`, which now means *leave `defaults.api`
+  exactly as found* — not "write the loaded value back". That widened contract is
+  a data-safety rule, not a nicety: D-002's diff rule drops any value equal to
+  the built-in default, so re-writing an untouched field would silently delete a
+  hand-written `"api": "soniox-live"` pin on a save about hotkeys, and with a
+  memory present that flips the next start. Leaving the key alone likewise
+  preserves an *invalid* hand-typed value; the tool warns about it at every start,
+  which is the honest way to surface a typo, whereas deleting what the user wrote
+  on an unrelated save is not.
+  **Selecting:** an engine actually selected in this session — by the user, or by
+  #178's key-driven preselect in the first-run wizard, which selects visibly on
+  their behalf — is written as before *and* recorded as the last selected engine.
+  That second write is what makes picking the built-in default take effect at all,
+  since the diff rule drops a pin equal to it; the two surfaces always agree
+  afterwards.
+- **`(default)` in the console lineup names the *configured* default, not the next
+  start.** The marker stays keyed on `DEFAULT_API` — the engine the tool falls back
+  to — while the `>` row names the engine currently active, which after any switch
+  is also the one the next start will use. Two markers, two different facts; a
+  third one for "remembered" would crowd the lineup to repeat what the `>` row
+  already shows.
+
+Do not reintroduce: writing `personal_settings.json` from the running tool;
+persisting the carousel's fall-through engine; a "default"-worded fallback note on
+a start that never tried the default; a value-comparison test for "is a default
+configured"; writing an untouched engine field back to the file (it deletes pins);
+or a settings-app engine field that shows `defaults.api` alone.
+
+Respects D-002 — `settings_io.py` remains the only writer of `.env` and
+`personal_settings.json`; the settings app's new coupling to the state file is
+read-plus-record-on-pick through `engine_memory`, and it never clears the file.
+Does not touch D-001 or D-003 through D-007; the settings app's import chain stays
+stdlib-only, as D-005 requires.

@@ -119,7 +119,7 @@ The keys are your own — you sign up directly with the providers. Audio goes to
 
 **Soniox** (prepaid): sign up at [soniox.com](https://soniox.com) → in the console ([console.soniox.com](https://console.soniox.com)), top up a small prepaid balance (required before the API works) → create and copy a key → put it into the `SONIOX_API_KEY=` line of `.env`.
 
-Only a Groq key? Nothing to configure: startup automatically skips the Soniox entries, says so, and starts on the first available API. To start on Groq silently instead, set `DEFAULT_API = "groq-large"` in `config.py`.
+Only a Groq key? Nothing to configure: startup automatically skips the Soniox entries, says so, and starts on the first available API. To start on Groq silently instead, put `"api": "groq-large"` in the `defaults` block of `personal_settings.json` (below) — that is the one place that counts as *configured*, so it also outranks the engine Thoughtborne remembers from your last switch; `DEFAULT_API = "groq-large"` in `config.py` works too, but a remembered engine takes precedence over it.
 
 ## First run
 
@@ -150,7 +150,7 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | `Ctrl+Alt+Y` | Stop + transcribe only — insert later with `A` or `H` |
 | `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
-| `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
+| `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); the engine you switch to is remembered and starts the next session |
 | `Ctrl+Alt+6` | Open the recordings & transcripts folder (`history/`) in Explorer |
 | `Ctrl+Alt+G` | Open the settings app (G as in gear) |
 | `Ctrl+Alt+Ü` | Self-test: transcribe the bundled `test_audio.mp3` |
@@ -178,6 +178,8 @@ copy personal_settings.example.json personal_settings.json
 
 **Hotkeys & default engine (optional):** the key combinations and the engine selected at startup can be overridden in `personal_settings.json` without touching code — a `hotkeys` block (a partial override keyed by action name; F-keys `f1`–`f24` are allowed, including modifier-less ones like `f9`) and a `defaults` block (`"api"`, one of the four engines). `config.py` keeps the built-in defaults; a listed action or a valid `api` replaces it, and an unknown action, an unparseable combo, a collision, or an unknown engine is ignored with a warning in `thoughtborne.log` so the tool always starts. The `personal_settings.example.json` comments list the valid action names and the format.
 
+**The last engine is remembered (automatic):** independently of that block, Thoughtborne notes the engine you switch to with `Ctrl+Alt+L` and opens on it the next time it starts — no setting needed. It keeps that one value in `runtime_state.json` beside the log: written by the tool itself, not a settings file, and safe to delete (it comes back with your next switch). Only a switch you make yourself is remembered; when startup skips an engine because its key is missing, that is an outage rather than a choice and is never recorded. A `defaults.api` you set stays in charge — a deliberate pin outranks the memory, which only fills the gap where nothing is configured. The settings app agrees with all of this: its **Engine at startup** field shows what the tool will really open on — your `defaults.api` if you set one, otherwise the remembered engine — and an engine you pick there is saved *and* remembered, so the field and the next start never disagree. A field you leave alone changes nothing, whichever engine it happens to be showing.
+
 **Console out of the taskbar (optional):** Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Interaction**, turn both on:
 
 - "Hide Terminal in the notification area when it is minimized" (`minimizeToNotificationArea`) — minimizing then sends the window to the tray (the notification area) instead of the taskbar: the taskbar button disappears and everything keeps running, dictation included (it is hotkey-driven and works with the window hidden).
@@ -187,7 +189,7 @@ One-time detail: Windows first tucks a new tray icon into the overflow flyout (t
 
 **Settings in `config.py`:** the configuration is deliberately plain constants with comments. The ones most users touch:
 
-- `DEFAULT_API` — the API at startup (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); overridable without editing code in the `defaults` block of `personal_settings.json` (above).
+- `DEFAULT_API` — the API at startup when neither a `defaults` override nor a remembered engine applies (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); overridable without editing code in the `defaults` block of `personal_settings.json` (above).
 - `LANGUAGE` — default `"de"`. English works (`"en"`), but the artifact filters and tuning target German — honest expectations ([VISION.md](VISION.md)).
 - `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Avoid special characters like `#` and non-ASCII letters (the established `ü` is the known-good exception).
 

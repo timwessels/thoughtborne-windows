@@ -158,9 +158,10 @@ _EN = {
     "behavior.engine.heading": "Engine at startup",
     "behavior.engine.body": (
         "The transcription engine Thoughtborne starts on. While the tool runs, "
-        "Ctrl+Alt+L cycles through all four engines at any time — this setting "
-        "only picks the starting point. The engines differ mainly in speed versus "
-        "tidiness; the model lineup in the README has the details."),
+        "Ctrl+Alt+L cycles through all four engines at any time — and the engine "
+        "you switch to is remembered as the new starting point, so this field "
+        "shows it too. The engines differ mainly in speed versus tidiness; the "
+        "model lineup in the README has the details."),
     "engine.desc.soniox-live": "verbatim, instant",
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
@@ -392,10 +393,10 @@ _DE = {
     "behavior.engine.heading": "Engine beim Start",
     "behavior.engine.body": (
         "Die Transkriptions-Engine, mit der Thoughtborne startet. Im laufenden "
-        "Betrieb schaltet Ctrl+Alt+L jederzeit durch alle vier Engines — diese "
-        "Einstellung wählt nur den Startpunkt. Die Engines unterscheiden sich vor "
-        "allem in Tempo gegen Sauberkeit; Details in der Modell-Aufstellung im "
-        "README."),
+        "Betrieb schaltet Ctrl+Alt+L jederzeit durch alle vier Engines — und die "
+        "Engine, auf die man wechselt, wird als neuer Startpunkt gemerkt und "
+        "steht dann auch hier. Die Engines unterscheiden sich vor allem in Tempo "
+        "gegen Sauberkeit; Details in der Modell-Aufstellung im README."),
     "engine.desc.soniox-live": "wortgetreu, sofort fertig",
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",

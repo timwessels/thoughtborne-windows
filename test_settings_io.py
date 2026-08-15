@@ -16,9 +16,11 @@ What is covered:
   - settings_io.write_personal_settings / read_personal_settings: surgical merge
     (every unmanaged block + every _comment preserved), hotkeys written as a diff
     vs config.DEFAULT_HOTKEYS (default scheme -> no entries), defaults.api omitted
-    when it equals the built-in default, the absent-file minimal dict that must
-    NOT contain the example's placeholder vocabulary (a real data bug), and the
-    corrupt-JSON warning (not a crash).
+    when an ACTIVE pick equals the built-in default while `default_api=None` (the
+    untouched engine field) leaves the file's value exactly as found -- a
+    hand-written or even invalid pin included (#193, D-008), the absent-file
+    minimal dict that must NOT contain the example's placeholder vocabulary (a real
+    data bug), and the corrupt-JSON warning (not a crash).
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -684,6 +686,81 @@ def check_preselect():
               f"preselect: {token!r} is not in AVAILABLE_APIS")
 
 
+# ---- settings_io defaults.api merge (#193, D-008) ----------------------------
+def check_engine_pin(tmp):
+    """`default_api=None` means "the engine field was not touched": the file's
+    `defaults.api` is left exactly as found. Without that, an untouched save runs
+    the diff rule over a value the user hand-wrote and silently deletes a pin equal
+    to the built-in default -- which, with a remembered engine present, flips the
+    next start. An ACTIVE pick keeps the diff rule (that is what lets picking the
+    built-in default remove a pin at all)."""
+    # (a) untouched save leaves a pin ON the built-in default byte-identical.
+    p = tmp / "ps_pin_builtin.json"
+    original = {"defaults": {"_comment": "keep me", "api": config.BUILTIN_DEFAULT_API},
+                "vocabulary": {"terms": ["keepme"]}}
+    raw = json.dumps(original, indent=2, ensure_ascii=False) + "\n"
+    p.write_text(raw, encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ui_language=None)
+    check(p.read_text(encoding="utf-8") == raw,
+          "PIN-none: an untouched save did not leave the file byte-identical "
+          f"(a hand-written pin on the built-in default was rewritten): {p.read_text(encoding='utf-8')!r}")
+
+    # (b) untouched save preserves an INVALID api value. Deliberate: the tool warns
+    # about it at every start; deleting what the user typed, on a save about
+    # something else, is the worse behavior.
+    p = tmp / "ps_pin_invalid.json"
+    p.write_text(json.dumps({"defaults": {"api": "whisper-9000"}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ui_language=None)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "PIN-invalid: file did not reload as valid JSON")
+    check(data.get("defaults", {}).get("api") == "whisper-9000",
+          f"PIN-invalid: an untouched save destroyed a hand-typed value: {data.get('defaults')}")
+
+    # (c) untouched save keeps a normal pin, and creates no defaults block where
+    # the file has none (the no-pin, memory-decides case).
+    p = tmp / "ps_pin_other.json"
+    p.write_text(json.dumps({"defaults": {"api": "groq"}}, indent=2) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_fkeys(),
+                                default_api=None, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("defaults", {}).get("api") == "groq",
+          f"PIN-keep: an untouched save dropped an existing pin: {data.get('defaults')}")
+    check(data.get("hotkeys", {}).get("start_recording") == "f9",
+          "PIN-keep: the hotkeys diff was not written alongside the untouched engine")
+    p = tmp / "ps_pin_absent.json"
+    p.write_text(json.dumps({"vocabulary": {"terms": ["x"]}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check("defaults" not in data,
+          f"PIN-absent: an untouched save created a defaults block: {data.get('defaults')}")
+
+    # (d) an ACTIVE pick still decides -- overwrite, and remove on the built-in
+    # default (the path that makes picking Soniox Live in the app take effect).
+    p = tmp / "ps_pin_active.json"
+    p.write_text(json.dumps({"defaults": {"_comment": "c", "api": "groq"}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api="soniox", example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("defaults", {}).get("api") == "soniox",
+          f"PIN-active: an active pick did not overwrite the pin: {data.get('defaults')}")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=config.BUILTIN_DEFAULT_API,
+                                example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check("api" not in data.get("defaults", {}),
+          f"PIN-active: picking the built-in default did not remove the pin: {data.get('defaults')}")
+    check(data.get("defaults", {}).get("_comment") == "c",
+          "PIN-active: the defaults _comment was dropped with the pin")
+
+
 # ---- first-run mode decision (#163) ------------------------------------------
 def check_first_run_decision(tmp):
     # env_has_key: the shared key-presence predicate (also feeds the GUI's
@@ -741,6 +818,7 @@ def main():
         check_env(tmp)
         check_personal_settings(tmp)
         check_ui_language(tmp)
+        check_engine_pin(tmp)
         check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]

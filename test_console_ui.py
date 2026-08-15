@@ -156,6 +156,10 @@ PATHS = [  # the four real checkout depths (Finalisierung 1.10)
 ]
 NOTE_SHORT = "SONIOX_API_KEY missing -> started on Groq Whisper Turbo v3 (default: Soniox Live)"
 NOTE_LONG = "default API 'soniox-live' unavailable -> started on Groq Whisper Turbo v3 (default: Soniox Live)"
+# #193: a remembered start that falls through says "last used", never "default" --
+# a representative long variant of that wording (engine ids differ in length, so
+# this is not the maximum, just long enough to exercise the note's width path).
+NOTE_LAST_USED = "last used API 'groq-large' unavailable -> started on Soniox Live (last used: Groq Whisper Large v3)"
 
 
 def run(name, fn, kwargs, *, stress=False):
@@ -598,7 +602,7 @@ def main():
         model = API_DISPLAY[api]["label"]
         lineup = lineup_for(api)
 
-        for note in (None, NOTE_SHORT, NOTE_LONG):
+        for note in (None, NOTE_SHORT, NOTE_LONG, NOTE_LAST_USED):
             for path in PATHS:
                 run("masthead", u.render_masthead, dict(
                     lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=path + r"\history",

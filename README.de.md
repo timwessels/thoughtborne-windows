@@ -119,7 +119,7 @@ Die Keys gehören einem selbst — die Anmeldung läuft direkt beim Anbieter. Au
 
 **Soniox** (Prepaid): Auf [soniox.com](https://soniox.com) registrieren → in der Console ([console.soniox.com](https://console.soniox.com)) ein kleines Prepaid-Guthaben aufladen (nötig, bevor die API funktioniert) → Key erstellen und kopieren → in die Zeile `SONIOX_API_KEY=` der `.env` eintragen.
 
-Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträge automatisch, sagt es dazu und startet auf der ersten verfügbaren API. Wer stattdessen ohne diese Hinweise direkt auf Groq starten will, stellt in `config.py` `DEFAULT_API = "groq-large"` ein.
+Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträge automatisch, sagt es dazu und startet auf der ersten verfügbaren API. Wer stattdessen ohne diese Hinweise direkt auf Groq starten will, trägt `"api": "groq-large"` in den `defaults`-Block der `personal_settings.json` ein (unten) — nur das gilt als *konfiguriert* und schlägt damit auch die Engine, die sich Thoughtborne vom letzten Wechsel gemerkt hat; `DEFAULT_API = "groq-large"` in der `config.py` funktioniert ebenfalls, hat gegenüber einer gemerkten Engine aber das Nachsehen.
 
 ## Der erste Start
 
@@ -150,7 +150,7 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 | `Ctrl+Alt+Y` | Stopp + nur transkribieren — später mit `A` oder `H` einfügen |
 | `Ctrl+Alt+X` | Aufnahme abbrechen (nichts wird eingefügt) |
 | `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen (aus der archivierten Aufnahme) |
-| `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3) |
+| `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); die gewählte Engine wird gemerkt und startet beim nächsten Mal |
 | `Ctrl+Alt+6` | Den Ordner mit Aufnahmen & Transkripten (`history/`) im Explorer öffnen |
 | `Ctrl+Alt+G` | Die Einstellungs-App öffnen (Zahnrad) |
 | `Ctrl+Alt+Ü` | Selbsttest: die mitgelieferte `test_audio.mp3` transkribieren |
@@ -178,6 +178,8 @@ copy personal_settings.example.json personal_settings.json
 
 **Hotkeys & Standard-Engine (optional):** Die Tastenkombinationen und die beim Start gewählte Engine lassen sich in der `personal_settings.json` überschreiben, ohne Code zu ändern — ein `hotkeys`-Block (Teil-Überschreibung nach Aktionsnamen; F-Tasten `f1`–`f24` sind erlaubt, auch modifier-lose wie `f9`) und ein `defaults`-Block (`"api"`, eine der vier Engines). `config.py` behält die eingebauten Defaults; eine gelistete Aktion oder eine gültige `api` ersetzt sie, und eine unbekannte Aktion, eine nicht parsbare Kombination, eine Kollision oder eine unbekannte Engine wird mit einer Warnung in `thoughtborne.log` ignoriert, sodass das Tool immer startet. Die Kommentare in `personal_settings.example.json` listen die gültigen Aktionsnamen und das Format.
 
+**Die zuletzt gewählte Engine wird gemerkt (automatisch):** Unabhängig von diesem Block merkt sich Thoughtborne, auf welche Engine per `Ctrl+Alt+L` gewechselt wurde, und startet beim nächsten Mal darauf — ganz ohne Einstellung. Festgehalten wird dieser eine Wert in `runtime_state.json` neben dem Log: vom Tool selbst geschrieben, keine Einstellungsdatei und gefahrlos löschbar (beim nächsten Wechsel steht sie wieder da). Gemerkt wird nur ein selbst ausgelöster Wechsel; überspringt der Start eine Engine, weil deren Key fehlt, ist das eine Störung und keine Entscheidung — und wird nie festgehalten. Eine selbst gesetzte `defaults.api` behält das letzte Wort: Die bewusste Festlegung schlägt das Gedächtnis, das nur dort einspringt, wo nichts konfiguriert ist. Die Einstellungs-App passt dazu: Ihr Feld **Engine beim Start** zeigt, worauf das Tool wirklich startet — die selbst gesetzte `defaults.api`, sonst die gemerkte Engine — und was man dort auswählt, wird gespeichert *und* gemerkt, sodass Feld und nächster Start nie auseinanderlaufen. Rührt man das Feld nicht an, ändert sich nichts, welche Engine auch immer gerade darin steht.
+
 **Konsole aus der Taskleiste (optional):** Thoughtborne läuft in einem Konsolenfenster, das wie jedes andere in der Taskleiste sitzt. Um es aus dem Weg zu räumen — läuft weiter, ein Klick zurück —, wenn dieses Fenster in **Windows Terminal** läuft (dem Standard-Konsolenhost auf aktuellem Windows 11), erledigen das zwei von Terminals eigenen Einstellungen, ohne Zusatz-Tool und ohne Admin-Rechte. Terminals Einstellungen öffnen (`Ctrl+,`) und unter **Interaktion** beide aktivieren:
 
 - „Terminal bei Minimierung im Infobereich ausblenden" (`minimizeToNotificationArea`) — Minimieren schickt das Fenster dann in den Infobereich (den System-Tray) statt in die Taskleiste: Der Taskleisten-Button verschwindet und alles läuft weiter, das Diktieren eingeschlossen (es ist hotkey-gesteuert und funktioniert bei verstecktem Fenster).
@@ -187,7 +189,7 @@ Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf
 
 **Einstellungen in `config.py`:** Die Konfiguration besteht bewusst aus einfachen Konstanten mit Kommentaren. Was die meisten anpassen:
 
-- `DEFAULT_API` — die API beim Start (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); ohne Code-Änderung überschreibbar im `defaults`-Block der `personal_settings.json` (oben).
+- `DEFAULT_API` — die API beim Start, wenn weder eine `defaults`-Überschreibung noch eine gemerkte Engine greift (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); ohne Code-Änderung überschreibbar im `defaults`-Block der `personal_settings.json` (oben).
 - `LANGUAGE` — Default `"de"`. Englisch funktioniert (`"en"`), aber Artefakt-Filter und Tuning zielen auf Deutsch — ehrliche Erwartungen ([VISION.md](VISION.md)).
 - `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden (das etablierte `ü` ist die erprobte Ausnahme).
 

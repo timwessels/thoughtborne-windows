@@ -14,8 +14,12 @@ rewrite.
     never clobbers a stored key.
   - `personal_settings.json` keeps every unmanaged block and every `_comment`
     untouched; hotkeys are written as a diff against `config.DEFAULT_HOTKEYS` (the
-    default scheme writes no hotkey entries) and `defaults.api` only when it
-    differs from `config.BUILTIN_DEFAULT_API`. On an absent file only the managed
+    default scheme writes no hotkey entries). `defaults.api` is written on demand
+    (#193, D-008): a `default_api` string is an active pick and is written only
+    when it differs from `config.BUILTIN_DEFAULT_API`, while `default_api=None`
+    means the engine field was never selected in and leaves the file's value
+    exactly as found -- otherwise an unrelated save would delete a hand-written
+    pin naming the built-in default. On an absent file only the managed
     blocks are written -- NEVER the example's placeholder `vocabulary` (its dummy
     terms would otherwise become live Soniox vocabulary, a real data bug). The
     GUI-only `ui` block (the settings app's own display language, #144) is a third
@@ -298,7 +302,7 @@ def _managed_skeleton(example_path) -> dict:
     return skeleton
 
 
-def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
+def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
                             example_path=None, ui_language=None) -> None:
     """Merge-write. Load the existing dict (or build a minimal skeleton from the
     managed blocks' example `_comment` leads -- never the placeholder vocabulary).
@@ -306,9 +310,13 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
       - hotkeys: the diff of `hotkeys_effective` vs `config.DEFAULT_HOTKEYS` in
         #55's partial-override shape; an empty diff leaves only the block's
         `_comment` (or drops the block). A leading `_comment` is preserved.
-      - defaults.api: set only if `default_api` differs from
-        `config.BUILTIN_DEFAULT_API`; else the key is dropped (any sibling keys +
-        `_comment` in `defaults` stay).
+      - defaults.api (on demand, like ui.language below): `default_api=None` means
+        "no engine was picked this save" and leaves the file's `defaults.api`
+        exactly as found -- untouched, unread, uncorrected (#193, D-008). A real
+        engine id is an ACTIVE pick: written when it differs from
+        `config.BUILTIN_DEFAULT_API`, else the key is dropped -- so actively
+        picking the built-in default still removes a pin. Any sibling keys +
+        `_comment` in `defaults` stay either way.
       - ui.language (#144, GUI-only): written ONLY when `ui_language` is `"de"` or
         `"en"`. `ui_language=None` leaves any `ui` block exactly as found (and
         creates none), so a user who never toggled the language keeps a clean file.
@@ -344,17 +352,25 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api: str,
     else:
         data.pop("hotkeys", None)
 
-    # ---- defaults.api: written only when it differs from the built-in ---------
-    def_block = data.get("defaults")
-    new_def = dict(def_block) if isinstance(def_block, dict) else {}
-    if default_api and default_api != config.BUILTIN_DEFAULT_API:
-        new_def["api"] = default_api
-    else:
-        new_def.pop("api", None)
-    if new_def:
-        data["defaults"] = new_def
-    else:
-        data.pop("defaults", None)
+    # ---- defaults.api: on demand; an active pick writes, None leaves as found --
+    # None is the "engine field untouched" case (#193, D-008). The diff rule below
+    # drops any value equal to the built-in default, so applying it to a value the
+    # user never touched would silently delete a hand-written `"api": "soniox-live"`
+    # pin on an unrelated save -- and with a remembered engine present that would
+    # change the next start. Leaving the key alone also preserves an INVALID value
+    # (deliberate: the tool warns about it at every start, which is the honest way
+    # to surface a typo -- deleting what the user typed is not).
+    if default_api is not None:
+        def_block = data.get("defaults")
+        new_def = dict(def_block) if isinstance(def_block, dict) else {}
+        if default_api and default_api != config.BUILTIN_DEFAULT_API:
+            new_def["api"] = default_api
+        else:
+            new_def.pop("api", None)
+        if new_def:
+            data["defaults"] = new_def
+        else:
+            data.pop("defaults", None)
 
     # ---- ui.language: GUI-only, written only on demand (#144) ------------------
     # None -> leave any existing `ui` block exactly as found (and create none), so
