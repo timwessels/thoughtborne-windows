@@ -19,6 +19,7 @@ FAIL print, non-zero exit on failure.
 """
 import re
 import sys
+import xml.etree.ElementTree as ET
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -299,6 +300,19 @@ def test_wsb_logoncommand_waits_for_mount():
         "LogonCommand lacks the mapped-folder mount-wait poll loop -- races the mount, no verdict"
 
 
+def test_wsb_well_formed_xml():
+    # Drift alarm (#181): the committed .wsb must be well-formed XML. The current
+    # Windows Sandbox Store app parses it with a strict parser and rejects invalid
+    # XML -- e.g. a `--` inside a comment, which XML forbids -- reporting the
+    # rejection only as a GUI dialog that an automated/scripted run never sees, so
+    # the sandbox never boots and the run stays verdictless. expat (stdlib
+    # ElementTree) enforces the same rules, so a real parse here catches it in-test.
+    try:
+        ET.parse(str(REPO / WSB))
+    except ET.ParseError as e:
+        raise AssertionError(f"sandbox .wsb is not well-formed XML: {e}")
+
+
 def test_sandbox_scripts_ascii():
     # House style: every committed sandbox script stays ASCII / no BOM, like setup.ps1.
     for name in (VERIFY, LAUNCHER, WSB):
@@ -355,6 +369,7 @@ CASES = [
     test_wsb_template_portable,
     test_wsb_networking_default,
     test_wsb_logoncommand_waits_for_mount,
+    test_wsb_well_formed_xml,
     test_sandbox_scripts_ascii,
     test_sandbox_launcher_present_and_safe,
     test_verify_threads_version,
