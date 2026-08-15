@@ -85,7 +85,7 @@
       <div class="shot-frame">
         <img src="assets/screenshot-terminal.png" alt="Thoughtborne im Terminal: das API-Karussell mit den vier Engines und darunter die Hotkey-Leiste.">
       </div>
-      <p class="shot-cap"><strong>Bedient wird komplett per Tastenkürzel.</strong> Das Terminal ist kein Bedienfenster, sondern die Anzeige: Es zeigt, welche Engine gerade aktiv ist, welche Tasten belegt sind und was zuletzt passiert ist. Geklickt wird nichts.</p>
+      <p class="shot-cap"><strong>Bedient wird per Tastenkürzel.</strong> Das Terminal ist kein Bedienfenster, sondern die Anzeige: Es zeigt, welche Engine gerade aktiv ist, welche Tasten belegt sind und was zuletzt passiert ist. Hier wird nichts geklickt — die einzige Ausnahme ist ein kleines Fenster für die Einstellungen.</p>
     </div>
   </section>
 
@@ -169,7 +169,7 @@
           <p class="arg-lead">Du bringst eigene API-Keys mit und zahlst nur, was du verbrauchst — ein Bruchteil der 12–15 $/Monat der Abo-Tools.</p>
           <ul class="arg-evidence">
             <li><strong>Groq-Free-Tier als echter Dauerbetriebsweg</strong>, kein Trial: bis zu ~8 Stunden Audio am Tag.</li>
-            <li>Soniox: $0,12 pro Stunde Audio, Prepaid, ab der ersten Minute.</li>
+            <li>Soniox: $0,12 pro Stunde Audio, Prepaid.</li>
             <li><strong>~3 $/Monat gemessen, nicht geschätzt</strong> — der Maintainer bei ~25 h Audio im Monat.</li>
           </ul>
         </article>
@@ -181,7 +181,7 @@
           <ul class="arg-evidence">
             <li>Audio geht <strong>nur an die von dir gewählte API</strong>, sonst nirgendwohin. Archiv liegt lokal auf deiner Platte.</li>
             <li><strong>Kein Training auf deinen Daten</strong> ist hartes Aufnahmekriterium — APIs ohne Opt-out fliegen raus.</li>
-            <li>Open Source, ein lesbares Skript: <strong>selbst nachlesen statt glauben.</strong></li>
+            <li>Open Source, gut lesbarer Code: <strong>selbst nachlesen statt glauben.</strong></li>
           </ul>
         </article>
 
@@ -271,7 +271,7 @@
         </div>
         <div>
           <dt><span class="fig-num">$0,12</span> <span class="fig-unit">pro Stunde Audio</span></dt>
-          <dd><strong>Der Soniox-Default.</strong> Kein Free-Tier: ein kleines Prepaid-Guthaben aufladen und ab der ersten Minute nur zahlen, was du wirklich transkribierst.</dd>
+          <dd><strong>Der Soniox-Default.</strong> Kein Free-Tier: ein kleines Prepaid-Guthaben aufladen und nur zahlen, was du wirklich transkribierst.</dd>
         </div>
         <div>
           <dt><span class="fig-num">~3 $</span> <span class="fig-unit">pro Monat, Vielnutzung</span></dt>
@@ -300,8 +300,8 @@
         <div class="aud-not">
           <h3>Eher nicht, wenn du …</h3>
           <ul>
-            <li>ein poliertes GUI-Produkt mit Onboarding-Assistent erwartest.</li>
-            <li>keine Lust auf ein Terminal-Fenster hast — Thoughtborne läuft aus der Konsole, nicht hinter einer Oberfläche.</li>
+            <li>ein poliertes GUI-Produkt erwartest.</li>
+            <li>keine Lust auf ein Terminal-Fenster hast, das immer offen bleibt.</li>
             <li>lieber ein Abo zahlst, als selbst einen API-Key einzutragen.</li>
           </ul>
         </div>
@@ -315,7 +315,8 @@
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Loslegen</h2>
       <p>Windows, ein Mikrofon und mindestens ein API-Key — Groqs Free-Tier reicht. Das Setup liegt im Repo: der Standardweg über <strong>uv</strong>, ein geführtes Setup für <strong>KI-Coding-Agents</strong> (<code>llms-install.md</code>) und ein klassischer pip-Fallback.</p>
-      <p>Thoughtborne ist ein einzelnes Python-Skript, kein installiertes Produkt — schlank, von vorne bis hinten lesbar, leicht anzupassen. Der Kompromiss: es läuft aus einem Terminal-Fenster, nicht hinter einer GUI.</p>
+      <p>Ein API-Key ist eine Art persönliches Passwort, mit dem sich Thoughtborne bei einem Transkriptionsdienst anmeldet — du erstellst ihn dir beim Anbieter und trägst ihn in eine Textdatei ein. Bei Groq ist das kostenlos: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
+      <p>Der Code ist schlank und von vorne bis hinten lesbar — leicht anzupassen, wenn du das möchtest.</p>
       <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
            becomes the first option in this section; the download + GitHub pointers below
            move after it. -->

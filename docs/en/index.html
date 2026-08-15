@@ -85,7 +85,7 @@
       <div class="shot-frame">
         <img src="../assets/screenshot-terminal.png" alt="Thoughtborne in the terminal: the API carousel with the four engines and the hotkey bar below it.">
       </div>
-      <p class="shot-cap"><strong>It is operated entirely by keyboard shortcut.</strong> The terminal is not a control window but a display: it shows which engine is currently active, which keys are bound, and what happened last. Nothing is clicked.</p>
+      <p class="shot-cap"><strong>It is operated by keyboard shortcut.</strong> The terminal is not a control window but a display: it shows which engine is currently active, which keys are bound, and what happened last. Nothing here is clicked — the one exception is a small window for the settings.</p>
     </div>
   </section>
 
@@ -169,7 +169,7 @@
           <p class="arg-lead">You bring your own API keys and pay only for what you use — a fraction of the $12–15/month of the subscription tools.</p>
           <ul class="arg-evidence">
             <li><strong>Groq's free tier as a genuine everyday path</strong>, not a trial: up to ~8 hours of audio a day.</li>
-            <li>Soniox: $0.12 per hour of audio, prepaid, from the first minute.</li>
+            <li>Soniox: $0.12 per hour of audio, prepaid.</li>
             <li><strong>~$3/month, measured, not estimated</strong> — the maintainer at ~25 h of audio a month.</li>
           </ul>
         </article>
@@ -181,7 +181,7 @@
           <ul class="arg-evidence">
             <li>Audio goes <strong>only to the API you choose</strong>, nowhere else. The archive sits locally on your disk.</li>
             <li><strong>No training on your data</strong> is a hard inclusion criterion — APIs without an opt-out are dropped.</li>
-            <li>Open source, one readable script: <strong>read it yourself instead of believing.</strong></li>
+            <li>Open source, readable code: <strong>read it yourself instead of believing.</strong></li>
           </ul>
         </article>
 
@@ -271,7 +271,7 @@
         </div>
         <div>
           <dt><span class="fig-num">$0.12</span> <span class="fig-unit">per hour of audio</span></dt>
-          <dd><strong>The Soniox default.</strong> No free tier: top up a small prepaid balance and pay, from the first minute, only for what you actually transcribe.</dd>
+          <dd><strong>The Soniox default.</strong> No free tier: top up a small prepaid balance and pay only for what you actually transcribe.</dd>
         </div>
         <div>
           <dt><span class="fig-num">~$3</span> <span class="fig-unit">per month, heavy use</span></dt>
@@ -300,8 +300,8 @@
         <div class="aud-not">
           <h3>Probably not if you …</h3>
           <ul>
-            <li>expect a polished GUI product with an onboarding wizard.</li>
-            <li>have no appetite for a terminal window — Thoughtborne runs from the console, not behind a UI.</li>
+            <li>expect a polished GUI product.</li>
+            <li>have no appetite for a terminal window that stays open.</li>
             <li>would rather pay a subscription than enter an API key yourself.</li>
           </ul>
         </div>
@@ -315,7 +315,8 @@
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Get started</h2>
       <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The setup lives in the repo: the standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
-      <p>Thoughtborne is a single Python script, not an installed product — lean, readable front to back, easy to adapt. The trade-off: it runs from a terminal window, not behind a GUI.</p>
+      <p>An API key is a kind of personal password that lets Thoughtborne sign in to a transcription service — you create it at the provider and paste it into a text file. Groq's is free: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
+      <p>The code is lean and readable front to back — easy to adapt if you want to.</p>
       <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
            becomes the first option in this section; the download + GitHub pointers below
            move after it. -->
