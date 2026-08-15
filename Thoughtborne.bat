@@ -11,6 +11,23 @@ rem (CP850/CP437) garbles non-ASCII characters.
 rem ----------------------------------------------------------------------
 
 pushd "%~dp0"
+
+rem ZIP-lane guard (#188): the release ZIP (git archive, D-006) unpacks this
+rem file beside setup.bat, so double-clicking Thoughtborne.bat in a download
+rem folder runs a misplaced copy that scatters its own .venv/history/.env there.
+rem Warn, but fail-open -- one keypress continues. The two legitimate contexts
+rem stay silent: an installed copy also has no .git and has setup.bat beside it,
+rem so only the install-dir match (cond 1) exempts it; a git clone, its .git.
+if /I not "%~dp0"=="%LOCALAPPDATA%\Programs\Thoughtborne\" if not exist "%~dp0.git\" if exist "%~dp0setup.bat" (
+    echo.
+    echo This folder looks like a download folder, not an installed copy.
+    echo To INSTALL Thoughtborne, close this window and run setup.bat instead.
+    echo It installs to %LOCALAPPDATA%\Programs\Thoughtborne with Start-menu entries.
+    echo.
+    echo To just run Thoughtborne from here, press any key to continue.
+    pause >nul
+)
+
 set "UV_CMD=uv"
 
 where uv >nul 2>nul

@@ -45,7 +45,10 @@ _BOMS = (b"\xef\xbb\xbf", b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff",
 # ======================================================================
 
 def test_ascii_only_no_bom():
-    for name in ("setup.ps1", "setup.bat"):
+    # Thoughtborne.bat joins the installer scripts here because the #188 ZIP-lane
+    # guard adds new echo/comment text to it, and the cmd default codepage garbles
+    # non-ASCII (see the file's own header comment).
+    for name in ("setup.ps1", "setup.bat", "Thoughtborne.bat"):
         data = read_bytes(name)
         for bom in _BOMS:
             assert not data.startswith(bom), f"{name}: starts with a BOM ({bom!r})"
@@ -155,6 +158,33 @@ def test_launcher_astral_fallback():
             f"{name}: no Astral per-user uv fallback ({astral})"
 
 
+def test_zip_lane_guard():
+    # #188: a fail-open guard at the top of Thoughtborne.bat warns when the tool is
+    # launched from an unpacked release ZIP (git archive = a clone minus .git) sitting
+    # in a download folder next to setup.bat, so its .venv/history/.env do not scatter
+    # there. Static drift alarm for the three AND-chained conditions, a pause, and the
+    # fail-open structure (the guard jumps nowhere). That installed copies and git
+    # clones actually stay silent is behavior for the sandbox / hands-on lane.
+    text = read_text("Thoughtborne.bat")
+    m = re.search(r'(if /I not "%~dp0".*?\n\))', text, re.S)
+    assert m, "no ZIP-lane guard if-block found in Thoughtborne.bat"
+    guard = m.group(1)
+    # the three detection components, AND-chained on the if line
+    assert r'"%LOCALAPPDATA%\Programs\Thoughtborne\"' in guard, \
+        r"guard does not compare against the install dir %LOCALAPPDATA%\Programs\Thoughtborne"
+    assert r'if not exist "%~dp0.git\"' in guard, \
+        "guard does not check for an absent .git directory"
+    assert r'if exist "%~dp0setup.bat"' in guard, \
+        "guard does not check for setup.bat sitting beside it"
+    # it pauses so the note is readable, then continues
+    assert "pause" in guard, "guard does not pause for the note to be read"
+    # fail-open: the guard block must never abort -- no exit, no goto out of it
+    assert not re.search(r"\bexit\b", guard, re.I), \
+        "guard contains an 'exit' -- it must fail open (one keypress continues)"
+    assert "goto" not in guard.lower(), \
+        "guard contains a 'goto' -- it must fall through, never jump away"
+
+
 def test_setup_bat_wrapper():
     text = read_text("setup.bat")
     assert "%~dp0setup.ps1" in text, "setup.bat does not invoke the co-located setup.ps1"
@@ -219,6 +249,7 @@ CASES = [
     test_shortcuts,
     test_no_secret_collection,
     test_launcher_astral_fallback,
+    test_zip_lane_guard,
     test_setup_bat_wrapper,
     test_setup_bat_error_handling,
     test_setup_ps1_bat_lane_exit_signal,
