@@ -5,18 +5,23 @@
     sandbox/README.md.
 
     PORTABLE TEMPLATE -- do NOT hand-edit the mapped host-folder line below. It
-    holds the placeholder token SANDBOX_HOSTFOLDER_ABS_PATH on purpose: the host
-    launcher run-sandbox.ps1 copies this file to %TEMP% at run time and there
-    substitutes the real absolute path of this "sandbox" folder (Windows Sandbox
-    needs an absolute host path and does not expand environment variables). The
-    tracked file stays a placeholder so it never carries a machine-specific path.
+    holds a placeholder token on purpose: the host launcher run-sandbox.ps1
+    copies this file to %TEMP% at run time and there substitutes the real
+    absolute path of this "sandbox" folder for that token (Windows Sandbox needs
+    an absolute host path and does not expand environment variables). The tracked
+    file stays a placeholder so it never carries a machine-specific path.
 
     The mapped folder carries the harness in, the throwaway key file in, and the
     logs/screenshots out (ReadOnly=false). The LogonCommand is argument-free here
     (defaults to 'local' mode if this template is ever launched by hand);
     run-sandbox.ps1 appends -Mode/-Version to the %TEMP% copy it generates.
   -->
-  <Networking>Enable</Networking>
+  <!-- Default, NOT Enable: on the current Windows Sandbox Store app (Build
+       26200+) the Enable value breaks the LogonCommand and the mapped-folder
+       writeback (the sandbox boots but never reports a verdict), while Default
+       enables networking the same way without the bug -- verified #181 with a
+       host-visible echo + HTTPS probe. Do not change Default back to Enable. -->
+  <Networking>Default</Networking>
   <MappedFolders>
     <MappedFolder>
       <HostFolder>SANDBOX_HOSTFOLDER_ABS_PATH</HostFolder>

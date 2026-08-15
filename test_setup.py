@@ -268,6 +268,20 @@ def test_wsb_template_portable():
         f".wsb host folder is {host!r}, expected placeholder {WSB_HOST_PLACEHOLDER!r}"
 
 
+def test_wsb_networking_default():
+    # Drift alarm for the #181 E2E finding: the committed .wsb must declare
+    # Networking=Default, never Enable. On the current Windows Sandbox Store app,
+    # Enable silently breaks the LogonCommand / mapped-folder writeback (the sandbox
+    # boots but never writes a verdict back to the host); Default gives the same
+    # networking without the bug. A revert to Enable would reintroduce a verdictless,
+    # hard-to-diagnose failure -- fail loudly here.
+    wsb = read_text(WSB)
+    assert "<Networking>Default</Networking>" in wsb, \
+        "sandbox .wsb must declare <Networking>Default</Networking>"
+    assert "<Networking>Enable</Networking>" not in wsb, \
+        "sandbox .wsb declares Enable networking -- breaks the mapped-folder writeback on the current Store app; use Default"
+
+
 def test_sandbox_scripts_ascii():
     # House style: every committed sandbox script stays ASCII / no BOM, like setup.ps1.
     for name in (VERIFY, LAUNCHER, WSB):
@@ -322,6 +336,7 @@ CASES = [
     test_inplace_wrapper_protected,
     test_gitignore_covers_sandbox_secrets,
     test_wsb_template_portable,
+    test_wsb_networking_default,
     test_sandbox_scripts_ascii,
     test_sandbox_launcher_present_and_safe,
     test_verify_threads_version,
