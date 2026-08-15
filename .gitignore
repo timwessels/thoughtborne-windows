@@ -74,6 +74,7 @@ _research/
 _speedtest/
 _temp-claudecode/
 _tools/
+_werkbank/
 .claude/
 
 # Windows-Sandbox install harness (#76). temp.env holds a REAL throwaway API key
