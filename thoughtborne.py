@@ -39,6 +39,7 @@ from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 # Import our modules
 import console_ui
 import engine_memory
+import restart_signal
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
@@ -561,6 +562,9 @@ class ThoughtborneApp:
             # configured. A missing, corrupt, or stale state file reads as None
             # and the normal default chain applies.
             self._state_path = engine_memory.state_path(SCRIPT_DIR)
+            # Settings-app restart signal (#202): the recording loop polls this path
+            # ~1 Hz and, on sight, runs the same clean shutdown as the exit hotkey.
+            self._restart_signal_path = restart_signal.signal_path(SCRIPT_DIR)
             remembered = engine_memory.read_last_engine(self._state_path, AVAILABLE_APIS)
             self._start_api, self._start_api_source = engine_memory.resolve_startup_engine(
                 remembered=remembered,
@@ -2241,13 +2245,15 @@ class ThoughtborneApp:
             logger.error(f"Could not save the running recording ({reason}): {e}.{kept}")
             return None
 
-    def stop_program(self):
-        """Stop the program"""
+    def stop_program(self, salvage_reason="exit hotkey"):
+        """Stop the program. `salvage_reason` labels the salvage log line so a
+        restart-driven shutdown (#202) reads truthfully, defaulting to the exit
+        hotkey for every existing caller."""
         logger.info("Program exit requested", extra=FILE_ONLY)
 
         # Salvage an in-flight recording before any teardown (#49): exiting
         # mid-recording used to discard the audio -- the original incident.
-        self._salvage_active_recording("exit hotkey")
+        self._salvage_active_recording(salvage_reason)
 
         # Set running flag to false
         self.running = False
@@ -2285,6 +2291,7 @@ class ThoughtborneApp:
         _priority_token = _elevate_capture_thread_priority()
         loop_counter = 0
         last_log_time = 0
+        last_signal_check = 0.0
 
         while self.running:
             loop_counter += 1
@@ -2312,6 +2319,25 @@ class ThoughtborneApp:
             if current_time - last_log_time > 60.0:
                 logger.debug(f"Recording loop alive - Counter: {loop_counter}, is_recording: {self.audio_recorder.is_recording}")
                 last_log_time = current_time
+
+            # Settings-app restart request (#202), checked ~1 Hz on the MONOTONIC
+            # clock -- like the wedge tick above, not the wall-clock heartbeat -- so a
+            # backwards clock jump (VM resume, manual correction) can neither stall the
+            # poll (leaving the settings app to time out on a healthy tool) nor race it.
+            # Consume (atomic delete) then run the same clean shutdown as the exit
+            # hotkey: the shutdown fires ONLY when this check actually removed the
+            # file, so nothing can double-trigger. Runs whether or not a recording is
+            # in flight -- the spec accepts the mid-recording case, salvage rescues the
+            # audio and R re-transcribes after the restart (D-001). Not FILE_ONLY: one
+            # calm console line before the window closes is the honest trace.
+            now_mono = time.monotonic()
+            if now_mono - last_signal_check > 1.0:
+                last_signal_check = now_mono
+                if restart_signal.consume_restart_signal(self._restart_signal_path):
+                    logger.info("Restart requested by the settings app -- shutting down "
+                                "for the relaunch")
+                    self.stop_program(salvage_reason="restart request")
+                    continue    # self.running is now False; the while condition ends the loop
 
             # Process audio chunks while recording
             if self.audio_recorder.is_recording:
@@ -3001,7 +3027,9 @@ def _second_instance_running() -> bool:
         # instance), and session-scoped (no Global\ prefix): it matches the
         # session/desktop scope of global hotkeys, so two Windows users each keep
         # their own instance while the same-session elevation pair is still caught.
-        name = "Thoughtborne-SingleInstance"
+        # The name lives in restart_signal (single source) so the settings app's
+        # #202 liveness probe can never drift from what we create here.
+        name = restart_signal.TOOL_MUTEX_NAME
         ctypes.set_last_error(0)        # make the get_last_error() below self-contained
         handle = kernel32.CreateMutexW(ctypes.byref(sa), False, name)
         err = ctypes.get_last_error()   # read immediately (use_last_error=True)
@@ -3064,6 +3092,16 @@ def main():
     # via push-to-talk. Shows a calm notice, then exits 0.
     if _second_instance_running():
         _refuse_second_instance()   # renders the notice, then sys.exit(0)
+
+    # Stale restart-signal guard (#202): clear any leftover signal before the
+    # recording loop can honor it. Placed right after the instance guard, for three
+    # reasons: a refused second instance exits above, so it can never eat a live
+    # instance's signal; the loop that honors the signal starts far below in run();
+    # and it is load-bearing beyond the dead-run case -- if the user exits the tool
+    # manually in the ~1 s before the loop consumes a fresh signal, the settings app
+    # relaunches and THIS clear stops the new instance from shutting itself back down.
+    if restart_signal.consume_restart_signal(restart_signal.signal_path(SCRIPT_DIR)):
+        logger.info("Stale restart signal cleared at startup", extra=FILE_ONLY)
 
     # Map Ctrl+Break to KeyboardInterrupt instead of instant process death so
     # the run()-finally -> cleanup() path can salvage an active recording

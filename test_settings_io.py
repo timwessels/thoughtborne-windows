@@ -935,6 +935,45 @@ def check_engine_save_signal():
           "signal: REMOVE must never coincide with a memory write")
 
 
+# ---- save-action decision (#202) ---------------------------------------------
+def check_save_action():
+    """resolve_save_action across all 8 combinations of (first_run, has_key,
+    tool_running). Each token maps 1:1 to a btn.* key and to _save's behavior; the
+    decision is pure so the whole table is off-Windows tested (the GUI is hands-on)."""
+    R = sio.resolve_save_action
+    table = [
+        # first_run, has_key, tool_running -> token
+        (True,  True,  True,  "save_restart"),   # wizard, keyed, running -> restart (#200 shop window)
+        (True,  True,  False, "save_start"),     # wizard, keyed, not running -> launch (#178)
+        (True,  False, True,  "save_close"),     # wizard, keyless, running -> close (no keyless relaunch loop)
+        (True,  False, False, "save_close"),     # wizard, keyless, not running -> close (#178)
+        (False, True,  True,  "save_restart"),   # everyday, keyed, running -> restart
+        (False, True,  False, "save"),           # everyday, keyed, not running -> plain save
+        (False, False, True,  "save"),           # everyday, keyless, running -> plain save (degenerate)
+        (False, False, False, "save"),           # everyday, keyless, not running -> plain save
+    ]
+    seen = set()
+    for first_run, has_key, running, expected in table:
+        got = R(first_run=first_run, has_key=has_key, tool_running=running)
+        check(got == expected,
+              f"save_action(first_run={first_run}, has_key={has_key}, "
+              f"tool_running={running}) -> {got!r}, expected {expected!r}")
+        seen.add(got)
+    # The token space is exactly the four btn.* keys the app can render.
+    check(seen == {"save", "save_close", "save_start", "save_restart"},
+          f"save_action produced an unexpected token set: {sorted(seen)}")
+    # A running tool + a key is a RESTART regardless of mode -- the half of #202 that
+    # unblocks the wizard's launch over the #200 keyless shop window.
+    check(R(first_run=True, has_key=True, tool_running=True) == "save_restart"
+          and R(first_run=False, has_key=True, tool_running=True) == "save_restart",
+          "a running keyed tool must resolve to save_restart in BOTH modes")
+    # Every save_restart token has its btn.* string in both languages (the label the
+    # rail sets is 'btn.' + token).
+    for tok in ("save", "save_close", "save_start", "save_restart"):
+        check(f"btn.{tok}" in sstr._EN and f"btn.{tok}" in sstr._DE,
+              f"btn.{tok} is missing a string in EN or DE")
+
+
 # ---- first-run mode decision (#163) ------------------------------------------
 def check_first_run_decision(tmp):
     # env_has_key: the shared key-presence predicate (also feeds the GUI's
@@ -1006,6 +1045,7 @@ def main():
     check_preselect()
     check_engine_keyed()
     check_engine_save_signal()
+    check_save_action()
 
     if SHOW:
         _show()

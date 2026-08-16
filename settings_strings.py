@@ -41,7 +41,10 @@ _EN = {
     "btn.cancel": "Cancel",
     "btn.save_start": "Save & start Thoughtborne",
     "btn.save_close": "Save & close",
+    "btn.save_restart": "Save & restart Thoughtborne",
+    "btn.restarting": "Restarting Thoughtborne…",
     "footer.next_start": "Changes take effect the next time Thoughtborne starts.",
+    "footer.restart": "Thoughtborne is running — “Save & restart” applies changes right away.",
 
     # ---- welcome / overview tab ----
     "welcome.tab": "Overview",
@@ -299,6 +302,17 @@ _EN = {
     "dlg.startfail.body": (
         "The settings were saved, but Thoughtborne could not be started from here "
         "— start it via Thoughtborne.bat."),
+    "dlg.restarttimeout.title": "Not restarted",
+    "dlg.restarttimeout.body": (
+        "Your settings were saved. But Thoughtborne did not close within a few "
+        "seconds, so it was not restarted — the changes take effect the next time it "
+        "starts. Please close or restart it yourself (by default Ctrl+Alt+4 in its "
+        "console, or close its window)."),
+    "dlg.restartfail.title": "Not restarted",
+    "dlg.restartfail.body": (
+        "Your settings were saved, but the restart request could not be written, so "
+        "Thoughtborne keeps running as it is. The changes take effect the next time "
+        "it starts — please restart it yourself."),
     "warn.corrupt": (
         "personal_settings.json exists but could not be parsed — saving from here "
         "will replace it with a clean file. To rescue hand-edited content (e.g. "
@@ -321,7 +335,10 @@ _DE = {
     "btn.cancel": "Abbrechen",
     "btn.save_start": "Speichern & Thoughtborne starten",
     "btn.save_close": "Speichern & schließen",
+    "btn.save_restart": "Speichern & Thoughtborne neu starten",
+    "btn.restarting": "Thoughtborne wird neu gestartet…",
     "footer.next_start": "Änderungen gelten ab dem nächsten Start von Thoughtborne.",
+    "footer.restart": "Thoughtborne läuft — „Speichern & neu starten“ übernimmt Änderungen sofort.",
 
     # ---- welcome / overview tab ----
     "welcome.tab": "Überblick",
@@ -595,6 +612,18 @@ _DE = {
     "dlg.startfail.body": (
         "Die Einstellungen wurden gespeichert, aber Thoughtborne ließ sich von "
         "hier nicht starten — bitte über Thoughtborne.bat starten."),
+    "dlg.restarttimeout.title": "Nicht neu gestartet",
+    "dlg.restarttimeout.body": (
+        "Deine Einstellungen wurden gespeichert. Thoughtborne hat sich aber nicht "
+        "innerhalb weniger Sekunden beendet und wurde deshalb nicht neu gestartet — "
+        "die Änderungen gelten ab dem nächsten Start. Bitte beende oder starte es "
+        "selbst neu (standardmäßig Strg+Alt+4 in seiner Konsole, oder das Fenster "
+        "schließen)."),
+    "dlg.restartfail.title": "Nicht neu gestartet",
+    "dlg.restartfail.body": (
+        "Deine Einstellungen wurden gespeichert, aber die Neustart-Anfrage konnte "
+        "nicht geschrieben werden — Thoughtborne läuft unverändert weiter. Die "
+        "Änderungen gelten ab dem nächsten Start; bitte starte es selbst neu."),
     "warn.corrupt": (
         "personal_settings.json existiert, ließ sich aber nicht parsen — Speichern "
         "ersetzt sie durch eine saubere Datei. Um handgepflegte Inhalte (z. B. "

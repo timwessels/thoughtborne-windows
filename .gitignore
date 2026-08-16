@@ -101,5 +101,10 @@ personal_settings.json
 runtime_state.json
 .runtime_state.json.*.tmp
 
+# Transient restart handshake the settings app drops for the running tool (#202).
+# Its existence IS the signal; the tool deletes it within ~1 s and clears any
+# leftover at the next start, so it is never meant to be committed.
+restart_request
+
 # Claude Code local-only notes (personal/session-specific; CLAUDE.md is committed)
 CLAUDE.local.md

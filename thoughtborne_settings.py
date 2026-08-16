@@ -71,6 +71,7 @@ from tkinter import ttk, messagebox
 import config
 import engine_memory
 import key_check
+import restart_signal
 import settings_instance
 import settings_io
 import settings_strings as strings
@@ -200,6 +201,11 @@ class SettingsApp:
 
         self.dirty = False
         self._lang_toggled = False
+        # Frozen-rail latch (#202): set once _restart_and_relaunch begins its wait, it
+        # makes update_rail / _render_rail early-return so a tab change or language
+        # toggle during the wait can't re-enable Back or repaint the "Restarting…"
+        # label. Never cleared -- every restart path ends in root.destroy().
+        self._restarting = False
 
         # ---- load state from the CP1 IO (the GUI's own live view) --------------
         load_error = None
@@ -1361,6 +1367,9 @@ class SettingsApp:
     def update_rail(self, event=None):
         """Recompute the first-run rail. Settings mode is static (a no-op) but the
         binding stays wired so there is one code path, not scattered mode forks."""
+        if self._restarting:
+            return    # #202: keep the frozen "Restarting…"/disabled rail during the
+                      # restart wait -- a tab change must not re-enable Back or relabel
         if not self.first_run:
             return
         idx = self.notebook.index("current")
@@ -1369,9 +1378,13 @@ class SettingsApp:
         if idx < last:
             key = "btn.next"
         else:
-            # Honest last-tab label (#178): promise a start only when a key is present,
-            # else "Save & close" -- matching _save's deliberate no-start when keyless.
-            key = "btn.save_start" if self._has_any_key() else "btn.save_close"
+            # Honest last-tab label (#178, #202): a running tool + a key makes this a
+            # RESTART; else the #178 start/close split by key presence. Live mutex
+            # probe -- update_rail fires on tab change and language re-render only, so
+            # a running tool starting/exiting while the window is open stays reflected.
+            key = "btn." + settings_io.resolve_save_action(
+                first_run=True, has_key=self._has_any_key(),
+                tool_running=restart_signal.tool_is_running())
         self.next_btn.config(text=strings.t(key, self.lang))
 
     # ---------------------------------------------------------- per-tab scrolling
@@ -1452,13 +1465,23 @@ class SettingsApp:
             self._save(start_after=True)
 
     def _render_rail(self):
+        if self._restarting:
+            return    # #202: a language toggle mid-wait must not repaint the frozen rail
         if self.first_run:
             self.back_btn.config(text=strings.t("btn.back", self.lang))
             self.update_rail()
         else:
-            self.save_btn.config(text=strings.t("btn.save", self.lang))
+            # A running tool turns everyday "Save" into "Save & restart" (#202); the
+            # footer then tells the truth (changes apply right away, not next start).
+            # Live probe, mirrored at click time in _save.
+            action = settings_io.resolve_save_action(
+                first_run=False, has_key=self._has_any_key(),
+                tool_running=restart_signal.tool_is_running())
+            self.save_btn.config(text=strings.t("btn." + action, self.lang))
             self.cancel_btn.config(text=strings.t("btn.cancel", self.lang))
-            self.footer_lbl.config(text=strings.t("footer.next_start", self.lang))
+            self.footer_lbl.config(text=strings.t(
+                "footer.restart" if action == "save_restart" else "footer.next_start",
+                self.lang))
 
     # ---------------------------------------------------------------- render_all
     def render_all(self):
@@ -1553,12 +1576,24 @@ class SettingsApp:
                 config.AVAILABLE_APIS)
 
         self.dirty = False
-        # "Save & start" only launches the tool when a key is present: with none, the
-        # tool would immediately re-detect no key, relaunch this wizard and exit -- a
-        # visible bounce. Just save and close instead; the user stays in control and
-        # starts the tool once a key is in place.
-        if start_after and has_key and not self._launch_tool():
-            # The save already succeeded; say so, then close.
+        # Post-save action (#202). Re-probe the mutex at CLICK time -- the label's
+        # probe may be minutes stale, and both drift directions must resolve right:
+        # a tool that started since the label was drawn still restarts; one that
+        # exited falls back to a plain save/start with no signal written. `start_after`
+        # is the wizard's launch-after-save flag (== self.first_run at both call
+        # sites), so it doubles as the resolver's first_run.
+        action = settings_io.resolve_save_action(
+            first_run=start_after, has_key=has_key,
+            tool_running=restart_signal.tool_is_running())
+        if action == "save_restart":
+            self._restart_and_relaunch()   # owns the window from here (wait -> relaunch)
+            return
+        # "Save & start" launches only with a key present: a keyless launch would make
+        # the tool re-detect no key, relaunch this wizard and exit -- a visible bounce.
+        # resolve_save_action already gives save_close (not save_start) when keyless,
+        # so this branch is reached only when a launch is warranted. A failed launch
+        # still saved -- say so, then close.
+        if action == "save_start" and not self._launch_tool():
             messagebox.showerror(strings.t("dlg.startfail.title", self.lang),
                                  strings.t("dlg.startfail.body", self.lang))
         self.root.destroy()
@@ -1571,6 +1606,82 @@ class SettingsApp:
             return True
         except Exception:
             return False
+
+    def _restart_and_relaunch(self):
+        """#202: tell the running tool to exit (a signal file it polls ~1 Hz), wait
+        for its D-004 single-instance mutex NAME to vanish, then relaunch via the
+        normal _launch_tool lane. The save has already succeeded.
+
+        root.after-based so the window stays responsive during the wait; the rail is
+        frozen and the window's [X] neutralized so a mid-restart close can't strand a
+        half-done state (tool told to exit, nobody relaunching). On timeout an honest
+        dialog and NO launch -- the tool is never killed (spec). The signal is written
+        here, in _save's tail AFTER the settings files, so the relaunched tool reads
+        the new state.
+
+        Two-phase deadline. RESTART_WAIT_SECONDS is the PRE-ACK budget: the tool must
+        delete (consume) the signal within it, or it counts as non-responsive and the
+        timeout fires promptly and honestly. The instant the signal file is gone (the
+        tool's ACK -- taken before the mutex frees, since consume LEADS the shutdown),
+        the deadline stretches once to the generous RESTART_SHUTDOWN_GRACE_SECONDS so a
+        long-but-healthy salvage+teardown -- the advertised mid-recording restart -- is
+        not cut off by a false "did not close" dialog.
+        """
+        sig_path = restart_signal.signal_path(config.SCRIPT_DIR)
+        if not restart_signal.request_restart(sig_path):
+            # Could not even write the signal -- settings are saved, tool runs on.
+            messagebox.showerror(strings.t("dlg.restartfail.title", self.lang),
+                                 strings.t("dlg.restartfail.body", self.lang))
+            self.root.destroy()
+            return
+        self._set_rail_waiting()
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)  # reverted by destroy()
+        deadline = time.monotonic() + restart_signal.RESTART_WAIT_SECONDS
+        consumed = False    # flips once, when the tool deletes the signal (its ACK)
+
+        def _poll():
+            nonlocal deadline, consumed
+            if not restart_signal.tool_is_running():
+                # The mutex name is gone (the kernel frees it on the old instance's
+                # exit): relaunch the fresh, re-configured instance.
+                if not self._launch_tool():
+                    messagebox.showerror(strings.t("dlg.startfail.title", self.lang),
+                                         strings.t("dlg.startfail.body", self.lang))
+                self.root.destroy()
+                return
+            # Tool still up. The instant the signal file is gone it has consumed the
+            # request and committed to the clean shutdown, whose mid-recording salvage
+            # can outlast the pre-ACK budget -- stretch the deadline once to the
+            # post-ACK grace. Watched before tool_is_running goes False: consume leads
+            # the shutdown, the mutex frees only at process exit.
+            if not consumed and not restart_signal.signal_present(sig_path):
+                consumed = True
+                deadline = time.monotonic() + restart_signal.RESTART_SHUTDOWN_GRACE_SECONDS
+            if time.monotonic() >= deadline:
+                if not consumed:
+                    # Retract the un-consumed request so a tool that recovers later (a #128
+                    # wedge clearing, an AV lock releasing) can't consume the relic and shut
+                    # itself down minutes after this dialog with nobody to relaunch it.
+                    restart_signal.consume_restart_signal(sig_path)
+                messagebox.showerror(strings.t("dlg.restarttimeout.title", self.lang),
+                                     strings.t("dlg.restarttimeout.body", self.lang))
+                self.root.destroy()
+                return
+            self.root.after(restart_signal.POLL_INTERVAL_MS, _poll)
+
+        _poll()
+
+    def _set_rail_waiting(self):
+        """Freeze the rail for the #202 restart wait: disable both buttons and label
+        the acting one 'Restarting…'. Handles either rail -- the wizard's next/back or
+        everyday's save/cancel."""
+        self._restarting = True   # from here update_rail / _render_rail leave the rail alone
+        if self.first_run:
+            acting, other = self.next_btn, self.back_btn
+        else:
+            acting, other = self.save_btn, self.cancel_btn
+        acting.config(text=strings.t("btn.restarting", self.lang), state="disabled")
+        other.config(state="disabled")
 
     def _on_close(self):
         if self.dirty:

@@ -142,6 +142,22 @@ freezing the default hotkeys stays forbidden; only the `defaults.api` value comp
 goes away, and only for this surface. Not a supersede — D-002's other guarantees
 stand. Maintainer approved 2026-08-15 (#198).
 
+**2026-08-16 addendum (#202).** The "no coordination" clause above is **narrowed, not
+lifted.** #202 adds a single one-shot restart handshake: when settings are saved while
+the tool is running, the settings app writes a signal file that the tool polls about
+once a second and answers by running its regular clean shutdown (the D-001 salvage path
+included), after which the app relaunches it. The app learns the tool is up by probing
+its D-004 mutex **read-only** and waits for that mutex to release before relaunching —
+it never kills the process. Crucially the **pickup stays start-based**: the tool still
+reads changed config only at startup, exactly as before; #202 merely *performs* that
+start conveniently, so this is not a live reload and the tool never re-reads config in
+place. `settings_io.py` remains the only writer of `.env` and `personal_settings.json`;
+the restart-signal file is machine-written handshake state (like `runtime_state.json`),
+not config. So "the settings app and the running tool do not coordinate" now reads as
+"…do not coordinate on config — only through this one-shot restart handshake." Not a
+supersede — D-002's write contract and all its other guarantees stand.
+Maintainer-settled via issue #202.
+
 Do not reintroduce: a full-file rewrite that drops user comments or unmanaged blocks;
 a save that silently overwrites an unreadable or undecodable settings file; freezing
 the default hotkeys into the file; seeding the placeholder vocabulary; or a silent
