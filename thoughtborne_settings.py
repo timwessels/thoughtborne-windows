@@ -12,8 +12,12 @@ Pure stdlib: tkinter + ctypes + threading + queue + subprocess + webbrowser. Thi
 module holds NO IO or validation logic of its own -- every file read/write, key
 check, hotkey decode/validate/collision check, and preset is a call into the CP1
 modules (`settings_io`, `key_check`, `config`, `settings_strings`) plus
-`engine_memory` for the #193 last-engine state file (all stdlib-only, so the D-005
-system-Python rescue lane keeps working). Tk is not thread-safe, so the "Test key"
+`engine_memory` for the #193 last-engine state file and `settings_theme` for the
+#155 visual design (all stdlib-only, so the D-005 system-Python rescue lane keeps
+working). The app no longer pins the native `vista` ttk theme: `settings_theme`
+pins `clam` plus an explicit style module as the first step of `__init__`, so the
+window's white surfaces, card sections and type ladder are what this code
+specifies rather than what the OS draws (D-010). Tk is not thread-safe, so the "Test key"
 round-trip runs on a daemon worker and marshals its result back through a
 `queue.Queue` polled by `root.after` -- widgets are only ever touched on the UI
 thread.
@@ -63,7 +67,6 @@ except (TypeError, ValueError):
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-import tkinter.font as tkfont
 
 import config
 import engine_memory
@@ -71,18 +74,17 @@ import key_check
 import settings_instance
 import settings_io
 import settings_strings as strings
+import settings_theme
 from hotkey_parse import parse_hotkey_lexical
 from key_check import KeyStatus
 
 _T_IMPORTS = time.perf_counter()
 
-# ---- colors (glyph + color + text together; red stays for the rejected key) ----
-LINK_COLOR = "#0B5CAB"
-TEXT_COLOR = "black"
-GREEN = "#107C10"
-RED = "#C42B1C"
-GREY = "#6D6D6D"
-AMBER = "#8A6D00"
+# ---- colours: one palette, defined in settings_theme (#155, D-010). The status
+# colours (glyph + colour + text together; red stays for the rejected key) plus
+# the two surfaces the non-ttk widgets (tk.Label links, key chips) sit on. ----
+from settings_theme import (LINK_COLOR, TEXT_COLOR, GREEN, RED, GREY, AMBER,
+                            PAGE, CARD)
 
 # CreateProcess flag exists only on Windows; 0 is a harmless no-op elsewhere so a
 # stray import off-Windows can't fail at module load.
@@ -119,7 +121,7 @@ def _size_window(root: tk.Tk) -> None:
     inside the scaled window is a hands-on check (#151); the point here is to not ship
     a guaranteed clip on scaled displays. All wrapped in try/except so a display quirk
     just leaves Tk's own default size."""
-    base_w, base_h = 780, 800
+    base_w, base_h = 800, 860
     min_w, min_h = 700, 680
     try:
         try:
@@ -144,6 +146,17 @@ class SettingsApp:
     def __init__(self, root: tk.Tk, first_run: bool):
         self.root = root
         self.first_run = first_run
+
+        # Theme first (#155, D-010): pin clam + our styles/fonts before any widget
+        # is built, so every entry point (the app, the render harness, a test) gets
+        # the same window. Returns the design tokens the builders use (fonts, the
+        # DPI-aware sp() helper); _column_px is the measured cap for the centred
+        # content column (§4.4). apply_theme guards the steps that can realistically
+        # fault (theme pick, family lookup, font reconfigure). Holding self.theme for
+        # the window's whole life is also what keeps its named fonts alive -- tkinter
+        # deletes a Font from Tk once its last Python reference drops.
+        self.theme = settings_theme.apply_theme(root)
+        self._column_px = self.theme.column_px()
 
         # Re-render registries: simple text-bearing widgets and link widgets.
         self._text_widgets = []     # (widget, string-key)
@@ -276,14 +289,6 @@ class SettingsApp:
         # that rarer case is caught downstream -- write_env aborts such a save.)
         self._had_stored_key = settings_io.env_has_key(env)
 
-        # fonts derived from the theme default
-        self.default_font = tkfont.nametofont("TkDefaultFont")
-        self.heading_font = self.default_font.copy()
-        self.heading_font.configure(weight="bold")
-        self.window_heading_font = self.default_font.copy()
-        self.window_heading_font.configure(weight="bold",
-                                           size=abs(self.default_font.cget("size")) + 2)
-
         self._build_ui()
 
         # Field-edit traces added AFTER prefill so the initial fill isn't "dirty".
@@ -312,8 +317,12 @@ class SettingsApp:
         widget.config(text=strings.t(key, self.lang))
         return widget
 
-    def _prose(self, parent, key, **kw):
-        """A left-justified explainer label that wraps to its own width."""
+    def _prose(self, parent, key, surface="", **kw):
+        """A left-justified explainer label that wraps to its own width. `surface`
+        picks the style for the surface it sits on -- "" (page), "Muted.",
+        "Card.", "Card.Muted.", "Card.Small." ... -- resolved by dotted style-name
+        fallback; a caller may still override with an explicit style=."""
+        kw.setdefault("style", surface + "TLabel")
         lbl = ttk.Label(parent, justify="left", **kw)
         self._reg(lbl, key)
 
@@ -324,11 +333,13 @@ class SettingsApp:
         lbl.bind("<Configure>", _wrap)
         return lbl
 
-    def _prose_dyn(self, parent, **kw):
+    def _prose_dyn(self, parent, surface="", **kw):
         """A wrapping explainer label that is deliberately NOT registered for
         language re-render -- its text is a format string (e.g. done.loop.body with
         {start}/{stop}), so render_all must not blind-t() it into raw '{start}'. Its
-        owner re-renders it by hand from semantic state (the live hotkey combos)."""
+        owner re-renders it by hand from semantic state (the live hotkey combos).
+        `surface` picks the style variant exactly as in _prose."""
+        kw.setdefault("style", surface + "TLabel")
         lbl = ttk.Label(parent, justify="left", **kw)
 
         def _wrap(event, w=lbl):
@@ -336,31 +347,53 @@ class SettingsApp:
         lbl.bind("<Configure>", _wrap)
         return lbl
 
-    def _link(self, parent, text_key, url_key):
-        """A blue, underlined, hand-cursor label that opens url_key in a browser."""
-        lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2")
-        font = tkfont.Font(font=lbl.cget("font"))
-        font.configure(underline=True)
-        lbl.configure(font=font)
+    def _link(self, parent, text_key, url_key, bg=PAGE):
+        """A blue, underlined, hand-cursor label that opens url_key in a browser.
+        tk.Label ignores ttk styles, so it takes the shared underlined link font
+        and an explicit background for the surface it sits on (#155): on a white
+        page a default-grey label would otherwise draw a grey box around the link."""
+        lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2", background=bg,
+                       font=self.theme.link_font)
         self._link_widgets.append((lbl, text_key, url_key))
         lbl.config(text=strings.t(text_key, self.lang))
         lbl.bind("<Button-1>",
                  lambda e, uk=url_key: webbrowser.open(strings.t(uk, self.lang)))
         return lbl
 
-    def _tab_link(self, parent, text_key, tab_key):
+    def _tab_link(self, parent, text_key, tab_key, bg=PAGE):
         """A blue, underlined, hand-cursor label that selects another notebook tab
         (in-app navigation, #197). Unlike _link (which opens a URL) it stays inside
         the window; text re-renders through the standard text registry (via _reg),
         not _link_widgets (that registry is URL-keyed). The target is addressed by
-        tab KEY, so a tab reorder can never point the jump at the wrong page."""
-        lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2")
-        font = tkfont.Font(font=lbl.cget("font"))
-        font.configure(underline=True)
-        lbl.configure(font=font)
+        tab KEY, so a tab reorder can never point the jump at the wrong page. Same
+        shared link font + explicit surface background as _link (#155)."""
+        lbl = tk.Label(parent, fg=LINK_COLOR, cursor="hand2", background=bg,
+                       font=self.theme.link_font)
         self._reg(lbl, text_key)
         lbl.bind("<Button-1>", lambda e, tk_=tab_key: self._goto_tab(tk_))
         return lbl
+
+    def _section(self, parent, heading_key, level="H1", pady=(0, 0)):
+        """A section heading (Title/H1/H2 style), registered for language re-render
+        and packed left. Replaces the repeated ttk.Label(font=...) + _reg + pack of
+        the pre-#155 code; the type ladder now lives entirely in the styles."""
+        lbl = ttk.Label(parent, style=level + ".TLabel")
+        self._reg(lbl, heading_key)
+        lbl.pack(anchor="w", pady=pady)
+        return lbl
+
+    def _card(self, parent, heading_key=None):
+        """The card pattern (#155): a bordered, faint blue-grey Frame with an
+        optional H2 heading. The caller packs children straight into the returned
+        frame; every ttk child needs a Card.-surfaced style and every tk child
+        (links, chips) an explicit CARD background, since neither inherits it."""
+        card = ttk.Frame(parent, style="Card.TFrame",
+                         padding=(self.theme.sp(14), self.theme.sp(12)))
+        if heading_key:
+            h = ttk.Label(card, style="Card.H2.TLabel")
+            self._reg(h, heading_key)
+            h.pack(anchor="w", pady=(0, self.theme.sp(6)))
+        return card
 
     def _goto_tab(self, tab_key):
         # Select by _TAB_KEYS position, never a magic int; a mistyped/removed key
@@ -378,12 +411,15 @@ class SettingsApp:
         # rail first (pinned bottom), then header (top), then notebook (fills).
         self._build_rail()
         self._build_header()
-        self.warn_strip = ttk.Label(self.root, foreground=AMBER, wraplength=740,
-                                     justify="left")
+        self.warn_strip = ttk.Label(self.root, style="Warn.TLabel", justify="left")
         # Register it so render_all() re-renders its text on a language toggle; its
         # only text is warn.corrupt, and it stays unpacked (invisible) until a corrupt
-        # settings file packs it into view below.
+        # settings file packs it into view below. #155: wrap dynamically like _prose
+        # (the old fixed wraplength=740 was wrong at every scaling != 100 %).
         self._reg(self.warn_strip, "warn.corrupt")
+        self.warn_strip.bind(
+            "<Configure>",
+            lambda e, w=self.warn_strip: w.configure(wraplength=max(e.width - 8, 120)))
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(side="top", fill="both", expand=True, padx=8, pady=(2, 0))
         self._tab_frames = [
@@ -413,37 +449,55 @@ class SettingsApp:
             self.root.bind_all(seq, self._on_scroll_key)
 
     def _build_header(self):
-        header = ttk.Frame(self.root, padding=(12, 10, 12, 6))
+        header = ttk.Frame(self.root, style="Header.TFrame",
+                           padding=(self.theme.sp(20), self.theme.sp(14),
+                                    self.theme.sp(20), self.theme.sp(10)))
         header.pack(side="top", fill="x")
-        lang_frame = ttk.Frame(header)
+        # Only frames take a frame style; a Header.TFrame on the title label would
+        # render the frame layout and silently drop the text (#155).
+        lang_frame = ttk.Frame(header, style="Header.TFrame")
         lang_frame.pack(side="right", anchor="ne")
         # The two radio labels name themselves and never translate.
         ttk.Radiobutton(lang_frame, text=strings.t("lang.de", "de"), value="de",
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
         ttk.Radiobutton(lang_frame, text=strings.t("lang.en", "en"), value="en",
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
-        self.title_lbl = ttk.Label(header, font=self.window_heading_font)
+        self.title_lbl = ttk.Label(header, style="Title.TLabel")
         self._reg(self.title_lbl,
                   "welcome.heading" if self.first_run else "app.title.settings")
         self.title_lbl.pack(side="top", anchor="w")
         if self.first_run:
-            self._prose(header, "welcome.sub").pack(side="top", anchor="w", fill="x",
-                                                    pady=(4, 0))
+            self._prose(header, "welcome.sub", surface="Muted.").pack(
+                side="top", anchor="w", fill="x", pady=(self.theme.sp(4), 0))
+        # A 1px hairline under the header so it reads as chrome above the tabs (#155).
+        ttk.Frame(self.root, style="Hair.TFrame", height=1).pack(side="top", fill="x")
 
     def _build_rail(self):
-        rail = ttk.Frame(self.root, padding=(12, 6, 12, 10))
+        rail = ttk.Frame(self.root, style="Rail.TFrame",
+                         padding=(self.theme.sp(20), self.theme.sp(10),
+                                  self.theme.sp(20), self.theme.sp(12)))
         rail.pack(side="bottom", fill="x")
+        # A 1px hairline above the rail, mirroring the header's (#155). Packed
+        # bottom AFTER the rail so it sits just above it.
+        ttk.Frame(self.root, style="Hair.TFrame", height=1).pack(side="bottom", fill="x")
+        # The primary action (Save / Next) carries the one filled navy accent; the
+        # secondary (Cancel / Back) is a quiet card-surfaced outline button, so the
+        # two are no longer visually identical (#155).
         if self.first_run:
-            self.next_btn = ttk.Button(rail, command=self._on_next)
+            self.next_btn = ttk.Button(rail, style="Primary.TButton",
+                                       command=self._on_next)
             self.next_btn.pack(side="right")
-            self.back_btn = ttk.Button(rail, command=self._on_back)
-            self.back_btn.pack(side="right", padx=(0, 6))
+            self.back_btn = ttk.Button(rail, style="Card.TButton",
+                                       command=self._on_back)
+            self.back_btn.pack(side="right", padx=(0, self.theme.sp(8)))
         else:
-            self.cancel_btn = ttk.Button(rail, command=self._on_close)
+            self.cancel_btn = ttk.Button(rail, style="Card.TButton",
+                                         command=self._on_close)
             self.cancel_btn.pack(side="right")
-            self.save_btn = ttk.Button(rail, command=lambda: self._save(False))
-            self.save_btn.pack(side="right", padx=(0, 6))
-            self.footer_lbl = ttk.Label(rail, foreground=GREY)
+            self.save_btn = ttk.Button(rail, style="Primary.TButton",
+                                       command=lambda: self._save(False))
+            self.save_btn.pack(side="right", padx=(0, self.theme.sp(8)))
+            self.footer_lbl = ttk.Label(rail, style="Card.Small.TLabel")
             self.footer_lbl.pack(side="left")
 
     def _scrollable_tab(self):
@@ -461,8 +515,11 @@ class SettingsApp:
         outer.columnconfigure(0, weight=1)
 
         canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
-        # Match the themed frame background so the canvas never shows a white band
-        # behind or below the ttk content (vista's TFrame is light grey, not white).
+        # Match the themed frame background so the canvas never shows a band behind
+        # or below the ttk content. TFrame IS the page surface (#155, D-010): the
+        # theme paints it white (PAGE), so this must track the TFrame style or a
+        # grey band would show -- settings_theme is the single place they are kept
+        # in sync.
         try:
             bg = ttk.Style().lookup("TFrame", "background")
             if bg:
@@ -471,7 +528,7 @@ class SettingsApp:
             pass
 
         vbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        body = ttk.Frame(canvas, padding=12)
+        body = ttk.Frame(canvas, padding=(self.theme.sp(20), self.theme.sp(16)))
         win = canvas.create_window((0, 0), window=body, anchor="nw")
 
         canvas.grid(row=0, column=0, sticky="nsew")
@@ -494,9 +551,16 @@ class SettingsApp:
         body.bind("<Configure>", _on_body_config)
 
         def _on_canvas_config(event, c=canvas, w=win):
-            # Pin the inner body to the canvas width so fill='x' children get a bounded
-            # width and _prose wraps -- restores the exact precondition _wrap depends on.
-            c.itemconfigure(w, width=event.width)
+            # Pin the inner body to the canvas width (so fill='x' children get a
+            # bounded width and _prose wraps), but cap it at the measured content
+            # column and centre it (#155 §4.4): German prose otherwise runs ~110
+            # chars wide on a maximised window. At the default window size the cap
+            # barely bites. Vertical scrolling is unaffected -- xview stays unwired,
+            # so the x-offset never scrolls sideways, and _overflows keys off
+            # bbox[3] (bottom y), which the offset does not move.
+            width = min(event.width, self._column_px)
+            c.itemconfigure(w, width=width)
+            c.coords(w, max((event.width - width) // 2, 0), 0)
         canvas.bind("<Configure>", _on_canvas_config)
 
         return outer, body
@@ -510,55 +574,50 @@ class SettingsApp:
         # Provider tab and the full loop on the done tab. Built via _scrollable_tab
         # like every other page (mandatory for the index-parallel canvas, #180).
         outer, f = self._scrollable_tab()
+        sp = self.theme.sp
 
-        # 1) What it is (one-breath intro).
-        ih = ttk.Label(f, font=self.heading_font)
-        self._reg(ih, "welcome.intro.heading")
-        ih.pack(anchor="w")
-        self._prose(f, "welcome.intro.body").pack(fill="x", pady=(2, 8))
+        # 1) What it is (one-breath intro) -- the page lead.
+        self._section(f, "welcome.intro.heading", level="H1")
+        self._prose(f, "welcome.intro.body").pack(fill="x", pady=(sp(2), sp(8)))
 
         # 2) The dictation loop from the LIVE hotkey state ({start}/{stop}) -- a
         #    shorter teaser than done.loop.body. The label is a format string, so it
         #    is NOT _reg-istered; _render_welcome_page fills it by hand.
         self.welcome_loop_lbl = self._prose_dyn(f)
-        self.welcome_loop_lbl.pack(fill="x", pady=(0, 2))
-        self._tab_link(f, "welcome.loop.link", "done.tab").pack(anchor="w", pady=(0, 8))
-
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=8)
+        self.welcome_loop_lbl.pack(fill="x", pady=(0, sp(2)))
+        self._tab_link(f, "welcome.loop.link", "done.tab").pack(anchor="w", pady=(0, sp(8)))
 
         # 3) The console is a status display (honest about the failed-start exception).
-        ch = ttk.Label(f, font=self.heading_font)
-        self._reg(ch, "welcome.console.heading")
-        ch.pack(anchor="w")
-        self._prose(f, "welcome.console.body").pack(fill="x", pady=(2, 8))
+        #    Section spacing + the heading ladder do the dividing that stacked
+        #    separators used to (#155): a rule between every block reads like a form.
+        self._section(f, "welcome.console.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "welcome.console.body").pack(fill="x", pady=(sp(2), sp(8)))
 
         # 4) BYOK -- two-sentence teaser; the canonical long form is on the Provider tab.
-        bh = ttk.Label(f, font=self.heading_font)
-        self._reg(bh, "welcome.byok.heading")
-        bh.pack(anchor="w")
-        self._prose(f, "welcome.byok.body").pack(fill="x", pady=(2, 2))
-        self._tab_link(f, "welcome.byok.link", "provider.tab").pack(anchor="w", pady=(0, 8))
+        self._section(f, "welcome.byok.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "welcome.byok.body").pack(fill="x", pady=(sp(2), sp(2)))
+        self._tab_link(f, "welcome.byok.link", "provider.tab").pack(anchor="w", pady=(0, sp(8)))
 
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=8)
-
-        # 5) Where to go next -- in-app nav to the remaining tabs + the external README.
-        nh = ttk.Label(f, font=self.heading_font)
-        self._reg(nh, "welcome.next.heading")
-        nh.pack(anchor="w")
-        self._prose(f, "welcome.next.body", foreground=GREY).pack(fill="x", pady=(2, 4))
-        self._tab_link(f, "welcome.link.hotkeys", "hotkeys.tab").pack(anchor="w")
-        self._tab_link(f, "welcome.link.behavior", "behavior.tab").pack(anchor="w")
-        self._link(f, "welcome.link.readme", "url.readme").pack(anchor="w", pady=(2, 0))
+        # 5) Where to go next -- the one actionable block, so it gets a card and a
+        #    keeper separator above it (navigation is a different kind of content).
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(sp(20), sp(16)))
+        nav = self._card(f, "welcome.next.heading")
+        nav.pack(fill="x")
+        self._prose(nav, "welcome.next.body", surface="Card.Muted.").pack(
+            fill="x", pady=(0, sp(6)))
+        self._tab_link(nav, "welcome.link.hotkeys", "hotkeys.tab", bg=CARD).pack(anchor="w")
+        self._tab_link(nav, "welcome.link.behavior", "behavior.tab", bg=CARD).pack(anchor="w")
+        self._link(nav, "welcome.link.readme", "url.readme", bg=CARD).pack(
+            anchor="w", pady=(sp(2), 0))
         return outer
 
     # ---- provider tab ----
     def _build_provider_tab(self):
         outer, f = self._scrollable_tab()
-        h = ttk.Label(f, font=self.heading_font)
-        self._reg(h, "provider.keys.heading")
-        h.pack(anchor="w")
-        self._prose(f, "provider.keys.body").pack(fill="x", pady=(2, 6))
-        self._prose(f, "provider.lanes.body").pack(fill="x", pady=(0, 8))
+        sp = self.theme.sp
+        self._section(f, "provider.keys.heading", level="H1")
+        self._prose(f, "provider.keys.body").pack(fill="x", pady=(sp(2), sp(6)))
+        self._prose(f, "provider.lanes.body").pack(fill="x", pady=(0, sp(8)))
         # Groq first (the free "try it now" lane), Soniox second (carries default).
         self._build_provider_card(f, "groq", "provider.groq.heading",
                                   "provider.groq.body", "url.groq_keys",
@@ -566,42 +625,45 @@ class SettingsApp:
         self._build_provider_card(f, "soniox", "provider.soniox.heading",
                                   "provider.soniox.body", "url.soniox_console",
                                   "provider.field.soniox")
-        self._prose(f, "provider.keep_note", foreground=GREY).pack(fill="x", pady=(6, 0))
+        self._prose(f, "provider.keep_note", surface="Muted.").pack(fill="x", pady=(sp(6), 0))
         return outer
 
     def _build_provider_card(self, parent, provider, heading_key, body_key,
                              url_key, field_key):
-        card = ttk.LabelFrame(parent, padding=10)
-        self._reg(card, heading_key)
-        card.pack(fill="x", pady=6)
-        self._prose(card, body_key).pack(fill="x", pady=(0, 4))
-        self._link(card, url_key, url_key).pack(anchor="w", pady=(0, 6))
-        flbl = ttk.Label(card)
+        sp = self.theme.sp
+        card = self._card(parent, heading_key)
+        card.pack(fill="x", pady=(0, sp(12)))
+        self._prose(card, body_key, surface="Card.").pack(fill="x", pady=(0, sp(6)))
+        self._link(card, url_key, url_key, bg=CARD).pack(anchor="w", pady=(0, sp(10)))
+        flbl = ttk.Label(card, style="Card.TLabel")
         self._reg(flbl, field_key)
-        flbl.pack(anchor="w")
-        row = ttk.Frame(card)
-        row.pack(fill="x", pady=(2, 2))
+        flbl.pack(anchor="w", pady=(0, sp(3)))
+        # A flat, card-surfaced row (no second border) holds the key field + buttons.
+        row = ttk.Frame(card, style="Plain.Card.TFrame")
+        row.pack(fill="x")
         var = self.groq_var if provider == "groq" else self.soniox_var
         entry = ttk.Entry(row, textvariable=var, show="•")
         entry.pack(side="left", fill="x", expand=True)
         self._entries[provider] = entry
-        rbtn = ttk.Button(row, width=10, command=lambda p=provider: self._toggle_reveal(p))
-        rbtn.pack(side="left", padx=4)
+        rbtn = ttk.Button(row, width=10, style="Card.TButton",
+                          command=lambda p=provider: self._toggle_reveal(p))
+        rbtn.pack(side="left", padx=(sp(6), 0))
         self._reveal_btns[provider] = rbtn
-        tbtn = ttk.Button(row, command=lambda p=provider: self._test_key(p))
+        tbtn = ttk.Button(row, style="Card.TButton",
+                          command=lambda p=provider: self._test_key(p))
         self._reg(tbtn, "btn.test_key")
-        tbtn.pack(side="left")
+        tbtn.pack(side="left", padx=(sp(6), 0))
         self._test_btns[provider] = tbtn
-        ind = ttk.Label(card)
-        ind.pack(anchor="w", pady=(2, 0))
+        ind = ttk.Label(card, style="Card.TLabel")
+        ind.pack(anchor="w", pady=(sp(6), 0))
         self._indicators[provider] = ind
         # #179: a Soniox-only reminder under the card that a green test proves the
         # key, not the account balance. Toggled from _render_indicator by the test
         # verdict; not _reg-istered (its text is state-driven, re-rendered via
         # render_all() -> _render_indicator on a language switch).
         if provider == "soniox":
-            self._soniox_balance_note = self._prose_dyn(card, foreground=GREY)
-            self._soniox_balance_note.pack(anchor="w", pady=(2, 0))
+            self._soniox_balance_note = self._prose_dyn(card, surface="Card.Small.")
+            self._soniox_balance_note.pack(anchor="w", pady=(sp(3), 0))
 
     def _toggle_reveal(self, provider):
         revealed = not self._revealed[provider]
@@ -695,58 +757,93 @@ class SettingsApp:
     # ---- hotkeys tab ----
     def _build_hotkeys_tab(self):
         outer, f = self._scrollable_tab()
+        sp = self.theme.sp
         self._prose(f, "hotkeys.intro").pack(fill="x")
-        prow = ttk.Frame(f)
-        prow.pack(fill="x", pady=8)
-        self._build_preset_card(prow, "ctrl_alt", "hotkeys.preset.ctrl_alt.title",
-                                "hotkeys.preset.ctrl_alt.body", side="left")
-        self._build_preset_card(prow, "fkeys", "hotkeys.preset.fkeys.title",
-                                "hotkeys.preset.fkeys.body", side="right")
 
-        ch = ttk.Label(f, font=self.heading_font)
-        self._reg(ch, "hotkeys.custom.heading")
-        ch.pack(anchor="w", pady=(6, 0))
-        self._prose(f, "hotkeys.custom.body").pack(fill="x", pady=(0, 4))
+        # Presets: a heading (the tab used to jump straight from prose into the
+        # boxes) then the two cards STACKED (#155 §4.4 -- side by side inside the
+        # capped column squeezed the F-key card's text and its button until they
+        # clipped). Stacked, both texts read normally and each button sits under
+        # its own card.
+        self._section(f, "hotkeys.presets.heading", level="H2", pady=(sp(20), sp(8)))
+        prow = ttk.Frame(f)
+        prow.pack(fill="x")
+        self._build_preset_card(prow, "ctrl_alt", "hotkeys.preset.ctrl_alt.title",
+                                "hotkeys.preset.ctrl_alt.body")
+        self._build_preset_card(prow, "fkeys", "hotkeys.preset.fkeys.title",
+                                "hotkeys.preset.fkeys.body",
+                                caveat_key="hotkeys.preset.fkeys.caveat")
+
+        self._section(f, "hotkeys.custom.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "hotkeys.custom.body").pack(fill="x", pady=(sp(2), sp(4)))
 
         # A dynamic advisory (#178): a combo the running tool already holds can't be
         # captured here. Rendered from hotkeys_state so the {exit_key} hint tracks a
         # rebind of exit_program (its own attribute -- never overwrite capture_lbl /
         # status_lbl below).
-        self.capture_limit_lbl = self._prose_dyn(f, foreground=GREY)
-        self.capture_limit_lbl.pack(fill="x", pady=(0, 4))
+        self.capture_limit_lbl = self._prose_dyn(f, surface="Muted.")
+        self.capture_limit_lbl.pack(fill="x", pady=(0, sp(8)))
 
         grid = ttk.Frame(f)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
-        for r, name in enumerate(config.DEFAULT_HOTKEYS):
+        # A named-column header row (#155): the three columns were unlabelled. It
+        # is grid row 0, so the action rows below start at row 1.
+        ha = ttk.Label(grid, style="Small.TLabel")
+        self._reg(ha, "hotkeys.col.action")
+        ha.grid(row=0, column=0, sticky="w", padx=(0, sp(8)), pady=(0, sp(3)))
+        hc = ttk.Label(grid, style="Small.TLabel")
+        self._reg(hc, "hotkeys.col.combo")
+        hc.grid(row=0, column=1, sticky="w", padx=sp(8), pady=(0, sp(3)))
+        for r, name in enumerate(config.DEFAULT_HOTKEYS, start=1):
             al = ttk.Label(grid)
             self._reg(al, f"action.{name}")
-            al.grid(row=r, column=0, sticky="w", padx=(0, 8), pady=1)
-            cl = tk.Label(grid, anchor="w", foreground=TEXT_COLOR, takefocus=True)
-            cl.grid(row=r, column=1, sticky="w", padx=8)
+            al.grid(row=r, column=0, sticky="w", padx=(0, sp(8)), pady=sp(3))
+            # A key chip: kept a tk.Label (it carries dynamic colour + focus), given
+            # a bordered, card-tinted box and the bold chip font. The box is set once
+            # here and never touched again; _render_combo_label only swaps text +
+            # foreground + font (armed drops to the regular weight), so the chip look
+            # survives every re-render and the armed/LINK_COLOR state still works.
+            cl = tk.Label(grid, anchor="w", foreground=TEXT_COLOR, takefocus=True,
+                          background=CARD, relief="solid", borderwidth=1,
+                          padx=sp(8), pady=sp(2), font=self.theme.chip_font)
+            cl.grid(row=r, column=1, sticky="w", padx=sp(8), pady=sp(3))
             cl.bind("<KeyPress>", lambda e, n=name: self._on_capture_key(e, n))
             cl.bind("<Escape>", lambda e, n=name: self._on_capture_escape(e, n))
             cl.bind("<FocusOut>", lambda e, n=name: self._on_capture_focusout(e, n))
             self._combo_labels[name] = cl
             cb = ttk.Button(grid, command=lambda n=name: self._arm(n))
             self._reg(cb, "btn.change_key")
-            cb.grid(row=r, column=2, sticky="e", pady=1)
+            cb.grid(row=r, column=2, sticky="e", pady=sp(3))
 
+        # capture_lbl carries the amber capture feedback (unbindable / need-modifier /
+        # invalid / collision), status_lbl the hotkey warnings -- the longest single
+        # lines on the tab. Wrap them to their own width like _prose so a long German
+        # message reflows instead of running past the capped content column (#155).
         self.capture_lbl = ttk.Label(f, foreground=AMBER, justify="left")
-        self.capture_lbl.pack(fill="x", pady=(4, 2))
+        self.capture_lbl.pack(fill="x", pady=(sp(8), sp(2)))
         self.status_lbl = ttk.Label(f, justify="left")
         self.status_lbl.pack(fill="x")
+        for _lbl in (self.capture_lbl, self.status_lbl):
+            _lbl.bind("<Configure>",
+                      lambda e, w=_lbl: w.configure(wraplength=max(e.width - 8, 120)))
         return outer
 
-    def _build_preset_card(self, parent, which, title_key, body_key, side):
-        card = ttk.LabelFrame(parent, padding=8)
-        self._reg(card, title_key)
-        pad = (0, 4) if side == "left" else (4, 0)
-        card.pack(side=side, fill="both", expand=True, padx=pad)
-        self._prose(card, body_key).pack(fill="x")
-        btn = ttk.Button(card, command=lambda w=which: self._apply_preset(w))
+    def _build_preset_card(self, parent, which, title_key, body_key, caveat_key=None):
+        # Stacked cards (#155): the title is the card's H2, then the body, an
+        # optional caveat (the F-key preset's IDE-debug warning, a caveat that now
+        # looks like one), then the apply button under its own card.
+        sp = self.theme.sp
+        card = self._card(parent, title_key)
+        card.pack(side="top", fill="x", pady=(0, sp(8)))
+        self._prose(card, body_key, surface="Card.").pack(fill="x")
+        if caveat_key:
+            self._prose(card, caveat_key, surface="Card.Small.").pack(
+                fill="x", pady=(sp(6), 0))
+        btn = ttk.Button(card, style="Card.TButton",
+                         command=lambda w=which: self._apply_preset(w))
         self._reg(btn, "btn.use_preset")
-        btn.pack(anchor="w", pady=(6, 0))
+        btn.pack(anchor="w", pady=(sp(10), 0))
 
     def _apply_preset(self, which):
         self.hotkeys_state = (settings_io.preset_ctrl_alt() if which == "ctrl_alt"
@@ -787,12 +884,19 @@ class SettingsApp:
         return "+".join(out)
 
     def _render_combo_label(self, name):
+        # A re-render sets only text + foreground + font; the chip's box (card tint,
+        # border, padding -- set once at creation) is never touched here, so the chip
+        # look survives every re-render and the armed/disarmed switch (#155). Armed
+        # drops to the regular body font: the capture prompt is prose, not a key, so
+        # the lighter weight both reads right and keeps the longer German prompt
+        # inside the capped hotkey grid instead of clipping the chip's right edge.
         lbl = self._combo_labels[name]
         if self._armed == name:
-            lbl.config(text=strings.t("capture.prompt", self.lang), foreground=LINK_COLOR)
+            lbl.config(text=strings.t("capture.prompt", self.lang),
+                       foreground=LINK_COLOR, font=self.theme.body_font)
         else:
             lbl.config(text=self._pretty_combo(self.hotkeys_state[name]),
-                       foreground=TEXT_COLOR)
+                       foreground=TEXT_COLOR, font=self.theme.chip_font)
 
     def _render_hotkey_grid(self):
         for name in self._combo_labels:
@@ -910,31 +1014,34 @@ class SettingsApp:
     # ---- behavior tab ----
     def _build_behavior_tab(self):
         outer, f = self._scrollable_tab()
-        eh = ttk.Label(f, font=self.heading_font)
-        self._reg(eh, "behavior.engine.heading")
-        eh.pack(anchor="w")
-        self._prose(f, "behavior.engine.body").pack(fill="x", pady=(2, 4))
+        sp = self.theme.sp
+        self._section(f, "behavior.engine.heading", level="H1")
+        self._prose(f, "behavior.engine.body").pack(fill="x", pady=(sp(2), sp(6)))
 
         # Two-mode engine control (#198): remember-mode (start on the Ctrl+Alt+L
         # memory, shown read-only) vs fixed-mode (a defaults.api pin picked from the
         # dropdown). A shared StringVar drives the radio pair; the dropdown is live
-        # only in fixed mode (disabled otherwise, so it reads as inactive). Built
-        # functionally in the existing ttk idiom -- the visual pass is #155.
-        remember_rb = ttk.Radiobutton(f, value="remember", variable=self.mode_var,
-                                      command=self._on_mode)
+        # only in fixed mode (disabled otherwise, so it reads as inactive). #155
+        # moves it into a card and restyles it; the control LOGIC is untouched --
+        # _render_engine_control / _on_mode / _on_engine / the state handling and
+        # the <MouseWheel> break keep D-008/#198 semantics bit-for-bit.
+        card = self._card(f)
+        card.pack(fill="x")
+        remember_rb = ttk.Radiobutton(card, style="Card.TRadiobutton", value="remember",
+                                      variable=self.mode_var, command=self._on_mode)
         self._reg(remember_rb, "behavior.engine.mode.remember")
-        remember_rb.pack(anchor="w", pady=(2, 0))
+        remember_rb.pack(anchor="w")
         # The read-only engine remember-mode will start on -- a format string
         # ({engine}), so NOT _reg-istered; _render_engine_control fills it by hand.
-        self.remember_lbl = self._prose_dyn(f, foreground=GREY)
-        self.remember_lbl.pack(fill="x", padx=(24, 0), pady=(0, 4))
+        self.remember_lbl = self._prose_dyn(card, surface="Card.Muted.")
+        self.remember_lbl.pack(fill="x", padx=(sp(24), 0), pady=(0, sp(6)))
 
-        fixed_rb = ttk.Radiobutton(f, value="fixed", variable=self.mode_var,
-                                  command=self._on_mode)
+        fixed_rb = ttk.Radiobutton(card, style="Card.TRadiobutton", value="fixed",
+                                  variable=self.mode_var, command=self._on_mode)
         self._reg(fixed_rb, "behavior.engine.mode.fixed")
         fixed_rb.pack(anchor="w")
-        self.engine_combo = ttk.Combobox(f, state="readonly")
-        self.engine_combo.pack(anchor="w", fill="x", padx=(24, 0), pady=(0, 2))
+        self.engine_combo = ttk.Combobox(card, state="readonly")
+        self.engine_combo.pack(anchor="w", fill="x", padx=(sp(24), 0), pady=(sp(2), 0))
         self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine)
         # #180: a readonly combobox natively changes its value on the mouse wheel, and
         # our global wheel handler (the 'all' bindtag) would ALSO scroll the page over
@@ -945,27 +1052,21 @@ class SettingsApp:
 
         # Pointer to the Soniox recognition vocabulary (#178) -- names only the
         # section + file, so it never depends on wording #177 may add to the example.
-        vh = ttk.Label(f, font=self.heading_font)
-        self._reg(vh, "behavior.vocab.heading")
-        vh.pack(anchor="w", pady=(8, 0))
-        self._prose(f, "behavior.vocab.body", foreground=GREY).pack(fill="x", pady=(2, 0))
+        self._section(f, "behavior.vocab.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "behavior.vocab.body", surface="Muted.").pack(fill="x", pady=(sp(2), 0))
 
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=10)
-
-        th = ttk.Label(f, font=self.heading_font)
-        self._reg(th, "behavior.tray.heading")
-        th.pack(anchor="w")
-        self._prose(f, "behavior.tray.body").pack(fill="x", pady=(2, 4))
+        # The 12-line tray wall is split into three digestible blocks (#155); the
+        # third is the honest-limits caveat, so it is muted.
+        self._section(f, "behavior.tray.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "behavior.tray.body").pack(fill="x", pady=(sp(2), sp(4)))
+        self._prose(f, "behavior.tray.body2").pack(fill="x", pady=(0, sp(4)))
+        self._prose(f, "behavior.tray.body3", surface="Muted.").pack(fill="x", pady=(0, sp(6)))
         tbtn = ttk.Button(f, command=self._open_terminal)
         self._reg(tbtn, "btn.open_terminal")
         tbtn.pack(anchor="w")
 
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=10)
-
-        ah = ttk.Label(f, font=self.heading_font)
-        self._reg(ah, "behavior.admin.heading")
-        ah.pack(anchor="w")
-        self._prose(f, "behavior.admin.body").pack(fill="x", pady=(2, 4))
+        self._section(f, "behavior.admin.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "behavior.admin.body").pack(fill="x", pady=(sp(2), sp(4)))
         self._link(f, "behavior.admin.link", "url.admin_recipe").pack(anchor="w")
         return outer
 
@@ -976,22 +1077,27 @@ class SettingsApp:
         # mode too, so the tab count never forks _TAB_KEYS); the heading adapts and
         # the farewell line is first-run only.
         outer, f = self._scrollable_tab()
-        h = ttk.Label(f, font=self.heading_font)
-        self._reg(h, "done.heading.firstrun" if self.first_run else "done.heading.settings")
-        h.pack(anchor="w")
+        sp = self.theme.sp
+        self._section(
+            f, "done.heading.firstrun" if self.first_run else "done.heading.settings",
+            level="H1")
 
-        # Dynamic (format-string) lines -- rendered from the live hotkey combos in
-        # _render_done_page, so they are NOT registered for blind re-render.
-        self.done_loop_lbl = self._prose_dyn(f)
-        self.done_loop_lbl.pack(fill="x", pady=(6, 6))
-        self.done_controls_lbl = self._prose_dyn(f, foreground=GREY)
-        self.done_controls_lbl.pack(fill="x", pady=(0, 8))
+        # The loop sentence is the single most important line in the app, so it sits
+        # in a card as the page's subject (#155). Dynamic (format-string) lines --
+        # rendered from the live hotkey combos in _render_done_page, so they are NOT
+        # registered for blind re-render.
+        loop_card = self._card(f)
+        loop_card.pack(fill="x", pady=(sp(6), sp(12)))
+        self.done_loop_lbl = self._prose_dyn(loop_card, surface="Card.")
+        self.done_loop_lbl.pack(fill="x")
+        self.done_controls_lbl = self._prose_dyn(f, surface="Muted.")
+        self.done_controls_lbl.pack(fill="x", pady=(0, sp(12)))
 
         # Static reference (both modes): starting the tool by a shortcut key.
-        self._prose(f, "done.startkey.body", foreground=GREY).pack(fill="x", pady=(0, 8))
+        self._prose(f, "done.startkey.body", surface="Muted.").pack(fill="x", pady=(0, sp(12)))
 
         if self.first_run:                # the farewell belongs to the wizard only
-            self._prose(f, "done.threewindow.body", foreground=GREY).pack(fill="x")
+            self._prose(f, "done.threewindow.body", surface="Muted.").pack(fill="x")
         return outer
 
     def _render_done_page(self):
@@ -1398,10 +1504,9 @@ def main():
         root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
     except Exception:
         pass
-    try:
-        ttk.Style().theme_use("vista")   # native Windows look; harmless if absent
-    except Exception:
-        pass
+    # The ttk theme is no longer pinned here: SettingsApp.__init__ applies clam +
+    # our explicit styling as its first step (#155, D-010), so every entry point --
+    # the app, the render harness, a test -- gets the same window.
     # Size before constructing the app so the geometry is in place even if __init__
     # pops a modal load-failure dialog; the sizing is pure DPI + screen, no widgets
     # needed.

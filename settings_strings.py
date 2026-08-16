@@ -138,6 +138,7 @@ _EN = {
         "application, whatever has focus; in return, each combo is reserved "
         "system-wide while the tool runs. Pick a preset as the base, then change "
         "any single action below if a combo clashes with something you use."),
+    "hotkeys.presets.heading": "Two presets to choose from",
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt letters — the shipped default",
     "hotkeys.preset.ctrl_alt.body": (
         "Hold Ctrl+Alt and press a letter: W starts the recording, A/D/H/Y deliver "
@@ -151,23 +152,27 @@ _EN = {
         "key is the everyday move (F9 starts, F10 inserts), Ctrl the important "
         "sibling (cancel, send, switch engine), Ctrl+Alt the rare technical one; "
         "housekeeping keys (history, self-test, exit) stay the same as in the "
-        "letter preset. One caveat: the F5–F11 band carries debug actions in most "
-        "IDEs — if you debug a lot, stay on the letter preset or override single "
-        "keys. On a laptop, you may need to enable Fn-Lock (usually Fn+Esc) so "
-        "F9/F10 fire directly."),
+        "letter preset."),
+    "hotkeys.preset.fkeys.caveat": (
+        "One caveat: the F5–F11 band carries debug actions in most IDEs — if you "
+        "debug a lot, stay on the letter preset or override single keys. On a "
+        "laptop, you may need to enable Fn-Lock (usually Fn+Esc) so F9/F10 fire "
+        "directly."),
     "btn.use_preset": "Use this preset",
     "hotkeys.custom.heading": "Individual actions",
     "hotkeys.custom.body": (
         "Click Change next to an action, then press the new combo. Letters, "
         "digits, F1–F24 and the ü key work — F-keys also bare, everything else "
         "with Ctrl and/or Alt."),
+    "hotkeys.col.action": "Action",
+    "hotkeys.col.combo": "Shortcut",
     "hotkeys.capture_limit": (
         "While Thoughtborne is running, a combo it already holds can't be captured "
         "here — Windows fires the action instead of passing the key press through. "
         "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
     "btn.change_key": "Change…",
     "hotkeys.more_suffix": "(+{n} more)",
-    "capture.prompt": "Press the new combo … (Esc cancels)",
+    "capture.prompt": "Press the combo … (Esc)",
     "capture.unbindable": "This key can't be bound — use letters, digits, F1–F24 or ü.",
     "capture.need_modifier": (
         "Letters and digits need Ctrl and/or Alt — only F-keys work bare."),
@@ -221,9 +226,12 @@ _EN = {
         "11), two of Terminal's own settings move it to the tray: open Terminal's "
         "settings (Ctrl+,), go to Interaction, and enable both \"Hide Terminal in "
         "the notification area when it is minimized\" and \"Always display an icon "
-        "in the notification area\". Minimizing then sends the window to the tray; "
+        "in the notification area\"."),
+    "behavior.tray.body2": (
+        "Minimizing then sends the window to the tray; "
         "one click on the tray icon brings it back (Windows first parks new tray "
-        "icons behind the ^ chevron — drag the icon into the visible tray once). "
+        "icons behind the ^ chevron — drag the icon into the visible tray once)."),
+    "behavior.tray.body3": (
         "Two honest limits: both toggles affect every Windows Terminal window, and "
         "they don't exist under the classic conhost. Thoughtborne deliberately "
         "doesn't change Terminal's settings for you — the button below just takes "
@@ -415,6 +423,7 @@ _DE = {
         "ist jede Kombination systemweit reserviert, solange das Tool läuft. Als "
         "Basis ein Preset wählen und darunter einzelne Aktionen ändern, falls eine "
         "Kombination mit etwas kollidiert, das man nutzt."),
+    "hotkeys.presets.heading": "Zwei Presets zur Wahl",
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt-Buchstaben — der Auslieferungszustand",
     "hotkeys.preset.ctrl_alt.body": (
         "Ctrl+Alt halten und einen Buchstaben drücken: W startet die Aufnahme, "
@@ -428,7 +437,9 @@ _DE = {
         "blanke Taste ist der Alltag (F9 startet, F10 fügt ein), Ctrl der wichtige "
         "Geschwister-Fall (abbrechen, senden, Engine wechseln), Ctrl+Alt der "
         "seltene technische; die Verwaltungs-Tasten (History, Selbsttest, Beenden) "
-        "bleiben wie im Buchstaben-Preset. Ein Vorbehalt: Das Band F5–F11 ist in "
+        "bleiben wie im Buchstaben-Preset."),
+    "hotkeys.preset.fkeys.caveat": (
+        "Ein Vorbehalt: Das Band F5–F11 ist in "
         "den meisten IDEs mit Debug-Aktionen belegt — wer viel debuggt, bleibt "
         "beim Buchstaben-Preset oder passt einzelne Tasten an. Auf dem Laptop ggf. "
         "Fn-Lock aktivieren (meist Fn+Esc), damit F9/F10 direkt feuern."),
@@ -438,6 +449,8 @@ _DE = {
         "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
         "Buchstaben, Ziffern, F1–F24 und die ü-Taste funktionieren — F-Tasten auch "
         "blank, alles andere mit Ctrl und/oder Alt."),
+    "hotkeys.col.action": "Aktion",
+    "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
         "Solange Thoughtborne läuft, lässt sich eine bereits belegte Kombination "
         "hier nicht aufnehmen — Windows löst stattdessen die Aktion aus, statt den "
@@ -445,7 +458,7 @@ _DE = {
         "eine unbelegte Kombination wählen."),
     "btn.change_key": "Ändern…",
     "hotkeys.more_suffix": "(+{n} weitere)",
-    "capture.prompt": "Neue Kombination drücken … (Esc bricht ab)",
+    "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
         "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern, F1–F24 oder ü "
         "verwenden."),
@@ -502,10 +515,13 @@ _DE = {
         "unter Windows 11), erledigen zwei von Terminals eigenen Einstellungen den "
         "Umzug in den Tray: Terminals Einstellungen öffnen (Ctrl+,), zu "
         "Interaktion gehen und beide aktivieren — „Terminal bei Minimierung im "
-        "Infobereich ausblenden“ und „Immer ein Symbol im Infobereich anzeigen“. "
+        "Infobereich ausblenden“ und „Immer ein Symbol im Infobereich anzeigen“."),
+    "behavior.tray.body2": (
         "Minimieren schickt das Fenster dann in den Tray; ein Klick aufs Tray-Icon "
         "holt es zurück (neue Tray-Icons parkt Windows zunächst hinter dem "
-        "^-Ausklappmenü — das Icon einmal in den sichtbaren Bereich ziehen). Zwei "
+        "^-Ausklappmenü — das Icon einmal in den sichtbaren Bereich ziehen)."),
+    "behavior.tray.body3": (
+        "Zwei "
         "ehrliche Grenzen: Beide Schalter wirken auf jedes Windows-Terminal-"
         "Fenster, und unter dem klassischen conhost gibt es sie nicht. "
         "Thoughtborne ändert Terminals Einstellungen bewusst nicht selbst — der "

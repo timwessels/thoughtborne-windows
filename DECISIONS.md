@@ -585,3 +585,68 @@ precedent; the remedy (focus vs refuse) and the name deliberately differ. Respec
 D-005 — the mutex/focus is stdlib `ctypes`, no third-party single-instance package,
 so the settings-app import chain stays stdlib-only. Does not touch D-001, D-003,
 D-006, D-007, or D-008.
+
+---
+
+## D-010 — Settings app leaves the native ttk theme for `clam` + an explicit style module
+
+Decided 2026-08-16 (#155).
+
+The settings/onboarding app used to pin the native `vista` ttk theme; the #155
+visual design pass leaves it for `clam` plus one explicit style module,
+`settings_theme.py`. No vendored third-party theme.
+
+- **Why not vista.** vista draws the notebook pane and tab strip, buttons, entry
+  and combobox fields, the scrollbar and the radio indicators through the Windows
+  UxTheme API, which takes no colour from ttk styling. `-foreground`, `-font` and
+  frame/label backgrounds still apply, but the OS-drawn chrome does not — so "white
+  surfaces" under vista is a *half*-restyled window: white frames and labels around
+  grey Aero-era chrome, which reads as broken rather than plain. The decisive case
+  is the notebook pane, which cannot be made white, so a white body inside a grey
+  pane is exactly the grey-band failure the #180 canvas comment warns about. `clam`
+  is Tk-drawn top to bottom, so the design is exactly what `settings_theme.py`
+  specifies — and it renders identically off-Windows under Xvfb, which for the
+  first time makes the app's look verifiable without a Windows machine (the
+  autonomous-verification culture the batch runs depend on).
+- **Why not a vendored `.tcl` theme** (azure / forest / sun-valley). The letter of
+  D-005 is not broken by a Tcl file (no Python import, no pip), but the credible
+  candidates are *image* themes: their widget parts are fixed-size PNG sprites, and
+  `tk scaling` scales fonts, not photos — at 125/150 % you get correctly-sized text
+  inside undersized, blurry widget art, a direct collision with this app's DPI
+  requirement. Plus ~1000 lines of third-party Tcl in the one window every
+  first-run user passes through, found at runtime relative to the script dir, whose
+  Tcl error would kill the very window the D-005 rescue lane exists to save. Our
+  needs are met by ~60 `style.configure` lines.
+- **Light, not dark.** `messagebox` dialogs, the window title bar and the combobox
+  popdown are OS-drawn and stay light; a dark theme would guarantee a visible seam
+  in exactly those surfaces we do not control. The five shipped status colours are
+  tuned for light backgrounds, and the product already *has* a dark surface (the
+  console), so a light settings window beside it is a distinction, not an
+  inconsistency. If a dark theme is ever wanted, it is a palette swap in one module
+  plus a new contrast pass — but reasons one and two do not go away.
+- **One place defines the surfaces.** `settings_theme.py` is now the single source
+  of the page and card surfaces. `TFrame` IS the page surface: `_scrollable_tab`
+  reads `Style().lookup("TFrame", "background")` for its #180 scroll canvas, so the
+  page colour and the canvas background are the same value by construction — change
+  one and the other follows.
+
+The module is stdlib-only and imports tkinter lazily (inside `apply_theme` /
+`_pick_family`, like `settings_instance`'s ctypes), so its constants import even on
+a Python without the tk bindings and the off-Windows `test_settings_theme.py` can
+WCAG-check the palette without a display. The palette is the project's own website
+palette (`docs/style.css`), so the settings window, the site and the console read
+as one product.
+
+Do not reintroduce: pinning `vista` (or any native theme) for the settings app;
+styling only frames/labels while leaving OS-drawn chrome (the half-restyled
+window); a vendored image-based `.tcl` theme (DPI-blurry, and a runtime-found file
+whose error kills the rescue-lane window); a dark palette (it seams the OS-drawn
+messagebox / title bar / popdown); or a second place that defines the page/canvas
+surface apart from `settings_theme.py`.
+
+Respects D-002 — a visual pass changes no write surface and no save semantics.
+Respects D-005 — `settings_theme.py` is stdlib-only, so the system-Python rescue
+lane still runs the app, and no third-party theme is vendored. Respects D-008 and
+D-009 — the two-mode engine control's logic and the `app.title.*` focus-match
+titles are untouched; only their container and styles change. Does not touch D-001,
+D-003, D-004, D-006, or D-007.
