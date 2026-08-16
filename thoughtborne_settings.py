@@ -679,49 +679,66 @@ class SettingsApp:
 
     # ---- welcome / overview tab ----
     def _build_welcome_tab(self):
-        # The orientation page that opens the app in both modes (#197): what the tool
-        # is, that the console is a hotkey-driven status display, BYOK in two
-        # sentences, the live dictation loop, and contextual links into the other
-        # tabs. Teasers and pointers only -- the canonical BYOK text stays on the
-        # Provider tab and the full loop on the done tab. Built via _scrollable_tab
-        # like every other page (mandatory for the index-parallel canvas, #180).
+        # The orientation page that opens the app in both modes (#197), rebuilt as a
+        # guided onboarding path (#204): after the unchanged intro + live dictation
+        # loop, a numbered setup path (1 key, 2 hotkeys, 3 optional startup) leads a
+        # fresh user step by step, then the console-is-a-status-display reassurance
+        # and the full-README pointer. Assistant-flavoured, never wizard-gated: the
+        # numbers give order, every tab stays reachable by its own link. Teasers and
+        # pointers only -- the canonical BYOK text stays on the Provider tab and the
+        # full loop on the done tab. Built via _scrollable_tab like every other page
+        # (mandatory for the index-parallel canvas, #180).
         outer, f = self._scrollable_tab()
         sp = self.theme.sp
 
-        # 1) What it is (one-breath intro) -- the page lead.
+        # 1) What it is (one-breath intro) -- the page lead. Unchanged (#204).
         self._section(f, "welcome.intro.heading", level="H1")
         self._prose(f, "welcome.intro.body").pack(fill="x", pady=(sp(2), sp(8)))
 
         # 2) The dictation loop from the LIVE hotkey state ({start}/{stop}) -- a
         #    shorter teaser than done.loop.body. The label is a format string, so it
-        #    is NOT _reg-istered; _render_welcome_page fills it by hand.
+        #    is NOT _reg-istered; _render_welcome_page fills it by hand. Unchanged.
         self.welcome_loop_lbl = self._prose_dyn(f)
         self.welcome_loop_lbl.pack(fill="x", pady=(0, sp(2)))
         self._tab_link(f, "welcome.loop.link", "done.tab").pack(anchor="w", pady=(0, sp(8)))
 
-        # 3) The console is a status display (honest about the failed-start exception).
-        #    Section spacing + the heading ladder do the dividing that stacked
-        #    separators used to (#155): a rule between every block reads like a form.
+        # 3) The guided setup path -- the new core (#204), directly after the intro.
+        #    A keeper separator (navigation is a different kind of content) + the
+        #    existing "Set things up" heading, then three numbered step cards. The
+        #    numbers live in the heading TEXT ("1 -- ..."), not a step-badge style;
+        #    each card ends in a tab-link into the tab that holds the full walkthrough.
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(sp(20), sp(16)))
+        self._section(f, "welcome.next.heading", level="H2", pady=(0, sp(8)))
+        self._build_welcome_step(f, "welcome.step1.heading", "welcome.step1.body",
+                                 "welcome.byok.link", "provider.tab")
+        self._build_welcome_step(f, "welcome.step2.heading", "welcome.step2.body",
+                                 "welcome.link.hotkeys", "hotkeys.tab")
+        self._build_welcome_step(f, "welcome.step3.heading", "welcome.step3.body",
+                                 "welcome.link.behavior", "behavior.tab")
+
+        # 4) The console is a status display (honest about the failed-start
+        #    exception) -- moved below the setup path (#204): reassurance and
+        #    orientation, not a setup step.
         self._section(f, "welcome.console.heading", level="H2", pady=(sp(28), 0))
         self._prose(f, "welcome.console.body").pack(fill="x", pady=(sp(2), sp(8)))
 
-        # 4) BYOK -- two-sentence teaser; the canonical long form is on the Provider tab.
-        self._section(f, "welcome.byok.heading", level="H2", pady=(sp(28), 0))
-        self._prose(f, "welcome.byok.body").pack(fill="x", pady=(sp(2), sp(2)))
-        self._tab_link(f, "welcome.byok.link", "provider.tab").pack(anchor="w", pady=(0, sp(8)))
-
-        # 5) Where to go next -- the one actionable block, so it gets a card and a
-        #    keeper separator above it (navigation is a different kind of content).
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(sp(20), sp(16)))
-        nav = self._card(f, "welcome.next.heading")
-        nav.pack(fill="x")
-        self._prose(nav, "welcome.next.body", surface="Card.Muted.").pack(
-            fill="x", pady=(0, sp(6)))
-        self._tab_link(nav, "welcome.link.hotkeys", "hotkeys.tab", bg=CARD).pack(anchor="w")
-        self._tab_link(nav, "welcome.link.behavior", "behavior.tab", bg=CARD).pack(anchor="w")
-        self._link(nav, "welcome.link.readme", "url.readme", bg=CARD).pack(
-            anchor="w", pady=(sp(2), 0))
+        # 5) The full-picture exit, correctly last.
+        self._link(f, "welcome.link.readme", "url.readme").pack(
+            anchor="w", pady=(sp(12), 0))
         return outer
+
+    def _build_welcome_step(self, parent, heading_key, body_key, link_key, tab_key):
+        # One numbered step card of the #204 guided setup path: the card's H2 is the
+        # numbered heading ("1 -- ..."), then the body prose, then a tab-link into
+        # the tab that carries the full walkthrough. Read-only -- Step 1 only points
+        # at the Provider tab; no key is collected here (D-002). Mirrors the stacked
+        # card shape of _build_preset_card.
+        sp = self.theme.sp
+        card = self._card(parent, heading_key)
+        card.pack(side="top", fill="x", pady=(0, sp(8)))
+        self._prose(card, body_key, surface="Card.").pack(fill="x")
+        self._tab_link(card, link_key, tab_key, bg=CARD).pack(
+            anchor="w", pady=(sp(6), 0))
 
     # ---- provider tab ----
     def _build_provider_tab(self):

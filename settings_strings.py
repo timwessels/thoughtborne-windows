@@ -65,17 +65,24 @@ _EN = {
         "normal use you never type into it; dictation keeps working even with the "
         "window hidden. The one exception is a failed start: then the console asks "
         "you to press Enter to close it."),
-    "welcome.byok.heading": "You bring your own key (BYOK)",
-    "welcome.byok.body": (
-        "Thoughtborne has no subscription and no middleman — you use your own "
-        "account at a transcription provider and pay only for what you use, with a "
-        "free option to start. The Provider tab explains what that means and walks "
-        "you through getting a key."),
     "welcome.byok.link": "→ Provider & API key",
     "welcome.next.heading": "Set things up",
-    "welcome.next.body": (
-        "Use the tabs to add your key, choose your hotkeys, and pick your startup "
-        "engine — or read the full picture in the README."),
+    "welcome.step1.heading": "1 — Get an API key",
+    "welcome.step1.body": (
+        "This is the one thing dictation can't work without. Thoughtborne has no "
+        "subscription and no middleman — you use your own account at a "
+        "transcription provider and pay only for what you use. Two lanes, and one "
+        "key is enough to start: Groq is free, so you can try Thoughtborne without "
+        "paying anyone; Soniox is the quality lane and carries the default engine. "
+        "The Provider tab walks you through getting a key and pasting it in."),
+    "welcome.step2.heading": "2 — Choose your hotkeys",
+    "welcome.step2.body": (
+        "The shipped Ctrl+Alt scheme is the author's own setup — built for "
+        "one-handed dictation. Keep it, or change any combo on the Hotkeys tab."),
+    "welcome.step3.heading": "3 — Optional: Startup & windows",
+    "welcome.step3.body": (
+        "Optional polish: which engine Thoughtborne starts on, and how to tuck the "
+        "console into the tray."),
     "welcome.link.hotkeys": "→ Hotkeys",
     "welcome.link.behavior": "→ Startup & windows",
     "welcome.link.readme": "→ Full README (opens in your browser)",
@@ -110,10 +117,11 @@ _EN = {
     "provider.soniox.body": (
         "Pay-as-you-go, no subscription (as of July 2026): $0.12 per hour of audio "
         "on the real-time default (Soniox Live), $0.10 on file uploads — billed by "
-        "actual use, no minimum. Around 25 hours of dictation a month comes to "
-        "about $3. New accounts get no free starting credit: after signing up at "
-        "console.soniox.com, first top up a small balance in the console — the key "
-        "alone won't transcribe yet. Powers the two Soniox engines."),
+        "actual use (you pay only for the audio you send). Around 25 hours of "
+        "dictation a month comes to about $3. New accounts get no free starting "
+        "credit: after signing up at console.soniox.com, first top up a small "
+        "balance in the console — the key alone won't transcribe yet. Powers the "
+        "two Soniox engines."),
     "provider.field.groq": "Groq API key",
     "provider.field.soniox": "Soniox API key",
     "provider.reveal.show": "Show",
@@ -145,10 +153,14 @@ _EN = {
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt letters — the shipped default",
     "hotkeys.preset.ctrl_alt.body": (
         "Hold Ctrl+Alt and press a letter: W starts the recording, A/D/H/Y deliver "
-        "the transcript, X cancels. Works on every keyboard, laptops included, and "
-        "stays clear of the F-key row that IDEs use for debugging — the safe "
-        "all-round choice. Applying this preset is also the way back to the "
-        "defaults."),
+        "the transcript, X cancels. This is the author's own setup — Ctrl+Alt "
+        "combinations are rarely claimed by other Windows programs, and they all "
+        "sit on the left half of the keyboard, so start and stop work one-handed "
+        "while the right hand stays on the mouse. Works on every keyboard, laptops "
+        "included, and stays clear of the F-key row that IDEs use for debugging — "
+        "the safe all-round choice. The F-keys preset below goes one step further: "
+        "recording on a single keypress. Applying this preset is also the way back "
+        "to the defaults."),
     "hotkeys.preset.fkeys.title": "F-keys — one keypress, no chord",
     "hotkeys.preset.fkeys.body": (
         "Three F-keys, three families: F8 engine, F9 record, F10 deliver. The bare "
@@ -362,17 +374,26 @@ _DE = {
         "funktioniert auch bei verstecktem Fenster. Die einzige Ausnahme ist ein "
         "fehlgeschlagener Start: Dann bittet die Konsole dich, zum Schließen Enter "
         "zu drücken."),
-    "welcome.byok.heading": "Du bringst deinen eigenen Key mit (BYOK)",
-    "welcome.byok.body": (
-        "Thoughtborne hat kein Abo und keinen Zwischenhändler — du nutzt dein "
-        "eigenes Konto bei einem Transkriptionsdienst und zahlst nur, was du "
-        "verbrauchst, mit einem kostenlosen Einstieg. Der Anbieter-Tab erklärt, was "
-        "das heißt, und führt dich zum Key."),
     "welcome.byok.link": "→ Anbieter & API-Key",
     "welcome.next.heading": "Jetzt einrichten",
-    "welcome.next.body": (
-        "Über die Tabs trägst du deinen Key ein, wählst deine Hotkeys und legst die "
-        "Start-Engine fest — oder liest im README das ganze Bild."),
+    "welcome.step1.heading": "1 — Einen API-Key holen",
+    "welcome.step1.body": (
+        "Ohne ihn funktioniert Diktieren nicht — er ist die einzige Voraussetzung. "
+        "Thoughtborne hat kein Abo und keinen Zwischenhändler — du nutzt dein "
+        "eigenes Konto bei einem Transkriptionsanbieter und zahlst nur, was du "
+        "verbrauchst. Zwei Wege, ein Key genügt zum Start: Groq ist kostenlos, "
+        "damit lässt sich Thoughtborne ausprobieren, ohne jemanden zu bezahlen; "
+        "Soniox ist der Qualitäts-Weg und trägt die Standard-Engine. Der "
+        "Anbieter-Tab führt dich durch — Key holen und eintragen."),
+    "welcome.step2.heading": "2 — Hotkeys wählen",
+    "welcome.step2.body": (
+        "Das mitgelieferte Ctrl+Alt-Schema ist das eigene Setup des Autors — "
+        "gebaut für einhändiges Diktieren. Übernehmen oder auf dem Hotkeys-Tab "
+        "jede Kombi anpassen."),
+    "welcome.step3.heading": "3 — Optional: Start & Fenster",
+    "welcome.step3.body": (
+        "Optionaler Feinschliff: mit welcher Engine Thoughtborne startet und wie "
+        "du die Konsole in den Tray schickst."),
     "welcome.link.hotkeys": "→ Hotkeys",
     "welcome.link.behavior": "→ Start & Fenster",
     "welcome.link.readme": "→ Vollständiges README (öffnet im Browser)",
@@ -408,11 +429,11 @@ _DE = {
     "provider.soniox.body": (
         "Zahlung nach Verbrauch, kein Abo (Stand Juli 2026): 0,12 $ pro Stunde "
         "Audio beim Echtzeit-Default (Soniox Live), 0,10 $ bei Datei-Uploads — "
-        "abgerechnet nach tatsächlicher Nutzung, ohne Minimum. Rund 25 Stunden "
-        "Diktat im Monat ergeben etwa 3 $. Neue Konten bekommen kein Startguthaben: "
-        "Nach der Registrierung auf console.soniox.com zuerst in der Console ein "
-        "kleines Guthaben aufladen — der Key allein transkribiert noch nicht. "
-        "Versorgt die beiden Soniox-Engines."),
+        "abgerechnet nach tatsächlicher Nutzung (du zahlst nur für das gesendete "
+        "Audio). Rund 25 Stunden Diktat im Monat ergeben etwa 3 $. Neue Konten "
+        "bekommen kein Startguthaben: Nach der Registrierung auf console.soniox.com "
+        "zuerst in der Console ein kleines Guthaben aufladen — der Key allein "
+        "transkribiert noch nicht. Versorgt die beiden Soniox-Engines."),
     "provider.field.groq": "Groq-API-Key",
     "provider.field.soniox": "Soniox-API-Key",
     "provider.reveal.show": "Anzeigen",
@@ -446,10 +467,15 @@ _DE = {
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt-Buchstaben — der Auslieferungszustand",
     "hotkeys.preset.ctrl_alt.body": (
         "Ctrl+Alt halten und einen Buchstaben drücken: W startet die Aufnahme, "
-        "A/D/H/Y liefern das Transkript ab, X bricht ab. Funktioniert auf jeder "
-        "Tastatur, Laptops eingeschlossen, und lässt die F-Tasten-Reihe frei, die "
-        "IDEs fürs Debuggen nutzen — die sichere Allround-Wahl. Dieses Preset "
-        "anzuwenden ist zugleich der Weg zurück zu den Defaults."),
+        "A/D/H/Y liefern das Transkript ab, X bricht ab. Das ist das eigene Setup "
+        "des Autors — Ctrl+Alt-Kombinationen sind von anderen Windows-Programmen "
+        "selten belegt, und sie liegen alle auf der linken Tastaturhälfte: Start "
+        "und Stopp gehen einhändig, die rechte Hand bleibt an der Maus. "
+        "Funktioniert auf jeder Tastatur, Laptops eingeschlossen, und lässt die "
+        "F-Tasten-Reihe frei, die IDEs fürs Debuggen nutzen — die sichere "
+        "Allround-Wahl. Das F-Tasten-Preset unten geht noch einen Schritt weiter: "
+        "Aufnahme mit einem einzelnen Tastendruck. Dieses Preset anzuwenden ist "
+        "zugleich der Weg zurück zu den Defaults."),
     "hotkeys.preset.fkeys.title": "F-Tasten — ein Tastendruck statt Griff",
     "hotkeys.preset.fkeys.body": (
         "Drei F-Tasten, drei Familien: F8 Engine, F9 Aufnahme, F10 Abliefern. Die "
