@@ -18,8 +18,10 @@ off-Windows. What can be checked without Windows:
   - `SETTINGS_MUTEX_NAME` is distinct from the tool's own mutex name -- a static
     guard so a later copy-paste can't make the tool and the app block each other;
   - off-Windows, `create_instance_mutex()` -> (None, False) and
-    `focus_existing_settings_window()` -> False (fail-open; a guard fault never
-    costs a launch).
+    `focus_existing_settings_window()` -> FOCUS_NOT_FOUND (fail-open; a guard fault
+    never costs a launch -- since #203 the focus path returns a category string, not
+    a bool, so the caller can log found/raised/focused/refused);
+  - the FOCUS_* outcome categories are distinct, non-empty strings (#203).
 
 The real ctypes mutex/focus behavior on Windows is hands-on (#199).
 
@@ -99,8 +101,20 @@ def test_windows_functions_fail_open_off_windows():
     # to a fail-open answer without importing ctypes or raising.
     check(si.create_instance_mutex() == (None, False),
           "create_instance_mutex() is not fail-open off-Windows")
-    check(si.focus_existing_settings_window() is False,
-          "focus_existing_settings_window() is not fail-open off-Windows")
+    # Since #203 the focus path returns a FOCUS_* category, not a bool; off-Windows it
+    # fails open to FOCUS_NOT_FOUND (no window, guard never costs a launch).
+    check(si.focus_existing_settings_window() == si.FOCUS_NOT_FOUND,
+          "focus_existing_settings_window() is not fail-open (FOCUS_NOT_FOUND) "
+          "off-Windows")
+
+
+def test_focus_outcome_constants_are_distinct_strings():
+    # The caller logs these verbatim (#203, D-009), so they must be distinct, non-empty
+    # strings -- a copy-paste collision would blur two real outcomes in the log.
+    cats = [si.FOCUS_NOT_FOUND, si.FOCUS_RAISED, si.FOCUS_FOCUSED, si.FOCUS_REFUSED]
+    for c in cats:
+        check(isinstance(c, str) and c, f"FOCUS_* category is not a non-empty string: {c!r}")
+    check(len(set(cats)) == len(cats), f"FOCUS_* categories are not all distinct: {cats}")
 
 
 def main():
@@ -108,6 +122,7 @@ def main():
     test_titles_track_the_string_table()
     test_mutex_name_is_distinct()
     test_windows_functions_fail_open_off_windows()
+    test_focus_outcome_constants_are_distinct_strings()
 
     if failures:
         print(f"FAIL: {len(failures)} violation(s)")
@@ -115,7 +130,8 @@ def main():
             print("  " + f)
         return 1
     print("OK: lazy import, the four titles track the string table, a distinct "
-          "session-scoped mutex name, and off-Windows fail-open all pass")
+          "session-scoped mutex name, distinct FOCUS_* outcome categories, and "
+          "off-Windows fail-open all pass")
     return 0
 
 

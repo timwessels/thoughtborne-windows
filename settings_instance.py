@@ -7,7 +7,11 @@ config files (D-002). This is the settings-app counterpart of the tool's own
 single-instance mutex (D-004), with two deliberate differences: a *distinct* mutex
 name (sharing the tool's would make a running tool block every settings launch and
 vice versa) and a GUI remedy (focus, don't refuse -- bringing the window forward IS
-the feedback, a notice would be noise).
+the feedback, a notice would be noise). The remedy is a cross-process topmost pulse
+that raises the window's Z-order without needing foreground rights (the reliable lift
+where a background SetForegroundWindow is refused, #203), and it reports its outcome
+as a FOCUS_* category the caller logs -- so a silent no-op is no longer
+indistinguishable from a real raise.
 
 Pure stdlib, so the D-005 system-Python rescue lane keeps working: the mutex/focus
 is `ctypes`, imported lazily *inside* the Windows functions so `import
@@ -30,6 +34,14 @@ SETTINGS_MUTEX_NAME = "Thoughtborne-Settings-SingleInstance"
 
 # Held for the whole process so the kernel frees it on any exit (D-004); never closed.
 _MUTEX_HANDLE = None
+
+# Outcome categories of focus_existing_settings_window (#203, D-009): a second launch
+# logs which of these it achieved, so the log can tell a real raise from a silent
+# no-op. Distinct string values -- test-guarded.
+FOCUS_NOT_FOUND = "not-found"   # no matching window (also off-Windows / on exception)
+FOCUS_RAISED = "raised"         # topmost pulse lifted it to the top, focus not taken
+FOCUS_FOCUSED = "focused"       # it is now the OS foreground window (confirmed)
+FOCUS_REFUSED = "refused"       # a window was found but even the pulse did not take
 
 
 def settings_window_titles() -> tuple:
@@ -114,18 +126,31 @@ def create_instance_mutex() -> tuple:
         return (None, False)            # fail-open, always
 
 
-def focus_existing_settings_window() -> bool:
-    """Bring an already-open settings window to the front. Enumerates top-level
-    windows, matches the title *exactly* against the four known localized titles
-    (an unmapped-yet window in a near-simultaneous start simply isn't found -- the
-    "at most one window" guarantee still holds via the mutex), restores it if
-    minimized, and raises it with the documented AttachThreadInput fallback for when
-    a background process's plain SetForegroundWindow is refused. Returns True when a
-    window was found and addressed. Fail-open: off-Windows or any exception -> False.
+def focus_existing_settings_window() -> str:
+    """Bring an already-open settings window to the front and report the outcome as
+    one of the FOCUS_* categories (#203, D-009). Enumerates top-level windows, matches
+    the title *exactly* against the four known localized titles (an unmapped-yet window
+    in a near-simultaneous start simply isn't found -- the "at most one window"
+    guarantee still holds via the mutex), restores it if minimized, raises it with a
+    cross-process topmost pulse, then tries to hand it real keyboard focus.
+
+    The topmost pulse (SetWindowPos to HWND_TOPMOST then back to HWND_NOTOPMOST, with
+    NOACTIVATE) is the load-bearing remedy: a background process may reorder another
+    window's Z-order without holding foreground rights, so this reliably lifts the
+    window into view where a plain SetForegroundWindow is refused (the #199-observed
+    ineffective AttachThreadInput path). NOACTIVATE means the pulse steals no keyboard
+    focus; the subsequent SetForegroundWindow (+ AttachThreadInput fallback) attempts
+    real focus on top, and a GetForegroundWindow re-probe distinguishes the outcome.
+
+    Returns:
+      FOCUS_FOCUSED    the window is now the OS foreground window (re-probe confirmed),
+      FOCUS_RAISED     the pulse lifted it to the top but focus was refused,
+      FOCUS_REFUSED    a window was found but even the pulse did not take,
+      FOCUS_NOT_FOUND  no matching window -- also off-Windows or on any exception (fail-open).
     """
     import os
     if os.name != "nt":
-        return False
+        return FOCUS_NOT_FOUND
     try:
         import ctypes
         from ctypes import wintypes
@@ -147,6 +172,10 @@ def focus_existing_settings_window() -> bool:
             wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
         user32.GetWindowThreadProcessId.restype = wintypes.DWORD
         user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        user32.SetWindowPos.restype = wintypes.BOOL
         kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
         wanted = set(settings_window_titles())
@@ -170,29 +199,60 @@ def focus_existing_settings_window() -> bool:
         user32.EnumWindows(WNDENUMPROC(_cb), 0)
         hwnd = found["hwnd"]
         if not hwnd:
-            return False
+            return FOCUS_NOT_FOUND
 
         SW_RESTORE = 9
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, SW_RESTORE)
-        user32.BringWindowToTop(hwnd)
-        if user32.SetForegroundWindow(hwnd):
-            return True
 
-        # Foreground refused (we are a background process): attach our input thread
-        # to the current foreground window's thread so Windows lets us hand focus
-        # over, then detach again. Best-effort -- a cross-integrity UIPI block still
-        # leaves the window raised; "at most one window" already holds.
-        our_tid = kernel32.GetCurrentThreadId()
-        fg = user32.GetForegroundWindow()
-        fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
-        attached = bool(fg_tid) and fg_tid != our_tid and \
-            bool(user32.AttachThreadInput(our_tid, fg_tid, True))
+        # Topmost pulse: raise the window's Z-order to the very top and immediately
+        # drop the topmost flag again, without activating it (SWP_NOACTIVATE). A
+        # background process is allowed this cross-process reorder even when it holds
+        # no foreground rights, so this is the reliable "visibly on top" remedy.
+        HWND_TOPMOST = wintypes.HWND(-1)
+        HWND_NOTOPMOST = wintypes.HWND(-2)
+        SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x0001, 0x0002, 0x0010
+        swp = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+        raised = bool(user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, swp))
+        if raised:
+            # Always drop the topmost flag again, retrying once and in its own
+            # try/except so a failure here can't skip the focus attempt below. A
+            # TOPMOST left in place (its NOTOPMOST partner failing) would pin the
+            # window permanently above everything -- rare (the opposite-flag call on
+            # the same window) and not fatal (it stays visibly in front, self-clearing
+            # on the next normal activation), so `raised` stays the honest verdict.
+            try:
+                if not user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, swp):
+                    user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, swp)
+            except Exception:
+                pass
+
+        user32.BringWindowToTop(hwnd)
+        if not user32.SetForegroundWindow(hwnd):
+            # Foreground refused (we are a background process): attach our input thread
+            # to the current foreground window's thread so Windows lets us hand focus
+            # over, then detach again. Best-effort -- a cross-integrity UIPI block still
+            # leaves the window raised by the pulse above.
+            our_tid = kernel32.GetCurrentThreadId()
+            fg = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+            attached = bool(fg_tid) and fg_tid != our_tid and \
+                bool(user32.AttachThreadInput(our_tid, fg_tid, True))
+            try:
+                user32.SetForegroundWindow(hwnd)
+            finally:
+                if attached:
+                    user32.AttachThreadInput(our_tid, fg_tid, False)
+
+        # Re-probe: did we actually become the foreground window? This is what makes
+        # focused / raised / refused distinguishable in the log.
+        focused = False
         try:
-            user32.SetForegroundWindow(hwnd)
-        finally:
-            if attached:
-                user32.AttachThreadInput(our_tid, fg_tid, False)
-        return True
+            focused = user32.GetForegroundWindow() == hwnd
+        except Exception:
+            focused = False
+        if focused:
+            return FOCUS_FOCUSED
+        return FOCUS_RAISED if raised else FOCUS_REFUSED
     except Exception:
-        return False
+        return FOCUS_NOT_FOUND

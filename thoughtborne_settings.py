@@ -75,6 +75,7 @@ import settings_instance
 import settings_io
 import settings_strings as strings
 import settings_theme
+import settings_visibility
 from hotkey_parse import parse_hotkey_lexical
 from key_check import KeyStatus
 
@@ -188,6 +189,14 @@ class SettingsApp:
         # under one 120-notch) accumulate into whole scroll steps instead of each
         # truncating to zero (#180).
         self._wheel_accum = 0
+        # #203: wraplength for canvas-body labels is set top-down, once per settled
+        # canvas width, not per label <Configure> -- each wraplength change forces a
+        # full GDI text remeasurement, and binding that to every label's <Configure>
+        # cost seconds on Windows (the initial layout steps through several real
+        # widths). _wrap_labels is the registry _register_wrap fills; the flag
+        # coalesces many width changes in one settle into a single _push_wraps pass.
+        self._wrap_labels = []
+        self._wrap_push_pending = False
 
         self.dirty = False
         self._lang_toggled = False
@@ -317,6 +326,77 @@ class SettingsApp:
         widget.config(text=strings.t(key, self.lang))
         return widget
 
+    def _register_wrap(self, lbl):
+        """Register a wrapping label for the coalesced wrap pass (#203). Every wrapping
+        label -- prose, dynamic prose, the hotkey capture/status lines, the corrupt-file
+        strip, the wizard subtitle -- goes through one mechanism: its own <Configure>
+        stores the label's realized width and schedules a single idle _push_wraps, which
+        is the ONLY place wraplength is actually set. Deferring the set is the fix: each
+        wraplength change forces a full GDI text remeasurement, and the initial layout
+        steps a label through several real widths, so setting wraplength on every
+        <Configure> (the pre-fix behaviour) cost seconds of native layout work per open
+        on Windows. Keeping wraplength fixed through the storm lets Tk reuse the cached
+        text layout, and the push then measures each label once per settled width.
+
+        Trade-off: until the first push runs, wraplength is 0, so a label is one line at
+        its natural width. The push runs at idle before Tk redraws, so under X11 the
+        window was never painted before wrapping completed (0 of 107 Expose events seen
+        early); but paint-before-push is not structurally guaranteed, so a brief
+        unwrapped first frame on Windows is possible -- answered by the maintainer's
+        hands-on/first-paint measurement, not provable off-Windows."""
+        self._wrap_labels.append(lbl)
+        lbl.bind("<Configure>", self._on_wrap_configure)
+
+    def _on_wrap_configure(self, event):
+        # Store the label's OWN realized width (reliable and per-label -- unlike reading
+        # winfo_width later, which can race the body-pin propagation) and coalesce the
+        # expensive wraplength set into one idle pass (#203).
+        event.widget._pending_wrap_width = event.width
+        self._schedule_wrap_push()
+
+    def _schedule_wrap_push(self):
+        """Coalesce the many <Configure>s of one settle into a single wrap pass (#203),
+        so each label's wraplength (and its GDI remeasurement) is set once per settle,
+        not once per intermediate width step."""
+        if not self._wrap_push_pending:
+            self._wrap_push_pending = True
+            try:
+                self.root.after_idle(self._push_wraps)
+            except Exception:
+                self._wrap_push_pending = False
+
+    def _push_wraps(self):
+        """The one place wraplength is set (#203): for each registered label, wrap it to
+        the width its last <Configure> reported, guarded so an unchanged value skips the
+        GDI remeasurement. A label whose geometry has not settled is skipped and picked
+        up by its next <Configure>: width <= 1 is a not-yet-sized (hidden) tab, and a
+        width above the window bound (below) is a not-yet-pinned label still at its full
+        single-line natural width -- writing either would only set a garbage wraplength.
+        This is self-correcting: the settled <Configure> always arrives once the body pin
+        propagates. Never raises -- a torn-down widget just skips."""
+        self._wrap_push_pending = False
+        # The upper bound for a settled label width is the window width -- nothing can be
+        # wider than the toplevel. A canvas-body label caps below that at _column_px; a
+        # root-chrome label (warn strip, wizard subtitle) can span the full width. A
+        # stored width above this bound is a not-yet-pinned label still at its full
+        # single-line natural width, so skip it (a max() fallback covers an unmapped
+        # root whose winfo_width is still 1).
+        try:
+            cap = max(self._column_px, self.root.winfo_width())
+        except tk.TclError:
+            cap = self._column_px
+        for lbl in self._wrap_labels:
+            try:
+                w = getattr(lbl, "_pending_wrap_width", None)
+                if w is None or w <= 1 or w > cap:
+                    continue
+                wl = settings_visibility.wrap_length(w)
+                if wl != getattr(lbl, "_last_wraplength", None):
+                    lbl._last_wraplength = wl
+                    lbl.configure(wraplength=wl)
+            except tk.TclError:
+                pass
+
     def _prose(self, parent, key, surface="", **kw):
         """A left-justified explainer label that wraps to its own width. `surface`
         picks the style for the surface it sits on -- "" (page), "Muted.",
@@ -325,12 +405,7 @@ class SettingsApp:
         kw.setdefault("style", surface + "TLabel")
         lbl = ttk.Label(parent, justify="left", **kw)
         self._reg(lbl, key)
-
-        def _wrap(event, w=lbl):
-            # width, not wraplength, is parent-driven (fill='x'), so this changes
-            # only the label's height -- no resize loop.
-            w.configure(wraplength=max(event.width - 8, 120))
-        lbl.bind("<Configure>", _wrap)
+        self._register_wrap(lbl)
         return lbl
 
     def _prose_dyn(self, parent, surface="", **kw):
@@ -341,10 +416,7 @@ class SettingsApp:
         `surface` picks the style variant exactly as in _prose."""
         kw.setdefault("style", surface + "TLabel")
         lbl = ttk.Label(parent, justify="left", **kw)
-
-        def _wrap(event, w=lbl):
-            w.configure(wraplength=max(event.width - 8, 120))
-        lbl.bind("<Configure>", _wrap)
+        self._register_wrap(lbl)
         return lbl
 
     def _link(self, parent, text_key, url_key, bg=PAGE):
@@ -417,9 +489,7 @@ class SettingsApp:
         # settings file packs it into view below. #155: wrap dynamically like _prose
         # (the old fixed wraplength=740 was wrong at every scaling != 100 %).
         self._reg(self.warn_strip, "warn.corrupt")
-        self.warn_strip.bind(
-            "<Configure>",
-            lambda e, w=self.warn_strip: w.configure(wraplength=max(e.width - 8, 120)))
+        self._register_wrap(self.warn_strip)
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(side="top", fill="both", expand=True, padx=8, pady=(2, 0))
         self._tab_frames = [
@@ -535,18 +605,38 @@ class SettingsApp:
         # vbar is grid()/grid_remove()'d on demand by _autohide (starts hidden).
         self._tab_canvases.append(canvas)   # index parallels self._tab_frames
 
-        def _autohide(lo, hi):
-            # Show the bar only when the body actually overflows the viewport.
-            if float(lo) <= 0.0 and float(hi) >= 1.0:
-                vbar.grid_remove()
-            else:
-                vbar.grid(row=0, column=1, sticky="ns")
+        # #203: all three reconfigure handlers below carry an equal-value guard so each
+        # is a no-op once its output is stable and synthesizes no further <Configure>,
+        # which stops the reactions (body -> scrollregion -> auto-hide grid -> canvas
+        # width -> body width/centre) from re-triggering each other. The guards are
+        # necessary but not sufficient: the real cost was measuring text on every
+        # wraplength change, which is now decoupled -- wrapping runs through the
+        # coalesced _push_wraps (fed by each label's own <Configure>), which sets each
+        # label's wraplength once per settle instead of re-measuring at every width
+        # step. The auto-hide grid flip is the one width-changing edge, so gating it on
+        # a real overflow-state change (_bar_shown) is what keeps the loop from
+        # re-triggering; the others gate on their last value.
+        def _autohide(lo, hi, c=canvas):
+            # Flip the bar's grid ONLY on a real overflow-state change; grid/
+            # grid_remove changes the canvas width, so an unconditional call is the
+            # storm's main re-trigger. vbar.set stays unconditional (cheap, no
+            # geometry side effect).
+            want = settings_visibility.scrollbar_should_show(lo, hi)
+            if want != getattr(c, "_bar_shown", None):
+                c._bar_shown = want
+                if want:
+                    vbar.grid(row=0, column=1, sticky="ns")
+                else:
+                    vbar.grid_remove()
             vbar.set(lo, hi)
         canvas.configure(yscrollcommand=_autohide)
 
         def _on_body_config(event, c=canvas):
             bbox = c.bbox("all")
-            if bbox:                       # guard: an empty body returns None
+            # Guard: an empty body returns None; re-set the scrollregion only when the
+            # bbox actually moved, so a settled body stops feeding the cascade (#203).
+            if bbox and bbox != getattr(c, "_last_scrollregion", None):
+                c._last_scrollregion = bbox
                 c.configure(scrollregion=bbox)
         body.bind("<Configure>", _on_body_config)
 
@@ -557,10 +647,17 @@ class SettingsApp:
             # chars wide on a maximised window. At the default window size the cap
             # barely bites. Vertical scrolling is unaffected -- xview stays unwired,
             # so the x-offset never scrolls sideways, and _overflows keys off
-            # bbox[3] (bottom y), which the offset does not move.
+            # bbox[3] (bottom y), which the offset does not move. Re-pin only on a
+            # real (width, x) change so a settled canvas stops re-wrapping (#203).
             width = min(event.width, self._column_px)
-            c.itemconfigure(w, width=width)
-            c.coords(w, max((event.width - width) // 2, 0), 0)
+            x = max((event.width - width) // 2, 0)
+            if (width, x) != getattr(c, "_last_body_geom", None):
+                c._last_body_geom = (width, x)
+                c.itemconfigure(w, width=width)
+                c.coords(w, x, 0)
+                # The body width change re-allocates its fill='x' labels, so each fires
+                # its own <Configure> -> the coalesced wrap push runs from there (#203);
+                # no push is triggered here, which would read pre-propagation widths.
         canvas.bind("<Configure>", _on_canvas_config)
 
         return outer, body
@@ -825,8 +922,7 @@ class SettingsApp:
         self.status_lbl = ttk.Label(f, justify="left")
         self.status_lbl.pack(fill="x")
         for _lbl in (self.capture_lbl, self.status_lbl):
-            _lbl.bind("<Configure>",
-                      lambda e, w=_lbl: w.configure(wraplength=max(e.width - 8, 120)))
+            self._register_wrap(_lbl)
         return outer
 
     def _build_preset_card(self, parent, which, title_key, body_key, caveat_key=None):
@@ -1436,16 +1532,69 @@ class SettingsApp:
         self.root.destroy()
 
 
+def _probe_viewable(root):
+    """Best-effort `winfo_viewable()` as 0/1, or None on any fault (#203)."""
+    try:
+        return int(bool(root.winfo_viewable()))
+    except Exception:
+        return None
+
+
+def _probe_rect(root):
+    """Best-effort on-screen window rect as 'WxH+X+Y', or None on any fault (#203)."""
+    try:
+        return (f"{root.winfo_width()}x{root.winfo_height()}"
+                f"+{root.winfo_rootx()}+{root.winfo_rooty()}")
+    except Exception:
+        return None
+
+
+def _probe_foreground(root):
+    """Best-effort 'is our window the OS foreground window' -> 'Y'/'N', or None (#203).
+
+    Windows-only (ctypes), fully guarded, so it renders as '?' off-Windows or on any
+    fault and the visible: line never depends on it. winfo_id() can be a child HWND, so
+    walk to the root owner (GetAncestor GA_ROOT) before comparing; argtypes are pinned
+    to c_void_p so a 64-bit HWND is not truncated to a C int. A private WinDLL instance
+    (settings_instance's pattern) so pinning those argtypes never mutates the
+    process-wide ctypes.windll.user32 other code shares."""
+    try:
+        if os.name != "nt":
+            return None
+        import ctypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetAncestor.restype = ctypes.c_void_p
+        user32.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        GA_ROOT = 2
+        hwnd = user32.GetAncestor(ctypes.c_void_p(root.winfo_id()), GA_ROOT)
+        fg = user32.GetForegroundWindow()
+        return "Y" if hwnd and fg and hwnd == fg else "N"
+    except Exception:
+        return None
+
+
 def _bind_startup_timing(root, t_tk, t_size, t_construct, first_run):
-    """Write one startup-timing line to thoughtborne.log at first window map (#195),
-    so the spawn-to-visible latency is diagnosable on a real machine. Quiet and
-    file-only; everything guarded -- instrumentation must never delay or break the
-    app. The app has no logger of its own, so a single plain append beside the tool's
-    own 'Opened the settings app' line is the cheapest sink: no RotatingFileHandler
-    (a two-process rotation would race), just one open-append at a rare user event. A
-    line missed by the tool's own log rotation mid-append is harmless -- try/except
-    swallows it and the check can simply be repeated."""
-    state = {"done": False}
+    """Write startup-timing lines to thoughtborne.log at first window map (#195) and,
+    since #203, at first paint, so the spawn-to-visible latency is diagnosable on a
+    real machine. Quiet and file-only; everything guarded -- instrumentation must never
+    delay or break the app. The app has no logger of its own, so a single plain append
+    beside the tool's own 'Opened the settings app' line is the cheapest sink: no
+    RotatingFileHandler (a two-process rotation would race), just one open-append at a
+    rare user event. A line missed by the tool's own log rotation mid-append is
+    harmless -- try/except swallows it and the check can simply be repeated.
+
+    Two lines: `[SETTINGS] startup:` at Tk's internal first `<Map>` (unchanged), and
+    `[SETTINGS] visible:` at the first paint activity in the window. Tk maps a window
+    before the OS realizes and paints it, so `<Map>` alone is decoupled from being
+    visible; the gap between the two `total` figures IS the map-to-visible latency #203
+    chased. The signal is `<Expose>` on the root, which -- through the toplevel's
+    bindtags -- fires for the first paint of *any* widget in the window, not strictly
+    the toplevel's own paint, so it marks the earliest paint activity rather than a
+    frame-accurate present. It is diagnostic, not a proof of visibility, but since it
+    can only dispatch once the mainloop is free (i.e. after the storm drains) it
+    honestly reflects the order of magnitude."""
+    state = {"done": False, "expose_done": False, "t_map": None}
 
     def _on_first_map(_evt):
         if state["done"]:
@@ -1453,6 +1602,7 @@ def _bind_startup_timing(root, t_tk, t_size, t_construct, first_run):
         state["done"] = True
         try:
             t_map = time.perf_counter()
+            state["t_map"] = t_map
             parts = []
             if _SPAWN_TS is not None:
                 parts.append(f"spawn->entry={_WALL_ENTRY - _SPAWN_TS:.2f}s")
@@ -1471,8 +1621,29 @@ def _bind_startup_timing(root, t_tk, t_size, t_construct, first_run):
         except Exception:
             pass
 
+    def _on_first_expose(_evt):
+        if state["expose_done"]:
+            return
+        state["expose_done"] = True
+        try:
+            t_expose = time.perf_counter()
+            t_map = state["t_map"]
+            map_to_expose = (t_expose - t_map) if t_map is not None else None
+            total = (time.time() - _SPAWN_TS) if _SPAWN_TS is not None else None
+            mode = "firstrun" if first_run else "settings"
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            line = settings_visibility.format_visible_line(
+                stamp, map_to_expose, total,
+                _probe_viewable(root), _probe_foreground(root), _probe_rect(root),
+                mode)
+            with open(config.LOG_FILE, "a", encoding="utf-8") as fh:
+                fh.write(line)
+        except Exception:
+            pass
+
     try:
         root.bind("<Map>", _on_first_map, add="+")
+        root.bind("<Expose>", _on_first_expose, add="+")
     except Exception:
         pass
 
@@ -1494,7 +1665,17 @@ def main():
     # just starts normally, never costing a launch.
     _handle, already = settings_instance.create_instance_mutex()
     if already:
-        settings_instance.focus_existing_settings_window()   # best-effort raise
+        # Log the focus outcome (#203, D-009): the raise is best-effort and was
+        # previously silent, so the log could not tell a successful raise from a
+        # no-op. Same plain-append sink as the startup line, written before tk.Tk()
+        # in this second process; fully guarded so instrumentation never blocks exit.
+        outcome = settings_instance.focus_existing_settings_window()
+        try:
+            with open(config.LOG_FILE, "a", encoding="utf-8") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} "
+                         f"[SETTINGS] focus-existing: {outcome}\n")
+        except Exception:
+            pass
         sys.exit(0)
 
     _enable_high_dpi()

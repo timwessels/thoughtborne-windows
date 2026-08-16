@@ -574,10 +574,33 @@ tool's `Ctrl+Alt+G` ignore behaviour is widened and made visible. The decisions:
   on the live machine instead of inferred. No `RotatingFileHandler` — a two-process
   rotation would race; a plain append at a rare user event is enough.
 
+**2026-08-16 addendum (#203).** The focus-existing remedy above is **strengthened and
+made observable**, and the startup instrumentation gains a second line. The
+`BringWindowToTop` + `SetForegroundWindow` (+ `AttachThreadInput`) sequence described
+above proved ineffective in practice (the #199/#203 forensics saw a found window stay
+behind even so — a background process holds no foreground rights, and
+`AttachThreadInput` does not reliably lift the UIPI/rights limit). So a **transient
+topmost pulse** now runs first — `SetWindowPos` to `HWND_TOPMOST` then straight back to
+`HWND_NOTOPMOST`, with `NOACTIVATE` — a cross-process Z-order raise a background process
+*is* allowed without foreground rights, and the reliable "visibly on top" result; the
+`SetForegroundWindow` path still follows for real keyboard focus where the rights
+happen to be there. `focus_existing_settings_window` now returns a **category**
+(`not-found` / `raised` / `focused` / `refused`, told apart by a `GetForegroundWindow`
+re-probe) that `main()` logs as a `[SETTINGS] focus-existing:` line — so the log can no
+longer confuse a real raise with a silent no-op. And the "written once at first
+`<Map>`" instrumentation gains a companion `[SETTINGS] visible:` line at first
+`<Expose>` (the OS paint), since `<Map>` is decoupled from the window actually becoming
+visible (#180/#203). Not a supersede — the one-window guarantee, the focus-don't-refuse
+principle, and the distinct mutex all stand; only the remedy mechanism and its
+observability change. The transient pulse is **not** a permanent forced-topmost (it
+drops the flag again right away -- best-effort, retried once -- and never activates),
+so it does not reintroduce a window that stays above everything.
+
 Do not reintroduce: sharing the tool's mutex name for the settings app; a settings
 second-instance that refuses-with-notice instead of focusing; a prefix title match
 that can hit the tool's console window; a deferred settings auto-open that could
-front-run a pending insertion; or a DEBUG-only sign for an ignored press.
+front-run a pending insertion; a DEBUG-only sign for an ignored press; or a
+*permanent* forced-topmost for the focus remedy (the transient pulse is deliberate).
 
 Respects D-002 — the fix prevents a second config *editor* from existing; the
 `settings_io` write contract is untouched. Respects D-004 as the mutex mechanism
