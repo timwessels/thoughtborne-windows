@@ -172,6 +172,11 @@ def apply_theme(root):
     st.configure("Warn.TLabel", background=WARN_BG, foreground=AMBER,
                  padding=(th.sp(10), th.sp(7)), relief="solid", borderwidth=1,
                  bordercolor=WARN_LINE)          # a bordered amber callout strip
+    # A borderless amber guidance line (#201): AMBER text on the page, no box -- a
+    # calm "next step" note, distinct from Warn.TLabel's bordered "something is
+    # broken" callout. AMBER on PAGE (and CARD) is already WCAG-checked in
+    # test_settings_theme.py. Inherits background=PAGE + body font from TLabel.
+    st.configure("Hint.TLabel", foreground=AMBER)
     # Card twins: only the background differs; foreground/font inherit by dotted
     # style-name fallback (Card.Muted.TLabel -> Muted.TLabel -> TLabel).
     for suffix in ("TLabel", "Muted.TLabel", "Small.TLabel", "H1.TLabel", "H2.TLabel"):
@@ -242,7 +247,12 @@ def apply_theme(root):
            indicatorbackground=[("selected", FIELD), ("active", CARD_HOVER)],
            upperbordercolor=[("selected", INK)], lowerbordercolor=[("selected", INK)])
     st.configure("Card.TRadiobutton", background=CARD)
-    st.map("Card.TRadiobutton", background=[("active", CARD)])
+    # A disabled engine radio (#201, key-aware control) greys its label to MUTED --
+    # a deliberate palette token (D-010 single source), already WCAG-covered; clam's
+    # bare disabled foreground would be an off-palette grey. The greyed indicator +
+    # non-interactivity carry "disabled" too, so this is not the only signal.
+    st.map("Card.TRadiobutton", background=[("active", CARD)],
+           foreground=[("disabled", MUTED)])
     st.configure("TSeparator", background=LINE)
     st.configure("Vertical.TScrollbar", background=LINE, troughcolor=PAGE,
                  bordercolor=PAGE, lightcolor=LINE, darkcolor=LINE, arrowcolor=MUTED,

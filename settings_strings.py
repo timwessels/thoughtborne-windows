@@ -14,7 +14,7 @@ i18n completeness test depends on that.
 
 Two wording contracts are load-bearing (mirror them if either source changes):
   - `engine.desc.*` EN equals `config.API_DISPLAY[api]["descriptor"]` (one engine
-    descriptor, two surfaces -- the console lineup and this dropdown).
+    descriptor, two surfaces -- the console lineup and the settings engine radios).
   - the hotkey-validator detail surfaced under `capture.invalid` /
     `hotkeys.status.warn_prefix` stays English in both languages (it is the same
     text `thoughtborne.log` prints); the localized headline carries the meaning.
@@ -209,6 +209,8 @@ _EN = {
     "behavior.engine.remember.current": "Currently remembered: {engine}",
     "behavior.engine.remember.none": (
         "No switch recorded yet — starts on the built-in default ({engine})"),
+    "behavior.engine.keyless": (
+        "→  Enter an API key on the “Provider & API key” tab to enable dictation."),
     "engine.desc.soniox-live": "verbatim, instant",
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
@@ -498,6 +500,9 @@ _DE = {
     "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
     "behavior.engine.remember.none": (
         "Noch kein Wechsel gemerkt — startet auf dem Standard ({engine})"),
+    "behavior.engine.keyless": (
+        "→  Trage auf dem Tab „Anbieter & API-Key“ einen API-Key ein, "
+        "um das Diktieren zu aktivieren."),
     "engine.desc.soniox-live": "wortgetreu, sofort fertig",
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",

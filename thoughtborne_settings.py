@@ -297,6 +297,15 @@ class SettingsApp:
         # stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
         # that rarer case is caught downstream -- write_env aborts such a save.)
         self._had_stored_key = settings_io.env_has_key(env)
+        # Per-provider stored-key snapshot for the key-aware engine control (#201).
+        # The console-side predicate is per-engine (config.engine_has_key), so the
+        # engine radios need per-var stored info, not just the _had_stored_key
+        # aggregate. "Keyed" per engine = a non-blank live field OR a key stored for
+        # the engine's backing .env var; a blank field never clobbers a stored key
+        # (settings_io), so both count. This snapshot dict is keyed off API_KEY_ENV;
+        # _live_env and settings_io.env_has_key still name the two vars directly, so a
+        # third key/engine would extend the snapshot but not the whole pipeline for free.
+        self._stored_env = {v: env.get(v, "") for v in set(config.API_KEY_ENV.values())}
 
         self._build_ui()
 
@@ -784,6 +793,7 @@ class SettingsApp:
         self._render_indicator(provider)
         self._mark_dirty()
         self._maybe_preselect_engine()   # #178: key-driven startup-engine preselect
+        self._render_engine_control()    # #201: live grey/un-grey + guidance as keys change
 
     def _test_key(self, provider):
         var = self.groq_var if provider == "groq" else self.soniox_var
@@ -1115,13 +1125,18 @@ class SettingsApp:
         self._prose(f, "behavior.engine.body").pack(fill="x", pady=(sp(2), sp(6)))
 
         # Two-mode engine control (#198): remember-mode (start on the Ctrl+Alt+L
-        # memory, shown read-only) vs fixed-mode (a defaults.api pin picked from the
-        # dropdown). A shared StringVar drives the radio pair; the dropdown is live
-        # only in fixed mode (disabled otherwise, so it reads as inactive). #155
-        # moves it into a card and restyles it; the control LOGIC is untouched --
-        # _render_engine_control / _on_mode / _on_engine / the state handling and
-        # the <MouseWheel> break keep D-008/#198 semantics bit-for-bit.
-        card = self._card(f)
+        # memory, shown read-only) vs fixed-mode (a defaults.api pin). A shared
+        # StringVar drives the mode radio pair. The fixed picker is a radio per engine
+        # (#201, replacing the #198 combobox -- a combobox cannot disable individual
+        # rows): all four engines stay visible so the user learns they exist, and one
+        # without a key renders greyed + unselectable. #155 keeps the whole control in
+        # a card. The control LOGIC is unchanged -- _render_engine_control / _on_mode /
+        # _on_engine keep D-008/#198 semantics; only the widget changed. A container
+        # holds the card + the all-keyless guidance line, so toggling that line's
+        # visibility never reorders it below the tab's later sections.
+        ctrl = ttk.Frame(f)
+        ctrl.pack(fill="x")
+        card = self._card(ctrl)
         card.pack(fill="x")
         remember_rb = ttk.Radiobutton(card, style="Card.TRadiobutton", value="remember",
                                       variable=self.mode_var, command=self._on_mode)
@@ -1136,15 +1151,25 @@ class SettingsApp:
                                   variable=self.mode_var, command=self._on_mode)
         self._reg(fixed_rb, "behavior.engine.mode.fixed")
         fixed_rb.pack(anchor="w")
-        self.engine_combo = ttk.Combobox(card, state="readonly")
-        self.engine_combo.pack(anchor="w", fill="x", padx=(sp(24), 0), pady=(sp(2), 0))
-        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine)
-        # #180: a readonly combobox natively changes its value on the mouse wheel, and
-        # our global wheel handler (the 'all' bindtag) would ALSO scroll the page over
-        # it. This instance-level "break" halts both, so the wheel over the engine
-        # picker is inert -- a deliberate, contained side effect (it no longer changes
-        # the engine on scroll either; move off it to scroll the page).
-        self.engine_combo.bind("<MouseWheel>", lambda e: "break")
+        # One radio per engine. The label (engine name + descriptor) is language- and
+        # state-dependent, so it is composed in _render_engine_control, not _reg-istered
+        # here. engine_var holds the selected engine id; a programmatic .set() fires no
+        # command, so RENDERING the selection -- even a greyed keyless pin -- is never a
+        # user pick, which is the basis of the D-002 byte-identity of an untouched save.
+        self.engine_var = tk.StringVar(value=config.AVAILABLE_APIS[self.engine_index])
+        self._engine_radios = {}
+        for a in config.AVAILABLE_APIS:
+            rb = ttk.Radiobutton(card, style="Card.TRadiobutton", value=a,
+                                 variable=self.engine_var, command=self._on_engine)
+            rb.pack(anchor="w", padx=(sp(24), 0), pady=(sp(1), 0))
+            self._engine_radios[a] = rb
+
+        # #201 all-keyless guidance: a calm, borderless amber line (Hint.TLabel) under
+        # the control, shown only when no key is stored and none entered. Built here
+        # unpacked; _render_engine_control toggles its visibility off _has_any_key.
+        # Via _prose it wraps through the #203 coalesced pass and re-renders on a
+        # language switch.
+        self.engine_guidance = self._prose(ctrl, "behavior.engine.keyless", surface="Hint.")
 
         # Pointer to the Soniox recognition vocabulary (#178) -- names only the
         # section + file, so it never depends on wording #177 may add to the example.
@@ -1225,24 +1250,36 @@ class SettingsApp:
             text=strings.t("hotkeys.capture_limit", self.lang).format(exit_key=ex))
 
     def _render_engine_control(self):
-        # The fixed dropdown always carries the full engine lineup + current index;
-        # its state follows the mode (readonly in fixed, disabled in remember). The
-        # remember label names the engine remember-mode will start on -- choosing the
-        # "currently remembered" wording when a real memory OR a wizard preselect
-        # names a specific engine (the display differs from the built-in default),
-        # and the "no switch recorded yet -> built-in default" wording otherwise (so
-        # that wording only ever renders when the shown engine IS the built-in
-        # default, keeping it truthful).
-        values = [f"{config.API_DISPLAY[a]['label']} — "
-                  f"{strings.t('engine.desc.' + a, self.lang)}"
-                  for a in config.AVAILABLE_APIS]
-        # Set the value while the combo is settable (readonly), THEN apply the mode's
-        # state -- programmatic .current() on an already-disabled combo can leave a
-        # stale value showing after a later flip back to fixed.
-        self.engine_combo.config(values=values, state="readonly")
-        self.engine_combo.current(self.engine_index)
-        if self.mode_var.get() != "fixed":
-            self.engine_combo.config(state="disabled")
+        # Each engine radio (#201): (re)compose its label + descriptor for the current
+        # language, then set its state. Enabled iff fixed-mode AND the engine is keyed
+        # (a non-blank field or a stored key for its backing var); otherwise disabled
+        # (greyed, unselectable) -- in remember-mode every engine radio is disabled,
+        # since the fixed picker is inactive there. Setting engine_var shows the current
+        # selection; a programmatic set fires no command, so this never counts as a user
+        # pick (D-002): engine_index and _engine_user_chose stay untouched, so an
+        # untouched save (even a greyed keyless pin) still writes byte-identically.
+        mode_fixed = self.mode_var.get() == "fixed"
+        live = self._live_env()
+        for a in config.AVAILABLE_APIS:
+            rb = self._engine_radios[a]
+            rb.config(text=f"{config.API_DISPLAY[a]['label']} — "
+                           f"{strings.t('engine.desc.' + a, self.lang)}")
+            keyed = settings_io.engine_keyed(a, live, self._stored_env)
+            rb.state(["!disabled"] if (mode_fixed and keyed) else ["disabled"])
+        self.engine_var.set(config.AVAILABLE_APIS[self.engine_index])
+
+        # All-keyless guidance: shown iff fully keyless (no field, no stored key).
+        # _has_any_key is exactly that negation, so it is the single source here too.
+        if self._has_any_key():
+            self.engine_guidance.pack_forget()
+        else:
+            self.engine_guidance.pack(fill="x", pady=(self.theme.sp(6), 0))
+
+        # The remember label names the engine remember-mode will start on -- the
+        # "currently remembered" wording when a real memory OR a wizard preselect names
+        # a specific engine (the display differs from the built-in default), else the
+        # "no switch recorded yet -> built-in default" wording (so that wording only
+        # ever renders when the shown engine IS the built-in default, keeping it true).
         disp = config.API_DISPLAY[self._remember_display_api]["label"]
         if self._has_memory or self._remember_display_api != config.BUILTIN_DEFAULT_API:
             key = "behavior.engine.remember.current"
@@ -1250,11 +1287,13 @@ class SettingsApp:
             key = "behavior.engine.remember.none"
         self.remember_lbl.config(text=strings.t(key, self.lang).format(engine=disp))
 
-    def _on_engine(self, event=None):
-        # Track selection by index into AVAILABLE_APIS, never by parsing the string.
-        # Only reachable in fixed mode (the combo is disabled in remember mode). An
-        # explicit pick locks out the #178 key-driven preselection for good.
-        self.engine_index = self.engine_combo.current()
+    def _on_engine(self):
+        # A command callback (no event arg): only reachable by clicking an ENABLED
+        # radio -- a disabled (keyless, or remember-mode) radio ignores the click, so
+        # this can never fire for a keyless engine. Track selection by index into
+        # AVAILABLE_APIS. An explicit pick locks out the #178 key-driven preselection
+        # for good and marks the pin dirty.
+        self.engine_index = config.AVAILABLE_APIS.index(self.engine_var.get())
         self._engine_user_chose = True
         self._mark_dirty()
 
@@ -1311,6 +1350,14 @@ class SettingsApp:
         return bool(self.groq_var.get().strip() or self.soniox_var.get().strip()
                     or self._had_stored_key)
 
+    def _live_env(self):
+        """The two managed key fields as an {ENV_VAR: value} dict, for the per-engine
+        keyed test (config.API_KEY_ENV names those vars). Fed to
+        settings_io.engine_keyed alongside the load-time _stored_env snapshot, so a
+        key typed this session greys/un-greys the matching engines live (#201)."""
+        return {"GROQ_API_KEY": self.groq_var.get(),
+                "SONIOX_API_KEY": self.soniox_var.get()}
+
     def update_rail(self, event=None):
         """Recompute the first-run rail. Settings mode is static (a no-op) but the
         binding stays wired so there is one code path, not scattered mode forks."""
@@ -1344,9 +1391,10 @@ class SettingsApp:
         return bool(bbox) and bbox[3] > c.winfo_height()
 
     def _entry_has_focus(self):
-        # True when the keyboard focus sits in a text entry (the two key fields, or the
-        # readonly engine combobox -- both subclass Entry). Home/End must then move the
-        # caret, not double as a scroll. focus_get can raise mid-teardown -- guard it.
+        # True when the keyboard focus sits in a text entry (the two key fields).
+        # Home/End must then move the caret, not double as a scroll. The engine picker
+        # is a radio list since #201 (not an Entry subclass), so focus on it correctly
+        # returns False here. focus_get can raise mid-teardown -- guard it.
         try:
             return isinstance(self.root.focus_get(), (tk.Entry, ttk.Entry))
         except Exception:

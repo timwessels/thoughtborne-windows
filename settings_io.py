@@ -234,6 +234,28 @@ def preselect_startup_api(groq_present: bool, soniox_present: bool) -> str:
 
 
 # =============================================================================
+# key-aware engine control (#201)
+# =============================================================================
+def engine_keyed(api, live_fields: dict, stored_env: dict) -> bool:
+    """True iff engine `api` has a usable key for the settings app's key-aware engine
+    control (#201): a non-blank live field for its backing .env var (config.API_KEY_ENV),
+    or a key already stored there. `live_fields` and `stored_env` map {ENV_VAR: value}.
+    A blank/whitespace live field falls back to the stored value -- a blank never
+    clobbers a stored key (mirrors write_env), so an empty field on top of a stored key
+    still counts as keyed. Delegates the var lookup + stored check to
+    `config.engine_has_key` (the #200 console primitive), so the settings control and
+    the console lineup can never disagree on 'keyed'. An engine outside
+    `config.API_KEY_ENV` -> False (defensive). Pure -> off-Windows testable."""
+    var = config.API_KEY_ENV.get(api)
+    if not var:
+        return False
+    live = live_fields.get(var, "")
+    if live and live.strip():
+        return True
+    return config.engine_has_key(api, stored_env)
+
+
+# =============================================================================
 # personal_settings.json (surgical merge)
 # =============================================================================
 # The blocks whose `_comment` lead the managed-skeleton seeds on an absent-file

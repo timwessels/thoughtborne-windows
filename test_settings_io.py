@@ -24,7 +24,12 @@ What is covered:
     dict that must NOT contain the example's placeholder vocabulary (a real data
     bug), and the corrupt-JSON warning (not a crash).
   - settings_io.resolve_engine_save_signal (#198): the pure on-save derivation of
-    (default_api_signal, memory_api) across the whole two-mode decision table.
+    (default_api_signal, memory_api) across the whole two-mode decision table,
+    including the #201 named regression that an untouched fixed pin on a now-keyless
+    engine still resolves to (None, None) -- defaults.api byte-identical (D-002).
+  - settings_io.engine_keyed (#201): the per-engine "has a usable key" predicate the
+    key-aware engine control greys off -- stored vs live field per provider, a blank
+    field falling back to the stored key, all-keyless, and an unknown engine id.
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -586,11 +591,20 @@ def check_i18n():
           "t(): a missing key should fall back to the key itself")
 
     # engine.desc.* EN must equal config.API_DISPLAY's descriptors (one wording,
-    # two surfaces -- the console lineup and the settings dropdown).
+    # two surfaces -- the console lineup and the settings engine radios).
     for api, disp in config.API_DISPLAY.items():
         check(sstr.t(f"engine.desc.{api}", "en") == disp["descriptor"],
               f"i18n: engine.desc.{api} EN must equal API_DISPLAY descriptor "
               f"({sstr.t(f'engine.desc.{api}', 'en')!r} != {disp['descriptor']!r})")
+
+    # behavior.engine.keyless (#201) names the Provider tab by its label; guard that
+    # coupling in BOTH languages so a future rename of provider.tab can't leave the
+    # guidance line silently pointing at a tab name that no longer exists (same coupling
+    # style as the engine.desc guard above).
+    for lang in ("en", "de"):
+        check(sstr.t("provider.tab", lang) in sstr.t("behavior.engine.keyless", lang),
+              f"i18n: behavior.engine.keyless ({lang}) must name the provider tab exactly "
+              f"as provider.tab renders it ({sstr.t('provider.tab', lang)!r})")
 
     check(sstr.detect_ui_language() in ("de", "en"),
           "detect_ui_language() off-Windows must return 'de' or 'en'")
@@ -697,6 +711,40 @@ def check_preselect():
     for token in ("groq-large", config.BUILTIN_DEFAULT_API):
         check(token in config.AVAILABLE_APIS,
               f"preselect: {token!r} is not in AVAILABLE_APIS")
+
+
+# ---- key-aware engine control predicate (#201) -------------------------------
+def check_engine_keyed():
+    """engine_keyed(api, live_fields, stored_env): the per-engine "has a usable key"
+    test the key-aware engine control greys off (#201). live_fields/stored_env map
+    {ENV_VAR: value}; a non-blank live field OR a stored key on the engine's backing
+    var means keyed, with a blank live field falling back to the stored value (a blank
+    never clobbers a stored key). Delegates to config.engine_has_key so the settings
+    control and the #200 console lineup can never disagree."""
+    E = sio.engine_keyed
+    SON, GRQ = "SONIOX_API_KEY", "GROQ_API_KEY"
+    empty = {SON: "", GRQ: ""}
+    stored_son = {SON: "s_stored", GRQ: ""}
+    check(E("soniox-live", empty, stored_son) and E("soniox", empty, stored_son),
+          "keyed: a stored Soniox key keys both Soniox engines")
+    check(not E("groq", empty, stored_son) and not E("groq-large", empty, stored_son),
+          "keyed: a stored Soniox key does not key the Groq engines")
+    live_grq = {SON: "", GRQ: "g_typed"}
+    check(E("groq", live_grq, empty) and E("groq-large", live_grq, empty),
+          "keyed: a typed Groq field keys both Groq engines live")
+    check(not E("soniox-live", live_grq, empty),
+          "keyed: a typed Groq field does not key Soniox")
+    check(E("soniox", {SON: "  "}, {SON: "s_stored"}),
+          "keyed: a blank field over a stored key stays keyed (blank never clobbers)")
+    check(not E("soniox", {SON: "   "}, empty),
+          "keyed: a whitespace-only field with nothing stored is not keyed")
+    both = {SON: "s", GRQ: "g"}
+    check(all(E(a, empty, both) for a in config.AVAILABLE_APIS),
+          "keyed: both stored keys key all four engines")
+    check(not any(E(a, empty, empty) for a in config.AVAILABLE_APIS),
+          "keyed: no key anywhere -> every engine keyless (the guidance-line case)")
+    check(not E("whisper-9000", both, both),
+          "keyed: an unknown engine id is never keyed")
 
 
 # ---- settings_io defaults.api merge (#193, D-008) ----------------------------
@@ -868,6 +916,15 @@ def check_engine_save_signal():
           == (None, None),
           "signal: a same-engine fixed round-trip should not rewrite the pin")
 
+    # #201: a fixed pin on an engine that is NOW keyless (its key was removed) is still
+    # an untouched save when nothing moved -> (None, None) -> defaults.api left byte-
+    # identical (D-002). The signal derivation is key-agnostic on purpose; the greying
+    # is display-only, so showing a greyed selected pin-radio must not read as a pick.
+    check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox-live",
+            engine_loaded="soniox-live", remember_display_now=B, remember_display_loaded=B)
+          == (None, None),
+          "signal: an untouched fixed pin (even on a now-keyless engine) leaves it as found")
+
     # REMOVE and the memory write are mutually exclusive by construction -- even
     # when the display also moved, a fixed->remember flip drops the pin and never
     # records a memory.
@@ -947,6 +1004,7 @@ def main():
     check_key_check_strip()
     check_i18n()
     check_preselect()
+    check_engine_keyed()
     check_engine_save_signal()
 
     if SHOW:
