@@ -119,7 +119,7 @@ Die Keys gehören einem selbst — die Anmeldung läuft direkt beim Anbieter. Au
 
 **Soniox** (Prepaid): Auf [soniox.com](https://soniox.com) registrieren → in der Console ([console.soniox.com](https://console.soniox.com)) ein kleines Prepaid-Guthaben aufladen (nötig, bevor die API funktioniert) → Key erstellen und kopieren → in die Zeile `SONIOX_API_KEY=` der `.env` eintragen.
 
-Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträge automatisch, sagt es dazu und startet auf der ersten verfügbaren API. Wer stattdessen ohne diese Hinweise direkt auf Groq starten will, trägt `"api": "groq-large"` in den `defaults`-Block der `personal_settings.json` ein (unten) — nur das gilt als *konfiguriert* und schlägt damit auch die Engine, die sich Thoughtborne vom letzten Wechsel gemerkt hat; `DEFAULT_API = "groq-large"` in der `config.py` funktioniert ebenfalls, hat gegenüber einer gemerkten Engine aber das Nachsehen.
+Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträge automatisch, zeigt sie in der Engine-Übersicht ausgegraut und startet auf der ersten verfügbaren API. Wer stattdessen ohne diese Hinweise direkt auf Groq starten will, trägt `"api": "groq-large"` in den `defaults`-Block der `personal_settings.json` ein (unten) — nur das gilt als *konfiguriert* und schlägt damit auch die Engine, die sich Thoughtborne vom letzten Wechsel gemerkt hat; `DEFAULT_API = "groq-large"` in der `config.py` funktioniert ebenfalls, hat gegenüber einer gemerkten Engine aber das Nachsehen.
 
 ## Der erste Start
 

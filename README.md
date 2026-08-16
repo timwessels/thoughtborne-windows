@@ -119,7 +119,7 @@ The keys are your own — you sign up directly with the providers. Audio goes to
 
 **Soniox** (prepaid): sign up at [soniox.com](https://soniox.com) → in the console ([console.soniox.com](https://console.soniox.com)), top up a small prepaid balance (required before the API works) → create and copy a key → put it into the `SONIOX_API_KEY=` line of `.env`.
 
-Only a Groq key? Nothing to configure: startup automatically skips the Soniox entries, says so, and starts on the first available API. To start on Groq silently instead, put `"api": "groq-large"` in the `defaults` block of `personal_settings.json` (below) — that is the one place that counts as *configured*, so it also outranks the engine Thoughtborne remembers from your last switch; `DEFAULT_API = "groq-large"` in `config.py` works too, but a remembered engine takes precedence over it.
+Only a Groq key? Nothing to configure: startup automatically skips the Soniox entries, greys them out in the engine lineup, and starts on the first available API. To start on Groq silently instead, put `"api": "groq-large"` in the `defaults` block of `personal_settings.json` (below) — that is the one place that counts as *configured*, so it also outranks the engine Thoughtborne remembers from your last switch; `DEFAULT_API = "groq-large"` in `config.py` works too, but a remembered engine takes precedence over it.
 
 ## First run
 

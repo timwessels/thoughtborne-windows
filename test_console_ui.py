@@ -26,7 +26,8 @@ import re
 import sys
 
 import console_ui as u
-from config import API_DISPLAY, AVAILABLE_APIS, DEFAULT_API, HOTKEYS, LOG_FILE
+from config import (API_DISPLAY, API_KEY_ENV, AVAILABLE_APIS, DEFAULT_API,
+                    HOTKEYS, LOG_FILE, engine_has_key)
 
 SHOW = "--show" in sys.argv
 
@@ -109,8 +110,19 @@ def twin(name, fn, **kw):
 
 # ---- fixtures from the real config -------------------------------------------
 def lineup_for(current):
+    """All engines keyed -- the normal, fully-configured masthead: the `current`
+    row is bold, the rest plain, none greyed. #200 replaced the 4th field
+    (is_default) with has_key; a fully-keyed lineup is the regression baseline."""
     return [(API_DISPLAY[a]["label"], API_DISPLAY[a]["descriptor"],
-             a == current, a == DEFAULT_API) for a in AVAILABLE_APIS]
+             a == current, True) for a in AVAILABLE_APIS]
+
+
+def lineup_keyed(current, present):
+    """A lineup with only `present` (a set of env-var names) configured, so a row
+    whose key is absent carries has_key=False and renders dim (#200). Pass
+    current=None for the fully-keyless shop-window (no bold row, every row grey)."""
+    return [(API_DISPLAY[a]["label"], API_DISPLAY[a]["descriptor"],
+             a == current, API_KEY_ENV[a] in present) for a in AVAILABLE_APIS]
 
 
 def _fmt(combo):
@@ -154,12 +166,9 @@ PATHS = [  # the four real checkout depths (Finalisierung 1.10)
     r"C:\Users\Tim Wessels\Documents\thoughtborne",
     r"C:\Users\Maximilian\Downloads\thoughtborne-windows-main",
 ]
-NOTE_SHORT = "SONIOX_API_KEY missing -> started on Groq Whisper Turbo v3 (default: Soniox Live)"
-NOTE_LONG = "default API 'soniox-live' unavailable -> started on Groq Whisper Turbo v3 (default: Soniox Live)"
-# #193: a remembered start that falls through says "last used", never "default" --
-# a representative long variant of that wording (engine ids differ in length, so
-# this is not the maximum, just long enough to exercise the note's width path).
-NOTE_LAST_USED = "last used API 'groq-large' unavailable -> started on Soniox Live (last used: Groq Whisper Large v3)"
+# #200 keyless shop-window guidance line under the lineup (the app composes it
+# from the live open-settings combo; here the shipped Ctrl+Alt+G).
+GUIDANCE = "To enable dictation, enter an API key in Settings (Ctrl+Alt+G)"
 
 
 def run(name, fn, kwargs, *, stress=False):
@@ -379,6 +388,7 @@ def check_ctrl_alt_counts():
         ("no_speech", u.render_no_speech(OPEN, ansi=True, compact=False), 1),   # #159: open-history hint
         ("already_running", u.render_already_running(ansi=True, compact=False), 0),   # #166: no hotkey embed
         ("hotkeys_partial", u.render_hotkeys_partial(10, 11, ansi=True, compact=False), 0),   # #166
+        ("keyless", u.render_keyless_notice("Ctrl+Alt+G", ansi=True, compact=False), 1),   # #200
     ]
     for name, lines, expected in cases:
         n = strip("".join(lines)).count("Ctrl+Alt")
@@ -596,18 +606,135 @@ def check_prefix_none_widths():
         twin(name, fn, **kw)
 
 
+# ---- #200 key-aware lineup + keyless shop-window -----------------------------
+def _line_has_dim(line):
+    """True if the SGR codes on this rendered line include DIM (SGR 90)."""
+    codes = re.findall(r"\x1b\[([0-9;]+)m", line)
+    return any("90" in c.split(";") for c in codes)
+
+
+def check_keyless_lineup():
+    """#200 key-aware lineup: the removed `(default)` marker appears nowhere; a
+    row whose key env var is absent renders DIM while keyed and current rows do
+    not; the fully-keyless masthead greys every row; and its yellow guidance line
+    is YELLOW, never red."""
+    model = "Soniox Live"
+
+    # `(default)` must not survive in any lineup rendering, any fixture, any form.
+    fixtures = [
+        ("all", lineup_for(DEFAULT_API)),
+        ("keyless", lineup_keyed(None, set())),
+        ("groq-only", lineup_keyed("groq-large", {"GROQ_API_KEY"})),
+        ("soniox-only", lineup_keyed("soniox-live", {"SONIOX_API_KEY"})),
+    ]
+    for fname, lu in fixtures:
+        renders = [
+            ("masthead", _masthead_with(lu)),
+            ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False)),
+            ("switch_failed", u.render_switch_failed(
+                model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True, compact=False)),
+            ("masthead/compact", _masthead_with(lu, compact=True)),
+            ("switched/compact", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=True)),
+        ]
+        for rname, lines in renders:
+            if "(default)" in strip("".join(lines)):
+                _record(f"{fname}/{rname}: still renders the removed (default) marker")
+
+    # Grey rule, checked positionally on the two lineup renderers (labels overlap
+    # as substrings -- "Soniox" is inside "Soniox Live" -- so zip by AVAILABLE_APIS
+    # order rather than matching text). Groq-only: the two soniox rows dim, the two
+    # groq rows not; groq-large is current and must never be dim.
+    present = {"GROQ_API_KEY"}
+    lu = lineup_keyed("groq-large", present)
+    for renderer, rows in (("_lineup_lines", u._lineup_lines(lu, True)),
+                           ("_compact_lineup", u._compact_lineup(lu, True))):
+        if len(rows) != len(AVAILABLE_APIS):
+            _record(f"{renderer}: emitted {len(rows)} rows, expected {len(AVAILABLE_APIS)}")
+            continue
+        for a, row in zip(AVAILABLE_APIS, rows):
+            has_key = API_KEY_ENV[a] in present
+            dim = _line_has_dim(row)
+            if has_key and dim:
+                _record(f"{renderer}: keyed row {a} is dim")
+            if not has_key and not dim:
+                _record(f"{renderer}: keyless row {a} is not dim")
+            if a == "groq-large" and dim:
+                _record(f"{renderer}: current row {a} must never be dim")
+
+    # Fully-keyless masthead: every lineup row greyed + a YELLOW guidance line.
+    lu = lineup_keyed(None, set())
+    for a, row in zip(AVAILABLE_APIS, u._lineup_lines(lu, True)):
+        if not _line_has_dim(row):
+            _record(f"keyless masthead: row {a} not greyed on a fully-keyless start")
+    ma = _masthead_with(lu, guidance=GUIDANCE)
+    gline = next((ln for ln in ma if "enter an API key in Settings" in strip(ln)), None)
+    if gline is None:
+        _record("keyless masthead: yellow guidance line missing")
+    else:
+        codes = re.findall(r"\x1b\[([0-9;]+)m", gline)
+        if not any("33" in c.split(";") for c in codes):
+            _record("keyless masthead: guidance line is not YELLOW (SGR 33)")
+        if any("31" in c.split(";") for c in codes):
+            _record("keyless masthead: guidance line carries red (SGR 31)")
+    # Same guidance in the compact masthead: it wraps to the narrow width, so
+    # gather every wrapped piece (each a contiguous run of guidance words) and
+    # assert each is YELLOW, never red -- and that the pieces reconstruct the text.
+    mac = _masthead_with(lu, guidance=GUIDANCE, compact=True)
+    gnorm = " ".join(GUIDANCE.split())
+    gseg = [ln for ln in mac
+            if strip(ln).strip() and " ".join(strip(ln).split()) in gnorm]
+    if " ".join(w for ln in gseg for w in strip(ln).split()) != gnorm:
+        _record("keyless masthead/compact: yellow guidance line missing or garbled")
+    for ln in gseg:
+        codesc = re.findall(r"\x1b\[([0-9;]+)m", ln)
+        if not any("33" in c.split(";") for c in codesc):
+            _record("keyless masthead/compact: guidance segment is not YELLOW (SGR 33)")
+        if any("31" in c.split(";") for c in codesc):
+            _record("keyless masthead/compact: guidance segment carries red (SGR 31)")
+    # A keyed masthead (no guidance passed) must not sprout the line.
+    keyed = _masthead_with(lineup_for(DEFAULT_API))
+    if any("enter an API key in Settings" in strip(ln) for ln in keyed):
+        _record("keyed masthead: guidance line shown without a keyless start")
+
+
+def _masthead_with(lineup, *, guidance=None, compact=False):
+    """A masthead render for the #200 checks (ANSI), wordmark on, given lineup."""
+    return u.render_masthead(
+        lineup, KEYS, KEY_PREFIX, PATHS[1] + r"\history", OPEN_LETTER, SWITCH_LETTER,
+        START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
+        ansi=True, compact=compact)
+
+
+def check_engine_has_key():
+    """#200 pure predicate: presence-only, blank == absent, right var per engine,
+    and the map covering exactly AVAILABLE_APIS (a new engine without a key
+    mapping would otherwise render its row dim forever)."""
+    cases = [
+        (engine_has_key("groq", {"GROQ_API_KEY": "x"}), True, "present key"),
+        (engine_has_key("groq", {"GROQ_API_KEY": "  "}), False, "blank key == absent"),
+        (engine_has_key("groq", {}), False, "missing key"),
+        (engine_has_key("soniox-live", {"GROQ_API_KEY": "x"}), False, "wrong var (groq for soniox-live)"),
+        (engine_has_key("soniox", {"SONIOX_API_KEY": "x"}), True, "soniox off SONIOX_API_KEY"),
+        (engine_has_key("nope", {}), False, "unknown engine"),
+    ]
+    for got, want, label in cases:
+        if got is not want:
+            _record(f"engine_has_key ({label}): got {got!r}, expected {want!r}")
+    if set(API_KEY_ENV) != set(AVAILABLE_APIS):
+        _record(f"API_KEY_ENV covers {set(API_KEY_ENV)} != AVAILABLE_APIS {set(AVAILABLE_APIS)}")
+
+
 # ---- the parameter matrix ----------------------------------------------------
 def main():
     for api in AVAILABLE_APIS:
         model = API_DISPLAY[api]["label"]
         lineup = lineup_for(api)
 
-        for note in (None, NOTE_SHORT, NOTE_LONG, NOTE_LAST_USED):
-            for path in PATHS:
-                run("masthead", u.render_masthead, dict(
-                    lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=path + r"\history",
-                    open_key=OPEN_LETTER, switch_key=SWITCH_LETTER, start_key=START,
-                    note=note, with_wordmark=True))
+        for path in PATHS:
+            run("masthead", u.render_masthead, dict(
+                lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=path + r"\history",
+                open_key=OPEN_LETTER, switch_key=SWITCH_LETTER, start_key=START,
+                with_wordmark=True))
         # masthead with the active a5 mark beside the wordmark (as the app wires it)
         run("masthead_logo", u.render_masthead, dict(
             lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=PATHS[1] + r"\history",
@@ -689,6 +816,17 @@ def main():
                 run("recovered", u.render_recovered_panel, dict(
                     when="2026-07-11 03:14", duration=42, clean_exit=clean,
                     hotkeys_ok=hk, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY))
+
+    # #200 keyless shop-window (api-independent): the masthead with every lineup
+    # row greyed + a yellow guidance line, and the calm keyless notice a hotkey
+    # press raises. run() sweeps ansi x compact; check_block enforces width,
+    # charset, the plain twin, and (both being yellow) red-exclusivity.
+    run("masthead_keyless", u.render_masthead, dict(
+        lineup=lineup_keyed(None, set()), keys=KEYS, key_prefix=KEY_PREFIX,
+        history_path=PATHS[1] + r"\history", open_key=OPEN_LETTER,
+        switch_key=SWITCH_LETTER, start_key=START, guidance=GUIDANCE, with_wordmark=True))
+    run("keyless", u.render_keyless_notice, dict(settings_key="Ctrl+Alt+G"))
+    twin("keyless", u.render_keyless_notice, settings_key="Ctrl+Alt+G")
 
     # No speech found (#133): a benign yellow verdict, no api-dependent fixture.
     # #159 adds the mic hint + the open-history pointer (the panel's sole Ctrl+Alt).
@@ -772,6 +910,10 @@ def main():
 
     # ---- #55 override edge: key_prefix=None framed render --------------------
     check_prefix_none_widths()
+
+    # ---- #200 key-aware lineup + keyless shop-window -------------------------
+    check_keyless_lineup()
+    check_engine_has_key()
 
     # ---- report -------------------------------------------------------------
     if SHOW:

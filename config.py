@@ -199,6 +199,38 @@ API_DISPLAY = {
     "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "fast, free"},
 }
 
+# ===== API KEY ENV VARS (single source, #200) =====
+# Which .env key backs each engine, so the key-aware console lineup can grey an
+# engine whose key is absent without constructing it (construction is what fails
+# on a keyless start). The four engines collapse onto two keys, matching the
+# _get_*_key sites in transcriber.py. Keyed by AVAILABLE_APIS entries; the
+# engine_has_key test guards that this map covers exactly that set.
+API_KEY_ENV = {
+    "soniox-live": "SONIOX_API_KEY",
+    "soniox":      "SONIOX_API_KEY",
+    "groq-large":  "GROQ_API_KEY",
+    "groq":        "GROQ_API_KEY",
+}
+
+
+def engine_has_key(api, env=None):
+    """True when the .env key backing `api` is present and non-empty (#200).
+
+    Pure and off-Windows-testable: `env` defaults to the process environment;
+    tests inject a {var: value} dict. An engine not in API_KEY_ENV -> False
+    (defensive). Reads the same variables config loads once at import
+    (GROQ_API_KEY / SONIOX_API_KEY), so the lineup can never disagree with what
+    _create_startup_transcriber actually constructed. Presence only, matching
+    MissingAPIKeyError's "not set" test -- a present-but-wrong key reads as
+    having a key (the engine starts; the error surfaces at transcription time).
+    """
+    var = API_KEY_ENV.get(api)
+    if not var:
+        return False
+    val = os.getenv(var) if env is None else env.get(var)
+    return bool(val and val.strip())
+
+
 # ===== ARCHIVE ENGINE TOKENS (single source, #84) =====
 # Filename tokens naming the engine that produced an archived transcript/recording (#62).
 # Keyed by a stable internal engine id (underscored, so it never collides with the hyphenated

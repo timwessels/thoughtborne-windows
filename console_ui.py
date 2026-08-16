@@ -236,19 +236,15 @@ def _wrap(text, width, indent, first=None):
 # =====================================================================
 def _lineup_lines(lineup, ansi):
     """MODEL lineup rows. lineup: list of (label, descriptor, is_current,
-    is_default). The current row is bold; (default) is dim."""
+    has_key). The current row is bold; a row whose key env var is absent renders
+    dim (#200), so the greyed rows show at a glance which engines are usable."""
     width = max((len(lbl) for lbl, *_ in lineup), default=0)
     rows = []
-    for label, descriptor, is_current, is_default in lineup:
+    for label, descriptor, is_current, has_key in lineup:
         marker = ">" if is_current else " "
-        prefix = "  " + marker + " "
-        main = prefix + label.ljust(width) + " - " + descriptor
-        codes = (BOLD,) if is_current else ()
-        if is_default:
-            main = prefix + label.ljust(width) + " - " + descriptor.ljust(24)
-            rows.append(dline([(main, codes), ("(default)", (DIM,))], ansi))
-        else:
-            rows.append(dline([(main, codes)], ansi))
+        main = "  " + marker + " " + label.ljust(width) + " - " + descriptor
+        codes = (BOLD,) if is_current else () if has_key else (DIM,)
+        rows.append(dline([(main, codes)], ansi))
     return rows
 
 
@@ -301,25 +297,25 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 # =====================================================================
 def render_masthead(lineup, keys, key_prefix, history_path,
                     open_key, switch_key, start_key,
-                    note=None, with_wordmark=True, logo_lines=None,
+                    guidance=None, with_wordmark=True, logo_lines=None,
                     *, ansi, compact):
     if compact:
         return _masthead_compact(lineup, keys, open_key, switch_key,
-                                 start_key, note, with_wordmark, ansi)
+                                 start_key, guidance, with_wordmark, ansi)
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, ansi))
         lines.append(dsep(ansi))
     lines.append(dline([("  ", ()), ("READY", (BOLD, GREEN)),
                         (f" -- press {start_key} and start talking", ())], ansi))
-    if note:
-        lines.extend(_note_lines(note, ansi))
     # #115: one framed spacer before each zone header + the history edge. Gated on
     # with_wordmark (mirrors _masthead_compact) so the terse re-display stays tight.
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before MODEL
     lines.append(dzone([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
     lines.extend(_lineup_lines(lineup, ansi))
+    if guidance:
+        lines.extend(_guidance_lines(guidance, ansi))
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before KEYS
     lines.append(dzone([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
@@ -364,14 +360,13 @@ def _masthead_wordmark(logo_lines, ansi):
     return rows
 
 
-def _note_lines(note, ansi):
-    """#40 startup fallback note, wrapped under a NOTE tag (8-space hanging
-    indent). `note` is the composed reason string."""
-    body = _wrap(note, INNER - 8, 8)
-    lines = [dline([("  ", ()), ("NOTE", (BOLD, YELLOW)), ("  " + body[0], ())], ansi)]
-    for cont in body[1:]:                     # _wrap already applied the 8-space indent
-        lines.append(dline([(cont, ())], ansi))
-    return lines
+def _guidance_lines(text, ansi):
+    """#200 keyless shop-window hint under the lineup: a calm YELLOW instruction
+    (never red), 2-space indent, wrapped to the frame. Composed by the app (so
+    it stays #55-override-aware); console_ui only styles and wraps it."""
+    body = _wrap(text, INNER - 2, 2)
+    return ([dline([("  ", ()), (body[0], (YELLOW,))], ansi)]
+            + [dline([(cont, (YELLOW,))], ansi) for cont in body[1:]])
 
 
 # =====================================================================
@@ -932,6 +927,31 @@ def render_no_speech(open_key, *, ansi, compact):
     ]
 
 
+def render_keyless_notice(settings_key, *, ansi, compact):
+    """A dictation / self-test / switch / retry hotkey was pressed while no API
+    key is configured (#200 shop-window). Calm YELLOW, never red -- nothing is
+    broken; the tool just needs a key first. `settings_key` is the live
+    open-settings combo (respects #55 overrides), echoing the masthead's yellow
+    guidance line. Reuses the SETUP NEEDED tag of the no-API panel: same
+    situation (a key is needed), same calm colour."""
+    step = f"enter an API key in Settings ({settings_key}), then restart"
+    if compact:
+        out = [cline([(LAMP + " SETUP NEEDED", (BOLD, YELLOW)),
+                      ("  no API key yet", ())], ansi)]
+        # Wrap so the combo (a long #55 override included) never busts COMPACT_MAX.
+        for i, seg in enumerate(_wrap(step, COMPACT_MAX - 3, 3)):
+            out.append(cline(("   " + seg) if i == 0 else seg, ansi))
+        return out
+    return [
+        dtop(ansi),
+        _tag_headline(LAMP + " SETUP NEEDED", (BOLD, YELLOW),
+                      "  no API key yet -- dictation is off", ansi),
+        dzone([("WHAT NOW", (BOLD,))], ansi),
+        dline("  " + truncate_end(step, INNER - 4), ansi),   # truncate guards a long #55 combo
+        dbot(ansi),
+    ]
+
+
 def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
     """No constructible API at startup. Tim's call (#109): yellow SETUP NEEDED,
     numbered steps, never red -- a missing first-run key is a setup step, not an
@@ -999,15 +1019,10 @@ def _noapi_zone_lines(missing, other_failures, ansi, compact):
 # =====================================================================
 def _compact_lineup(lineup, ansi):
     rows = []
-    for label, _desc, is_current, is_default in lineup:
+    for label, _desc, is_current, has_key in lineup:
         marker = ">" if is_current else " "
-        if is_default:
-            rows.append(cline([(f" {marker} ", ()),
-                               (label.ljust(21), (BOLD,) if is_current else ()),
-                               ("(default)", (DIM,))], ansi))
-        else:
-            rows.append(cline([(f" {marker} ", ()),
-                               (label, (BOLD,) if is_current else ())], ansi))
+        codes = (BOLD,) if is_current else () if has_key else (DIM,)
+        rows.append(cline([(f" {marker} ", ()), (label, codes)], ansi))
     return rows
 
 
@@ -1029,7 +1044,7 @@ def _compact_keys(keys, ansi):
 
 
 def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
-                      note, with_wordmark, ansi):
+                      guidance, with_wordmark, ansi):
     lines = []
     if with_wordmark:
         # ANSI: WM_COMPACT carries the brand ACCENT; plain degrades to WM_PLAIN
@@ -1039,15 +1054,13 @@ def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
         lines.append("")
     lines.append(cline([("READY", (BOLD, GREEN)),
                         (f" -- press {start_key} and start talking", ())], ansi))
-    if note:
-        body = _wrap(note, COMPACT_MAX - 6, 6)
-        lines.append(cline([("NOTE", (BOLD, YELLOW)), ("  " + body[0], ())], ansi))
-        for cont in body[1:]:
-            lines.append(cline("  " + cont if not cont.startswith(" ") else cont, ansi))
     if with_wordmark:
         lines.append("")
     lines.append(cline([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
     lines.extend(_compact_lineup(lineup, ansi))
+    if guidance:   # #200 keyless shop-window hint, calm YELLOW under the lineup
+        for i, seg in enumerate(_wrap(guidance, COMPACT_MAX - 2, 2)):
+            lines.append(cline([(("  " + seg) if i == 0 else seg, (YELLOW,))], ansi))
     if with_wordmark:
         lines.append("")
     lines.append(cline([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped

@@ -465,11 +465,12 @@ it the next time it starts — but only where nothing is configured:
   since the diff rule drops a pin equal to it; the two surfaces always agree
   afterwards.
 - **`(default)` in the console lineup names the *configured* default, not the next
-  start.** The marker stays keyed on `DEFAULT_API` — the engine the tool falls back
-  to — while the `>` row names the engine currently active, which after any switch
-  is also the one the next start will use. Two markers, two different facts; a
-  third one for "remembered" would crowd the lineup to repeat what the `>` row
-  already shows.
+  start.** *(Retired by the 2026-08-16 #200 addendum below — the marker is removed;
+  a greyed key-aware row is the lineup's only per-engine signal now.)* The marker
+  stayed keyed on `DEFAULT_API` — the engine the tool falls back to — while the `>`
+  row names the engine currently active, which after any switch is also the one the
+  next start will use. Two markers, two different facts; a third one for "remembered"
+  would crowd the lineup to repeat what the `>` row already shows.
 - **2026-08-16 addendum (#198).** The settings app's engine field is now an explicit
   **two-mode control** rather than a single dropdown whose active mode was invisible:
   *(•) start with the engine I last switched to* (remember-mode — the memory, shown
@@ -495,12 +496,30 @@ it the next time it starts — but only where nothing is configured:
   and the leave-as-found (`default_api=None`) data-safety contract are **extended, not
   weakened**; the "writing an untouched engine field back to the file" rule still holds
   (untouched → `None`). Not a supersede. Maintainer approved 2026-08-15 (#198).
+- **2026-08-16 addendum (#200).** The console lineup is now **key-aware**, and two
+  display artifacts this decision described are removed. A lineup row whose key env
+  var is absent renders **dim**, so the greyed rows show at a glance which engines are
+  usable. With that signal in place, the dim **`(default)` marker** is dropped from
+  both lineup render sites, and the startup **fallback NOTE** is dropped from the
+  masthead: a start that falls through because the resolved engine is keyless now
+  starts silently on the first available engine in lineup order, its story told by the
+  greyed row alone (a `FILE_ONLY` log line stays for debugging). A fully keyless start
+  no longer exits to the wizard — it stays open as a **shop window** (the masthead with
+  every row dim plus a yellow "enter a key in Settings" line) while still auto-launching
+  the wizard. This changes only what the console *shows*: startup precedence
+  (config > memory > default), the recording behaviour, and the memory-write rules are
+  all untouched, so #200 **respects** D-008 rather than superseding it. The
+  "`(default)` names the configured default" bullet above is retired with the marker;
+  the "do not reintroduce a 'default'-worded fallback note" rule stands (the note is now
+  removed, not reworded). Maintainer-settled via the #200 spec. Not a supersede.
 
 Do not reintroduce: writing `personal_settings.json` from the running tool;
 persisting the carousel's fall-through engine; a "default"-worded fallback note on
 a start that never tried the default; a value-comparison test for "is a default
 configured"; writing an untouched engine field back to the file (it creates or normalizes a pin
-the user never set);
+the user never set); the `(default)` lineup marker or the startup fallback NOTE
+(removed by #200); a fully keyless start that exits instead of staying open as a
+shop window;
 or a settings-app engine field that shows `defaults.api` alone.
 
 Respects D-002 — `settings_io.py` remains the only writer of `.env` and

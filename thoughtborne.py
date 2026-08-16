@@ -44,6 +44,7 @@ from config import (
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     SCRIPT_DIR, DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
+    engine_has_key,
     SHORT_AUDIO_THRESHOLD, ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
@@ -553,7 +554,6 @@ class ThoughtborneApp:
         # Initialize components
         try:
             self.audio_recorder = AudioRecorder()
-            self._startup_fallback_note = None  # set when startup lands off the intended engine (#40)
             # Startup engine (#193, D-008): an explicit personal_settings
             # 'defaults.api' (#55) outranks the engine remembered from the last
             # Ctrl+Alt+L switch -- deliberate configuration beats an implicitly
@@ -577,6 +577,11 @@ class ThoughtborneApp:
             logger.info(f"Startup engine: '{self._start_api}' ({start_reason}, #193)",
                         extra=FILE_ONLY)
             self.current_api, self.transcriber = self._create_startup_transcriber()
+            # #200 shop-window: a fully keyless start returns (None, None) and the
+            # tool stays open with no transcriber. The hotkey/self-test handlers
+            # read this flag to answer a press with the calm keyless panel instead
+            # of dereferencing a None transcriber.
+            self._keyless = self.transcriber is None
             self.output_manager = OutputManager(on_task_complete_callback=self._on_output_event)
         except Exception as e:
             logger.error(f"Failed to initialize components: {e}", exc_info=True)
@@ -681,7 +686,9 @@ class ThoughtborneApp:
 
         logger.info(f"Configuration: Default API={DEFAULT_API}, Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}",
                     extra=FILE_ONLY)
-        logger.info(f"Current transcriber: {self.transcriber.get_name()}", extra=FILE_ONLY)
+        logger.info(f"Current transcriber: "
+                    f"{self.transcriber.get_name() if self.transcriber else 'none (keyless shop-window, #200)'}",
+                    extra=FILE_ONLY)
         logger.info("Application initialized successfully", extra=FILE_ONLY)
 
     def get_unique_timestamp(self) -> str:
@@ -1194,6 +1201,9 @@ class ThoughtborneApp:
 
     def handle_test_transcription(self):
         """Handle test transcription request"""
+        if self._keyless:
+            self._notify_keyless()   # #200 shop-window: no engine to test yet
+            return
         # Try WAV first, then MP3
         test_file = SCRIPT_DIR / "test_audio.wav"
         if not test_file.exists():
@@ -1253,11 +1263,14 @@ class ThoughtborneApp:
 
         Tries the resolved startup engine first (#193: the configured or
         remembered one, else DEFAULT_API), then the remaining AVAILABLE_APIS
-        entries in carousel order. Returns (api_name, transcriber). When no entry
-        is constructible (typically a newcomer without any key), prints an
-        actionable error block and exits cleanly -- API keys are read once at
-        import (config.py), so a restart after editing .env is required either
-        way. Runs on the main thread before hotkeys exist, so print() is safe.
+        entries in carousel order. Returns (api_name, transcriber) on success.
+        When every attempt failed for a MISSING key (a true keyless start),
+        returns (None, None) and stays open as a first-run shop window (#200):
+        the caller runs keyless, its greyed masthead carrying a yellow "enter a
+        key in Settings" line. A genuine non-key construction error still prints
+        the SETUP-NEEDED block and exits. API keys are read once at import
+        (config.py), so a restart after editing .env is required either way. Runs
+        on the main thread before hotkeys exist, so print() is safe.
         """
         start_api = self._start_api
         # The rotation lives in engine_memory so the shipped order is what the
@@ -1272,56 +1285,57 @@ class ThoughtborneApp:
                 transcriber = create_transcriber(api_name)
             except Exception as e:
                 failures.append((api_name, e))
-                # Slot-IDs stay file-only (#44/#109): the console user learns of a
-                # fallback via the masthead NOTE, or of an all-failed start via the
-                # SETUP-NEEDED panel -- both name the missing env vars in labels.
+                # Slot-IDs stay file-only (#44/#109): the greyed lineup rows on the
+                # masthead and cockpit are the on-screen signal of a fallback or an
+                # all-keyless start (#200); these slot ids stay a file-only
+                # breadcrumb for debugging. The SETUP-NEEDED panel is now reserved
+                # for a genuine non-key construction error.
                 logger.warning(f"Skipped {api_name} ({_describe_construction_failure(e)})",
                                extra=FILE_ONLY)
                 logger.debug(f"Construction failed for {api_name}: {e}", exc_info=True)
                 continue
 
             if api_name != start_api:
+                # Fell through to a later carousel engine because the resolved one
+                # was keyless. The greyed masthead row is now the on-screen signal
+                # (#200); this stays a file-only breadcrumb for debugging. Name what
+                # the user expected to start on -- saying "default" for a remembered
+                # start would claim the default was tried when it never was (#193).
                 missing = sorted({err.env_var for _, err in failures
                                   if isinstance(err, MissingAPIKeyError)})
-                # Name what the user expected to start on: saying "default" for a
-                # remembered start would claim the default was tried when it never
-                # was (#193).
                 intent = "last used" if self._start_api_source == "memory" else "default"
                 reason = (f"{' / '.join(missing)} missing" if missing
                           else f"{intent} API '{start_api}' unavailable")
-                # File log keeps the slot-id form (greppable, unchanged); the
-                # masthead NOTE shows display labels (#109). Both file-only --
-                # the panel is the console surface.
                 logger.warning(f"{reason} -> started on {api_name} ({intent}: {start_api})",
                                extra=FILE_ONLY)
-                started = API_DISPLAY.get(api_name, {}).get("label", api_name)
-                start_label = API_DISPLAY.get(start_api, {}).get("label", start_api)
-                self._startup_fallback_note = (
-                    f"{reason} -> started on {started} ({intent}: {start_label})")
             return api_name, transcriber
 
-        # First-run onboarding (#144): a true no-key first start -- every attempt
-        # failed for a MISSING key, not a genuine construction error -- opens the
-        # graphical settings app in wizard mode and exits cleanly, no input() wait.
-        # Any non-key failure, or a launch that doesn't take, keeps the SETUP-NEEDED
-        # panel + input() fallback below. Tightly guarded so it can only ever help.
+        # First-run shop window (#200/#163): a true no-key start -- every attempt
+        # failed for a MISSING key, not a genuine construction error -- stays open
+        # so a newcomer can see the tool before signing up anywhere. The settings
+        # wizard is still auto-launched; the tool simply stays behind it, keyless
+        # (transcriber None). Staying open no longer gates on the launch taking:
+        # even if it fails, the masthead's greyed rows + yellow "enter a key in
+        # Settings" line still point the way, and the hotkey handlers answer a
+        # press with a calm keyless panel instead of crashing on a None transcriber.
         all_missing_key = bool(failures) and all(
             isinstance(err, MissingAPIKeyError) for _, err in failures)
-        if all_missing_key and self._launch_first_run_settings():
-            logger.info("No API key found -- launched the first-run settings app (#144)",
-                        extra=FILE_ONLY)
-            print("No API key found yet -- opening Thoughtborne Setup ...")
-            sys.exit(0)
+        if all_missing_key:
+            self._launch_first_run_settings()   # best-effort; staying open no longer needs it
+            logger.info("No API key found -- shop-window mode (#200); launched the "
+                        "first-run settings app (#144)", extra=FILE_ONLY)
+            print("No API key yet -- opening Thoughtborne Setup; the tool stays open.")
+            return None, None
 
+        # A genuine non-key construction error keeps its semantics: the SETUP-NEEDED
+        # panel, the input() wait, then exit. Only reachable now for a non-key
+        # failure (the keyless case returned above), so this is a plain sys.exit(1);
+        # the #53 EXIT_NO_API_KEY code and the Thoughtborne.bat RC-3 branch stay
+        # defined but unused (harmless, no launcher churn).
         self._print_no_api_error_block(failures)
         print("Press Enter to exit...")
         input()
-        # #53: a pure no-keys exit is a setup step, not a uv/Python failure -- signal
-        # the launcher (Thoughtborne.bat) to stay quiet about internet/uv with a
-        # dedicated exit code. A construction error that is NOT just a missing key
-        # keeps exit 1, so the bat's uv/dependency hint still fires where it can help.
-        # all_missing_key was computed above (the wizard-launch guard).
-        sys.exit(EXIT_NO_API_KEY if all_missing_key else 1)
+        sys.exit(1)
 
     @staticmethod
     def _launch_settings_app(*extra_args) -> bool:
@@ -1388,11 +1402,17 @@ class ThoughtborneApp:
         """Switch to the next constructible transcription API (#40).
 
         Skips entries whose transcriber construction fails (typically a
-        missing API key) with one console line per skip. If the loop comes
+        missing API key) with a file-only log line per skip. If the loop comes
         full circle, stays on the current transcriber and names the missing
         keys. Runs on the hotkey-listener thread: console output must go
         through logger.* (#11), never print().
         """
+        if self._keyless:
+            # #200 shop-window: current_api is None (no engine constructed), so
+            # there is nothing to switch from and AVAILABLE_APIS.index(None) would
+            # raise. Answer with the calm keyless panel.
+            self._notify_keyless()
+            return
         try:
             current_index = AVAILABLE_APIS.index(self.current_api)
             skipped = []  # (api_name, exception) in attempt order
@@ -1494,6 +1514,11 @@ class ThoughtborneApp:
 
     def on_start_recording(self):
         """Callback for start recording hotkey"""
+        if self._keyless:
+            # #200 shop-window: no transcriber to record into -- answer with the
+            # calm keyless panel instead of opening the mic and crashing on None.
+            self._notify_keyless()
+            return
         if not self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
             logger.info(f"Recording started ({hotkey_display})", extra=FILE_ONLY)
@@ -1761,6 +1786,15 @@ class ThoughtborneApp:
             KeyboardSnapshot(trig, blocker, foreign), time.monotonic())
 
         if action is PttAction.START:
+            if self._keyless:
+                # #200 shop-window: PTT has no transcriber to record into. Refuse
+                # the gesture with the same calm notice as the W-flow -- once per
+                # gesture (this branch fires on the START transition, not every
+                # tick) -- and reset the detector to inert, mirroring the
+                # start-failed path in _ptt_start_recording.
+                self._notify_keyless()
+                self._ptt.reset()
+                return
             self._ptt_start_recording()
         elif action is PttAction.STOP:
             self._ptt_stop_and_insert()
@@ -1845,6 +1879,13 @@ class ThoughtborneApp:
         worker -- never transcribe inline (that would freeze Stop/Cancel/Exit).
         A user cancel never reaches a worker, so it can never become the retry
         target; no cancel-guard needed here."""
+        if self._keyless:
+            # #200 shop-window: no engine to transcribe with. Any recovered /
+            # salvaged audio is untouched and stays retryable once a key is added
+            # and the tool restarts (D-001); refuse calmly, never hand None to a
+            # worker.
+            self._notify_keyless()
+            return
         hotkey_display = self._format_hotkey(HOTKEYS['retry_last_failed'])
 
         with self._last_failed_lock:
@@ -2412,6 +2453,17 @@ class ThoughtborneApp:
             except Exception:
                 pass
 
+    def _notify_keyless(self):
+        """Emit the calm keyless shop-window panel (#200) -- a dictation /
+        self-test / switch / retry hotkey was pressed while no API key is
+        configured. Safe on any thread (_emit_block only enqueues, #11); echoes
+        the masthead's yellow guidance so the funnel to Settings stays coherent."""
+        settings_key = self._format_hotkey(HOTKEYS['open_settings'])
+        self._emit_block(
+            'keyless',
+            lambda ansi, compact: console_ui.render_keyless_notice(
+                settings_key, ansi=ansi, compact=compact))
+
     def _ticker(self, msg, error=False):
         """One [Seq:]-style progress line: dim on the console (red for the
         exhausted error state), a DEBUG copy to the file log. Replaces the raw
@@ -2431,11 +2483,14 @@ class ThoughtborneApp:
 
     def _lineup_data(self):
         """MODEL lineup rows for the renderer: (label, descriptor, is_current,
-        is_default) in AVAILABLE_APIS order (labels/descriptors from #30)."""
+        has_key) in AVAILABLE_APIS order (labels/descriptors from #30). has_key
+        is False when the engine's key env var is absent -> the renderer greys
+        that row (#200). A keyless start has current_api None, so no row is
+        current and every row is greyed (the shop-window masthead)."""
         def entry(a):
             e = API_DISPLAY.get(a)
             return (e["label"], e["descriptor"]) if e else (a, "")
-        return [(*entry(a), a == self.current_api, a == DEFAULT_API)
+        return [(*entry(a), a == self.current_api, engine_has_key(a))
                 for a in AVAILABLE_APIS]
 
     def _keys_grid_data(self):
@@ -2503,6 +2558,9 @@ class ThoughtborneApp:
             'no_speech' -- clean-but-empty on every engine (NO SPEECH panel, #133).
         """
         try:
+            # Never reached keyless (#200): no task is ever created without a
+            # recording or self-test, both of which the keyless guards refuse
+            # up front -- so self.transcriber is a real engine here.
             model = self.transcriber.get_name()
             type_key = self._key_letter('stop_recording_keyboard')
             paste_key = self._key_letter('stop_recording_clipboard')
@@ -2753,11 +2811,15 @@ class ThoughtborneApp:
 
         if hotkeys_ok:
             # First Cockpit block (#109): the masthead -- wordmark, READY, the
-            # optional #40 fallback note, the MODEL lineup, the KEYS grid, the
-            # history edge. Recovery gets its own prominent panel below (#78).
+            # MODEL lineup, the KEYS grid, the history edge. Keyless (#200) it also
+            # carries a yellow "enter a key in Settings" guidance line under the
+            # greyed lineup. Recovery gets its own prominent panel below (#78).
             keys, key_prefix = self._keys_grid_data()
             lineup = self._lineup_data()
-            note = self._startup_fallback_note
+            guidance = None
+            if self._keyless:
+                guidance = ("To enable dictation, enter an API key in Settings "
+                            f"({self._format_hotkey(HOTKEYS['open_settings'])})")
             self._emit_block(
                 'startup',
                 lambda ansi, compact: console_ui.render_masthead(
@@ -2767,7 +2829,7 @@ class ThoughtborneApp:
                     self._key_letter('open_history'),
                     self._key_letter('switch_api'),
                     self._format_hotkey(HOTKEYS['start_recording']),
-                    note=note, with_wordmark=True,
+                    guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
                     ansi=ansi, compact=compact))
         else:
