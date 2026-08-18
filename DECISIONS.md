@@ -708,3 +708,97 @@ lane still runs the app, and no third-party theme is vendored. Respects D-008 an
 D-009 — the two-mode engine control's logic and the `app.title.*` focus-match
 titles are untouched; only their container and styles change. Does not touch D-001,
 D-003, D-004, D-006, or D-007.
+
+---
+
+## D-011 — Uninstaller keeps user data by default; the silent lane can never delete it
+
+Decided 2026-08-18 (#209).
+
+`setup.ps1` now registers a per-user Add/Remove-Programs (Apps list) entry on
+every install and in-place update, and a new GUI uninstaller, `uninstall.ps1`
+(PowerShell + WinForms, no Python/venv, no admin), removes the install and that
+entry. The user-data safety stance is the contestable call:
+
+- **Keep user data by default.** The uninstaller removes the app but keeps the
+  user-data set — recordings and transcripts (`history/`, the legacy
+  `voice_archive`/`text_archive`), the `.env` key, `personal_settings.json`,
+  `runtime_state.json`, and the logs — driven by a sentinel-fenced keep-list
+  (`KEEPLIST-BEGIN`/`KEEPLIST-END`). The keep-list is the user-data subset of
+  `setup.ps1`'s install DENYLIST **minus `.venv`**: the virtualenv is rebuildable
+  tooling of this install, not user data, so it is removed with the app
+  (`.env.example` is a shipped template, likewise removed). The install dir is left
+  standing only to hold kept data; if nothing is kept it is removed too, and the
+  closing notice names the folder where the kept data lives. Because a keep-data
+  uninstall removes the fingerprint files (`pyproject.toml`, `thoughtborne.py`) but
+  leaves that residue, `setup.ps1`'s reinstall guard accepts a dir whose **every**
+  entry matches the data denylist as a re-installable Thoughtborne folder (not a
+  foreign one) — so reinstalling into the same dir works, and the copy restores the
+  app while the denylist preserves the residue.
+- **Deletion is opt-in, off by default, and needs a deliberate act.** The confirm
+  dialog carries an **unchecked** checkbox ("also delete my recordings …"); the OK
+  ("Remove") button is the `AcceptButton` and takes initial focus, so **no
+  click-through path** (Enter / OK / repeated Enter) ever checks it. Only a
+  deliberate toggle of the checkbox opts into deletion.
+- **The silent lane can never delete user data — structurally, not by default.**
+  `QuietUninstallString` is exactly `uninstall.ps1 -Silent` with **no** delete
+  flag; there is no command-line parameter that can request deletion at all. The
+  `-Silent` path never builds the dialog or the checkbox, so the delete variable
+  keeps its initialized `$false`, and the delete branch is gated on **both**
+  `(-not $Silent)` **and** the checkbox state — two independent walls. So a
+  winget/MDM/automation uninstall always keeps data.
+- **Registry writes are install metadata, not config.** The Apps-list entry is
+  written with registry cmdlets (`New-Item` / `New-ItemProperty`) only — no
+  `Set-Content`/`Out-File`/`Read-Host`, no secret read or written — so `setup.ps1`
+  still collects no secrets and the settings app remains the only config writer
+  (respects D-002). `DisplayVersion` is read from the installed `pyproject.toml`
+  (omitted, never faked, if unparseable); `DisplayIcon` points at the real shipped
+  `assets\logo\favicon.ico`.
+- **The running tool is never killed.** A log-heartbeat guard (the AGENTS.md
+  reliable signal, mirroring `setup.ps1`) refuses to uninstall a running tool and
+  asks the user to close it with `Ctrl+Alt+4` — it reads the log, never the process
+  list, and never terminates the process.
+- **uv and its managed Python are left untouched.** They are shared per-user
+  tooling outside the install dir; only the in-dir `.venv` is removed.
+- **Self-copy to `%TEMP%` with the captured install dir threaded in.** The
+  uninstaller copies itself to `%TEMP%` and relaunches (`-FromTemp -InstallDir
+  <captured>`) so it holds no handle on the tree it deletes; the install dir is
+  captured before the copy and passed explicitly, never re-derived from the temp
+  location. The running guard runs **before** the copy (fail fast) and the registry
+  key is removed **last, and only when no app files remain** — the remnant check
+  reads the dir and drops the Apps-list entry solely once nothing the uninstall
+  targeted survives (kept user data does not count), so a partial file-removal
+  failure (a locked file) keeps both the leftover and the entry — a half-removed
+  install stays visible under Installed apps instead of orphaning into an entry-less
+  folder, and the user can clear the leftover by hand. (A clean re-run is not
+  promised: if the fingerprint files were removed before the lock hit, the phase-2
+  fingerprint guard turns a fresh "Uninstall" away.) It gates only the key removal;
+  it never touches files or user data.
+- **Fingerprint-guarded target, defused directory cleanup.** Before any deletion the
+  uninstaller checks that `$InstallDir` looks like a Thoughtborne install
+  (`thoughtborne.py`, or a `pyproject.toml` naming thoughtborne — the same
+  fingerprint `setup.ps1` uses), so the ad-hoc "copied the script elsewhere and ran
+  it" lane can never empty a stray folder; the regular Settings > Uninstall lane
+  passes the real absolute path and always clears it. The confirm dialog names the
+  folder it will touch. The final "remove the now-empty install dir" step is
+  **non-recursive**, so a misread of a populated dir as empty (an ACL/enum error)
+  cannot take kept data with it.
+
+Do not reintroduce: an uninstaller that deletes user data by default; a
+command-line/silent parameter that can request deletion; a click-through path
+(Enter/OK) that ends with data deleted; a checkbox that starts checked or takes
+initial focus; keeping `.venv` (or dropping `.env.example`) on the keep-list;
+killing the running tool; removing uv or its managed Python; deriving the install
+dir from the `%TEMP%` copy instead of threading the captured one; a config/secret
+write in `setup.ps1`'s registry step; an uninstaller that removes from a folder
+without the Thoughtborne fingerprint; a recursive final directory removal that could
+take falsely-"empty" kept data with it; removing the Apps-list entry while app files
+still remain; or a `setup.ps1` reinstall guard that refuses a keep-data residue dir.
+
+Respects D-002 — the registry entry is install metadata written with cmdlets, not
+a config write; the settings app stays the only config writer. Respects D-006 —
+`uninstall.ps1` ships inside the whole-tree `git archive` ZIP, so it rides the
+existing release asset with no asset change. Respects D-007 — the registry write is
+a separate step with no copy, so the in-place-update self-overwrite guard for
+`setup.bat` is untouched. Does not touch D-001, D-003, D-004, D-005, D-008, D-009,
+or D-010.

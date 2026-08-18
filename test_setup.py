@@ -46,6 +46,9 @@ VERIFY = "sandbox/verify-in-sandbox.ps1"
 LAUNCHER = "sandbox/run-sandbox.ps1"
 WSB_HOST_PLACEHOLDER = "SANDBOX_HOSTFOLDER_ABS_PATH"
 
+# #209: the GUI uninstaller.
+UNINSTALL = "uninstall.ps1"
+
 
 # ======================================================================
 # Hard invariants
@@ -350,6 +353,353 @@ def test_verify_threads_version():
     assert "releases/download/" in text, "driver builds no versioned release URL"
 
 
+# ======================================================================
+# #209 uninstall story: per-user Apps-list registration (setup.ps1) +
+# the GUI uninstaller (uninstall.ps1). Static drift alarms -- the real
+# registry write and removal are hands-on / sandbox, like the rest here.
+# ======================================================================
+
+def test_uninstall_ascii_only_no_bom():
+    # #209: the new uninstaller holds the same ASCII/no-BOM invariant as setup.ps1
+    # (it ships as a release-ZIP file and is edited by hand -- keep it 7-bit ASCII).
+    data = read_bytes(UNINSTALL)
+    for bom in _BOMS:
+        assert not data.startswith(bom), f"{UNINSTALL}: starts with a BOM ({bom!r})"
+    bad = [i for i, b in enumerate(data) if b >= 0x80]
+    assert not bad, f"{UNINSTALL}: non-ASCII byte(s) at offset(s) {bad[:5]}"
+
+
+def test_registry_write_present():
+    # setup.ps1 registers a per-user Apps-list entry with registry cmdlets (never a
+    # file write), pointing the uninstall command at uninstall.ps1.
+    text = read_text("setup.ps1")
+    assert r"\Uninstall\Thoughtborne" in text, "no HKCU Uninstall\\Thoughtborne registry key"
+    assert "DisplayName" in text, "registry entry sets no DisplayName"
+    assert "UninstallString" in text, "registry entry sets no UninstallString"
+    assert "New-ItemProperty" in text, "registry write is not cmdlet-based (New-ItemProperty)"
+    assert "New-Item -Path" in text, "registry key is not created with New-Item"
+    assert "uninstall.ps1" in text, "uninstall string does not reference uninstall.ps1"
+
+
+def test_registry_quiet_lane_silent():
+    # The automation/winget lane (QuietUninstallString) exists and carries -Silent
+    # -- and NO delete-data flag, so it can never remove user data (D-011).
+    text = read_text("setup.ps1")
+    assert "QuietUninstallString" in text, "no QuietUninstallString for the automation lane"
+    assert re.search(r"\$qStr\s*=\s*'[^']*-Silent", text), \
+        "the quiet uninstall string is not built as the uninstall string + -Silent"
+
+
+def test_registry_write_dryrun_gated():
+    # The registry step is reachable behind a $DryRun gate (it prints a plan line
+    # and writes nothing on dry-run), keeping test_dryrun_present satisfied.
+    text = read_text("setup.ps1")
+    assert "[dry-run] would register" in text, \
+        "registry helper prints no '[dry-run] would register' line -- not DryRun-gated"
+    gates = len(re.findall(r"if\s*\(\s*\$DryRun\s*\)", text))
+    assert gates >= 4, f"expected several $DryRun-gated side effects, found {gates}"
+
+
+def test_displayversion_from_pyproject():
+    # DisplayVersion reflects the INSTALLED pyproject.toml, not a hardcoded literal:
+    # it is assigned the parsed $ver, and a  version = "..."  regex parse is present.
+    text = read_text("setup.ps1")
+    assert "DisplayVersion" in text, "registry entry sets no DisplayVersion"
+    assert re.search(r"DisplayVersion'?\s*\]?\s*=\s*\$ver", text), \
+        "DisplayVersion is not set from the parsed $ver (a version literal would be wrong)"
+    assert "pyproject.toml" in text, "version is not read from pyproject.toml"
+    assert r'version\s*=\s*"' in text, "no  version = \"...\"  regex parse of pyproject.toml"
+
+
+def test_displayicon_real_path():
+    # DisplayIcon points at the real shipped icon, and that asset exists in the tree.
+    text = read_text("setup.ps1")
+    assert "DisplayIcon" in text, "registry entry sets no DisplayIcon"
+    assert r"assets\logo\favicon.ico" in text, \
+        "DisplayIcon does not reference the real assets\\logo\\favicon.ico"
+    assert (REPO / "assets" / "logo" / "favicon.ico").exists(), \
+        "assets/logo/favicon.ico is missing from the tree"
+
+
+def test_uninstall_keeplist_covers_user_data_excludes_venv():
+    # The data-safety spine (D-011), mirror of test_denylist_covers_user_data: the
+    # uninstaller's keep-list keeps every user-data name AND removes .venv
+    # (rebuildable tooling) and .env.example (a shipped template).
+    text = read_text(UNINSTALL)
+    m = re.search(r"#\s*KEEPLIST-BEGIN(.*?)#\s*KEEPLIST-END", text, re.S)
+    assert m, "KEEPLIST-BEGIN/END sentinels not found in uninstall.ps1"
+    globs = re.findall(r"'([^']+)'", m.group(1))
+    assert globs, "no keep-list patterns parsed between the sentinels"
+    user_data = [".env", ".env.local", ".env.dev.local",
+                 "personal_settings.json", "runtime_state.json", "history",
+                 "thoughtborne.log", "thoughtborne.log.1",
+                 "voice_archive", "text_archive"]
+    for path in user_data:
+        assert any(fnmatch(path, g) for g in globs), \
+            f"user-data name {path!r} matched no keep glob {globs}"
+    assert not any(fnmatch(".venv", g) for g in globs), \
+        f".venv is caught by a keep glob {globs} -- it must be removed with the app"
+    assert not any(fnmatch(".env.example", g) for g in globs), \
+        f".env.example is caught by a keep glob {globs} -- the template must go with the app"
+
+
+def test_uninstall_removes_registry_key():
+    # The uninstaller deletes its own HKCU Uninstall\Thoughtborne key -- the launch
+    # is fire-and-forget, so the entry vanishes only when the uninstaller removes it.
+    text = read_text(UNINSTALL)
+    assert r"\Uninstall\Thoughtborne" in text, "uninstaller names no Uninstall\\Thoughtborne key"
+    assert re.search(r"Remove-Item\s+-LiteralPath\s+\$RegPath", text), \
+        "uninstaller does not Remove-Item its own registry key"
+
+
+def test_uninstall_removes_shortcuts():
+    text = read_text(UNINSTALL)
+    assert "Thoughtborne.lnk" in text, "uninstaller does not remove Thoughtborne.lnk"
+    assert "Thoughtborne Settings.lnk" in text, "uninstaller does not remove the Settings shortcut"
+    assert r"Start Menu\Programs" in text, "uninstaller does not target the Start-menu folder"
+    assert "Remove-Item" in text, "uninstaller has no Remove-Item for the shortcuts"
+
+
+def test_uninstall_running_guard():
+    # The running guard uses the log heartbeat (like setup.ps1), points at the
+    # Ctrl+Alt+4 exit, and NEVER kills the tool.
+    text = read_text(UNINSTALL)
+    assert "thoughtborne.log" in text, "running guard: no log reference"
+    assert "Program ended" in text, "running guard: no 'Program ended' check"
+    assert "LastWriteTime" in text, "running guard: no mtime/heartbeat check"
+    assert "Ctrl+Alt+4" in text, "running guard does not point at the Ctrl+Alt+4 exit"
+    for banned in ("Stop-Process", "taskkill"):
+        assert banned not in text, f"uninstaller must never kill the tool (found {banned})"
+    assert not re.search(r"Get-Process[^\n]*\|\s*Stop", text), \
+        "uninstaller pipes Get-Process into a stop -- it must never kill the tool"
+
+
+def test_uninstall_self_copy_temp():
+    # Self-copy to %TEMP% + relaunch, threading the captured -InstallDir so a future
+    # refactor can't reintroduce the hardcoded-install-dir bug the plan fixed.
+    text = read_text(UNINSTALL)
+    assert "$env:TEMP" in text, "uninstaller does not stage a copy in %TEMP%"
+    assert re.search(r"\[switch\]\s*\$FromTemp", text), "no -FromTemp switch to mark the temp copy"
+    assert re.search(r"Start-Process\s+-FilePath\s+'powershell", text), \
+        "uninstaller does not relaunch via Start-Process powershell.exe"
+    # The captured install dir is threaded into the relaunch as a quoted -InstallDir
+    # argument, fed from $InstallDir (guards against the hardcoded-path bug and the
+    # array-join-no-quote Start-Process footgun on a space-bearing install path).
+    assert '-InstallDir "{1}"' in text and re.search(r"-f\s+\$tmpScript\s*,\s*\$InstallDir", text), \
+        "the relaunch does not thread the captured -InstallDir (quoted, from $InstallDir)"
+
+
+def test_uninstall_console_hidden():
+    text = read_text(UNINSTALL)
+    assert "-WindowStyle Hidden" in text, "uninstaller launch is not -WindowStyle Hidden"
+    assert "ShowWindow" in text and "GetConsoleWindow" in text, \
+        "uninstaller does not hide its own console (ShowWindow/GetConsoleWindow)"
+
+
+def test_uninstall_leaves_uv_untouched():
+    # Negative: the uninstaller must never remove uv or its managed Python (shared
+    # per-user tooling outside the install dir). Only the in-dir .venv goes.
+    text = read_text(UNINSTALL)
+    for banned in ("uv.exe", r".local\bin", r"%USERPROFILE%\.local", "uv python"):
+        assert banned not in text, \
+            f"uninstaller references uv-managed tooling ({banned!r}) -- it must stay untouched"
+
+
+def test_uninstall_silent_keeps_data():
+    # Checkbox variant (D-011): the delete branch is gated on BOTH (-not $Silent)
+    # and the checkbox state; the checkbox is created UNCHECKED; and the -Silent
+    # lane never builds the checkbox (Show-ConfirmDialog is only called under a
+    # -not $Silent guard), so an automated/silent uninstall can never delete data.
+    text = read_text(UNINSTALL)
+    assert "New-Object System.Windows.Forms.CheckBox" in text, "no opt-in delete checkbox"
+    assert re.search(r"\$chk\.Checked\s*=\s*\$false", text), \
+        "the delete checkbox does not default to unchecked (Checked = $false)"
+    assert re.search(r"\$deleteUserData\s*=\s*\$false", text), \
+        "the delete flag is not initialized to $false"
+    # Anchor on the delete-branch IF-STATEMENT, not a bare  (-not $Silent) -and
+    # $deleteUserData  substring: FIX 2 added an assignment  $userDataRemoved =
+    # ((-not $Silent) -and $deleteUserData)  further down, so a substring match would
+    # re-satisfy here even if the real  if ((-not $Silent) -and $deleteUserData)  gate
+    # were weakened to  if ($deleteUserData) . The  if (  prefix pins the gate itself.
+    assert re.search(r"if\s*\(\s*\(\s*-not\s+\$Silent\s*\)\s*-and\s+\$deleteUserData\s*\)", text), \
+        "the delete branch (if-statement) is not gated on both (-not $Silent) and the checkbox state"
+    assert text.count("New-Object System.Windows.Forms.CheckBox") == 1, \
+        "the checkbox is built in more than one place -- can't prove the silent lane skips it"
+    call_idx = text.index("Show-ConfirmDialog -Dir")
+    guard_idx = text.rindex("if (", 0, call_idx)
+    assert "-not $Silent" in text[guard_idx:call_idx], \
+        "the confirmation dialog is not guarded by -not $Silent -- the silent lane could build it"
+
+
+def test_uninstall_delete_flag_assignment_exclusivity():
+    # Z1 (#209): a later-added unconditional  $deleteUserData = $true  outside the
+    # silent guard would silently defeat the data-safety gate and pass every other
+    # test. Pin it: EXACTLY two assignments to $deleteUserData -- the $false init and
+    # the one derived from the confirm dialog ($answer.DeleteData). (?!=) excludes a
+    # comparison; PowerShell has no ==, so this is belt-and-suspenders.
+    text = read_text(UNINSTALL)
+    assigns = re.findall(r"\$deleteUserData\s*=(?!=)", text)
+    assert len(assigns) == 2, \
+        f"expected exactly two $deleteUserData assignments (init + checkbox result), found {len(assigns)}"
+    assert re.search(r"\$deleteUserData\s*=\s*\$false", text), \
+        "the delete flag is not initialized to $false"
+    assert re.search(r"\$deleteUserData\s*=\s*\$answer\.DeleteData", text), \
+        "the delete flag is not set from the confirm dialog's $answer.DeleteData"
+
+
+def test_uninstall_checkbox_checked_assignment_exclusivity():
+    # Z3 (#209), analog of the $deleteUserData exclusivity: a later-added second
+    #  $chk.Checked = $true  (e.g. a "remember my last choice" feature) would win by
+    # last-assignment and default the delete checkbox CHECKED -- a pure Enter/click-
+    # through would then delete user data, breaking the hard D-011 gate. Pin it:
+    # EXACTLY one $chk.Checked assignment, and it is  = $false . (?!=) excludes a
+    # comparison; the  ($proceed -and $chk.Checked)  read carries no '=' and is skipped.
+    text = read_text(UNINSTALL)
+    assigns = re.findall(r"\$chk\.Checked\s*=(?!=)", text)
+    assert len(assigns) == 1, \
+        f"expected exactly one $chk.Checked assignment (the unchecked default), found {len(assigns)}"
+    assert re.search(r"\$chk\.Checked\s*=\s*\$false", text), \
+        "the checkbox's single assignment is not  = $false  -- it must default unchecked"
+
+
+def test_uninstall_confirm_dialog_default_keep():
+    # Z2 (#209): the confirm dialog must default to KEEP with no click-through to
+    # deletion. OK is the AcceptButton and takes initial focus (Enter/click -> keep);
+    # the checkbox starts unchecked and sits AFTER OK in the tab order. Any of the
+    # plausible sabotages -- ActiveControl = $chk, a checked box, a checkbox TabIndex
+    # ahead of OK -- opens a focus/tab path onto deletion and fails here.
+    text = read_text(UNINSTALL)
+    assert re.search(r"\$form\.AcceptButton\s*=\s*\$ok", text), \
+        "OK is not the form AcceptButton (Enter would not map to the keep-default Remove)"
+    assert re.search(r"\$form\.ActiveControl\s*=\s*\$ok", text), \
+        "initial focus is not the OK button"
+    assert not re.search(r"\$form\.ActiveControl\s*=\s*\$chk", text), \
+        "initial focus is on the checkbox -- a click-through could check it"
+    assert re.search(r"\$chk\.Checked\s*=\s*\$false", text), \
+        "the delete checkbox does not start unchecked"
+    m_ok = re.search(r"\$ok\.TabIndex\s*=\s*(\d+)", text)
+    m_chk = re.search(r"\$chk\.TabIndex\s*=\s*(\d+)", text)
+    assert m_ok and m_chk, "OK and/or checkbox TabIndex not set explicitly"
+    assert int(m_chk.group(1)) > int(m_ok.group(1)), \
+        f"checkbox TabIndex ({m_chk.group(1)}) is not after OK ({m_ok.group(1)}) -- tab could land on delete first"
+
+
+def test_uninstall_confirm_dialog_single_guarded_call():
+    # Z3 (#209): exactly ONE call site for Show-ConfirmDialog, and it is under a
+    # -not $Silent guard. A second, unguarded call would let the silent lane build
+    # the delete checkbox. (The '-Dir' arg distinguishes the call from the function
+    # definition and the explanatory comment.)
+    text = read_text(UNINSTALL)
+    calls = re.findall(r"Show-ConfirmDialog\s+-Dir", text)
+    assert len(calls) == 1, f"expected exactly one Show-ConfirmDialog call, found {len(calls)}"
+    idx = text.index("Show-ConfirmDialog -Dir")
+    guard_idx = text.rindex("if (", 0, idx)
+    assert "-not $Silent" in text[guard_idx:idx], \
+        "the Show-ConfirmDialog call is not guarded by -not $Silent"
+
+
+def test_uninstall_fingerprint_guard():
+    # FUND 2 (#209): the uninstaller checks that its target dir looks like a
+    # Thoughtborne install BEFORE any deletion (thoughtborne.py, or a pyproject.toml
+    # naming thoughtborne -- the same fingerprint setup.ps1 uses), so the ad-hoc
+    # "copied elsewhere and run there" lane can never empty a stray folder. The guard
+    # must sit ahead of the file-removal step in phase 2.
+    text = read_text(UNINSTALL)
+    assert "Test-IsThoughtborneDir" in text, "no install-dir fingerprint guard (Test-IsThoughtborneDir)"
+    assert "thoughtborne.py" in text, "fingerprint guard: no thoughtborne.py check"
+    guard_idx = text.index("if (-not (Test-IsThoughtborneDir")
+    remove_idx = text.index("Remove-InstallTree -Dir $InstallDir")
+    assert guard_idx < remove_idx, \
+        "the fingerprint guard does not run before the install-tree removal"
+
+
+def test_uninstall_registry_key_gated_on_remnants():
+    # FIX 2 (#209): the registry-last property is actually delivered -- the Apps-list
+    # key is dropped ONLY when no app remnants survive (a locked leftover keeps the
+    # entry so Uninstall can be re-run). The RegPath removal must sit under a
+    # no-remnants guard that reuses Test-KeepMatch, never touching files/user data.
+    text = read_text(UNINSTALL)
+    assert "$appRemnants" in text, "no app-remnants check gating the registry removal"
+    m = re.search(r"if\s*\(\s*-not\s+\$appRemnants\s*\)\s*\{[^}]*Remove-Item\s+-LiteralPath\s+\$RegPath",
+                  text, re.S)
+    assert m, "the $RegPath removal is not gated on (-not $appRemnants)"
+    # the remnant scan reuses the keep-list predicate (kept user data must not keep
+    # the entry alive) and is driven by the effective delete decision.
+    remnant_region = text[text.index("$userDataRemoved ="):text.index("if (-not $appRemnants)")]
+    assert "Test-KeepMatch" in remnant_region, \
+        "the remnant scan does not reuse Test-KeepMatch -- kept user data could wrongly count as a remnant"
+    assert re.search(r"\(\s*-not\s+\$Silent\s*\)\s*-and\s+\$deleteUserData", remnant_region), \
+        "the remnant scan's delete-mode is not the effective (-not $Silent)-and-checkbox decision"
+
+
+def test_uninstall_final_removedir_not_recursive():
+    # FUND 1 (#209): the final "remove the now-empty install dir" must be
+    # NON-recursive, so a misread of a populated dir as empty (an ACL/enum error)
+    # cannot take kept data with it. The per-entry removal keeps -Recurse (it removes
+    # whole subtrees like history/ in the delete variant) -- only the $Dir self-remove
+    # is disarmed.
+    text = read_text(UNINSTALL)
+    assert re.search(r"Remove-Item\s+-LiteralPath\s+\$Dir\s+-Force", text), \
+        "the final install-dir removal is not the non-recursive Remove-Item -LiteralPath $Dir -Force"
+    # Order-independent: match -Recurse anywhere on the $Dir self-remove line, so a
+    # ` -Force -Recurse ` swap can't slip a recursive weapon past a fixed-order regex.
+    # ($Dir\b excludes $_.FullName / $RegPath / $InstallDir, whose lines may carry it.)
+    assert not re.search(r"Remove-Item\s+-LiteralPath\s+\$Dir\b[^\n]*-Recurse", text), \
+        "the final install-dir removal carries -Recurse (any flag order) -- a falsely-empty read could delete kept data"
+
+
+def test_reinstall_accepts_denylist_residue():
+    # FIX 1 (#209): after a keep-data uninstall the install dir holds ONLY denylist
+    # residue (.env, history/, ...) with the fingerprint files gone. setup.ps1's
+    # step-2 guard must not refuse that -- a dir whose EVERY entry matches the data
+    # denylist is a re-installable Thoughtborne residue, so the install proceeds.
+    # Assert the residue escape hatch lives inside step 2, reuses Test-DenylistMatch
+    # over the existing entries, and still keeps the refuse path for a foreign file.
+    text = read_text("setup.ps1")
+    m = re.search(r"# 2\) Fingerprint.*?# 3\) Running", text, re.S)
+    assert m, "could not isolate setup.ps1 step 2 (the fingerprint/refuse guard)"
+    step2 = m.group(0)
+    assert "Test-DenylistMatch" in step2, \
+        "step 2 does not reuse Test-DenylistMatch for the denylist-residue check (FIX 1)"
+    assert re.search(r"foreach\s*\(\s*\$\w+\s+in\s+\$existing\s*\)", step2), \
+        "step 2 does not iterate $existing to classify the residue"
+    assert re.search(r"if\s*\(\s*\(\s*-not\s+\$isThoughtborne\s*\)\s*-and\s+\(\s*-not\s+\$isDataResidue\s*\)\s*\)", step2), \
+        "the refuse is not gated on (-not fingerprint) AND (-not residue) -- residue would still be refused or the guard weakened"
+    assert "refusing to install" in step2, "step 2 lost its refuse path for a genuinely foreign folder"
+
+
+def test_reinstall_residue_keeps_installwasfresh_false():
+    # FIX 1 safety invariant (#209), the load-bearing half of the residue escape hatch.
+    # $installWasFresh gates step 5's abort cleanup, which WIPES a partial fresh install
+    # on a mid-copy failure. On a keep-data reinstall the dir holds real user-data
+    # residue (.env, history/), so it MUST NOT count as fresh -- else an aborted copy
+    # would delete that residue. It is initialized $true unconditionally, then set
+    # $false the moment the dir is found non-empty (residue included); the residue
+    # branch must never flip it back. Verified data-destroying mutation:
+    # inserting  if ($isDataResidue) { $installWasFresh = $true }  passes every other
+    # case -- so pin it here.
+    text = read_text("setup.ps1")
+    # Exactly one  $installWasFresh = $true  in the whole file (the init). (?!=) guards
+    # against a hypothetical comparison (PowerShell has no ==, so belt-and-suspenders).
+    true_assigns = re.findall(r"\$installWasFresh\s*=(?!=)\s*\$true", text)
+    assert len(true_assigns) == 1, \
+        f"expected exactly one  $installWasFresh = $true  (the unconditional init), found {len(true_assigns)}"
+    # ...and it precedes the non-empty branch, so the init cannot be the one inside it.
+    init_idx = text.index("$installWasFresh = $true")
+    branch_idx = text.index("if ($existing.Count -gt 0)")
+    assert init_idx < branch_idx, \
+        "the  $installWasFresh = $true  init does not precede the non-empty branch"
+    # Inside the non-empty branch (where residue is classified) it is only set $false.
+    # Isolate step 2 so a later step's use of the variable can't mask a stray $true.
+    m = re.search(r"# 2\) Fingerprint.*?# 3\) Running", text, re.S)
+    assert m, "could not isolate setup.ps1 step 2 (the fingerprint/refuse guard)"
+    branch = m.group(0)[m.group(0).index("if ($existing.Count -gt 0)"):]
+    assert "$installWasFresh = $false" in branch, \
+        "the non-empty branch does not mark the install non-fresh ($installWasFresh = $false)"
+    assert "$installWasFresh = $true" not in branch, \
+        "the non-empty/residue branch sets $installWasFresh back to $true -- the step-5 abort cleanup could then wipe kept user-data residue"
+
+
 CASES = [
     test_ascii_only_no_bom,
     test_no_ungated_exit,
@@ -373,6 +723,29 @@ CASES = [
     test_sandbox_scripts_ascii,
     test_sandbox_launcher_present_and_safe,
     test_verify_threads_version,
+    test_uninstall_ascii_only_no_bom,
+    test_registry_write_present,
+    test_registry_quiet_lane_silent,
+    test_registry_write_dryrun_gated,
+    test_displayversion_from_pyproject,
+    test_displayicon_real_path,
+    test_uninstall_keeplist_covers_user_data_excludes_venv,
+    test_uninstall_removes_registry_key,
+    test_uninstall_removes_shortcuts,
+    test_uninstall_running_guard,
+    test_uninstall_self_copy_temp,
+    test_uninstall_console_hidden,
+    test_uninstall_leaves_uv_untouched,
+    test_uninstall_silent_keeps_data,
+    test_uninstall_delete_flag_assignment_exclusivity,
+    test_uninstall_checkbox_checked_assignment_exclusivity,
+    test_uninstall_confirm_dialog_default_keep,
+    test_uninstall_confirm_dialog_single_guarded_call,
+    test_uninstall_fingerprint_guard,
+    test_uninstall_registry_key_gated_on_remnants,
+    test_uninstall_final_removedir_not_recursive,
+    test_reinstall_accepts_denylist_residue,
+    test_reinstall_residue_keeps_installwasfresh_false,
 ]
 
 

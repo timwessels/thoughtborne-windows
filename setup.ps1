@@ -156,6 +156,89 @@ function New-ThoughtborneShortcuts {
     }
 }
 
+function Get-InstalledVersion {
+    param([string]$InstallDir)
+    # DisplayVersion for the Apps list, read from the INSTALLED pyproject.toml so
+    # the entry reflects whatever is on disk (never the git tag, never a literal).
+    # Unparseable -> $null -> the caller omits DisplayVersion rather than faking one.
+    $pp = Join-Path $InstallDir 'pyproject.toml'
+    if (-not (Test-Path -LiteralPath $pp)) { return $null }
+    $text = Get-Content -LiteralPath $pp -Raw -ErrorAction SilentlyContinue
+    if (-not $text) { return $null }
+    # First line-anchored  version = "..."  . [project] is the first table and its
+    # version is the first such line; requires-python is a different key and the
+    # URLs carry no bare  version = , so first-match is safe.
+    $m = [regex]::Match($text, '(?m)^\s*version\s*=\s*"([^"]+)"')
+    if ($m.Success) { return $m.Groups[1].Value }
+    return $null
+}
+
+function Get-InstallSizeKiB {
+    param([string]$InstallDir)
+    # EstimatedSize (KiB) for the Apps list, summed over the shipped files but
+    # excluding the user-data dirs so a heavy recording pile does not inflate the
+    # shown app size. Cosmetic -- any failure returns $null and the caller omits it.
+    $skip = @('history', 'voice_archive', 'text_archive')
+    try {
+        $bytes = (Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -notin $skip } |
+                  Get-ChildItem -Recurse -File -Force -ErrorAction SilentlyContinue |
+                  Measure-Object -Property Length -Sum).Sum
+        if (-not $bytes) { return $null }
+        return [uint32][math]::Ceiling($bytes / 1024)
+    } catch { return $null }
+}
+
+function Write-UninstallRegistryEntry {
+    param([string]$InstallDir, [switch]$DryRun)
+    # Per-user Apps-list (Add/Remove Programs) registration -- no admin, HKCU only,
+    # so the fully-UAC-free #76 story holds. This writes install metadata with
+    # registry cmdlets only: setup.ps1 still collects no secrets and writes no
+    # config file (respects D-002 -- the settings app is the only config writer).
+    # The uninstall command runs uninstall.ps1 from the install dir; the quiet lane
+    # (QuietUninstallString, winget/MDM/automation) carries -Silent and NEVER a
+    # delete-data flag, so an automated lane can never remove user data (D-011).
+    # Runs on a fresh install AND an in-place update, so DisplayVersion and
+    # EstimatedSize refresh every time.
+    $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Thoughtborne'
+    $uninst  = Join-Path $InstallDir 'uninstall.ps1'
+    $icon    = Join-Path $InstallDir 'assets\logo\favicon.ico'
+    $common  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File'
+    $uStr    = 'powershell.exe {0} "{1}"' -f $common, $uninst
+    $qStr    = '{0} -Silent' -f $uStr
+    $ver     = Get-InstalledVersion -InstallDir $InstallDir
+    $sizeKiB = Get-InstallSizeKiB -InstallDir $InstallDir
+
+    if ($DryRun) {
+        $shown = if ($ver) { $ver } else { 'unknown' }
+        Write-Host ("[dry-run] would register uninstall entry at {0} (version {1}, uninstall via uninstall.ps1)" -f $regPath, $shown)
+        return
+    }
+
+    New-Item -Path $regPath -Force | Out-Null
+    # Use 'DisplayName' here, never a bare 'Name' key (that would trip the shortcut count).
+    $values = @{
+        DisplayName          = 'Thoughtborne'
+        Publisher            = 'Tim Wessels'
+        InstallLocation      = $InstallDir
+        DisplayIcon          = ('{0},0' -f $icon)
+        UninstallString      = $uStr
+        QuietUninstallString = $qStr
+        HelpLink             = 'https://thoughtborne.app'
+        URLInfoAbout         = 'https://thoughtborne.app'
+        InstallDate          = (Get-Date -Format 'yyyyMMdd')
+    }
+    if ($ver) { $values['DisplayVersion'] = $ver }
+    foreach ($k in $values.Keys) {
+        New-ItemProperty -Path $regPath -Name $k -Value $values[$k] -PropertyType String -Force | Out-Null
+    }
+    New-ItemProperty -Path $regPath -Name 'NoModify' -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $regPath -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
+    if ($sizeKiB) {
+        New-ItemProperty -Path $regPath -Name 'EstimatedSize' -Value $sizeKiB -PropertyType DWord -Force | Out-Null
+    }
+}
+
 # --- Main ------------------------------------------------------------------
 
 function Install-Thoughtborne {
@@ -185,6 +268,14 @@ function Install-Thoughtborne {
     #    No force flag: the safety default is hard. $installWasFresh (absent or empty
     #    before we touched it) also lets an aborted first copy clean up after itself
     #    in step 5, instead of leaving a partial folder that bricks every re-run.
+    #    Exception (the DEFAULT reinstall path): a keep-data uninstall removes the
+    #    fingerprint files but leaves user data behind, so a reinstall dir can hold
+    #    ONLY denylist residue (.env, history/, ...) and no fingerprint. A dir whose
+    #    EVERY entry matches the data denylist -- names only Thoughtborne creates --
+    #    is that re-installable residue, not a foreign folder, so proceed: the copy
+    #    restores the app and the denylist preserves the residue. One non-denylist
+    #    entry and we refuse as before. $installWasFresh stays $false, so the step-5
+    #    abort cleanup never wipes the residue.
     $installWasFresh = $true
     if (Test-Path -LiteralPath $installDir) {
         $existing = @(Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue)
@@ -197,7 +288,13 @@ function Install-Thoughtborne {
                 if ($text -match 'name\s*=\s*["'']thoughtborne["'']') { $isThoughtborne = $true }
             }
             if (Test-Path -LiteralPath (Join-Path $installDir 'thoughtborne.py')) { $isThoughtborne = $true }
-            if (-not $isThoughtborne) {
+            # Denylist residue: a fingerprint-less dir is still re-installable when
+            # every entry is protected user data (reuses the copy-time predicate).
+            $isDataResidue = $true
+            foreach ($entry in $existing) {
+                if (-not (Test-DenylistMatch -Name $entry.Name)) { $isDataResidue = $false; break }
+            }
+            if ((-not $isThoughtborne) -and (-not $isDataResidue)) {
                 Write-Host ("ERROR: refusing to install into '{0}'." -f $installDir)
                 Write-Host "       It exists, is not empty, and is not a Thoughtborne folder (no"
                 Write-Host "       pyproject.toml naming thoughtborne, and no thoughtborne.py). Pick"
@@ -383,6 +480,15 @@ function Install-Thoughtborne {
 
     # 7) Start-menu shortcuts.
     New-ThoughtborneShortcuts -InstallDir $installDir -DryRun:$DryRun
+
+    # 7b) Per-user Apps-list (Add/Remove Programs) registration, so Thoughtborne
+    #     shows under Settings > Installed apps with a working Uninstall. Runs after
+    #     the copy (it reads the installed pyproject.toml and points DisplayIcon at
+    #     the copied favicon.ico) and on every run (fresh install and in-place
+    #     update). Install metadata only, registry cmdlets only -- no secrets, no
+    #     config file (D-002); the uninstall is uninstall.ps1, whose quiet lane
+    #     never deletes user data (D-011).
+    Write-UninstallRegistryEntry -InstallDir $installDir -DryRun:$DryRun
 
     # 8) Hand off to the #144 settings / onboarding app (convenience: the tool
     #    itself also opens the wizard on a keyless start). setup.ps1 collects no
