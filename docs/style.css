@@ -1,5 +1,7 @@
-/* Thoughtborne site v3 — shared stylesheet for all four pages:
+/* Thoughtborne site — shared stylesheet for all four pages:
    / (DE), /en/ (EN), /legal.html (DE), /en/legal.html (EN).
+   NOTE: every page links this file with a ?v= cache-buster query — bump it
+   in all four <link> tags whenever this file changes.
    Extracted from the approved v3 prototype's inline styles (#148).
    Self-contained note: this file and everything under assets/ are first-party
    static files served from the site's own origin — the "self-contained" hard
@@ -99,7 +101,7 @@ code {
 .lang-toggle a:not([aria-current="page"]):hover { background: rgba(255,255,255,.12); color: var(--hero-ink); }
 
 /* ---- hero ---- */
-.hero { background: var(--navy); color: var(--hero-ink); padding-block: clamp(3rem, 7vw, 5rem); }
+.hero { background: var(--navy); color: var(--hero-ink); padding-block: clamp(3rem, 7vw, 5rem) clamp(2rem, 4vw, 2.75rem); }
 .hero-inner { max-width: var(--measure-wide); text-align: center; }
 
 /* The app masthead as live text (LOGO_MARK_A5 + wordmark, 58 columns),
@@ -118,15 +120,6 @@ code {
   overflow: hidden;
   user-select: none;
 }
-.hero-title {
-  font-size: clamp(1.3rem, 1rem + 1.6vw, 1.8rem);
-  font-weight: 600; letter-spacing: -0.01em; line-height: 1.25;
-  margin: clamp(1.75rem, 4vw, 2.5rem) auto 0;
-  max-width: 40rem;
-}
-.hero-points { color: var(--hero-soft); margin: 0.85rem auto 0; font-size: 0.97rem; letter-spacing: 0.01em; }
-.hero-points span { white-space: nowrap; color: var(--hero-ink); font-weight: 500; }
-.hero-points span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; color: var(--hero-soft); font-weight: 400; }
 
 /* ---- install box: two tabs (fixed command / agent prompt), copy button ---- */
 .install {
@@ -329,9 +322,7 @@ code {
   .fig-unit { margin-top: 0; }
   .benefits span { display: block; }
   .benefits span:not(:last-child)::after { content: none; }
-  .hero-points span { display: block; }
-  .hero-points span:not(:last-child)::after { content: none; }
-  .install { flex-wrap: wrap; }
+  .install-panel { flex-wrap: wrap; }
   .copy-btn { width: 100%; text-align: center; }
   .arg { grid-template-columns: 1fr; }
   .arg-num { padding: 0 0 0.4rem; }
