@@ -12,7 +12,7 @@
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/thoughtborne-avatar-512.png">
-<meta name="theme-color" content="#0A1017">
+<meta name="theme-color" content="#0E202E">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="de_DE">
 <meta property="og:locale:alternate" content="en_US">
@@ -55,17 +55,26 @@
     <!-- Install one-liner. PRE-GO-LIVE NOTE: points at the v1.1.0-rc pre-release
          asset while this branch is offline; switch to the stable lane
          releases/latest/download/setup.ps1 before merging to main (D-006). -->
-    <div class="install">
-      <div class="install-head">
-        <span>Installationsbefehl</span>
-        <span class="install-winbtns" aria-hidden="true">─ □ ✕</span>
+    <div class="install" id="installation">
+      <div class="install-tabs" role="tablist" aria-label="Installationswege">
+        <button class="install-tab" type="button" role="tab" aria-selected="true" data-panel="cmd">Installationsbefehl</button>
+        <button class="install-tab" type="button" role="tab" aria-selected="false" data-panel="agent">Install-Prompt für KI-Agents</button>
       </div>
-      <div class="install-row">
-        <code class="install-cmd"><span class="ps-prompt">PS&gt;</span> irm https://github.com/timwessels/thoughtborne-windows/releases/download/v1.1.0-rc/setup.ps1 | iex<span class="cursor" aria-hidden="true"></span></code>
-        <button class="copy-btn" type="button" data-copy="irm https://github.com/timwessels/thoughtborne-windows/releases/download/v1.1.0-rc/setup.ps1 | iex" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
+      <div class="install-panel" role="tabpanel" data-panel="cmd">
+        <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/download/v1.1.0-rc/setup.ps1 | iex</code>
+        <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
+      </div>
+      <div class="install-panel" role="tabpanel" data-panel="agent" hidden>
+        <code class="install-cmd">Installiere Thoughtborne, ein Open-Source-Diktier-Tool für Windows (github.com/timwessels/thoughtborne-windows).
+
+Installationsbefehl (PowerShell):
+irm https://github.com/timwessels/thoughtborne-windows/releases/download/v1.1.0-rc/setup.ps1 | iex
+Sonderfälle (z. B. Aufruf aus WSL2) beschreibt die llms-install.md im Repo — lies sie, bevor du improvisierst.
+
+Hilf mir danach bei der Einrichtung: Frag mich, ob ich kostenlos starten will (Groq, echter Free-Tier) oder mit dem bezahlten Default (Soniox, Prepaid, ca. 0,12 $ pro Stunde Audio), führe mich zum API-Key und hinterlege ihn. Starte das Tool, prüfe im Log, dass alle Hotkeys registriert sind, und erklär mir kurz die Bedienung. Bei Unklarheiten oder Fehlern: Stell mir Rückfragen, statt zu raten.</code>
+        <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
       </div>
     </div>
-    <p class="install-note">Eine Zeile PowerShell — der Installer führt durch den Rest.</p>
 
     <p class="actions">
       <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">Auf GitHub ansehen</a>
@@ -353,11 +362,25 @@
 </footer>
 
 <script>
-/* Copy button for the install one-liner. The Clipboard API needs a secure
-   context (https / localhost); a hidden-textarea fallback covers the rest. */
+/* Install box: tab switching + copy buttons. Each copy button copies the
+   text of the panel it sits in. The Clipboard API needs a secure context
+   (https / localhost); a hidden-textarea fallback covers the rest. */
+document.querySelectorAll('.install').forEach(function (box) {
+  box.querySelectorAll('.install-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      box.querySelectorAll('.install-tab').forEach(function (t) {
+        t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+      });
+      box.querySelectorAll('.install-panel').forEach(function (p) {
+        p.hidden = p.dataset.panel !== tab.dataset.panel;
+      });
+    });
+  });
+});
 document.querySelectorAll('.copy-btn').forEach(function (btn) {
   var reset;
   btn.addEventListener('click', function () {
+    var text = btn.closest('.install-panel').querySelector('.install-cmd').textContent.trim();
     var done = function (ok) {
       btn.textContent = ok ? btn.dataset.done : btn.dataset.fail;
       btn.classList.toggle('copied', ok);
@@ -368,10 +391,10 @@ document.querySelectorAll('.copy-btn').forEach(function (btn) {
       }, 2200);
     };
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(btn.dataset.copy).then(function () { done(true); }, function () { done(false); });
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
     } else {
       var ta = document.createElement('textarea');
-      ta.value = btn.dataset.copy;
+      ta.value = text;
       ta.setAttribute('readonly', '');
       ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta);

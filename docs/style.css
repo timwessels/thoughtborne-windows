@@ -14,11 +14,8 @@ a { color: inherit; }
 :root {
   --navy:      #0E202E;
   /* Brand accent, ported from the app's terminal masthead (console_ui.py
-     ACCENT = 38;2;89;194;255). --accent is for dark surfaces (hero, terminal
-     chrome); --accent-deep is its contrast-safe twin for light surfaces. */
-  --accent:      #59C2FF;
-  --accent-deep: #176B9E;
-  --term-bg:     #0A1017;
+     ACCENT = 38;2;89;194;255). Used for the terminal wordmark logo. */
+  --accent:    #59C2FF;
   --e-gray:    #8A939C;
   --e-on-dark: #71828F;
   --paper:     #F7F9FB;
@@ -43,7 +40,6 @@ a { color: inherit; }
     --line:      rgba(233, 237, 240, .16);
     --panel:     rgba(233, 237, 240, .04);
     --e-gray:    #71828F;
-    --accent-deep: #59C2FF;
     --link-dark: #AFC3D2;
     --btn-ghost-fg: var(--ink);
     --btn-bg: #AFC3D2; --btn-fg: var(--navy);
@@ -73,12 +69,7 @@ a:hover { text-decoration-color: currentColor; }
 h1, h2 { font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
 h2 { font-size: clamp(1.45rem, 1rem + 1.9vw, 2rem); }
 p { text-wrap: pretty; }
-.eyebrow {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--ink-soft); margin-bottom: 0.9rem;
-}
-.eyebrow::before { content: "▌"; color: var(--accent-deep); margin-right: 0.5em; }
+.eyebrow { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 0.9rem; }
 
 kbd {
   font-family: ui-monospace, "Cascadia Code", "Cascadia Mono", Consolas, "SFMono-Regular", monospace;
@@ -92,7 +83,7 @@ code {
 }
 
 /* ---- language switch (prominent, top-right) ---- */
-.langbar { position: sticky; top: 0; z-index: 20; background: var(--term-bg); border-bottom: 1px solid rgba(255,255,255,.06); }
+.langbar { position: sticky; top: 0; z-index: 20; background: var(--navy); }
 .langbar-inner {
   max-width: var(--measure-wide); margin-inline: auto;
   padding: 0.5rem clamp(1.25rem, 5vw, 2rem);
@@ -107,25 +98,12 @@ code {
 .lang-toggle a[aria-current="page"] { background: var(--hero-ink); color: var(--navy); }
 .lang-toggle a:not([aria-current="page"]):hover { background: rgba(255,255,255,.12); color: var(--hero-ink); }
 
-/* ---- hero: the terminal look, ported from the app ---- */
-.hero {
-  position: relative;
-  color: var(--hero-ink);
-  padding-block: clamp(3rem, 7vw, 5rem);
-  border-bottom: 1px solid rgba(89, 194, 255, .22);
-  /* a faint screen-glow behind the masthead on near-black terminal blue */
-  background:
-    radial-gradient(60rem 30rem at 50% -6rem, #14283A 0%, rgba(20, 40, 58, 0) 70%),
-    var(--term-bg);
-}
-.hero::after {
-  /* subtle CRT scanlines — decoration only, clicks pass through */
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(255,255,255,.022) 0 1px, transparent 1px 4px);
-}
+/* ---- hero ---- */
+.hero { background: var(--navy); color: var(--hero-ink); padding-block: clamp(3rem, 7vw, 5rem); }
 .hero-inner { max-width: var(--measure-wide); text-align: center; }
 
-/* The app masthead as live text (LOGO_MARK_A5 + wordmark, 58 columns).
+/* The app masthead as live text (LOGO_MARK_A5 + wordmark, 58 columns),
+   ported character-exact from console_ui.py in the app's accent color.
    line-height MUST stay 1.0 — half-block art breaks apart otherwise. */
 .term-logo {
   font-family: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
@@ -133,7 +111,7 @@ code {
   line-height: 1;
   letter-spacing: 0;
   color: var(--accent);
-  text-shadow: 0 0 24px rgba(89,194,255,.38), 0 0 4px rgba(89,194,255,.22);
+  text-shadow: 0 0 20px rgba(89,194,255,.25);
   width: max-content; max-width: 100%;
   margin: 0 auto;
   text-align: left;
@@ -143,61 +121,52 @@ code {
 .hero-title {
   font-size: clamp(1.3rem, 1rem + 1.6vw, 1.8rem);
   font-weight: 600; letter-spacing: -0.01em; line-height: 1.25;
-  margin: clamp(1.9rem, 4.5vw, 2.75rem) auto 0;
+  margin: clamp(1.75rem, 4vw, 2.5rem) auto 0;
   max-width: 40rem;
 }
-.hero-points { color: var(--hero-soft); margin: 0.9rem auto 0; font-size: 1.02rem; }
+.hero-points { color: var(--hero-soft); margin: 0.85rem auto 0; font-size: 0.97rem; letter-spacing: 0.01em; }
 .hero-points span { white-space: nowrap; color: var(--hero-ink); font-weight: 500; }
-.hero-points span:not(:last-child)::after { content: "·"; padding: 0 0.35em 0 0.7em; color: var(--hero-soft); font-weight: 400; }
+.hero-points span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; color: var(--hero-soft); font-weight: 400; }
 
-/* ---- install one-liner, styled as a small terminal window ---- */
+/* ---- install box: two tabs (fixed command / agent prompt), copy button ---- */
 .install {
-  position: relative;
-  max-width: 46rem; margin: clamp(1.9rem, 4.5vw, 2.6rem) auto 0; text-align: left;
-  background: #060B10;
-  border: 1px solid rgba(89,194,255,.30);
-  border-radius: 10px; overflow: hidden;
-  box-shadow: 0 22px 60px -24px rgba(0,0,0,.85);
+  max-width: 44rem; margin: clamp(1.75rem, 4vw, 2.4rem) auto 0; text-align: left;
+  background: rgba(0,0,0,.30);
+  border: 1px solid var(--hero-line);
+  border-radius: 8px;
+  overflow: hidden;
 }
-.install-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.5rem 0.95rem;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 0.76rem; letter-spacing: 0.06em; text-transform: uppercase;
+.install-tabs { display: flex; border-bottom: 1px solid var(--hero-line); }
+.install-tab {
+  background: none; border: none; cursor: pointer;
+  font: inherit; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em;
   color: var(--hero-soft);
-  background: rgba(255,255,255,.045);
-  border-bottom: 1px solid rgba(255,255,255,.07);
+  padding: 0.65em 1.1em;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
 }
-.install-winbtns { letter-spacing: 0.45em; color: rgba(255,255,255,.35); }
-.install-row { display: flex; align-items: center; gap: 0.9rem; padding: 0.95rem 1rem 0.95rem 1.1rem; }
+.install-tab:hover { color: var(--hero-ink); }
+.install-tab[aria-selected="true"] { color: var(--hero-ink); border-bottom-color: var(--hero-ink); }
+.install-panel { display: flex; align-items: flex-start; gap: 0.9rem; padding: 0.9rem 0.9rem 0.9rem 1.1rem; }
+.install-panel[hidden] { display: none; }
 .install-cmd {
-  /* wraps like a real terminal line instead of scrolling */
-  flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-all;
+  /* wraps instead of scrolling so the whole command stays visible */
+  flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-word;
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: 0.87rem; line-height: 1.55;
   background: none; border: none; padding: 0; border-radius: 0;
-  color: #E4EDF4;
+  color: #E9EFF4;
 }
-.ps-prompt { color: var(--accent); font-weight: 600; user-select: none; }
-.cursor {
-  display: inline-block; width: 0.55em; height: 1.1em;
-  margin-left: 0.18em; vertical-align: text-bottom;
-  background: var(--accent);
-  animation: cursor-blink 1.2s steps(2, start) infinite;
-}
-@keyframes cursor-blink { to { visibility: hidden; } }
 .copy-btn {
   flex: 0 0 auto;
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 0.8rem; font-weight: 600; line-height: 1.2;
-  color: var(--hero-ink); background: rgba(89,194,255,.12);
-  border: 1px solid rgba(89,194,255,.45); border-radius: 6px;
-  padding: 0.55em 0.95em; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600; line-height: 1.2;
+  color: var(--hero-ink); background: transparent;
+  border: 1px solid var(--hero-line); border-radius: 7px;
+  padding: 0.55em 1em; cursor: pointer;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
-.copy-btn:hover { background: rgba(89,194,255,.22); border-color: var(--accent); }
-.copy-btn.copied { color: #9BE8A8; border-color: rgba(155,232,168,.6); background: rgba(155,232,168,.10); }
-.install-note { color: var(--hero-soft); font-size: 0.86rem; margin-top: 0.8rem; }
+.copy-btn:hover { background: rgba(255,255,255,.10); border-color: var(--hero-ink); }
+.copy-btn.copied { color: #9BE8A8; border-color: rgba(155,232,168,.6); }
 .mark path { fill: currentColor; }
 .mark-hero { width: clamp(88px, 20vw, 120px); height: auto; margin: 0 auto clamp(1.5rem, 4vw, 2.25rem); color: var(--hero-ink); }
 .wordmark-h1 { margin: 0 auto; max-width: 30rem; }
@@ -249,11 +218,10 @@ code {
 .shot .wrap { max-width: var(--measure-wide); }
 .shot-frame {
   max-width: 40rem; margin-inline: auto;
-  border: 1px solid rgba(23,107,158,.35); border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
   box-shadow: 0 18px 50px -20px rgba(14,32,46,.45), 0 2px 8px -2px rgba(14,32,46,.2);
   background: #0c0c0c;
 }
-@media (prefers-color-scheme: dark) { .shot-frame { border-color: rgba(89,194,255,.30); } }
 @media (prefers-color-scheme: dark) { .shot-frame { box-shadow: 0 18px 50px -20px rgba(0,0,0,.7); } }
 .shot-frame img { width: 100%; height: auto; display: block; }
 .shot-cap { color: var(--ink-soft); font-size: 0.93rem; margin-top: 1.1rem; max-width: var(--measure); line-height: 1.55; }
@@ -266,7 +234,7 @@ code {
 .features-top h2 { margin-bottom: 0.75rem; }
 .features-top .intro p { color: var(--ink-soft); }
 .feat-group { margin-top: 2rem; }
-.feat-group-title { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 1rem; }
+.feat-group-title { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 1rem; }
 .feat-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.9rem 2rem; }
 .feat-grid li { position: relative; padding-left: 1.7rem; line-height: 1.5; }
 .feat-grid li::before {
@@ -290,7 +258,7 @@ code {
 }
 .arg-num {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.78rem;
-  letter-spacing: 0.08em; color: var(--accent-deep); padding-top: 0.35rem;
+  letter-spacing: 0.08em; color: var(--e-gray); padding-top: 0.35rem;
 }
 .arg h3 { grid-column: 2; font-size: 1.18rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--ink); }
 .arg-lead { grid-column: 2; color: var(--ink-soft); margin-top: 0.4rem; font-size: 0.98rem; }
@@ -308,8 +276,7 @@ code {
 /* ---- the loop ---- */
 .loop { padding-block: clamp(2.5rem, 6vw, 4rem); }
 .loop .wrap { max-width: var(--measure-wide); }
-.loop-title { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); text-align: center; margin-bottom: 1.75rem; }
-.loop-title::before { content: "▌"; color: var(--accent-deep); margin-right: 0.5em; }
+.loop-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); text-align: center; margin-bottom: 1.75rem; }
 .steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(1rem, 3vw, 1.75rem); }
 .steps li { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.4rem 1.4rem 1.5rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .keys { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem; font-size: 0.95rem; }
@@ -348,7 +315,7 @@ code {
 .footer-note { color: var(--ink-soft); font-size: 0.9rem; margin-top: 1.5rem; }
 .mark-footer { width: 64px; height: auto; margin: 1.75rem auto 0; color: var(--ink); opacity: 0.9; }
 
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } .btn:hover { transform: none; } .cursor { animation: none; opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } .btn:hover { transform: none; } }
 @media (max-width: 640px) {
   .steps { grid-template-columns: 1fr; }
   .reliab-grid { grid-template-columns: 1fr; }
@@ -364,7 +331,7 @@ code {
   .benefits span:not(:last-child)::after { content: none; }
   .hero-points span { display: block; }
   .hero-points span:not(:last-child)::after { content: none; }
-  .install-row { flex-wrap: wrap; }
+  .install { flex-wrap: wrap; }
   .copy-btn { width: 100%; text-align: center; }
   .arg { grid-template-columns: 1fr; }
   .arg-num { padding: 0 0 0.4rem; }
