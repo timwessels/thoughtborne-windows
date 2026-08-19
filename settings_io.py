@@ -569,12 +569,14 @@ _MODIFIER_KEYSYMS = frozenset({
 })
 
 # Tk keysym for the one German special key accepted as a hotkey key: 'ü'
-# (udiaeresis), the documented self-test key (ctrl+alt+ü). The other umlauts / ß
-# are deliberately NOT offered here -- config.py's DEFAULT_HOTKEYS note and the
-# personal_settings example both warn that a non-ASCII hotkey key other than 'ü'
-# can get typed into some apps (N8), so the capture widget must not decode them
-# into a bindable combo. classify_key treats 'ü' as KEY_SPECIAL (resolved at
-# runtime via VkKeyScanW).
+# (udiaeresis). No shipped default uses it since the self-test moved to
+# ctrl+alt+t (#211, D-012), but it stays offered so the capture widget can bind a
+# user override onto ctrl+alt+ü. The other umlauts / ß are deliberately NOT
+# offered here -- config.py's DEFAULT_HOTKEYS note and the personal_settings
+# example both warn that a non-ASCII hotkey key other than 'ü' can get typed into
+# some apps (N8), so the capture widget must not decode them into a bindable
+# combo. classify_key treats 'ü' as KEY_SPECIAL (resolved at runtime via
+# VkKeyScanW).
 _SPECIAL_KEYSYMS = {
     "udiaeresis": "ü",
 }
@@ -657,7 +659,7 @@ PRESET_FKEYS = {
     "stop_recording_no_insert": "ctrl+alt+f9",
     "retry_last_failed": "shift+f8",
     "cancel_recording": ["ctrl+f9"],
-    "test_transcription": "ctrl+alt+ü",
+    "test_transcription": "ctrl+alt+t",
     "switch_api": "ctrl+f8",
     "open_history": "ctrl+alt+6",
     "open_settings": "ctrl+alt+g",   # housekeeping stays on Ctrl+Alt (#164)

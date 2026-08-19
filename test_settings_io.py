@@ -457,6 +457,13 @@ def check_hotkey_helpers():
     check(sio.hotkeys_diff_vs_default(sio.preset_ctrl_alt(), config.DEFAULT_HOTKEYS) == {},
           "default scheme should diff to {}")
 
+    # #211: PRESET_FKEYS is a SECOND hard-coded default source -- its housekeeping
+    # keys are documented as identical to the shipped Ctrl+Alt scheme, so they must
+    # not drift (nothing enforced this before).
+    for a in ("open_history", "open_settings", "test_transcription", "exit_program"):
+        check(sio.PRESET_FKEYS[a] == config.DEFAULT_HOTKEYS[a],
+              f"PRESET_FKEYS[{a}] drifted from DEFAULT_HOTKEYS")
+
 
 # ---- key_check ---------------------------------------------------------------
 def check_key_check():

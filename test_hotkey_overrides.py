@@ -32,7 +32,7 @@ import sys
 logging.getLogger('Thoughtborne.Config').setLevel(logging.CRITICAL)
 
 import hotkey_parse as hp
-from config import apply_hotkey_overrides
+from config import apply_hotkey_overrides, DEFAULT_HOTKEYS
 
 SHOW = "--show" in sys.argv
 
@@ -44,7 +44,7 @@ DEFAULTS = {
     'stop_recording_keyboard': 'ctrl+alt+a',
     'stop_recording_clipboard': 'ctrl+alt+d',
     'switch_api': 'ctrl+alt+l',
-    'test_transcription': 'ctrl+alt+ü',
+    'test_transcription': 'ctrl+alt+ü',  # override lane, not a default (#211/D-012)
     'open_history': 'ctrl+alt+6',
     'cancel_recording': ['ctrl+alt+x'],
     'exit_program': ['ctrl+alt+4'],
@@ -245,12 +245,24 @@ def test_free_then_reuse_no_false_collision():
     assert warns == [], warns
 
 
+def test_shipped_defaults_are_static():
+    # #211 / D-012: no shipped default may sit on a key without a static VK code --
+    # those are resolved against the ACTIVE layout at startup and fail off QWERTZ.
+    # Guards against the self-test (or any default) regressing onto the umlaut.
+    for action, value in DEFAULT_HOTKEYS.items():
+        for combo in (value if isinstance(value, list) else [value]):
+            _mods, key = hp.parse_hotkey_lexical(combo)
+            assert hp.classify_key(key) == hp.KEY_STATIC, \
+                f"D-012: default {action}={combo!r} uses layout-resolved key {key!r}"
+
+
 CASES = [
     test_vk_map_fkeys_and_statics,
     test_parse_modifiers_and_key,
     test_parse_bare_fkey,
     test_parse_raises_structural,
     test_classify_key,
+    test_shipped_defaults_are_static,
     test_common_prefix,
     test_partial_override,
     test_value_shapes,

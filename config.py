@@ -668,9 +668,13 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 # Windows uses Ctrl+Alt instead of Cmd+Control (Mac)
 # German QWERTZ keyboard layout consideration:
 # - 'y' key is where 'z' is on US keyboards
-# - 'ü' is a German umlaut (own key on QWERTZ)
-# Note: Avoid special characters like '#' and non-ASCII letters like 'ä' in hotkeys
-#       They can cause issues with the keyboard module (character gets typed in some apps)
+# Note: Avoid special characters like '#' and non-ASCII letters like 'ä' or 'ü' in
+#       hotkeys. They can get typed into some apps by the keyboard module, and they
+#       have no static VK code -- registration must resolve them against the ACTIVE
+#       layout at startup (VkKeyScanW), which fails off German QWERTZ. Every shipped
+#       default therefore uses a statically mapped key (letter / digit / F-key); the
+#       self-test moved off the umlaut for exactly this reason (#211, D-012). The
+#       umlaut lane stays available for user overrides via personal_settings.json.
 DEFAULT_HOTKEYS = {
     'start_recording': 'ctrl+alt+w',           # W = Start recording
     'stop_recording_keyboard': 'ctrl+alt+h',   # H = Stop & insert (keyboard typing)
@@ -679,7 +683,7 @@ DEFAULT_HOTKEYS = {
     'stop_recording_no_insert': 'ctrl+alt+y',  # Y = Stop & process only (insert later) - NEW!
     'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
-    'test_transcription': 'ctrl+alt+ü',        # Ü = Test transcription
+    'test_transcription': 'ctrl+alt+t',        # T = Test transcription
     'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
     'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
     'open_settings': 'ctrl+alt+g',             # G = Open the settings app (gear) (#164)

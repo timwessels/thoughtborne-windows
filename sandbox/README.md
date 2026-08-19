@@ -43,7 +43,7 @@ things only a real Windows box can settle are listed under *What it does not cov
   not expand env vars, so the tracked file cannot ship a machine-specific path).
 - `verify-in-sandbox.ps1` -- the in-sandbox driver: install -> drop the throwaway
   key -> launch via the real Start-menu shortcut -> poll `thoughtborne.log` for
-  `All hotkeys registered successfully` -> fire the `Ctrl+Alt+Ü` self-test and poll
+  `All hotkeys registered successfully` -> fire the `Ctrl+Alt+T` self-test and poll
   for a transcription -> copy logs + screenshots out -> write a `RESULT.txt` verdict.
 
 ## The throwaway API key (required)
@@ -127,7 +127,7 @@ Two things only a real machine or full VM can settle -- the sandbox cannot:
   downloaded" gating, and the one-liner's `WebClient` fetch bypasses Edge /
   SmartScreen entirely. Whether the install path stays clean under real Defender /
   AMSI and SmartScreen is a real-box / VM check.
-- **First confirmation of the self-test path.** The `Ctrl+Alt+Ü` self-test injects
+- **First confirmation of the self-test path.** The `Ctrl+Alt+T` self-test injects
   the registered chord as synthetic input and expects `RegisterHotKey` to fire;
   this path is reasoned from the code, not yet run for real. Until a first real
   pass confirms it, a run where injection does not trip the hotkey stays `PARTIAL`

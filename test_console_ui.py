@@ -35,7 +35,8 @@ _SGR = re.compile(r"\x1b\[[0-9;]*m")
 def strip(s):
     return _SGR.sub("", s)
 
-# CP437 safe set (terminal-constraints.md) + the U-umlaut self-test hotkey
+# CP437 safe set (terminal-constraints.md) + the U-umlaut, no longer a shipped
+# default since #211 but still bindable as a user override (D-012)
 # + U+2022 bullet (conhost best-fits it to 0x07; see charset-korrektur-bullet.md).
 SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▓▒░▀▄▌▐■Ü•")
 
@@ -81,6 +82,8 @@ def check_block(name, lines, *, ansi, compact, stress):
             if "\x1b" in ln:
                 _record(f"{name}[{i}] plain line carries ESC: {ln!r}")
             for ch in ln:
+                # Ü is the one allowed non-ASCII glyph in the plain twin: override-only
+                # since #211/D-012 (no shipped default uses it), still render-covered.
                 if ord(ch) >= 128 and ch != "Ü":
                     _record(f"{name}[{i}] plain non-ASCII {ch!r}: {ln!r}")
     # red exclusivity (only checkable on the styled ansi render)
@@ -586,6 +589,8 @@ def check_prefix_none_widths():
     and a routine strip on it at full width. The compact/narrow-window layout of
     long full combos is a separate concern, outside #55's display-only scope."""
     lineup = lineup_for(DEFAULT_API)
+    # Ctrl+Alt+Ü is deliberate: the umlaut is override-only since #211/D-012, and this
+    # synthetic fixture is the console's only remaining render coverage of the glyph.
     mixed_keys = ["F9", "Ctrl+Alt+A", "Ctrl+Alt+D", "Ctrl+Alt+H", "Ctrl+Alt+Y",
                   "Ctrl+Alt+X", "Ctrl+Shift+F12", "Ctrl+Alt+L", "Ctrl+Alt+6",
                   "Ctrl+Alt+Ü", "Ctrl+Alt+4", "Ctrl+Alt+G"]

@@ -133,7 +133,7 @@ Then dictate:
 2. Press `Ctrl+Alt+W` and say a sentence — the console confirms that the recording is running.
 3. Press `Ctrl+Alt+A` — the transcript appears at the cursor.
 
-**Self-test:** `Ctrl+Alt+Ü` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
+**Self-test:** `Ctrl+Alt+T` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
 Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v5`, `Son-v2`, `Son-v5`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If the default engine comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
 
@@ -153,14 +153,12 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); the engine you switch to is remembered and starts the next session |
 | `Ctrl+Alt+6` | Open the recordings & transcripts folder (`history/`) in Explorer |
 | `Ctrl+Alt+G` | Open the settings app (G as in gear) |
-| `Ctrl+Alt+Ü` | Self-test: transcribe the bundled `test_audio.mp3` |
+| `Ctrl+Alt+T` | Self-test: transcribe the bundled `test_audio.mp3` |
 | `Ctrl+Alt+4` | Exit |
 
 Transcripts are always inserted in recording order, even when several recordings are processing in parallel.
 
 **The typing insert has a length cap.** `Ctrl+Alt+H` inserts by simulating keystrokes — the fallback for apps that block a paste. Windows silently drops most of a very long simulated-typing burst once the target app can't keep up, so this path is deliberately capped at **4,000 characters** (about seven minutes of continuous dictation). Past the cap the typed text ends with a short bracketed note, and nothing is lost: the full transcript stays in `history/` and can be inserted in one piece with the clipboard hotkey (`Ctrl+Alt+A`). The clipboard paths (`A`/`D`) are not affected.
-
-**`Ü` on a non-German keyboard:** `Ü` is its own key on the German QWERTZ layout (right of `P`). On other layouts, if the self-test does not trigger, rebind the `test_transcription` action in the `hotkeys` block of `personal_settings.json` (see Customization below) — `config.py` keeps the defaults.
 
 ## Customization
 
@@ -191,7 +189,7 @@ One-time detail: Windows first tucks a new tray icon into the overflow flyout (t
 
 - `DEFAULT_API` — the API at startup when neither a `defaults` override nor a remembered engine applies (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); overridable without editing code in the `defaults` block of `personal_settings.json` (above).
 - `LANGUAGE` — default `"de"`. English works (`"en"`), but the artifact filters and tuning target German — honest expectations ([VISION.md](VISION.md)).
-- `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Avoid special characters like `#` and non-ASCII letters (the established `ü` is the known-good exception).
+- `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Avoid special characters like `#` and non-ASCII letters: they can get typed into some apps, and they have no fixed key code, so they are resolved against your active keyboard layout at startup. Every shipped default is a plain letter, digit, or F-key; `ü` is still accepted if you want it.
 
 More settings (parallel transcriptions, audio trimming, …) are documented as comments in `config.py` itself.
 

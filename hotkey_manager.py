@@ -163,7 +163,8 @@ def _parse_hotkey(hotkey_str: str) -> tuple:
     (_resolve_vk_code, VkKeyScanW for special characters) stays here.
 
     Args:
-        hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', 'ctrl+alt+4', 'ctrl+alt+ü')
+        hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', 'ctrl+alt+4', or a user
+            override's special key 'ctrl+alt+ü')
 
     Returns:
         Tuple of (modifier_flags, vk_code)

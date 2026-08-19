@@ -802,3 +802,61 @@ existing release asset with no asset change. Respects D-007 — the registry wri
 a separate step with no copy, so the in-place-update self-overwrite guard for
 `setup.bat` is untouched. Does not touch D-001, D-003, D-004, D-005, D-008, D-009,
 or D-010.
+
+---
+
+## D-012 — The self-test default is `Ctrl+Alt+T`; the umlaut lane stays for overrides
+
+Decided 2026-08-19 (#211).
+
+The shipped self-test hotkey moves from `Ctrl+Alt+Ü` to `Ctrl+Alt+T`. `Ü` had been
+declared intentional (it was an AGENTS.md guardrail); this entry records that the
+call was reconsidered and reversed on purpose, so the change is not read later as
+an accident and quietly undone.
+
+- **Why the umlaut was the wrong default.** `ü` has no static VK code. Registration
+  resolves it at startup via `VkKeyScanW` against the *active* keyboard layout, and
+  when that fails `hotkey_manager` falls back to the hard-coded `VK_OEM_4` (0xDB) --
+  which on a US layout is `[`. An international user therefore got the self-test on
+  an undocumented key, or not at all, on the one hotkey whose entire job is to prove
+  the install works. The default also contradicted `config.py`'s own adjacent
+  guidance ("avoid ... non-ASCII letters in hotkeys").
+- **Why `T`.** Static VK 0x54, present on every layout, mnemonic (T = test), and free
+  in the shipped scheme (W H A D Y R X L G 4 6). Every shipped default is now a
+  statically mapped key -- letter, digit, or F-key -- so the whole scheme registers
+  without consulting the active layout.
+- **Only the default moved; the special-key machinery stays.** The `VkKeyScanW` path
+  in `hotkey_manager`, the `KEY_SPECIAL` lane and `'ue'` alias in `hotkey_parse`, the
+  `udiaeresis` keysym in `settings_io`'s capture decoder, and the `Ü` rendering in the
+  settings app and console are all live: a user may still bind `ctrl+alt+ü` (or any
+  single character) through the #55 override surface, by hand or in the settings app.
+  That code has no shipped caller now, which makes it look deletable -- it is not.
+- **Two hard-coded default sources, not one.** `config.DEFAULT_HOTKEYS` is the shipped
+  scheme, and `settings_io.PRESET_FKEYS` is the alternative F-key preset whose four
+  housekeeping actions (open_history / open_settings / test_transcription /
+  exit_program) are deliberately kept identical to it so switching preset means no
+  relearning. `PRESET_FKEYS` does not derive from `DEFAULT_HOTKEYS`, so a default
+  change has to be applied in both places; a test now enforces that parity.
+- **No migration.** A user who never overrode `test_transcription` follows the new
+  default silently. A user who pinned `ctrl+alt+ü` in `personal_settings.json` keeps
+  it, unchanged and still registrable. A user who happened to bind `ctrl+alt+t` to a
+  different action keeps their binding: `apply_hotkey_overrides` drops the colliding
+  self-test default with one warning in `thoughtborne.log` -- never a failed start.
+- **Accepted trade-offs.** A global hotkey swallows `Ctrl+Alt+T` system-wide while the
+  tool runs, costing MS Office its (TM) shortcut and Photoshop its Free-Transform-copy;
+  the self-test is a rare, deliberate action and the combo is remappable. AltGr is
+  Ctrl+Alt on Windows, so on layouts where AltGr+T yields a glyph (US-International:
+  the thorn letter) typing it fires the self-test -- the same aliasing class W/A/D/Y/R/L
+  already accept on that layout, not a new category, and on the German QWERTZ target
+  layout AltGr+T produces nothing at all.
+
+Do not reintroduce: a shipped default on a key without a static VK code (an umlaut,
+`ß`, or any layout-resolved character) in `DEFAULT_HOTKEYS` or `PRESET_FKEYS`;
+removing the umlaut/special-key resolution as "dead code" because no default uses it;
+letting `PRESET_FKEYS`' housekeeping keys drift from `DEFAULT_HOTKEYS`; or a migration
+that rewrites a user's existing `test_transcription` override.
+
+Respects D-002 -- the default change flows through the settings app's existing
+diff-vs-default write; no new write surface, and a user's explicit pin is never
+touched. Does not touch D-001, D-003, D-004, D-005, D-006, D-007, D-008, D-009,
+D-010, or D-011.

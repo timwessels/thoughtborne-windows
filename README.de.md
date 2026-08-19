@@ -133,7 +133,7 @@ Dann diktieren:
 2. `Ctrl+Alt+W` drücken und einen Satz sprechen — die Konsole bestätigt die laufende Aufnahme.
 3. `Ctrl+Alt+A` drücken — das Transkript erscheint an der Cursor-Position.
 
-**Selbsttest:** `Ctrl+Alt+Ü` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
+**Selbsttest:** `Ctrl+Alt+T` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
 Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v5`, `Son-v2`, `Son-v5`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt. An eine nicht transkribierte Aufnahme erinnert das Tool nur einmal — beim nächsten Start danach; anschließend bleibt sie per `Ctrl+Alt+R` abrufbar, ohne erneut daran zu erinnern. Kommt die Standard-Engine leer zurück, ohne dass dabei etwas schiefging, enthielt die Aufnahme keine Sprache — sie bleibt in `history/` erhalten, und das Tool sagt das ehrlich, statt eine sinnlose Wiederholung anzubieten.
 
@@ -153,14 +153,12 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 | `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); die gewählte Engine wird gemerkt und startet beim nächsten Mal |
 | `Ctrl+Alt+6` | Den Ordner mit Aufnahmen & Transkripten (`history/`) im Explorer öffnen |
 | `Ctrl+Alt+G` | Die Einstellungs-App öffnen (Zahnrad) |
-| `Ctrl+Alt+Ü` | Selbsttest: die mitgelieferte `test_audio.mp3` transkribieren |
+| `Ctrl+Alt+T` | Selbsttest: die mitgelieferte `test_audio.mp3` transkribieren |
 | `Ctrl+Alt+4` | Programm beenden |
 
 Transkripte werden immer in Aufnahme-Reihenfolge eingefügt, auch wenn mehrere Aufnahmen parallel verarbeitet werden.
 
 **Der Tipp-Einfügeweg hat eine Längenbegrenzung.** `Ctrl+Alt+H` fügt per simuliertem Tippen ein — der Ausweichweg für Apps, die Einfügen (Paste) blockieren. Windows verwirft bei sehr langem simuliertem Tippen den Großteil der Zeichen still, sobald die Ziel-App nicht mehr hinterherkommt; deshalb ist dieser Weg bewusst auf **4.000 Zeichen** begrenzt (rund sieben Minuten ununterbrochenes Diktat). Oberhalb der Grenze endet der getippte Text mit einem kurzen Hinweis in eckigen Klammern — verloren geht nichts: das vollständige Transkript bleibt in `history/` und lässt sich in einem Stück über den Zwischenablage-Hotkey (`Ctrl+Alt+A`) einfügen. Die Zwischenablage-Wege (`A`/`D`) sind nicht betroffen.
-
-**`Ü` ohne deutsche Tastatur:** `Ü` ist auf dem deutschen QWERTZ-Layout eine eigene Taste (rechts von `P`). Auf anderen Layouts, falls der Selbsttest nicht auslöst, die Aktion `test_transcription` im `hotkeys`-Block der `personal_settings.json` umbelegen (siehe Anpassung unten) — `config.py` behält die Defaults.
 
 ## Anpassung
 
@@ -191,7 +189,7 @@ Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf
 
 - `DEFAULT_API` — die API beim Start, wenn weder eine `defaults`-Überschreibung noch eine gemerkte Engine greift (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); ohne Code-Änderung überschreibbar im `defaults`-Block der `personal_settings.json` (oben).
 - `LANGUAGE` — Default `"de"`. Englisch funktioniert (`"en"`), aber Artefakt-Filter und Tuning zielen auf Deutsch — ehrliche Erwartungen ([VISION.md](VISION.md)).
-- `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden (das etablierte `ü` ist die erprobte Ausnahme).
+- `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden: Sie können in manche Apps hineingetippt werden und haben keinen festen Tastencode, werden also beim Start gegen das aktive Tastaturlayout aufgelöst. Alle mitgelieferten Defaults sind einfache Buchstaben, Ziffern oder F-Tasten; `ü` wird weiterhin akzeptiert, wenn man es möchte.
 
 Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als Kommentare direkt in `config.py` dokumentiert.
 

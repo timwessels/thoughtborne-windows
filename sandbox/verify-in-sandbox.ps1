@@ -211,7 +211,7 @@ Write-Host $shortcuts
 # EXACT modifier+VK the tool logged it registered -- a layout-independent method
 # that removes the "is the sandbox US or German?" guess. After the needle, the
 # log already carries (file-only, hotkey_manager.py:328) a line like
-#   Registered: ctrl+alt+<u> -> test_transcription (id=7, mod=0x4003, vk=0xDB)
+#   Registered: ctrl+alt+t -> test_transcription (id=7, mod=0x4003, vk=0x54)
 # We parse mod+vk from the ASCII portion and inject that chord. RegisterHotKey
 # fires on injected input regardless of focus, and the injecting PowerShell and
 # the tool share the same (non-elevated) integrity level in the sandbox, so no
