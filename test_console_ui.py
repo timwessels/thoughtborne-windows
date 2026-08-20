@@ -804,7 +804,7 @@ def main():
                         seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
                         key_prefix=KEY_PREFIX, reason=reason, provider=provider),
                         stress=(seq == 99999))
-            # inconclusive (Soniox-Live V2->V4 lane empty + errored): the flag wins
+            # inconclusive (Soniox-Live async file lane empty + errored): the flag wins
             # over the category, so the "came back empty" message shows.
             run("transcription_failed", u.render_transcription_failed, dict(
                 seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,

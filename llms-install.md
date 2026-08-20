@@ -62,10 +62,7 @@ Outcome: `uv run thoughtborne.py` can resolve and launch. There is no separate "
   py -3.13 -m venv .venv
   .venv\Scripts\activate
   pip install -r requirements.txt
-  pip install -r requirements-optional.txt
   ```
-
-  The optional file installs the Soniox SDK: it enables the fast v2 path of the `soniox` upload slot. Without it that slot still works, served entirely by the v5 engine.
 - Do not "pre-verify" with a Linux-side dry run — see the WSL trap in Step 0.
 
 ## Step 3 — API keys (the user does the signups)
@@ -94,7 +91,7 @@ With only a Groq key, startup automatically skips the Soniox entries and starts 
 
 Three things are commonly personalized. Offer them; apply only what the user wants.
 
-- **Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with the user's names, project terms, and frequent foreign words. Used by every Soniox engine — Soniox Live and both paths of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
+- **Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with the user's names, project terms, and frequent foreign words. Used by every Soniox engine — Soniox Live and the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
 - **Hotkeys:** rebind any combination in the `hotkeys` block of `personal_settings.json` (copy `personal_settings.example.json` first) — a partial override keyed by action name, with `config.py` keeping the defaults. If a default collides with something the user already runs, override it there. F-keys `f1`–`f24` are allowed (including modifier-less ones like `f9`); avoid special characters like `#` and non-ASCII letters (they can cause issues with the keyboard module, and having no fixed key code they are resolved against the active layout at startup); every shipped default is a plain letter, digit, or F-key, and `ü` is still accepted if the user wants it. A bad or colliding entry warns in the log and keeps the default — never a failed start. The default engine is overridable the same way, in a `defaults` block (`"api"`). Note for what you tell the user: the tool also remembers the engine they last switched to with `Ctrl+Alt+L` (in its own `runtime_state.json`, written by the tool, safe to delete) and starts on it — but a `defaults.api` set here outranks that memory, so setting one pins the startup engine for good.
 - **Dictation language:** `LANGUAGE` in `config.py`, default `"de"`. Thoughtborne is German-first; English works, but the artifact filters and tuning target German — be honest about that if the user asks.
 - **Push-to-talk** (opt-in, off by default): an alternative dictation gesture — tap Left-Ctrl, release, then press-and-hold Left-Ctrl; recording runs while held, releasing inserts. Enabled in the `push_to_talk` block of `personal_settings.json` (`enabled: true`); the trigger key, insert path (`clipboard` by default, `type` as the paste-blocked fallback), and timing thresholds are configurable there. Ask whether the user wants it — it reads every trigger press while enabled, so it is a deliberate choice. A mandatory AltGr filter keeps German QWERTZ characters (`@ \ { } [ ] | €`) from false-triggering. If the user works in a JetBrains IDE, mention that double-Ctrl is the IDE's "Run Anything" shortcut and they should enable "Disable double modifier key shortcuts" in the IDE's Advanced Settings to avoid the clash. Same elevated-window limit as the hotkeys (see Known failure modes).

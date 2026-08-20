@@ -2,16 +2,15 @@
 """Guard that the two dependency-declaration lanes never silently drift (#173).
 
 The project lists its dependencies twice by design: pyproject.toml (the uv
-source of truth) and requirements.txt / requirements-optional.txt (the pip
-fallback lane). Comments in both files mandate keeping them in sync -- nothing
-machine-checked it, so a drift would land only on pip-lane users, the cohort we
-exercise least. This is a text-level consistency check: no network, no uv, no
-live resolution. It asserts two lanes stay in lockstep:
+source of truth) and requirements.txt (the pip fallback lane). Comments in both
+files mandate keeping them in sync -- nothing machine-checked it, so a drift
+would land only on pip-lane users, the cohort we exercise least. This is a
+text-level consistency check: no network, no uv, no live resolution. It asserts
+the pyproject and pip lanes stay in lockstep:
 
     pyproject [project] dependencies        == requirements.txt
-    pyproject [dependency-groups] soniox    == requirements-optional.txt
 
-compared as normalized requirement sets -- PEP-503 name (case- and separator-
+compared as a normalized requirement set -- PEP-503 name (case- and separator-
 insensitive) plus a whitespace- and order-insensitive version specifier -- so a
 mismatch is a genuine drift, not a reformatting. A failure names the drifting
 package and which file holds which version, on both sides.
@@ -25,19 +24,17 @@ line parser reads the two flat quoted-string arrays instead. Both are exercised:
 on 3.11+ the fallback is cross-checked against tomllib (a reference oracle);
 on 3.10 the fallback IS the live parser the two comparison cases run through.
 
-Known, deliberate limits (widen the parser if a marker ever appears in the four
+Known, deliberate limits (widen the parser if a marker ever appears in the two
 lists): environment markers (`; python_version < ...`) are stripped, so a
 marker-only drift would be masked -- none exist today, and the tomllib
 cross-check on 3.11+ is a canary that would flag the dumb fallback losing such a
 token. Extras (`pkg[extra]`) are not masked: the name regex stops at the `[`, so
 `[extra]` folds into the "specifier" and an extras-only difference reads as a
-genuine specifier drift and is caught. Only the `soniox` group is checked
-against requirements-optional.txt; a second future dependency group would need
-its own case here.
+genuine specifier drift and is caught.
 
 Sibling of test_setup.py / test_settings_io.py: a CASES list, PASS/FAIL print,
-non-zero exit on failure. Mutating any single entry (name or specifier) in any
-of the four lists makes it fail naming file + entry.
+non-zero exit on failure. Mutating any single entry (name or specifier) in
+either list makes it fail naming file + entry.
 """
 import re
 import sys
@@ -63,7 +60,7 @@ def _read(name):
 
 def _parse_pyproject_tomllib(text):
     data = tomllib.loads(text)
-    return list(data["project"]["dependencies"]), list(data["dependency-groups"]["soniox"])
+    return list(data["project"]["dependencies"])
 
 
 _QUOTED = re.compile(r"""["']([^"']*)["']""")
@@ -88,8 +85,8 @@ def _extract_array(text, section, key):
     """The quoted strings of the array `key = [ ... ]` inside `[section]`.
     Array-scoped (only the named array, never every string in the section) so
     `requires-python`/`name` are not mistaken for requirements, and the opening
-    `key =` is anchored at line start so `default-groups = ["soniox"]` (soniox
-    as a value, not the array key) is never read as the soniox array."""
+    `key =` is anchored at line start so a same-named token used as a value
+    elsewhere is never mistaken for the array."""
     lines = _section_body(text, section)
     keypat = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*\[")
     start = next((i for i, ln in enumerate(lines) if keypat.match(ln)), None)
@@ -107,8 +104,7 @@ def _extract_array(text, section, key):
 
 
 def _parse_pyproject_fallback(text):
-    return (_extract_array(text, "project", "dependencies"),
-            _extract_array(text, "dependency-groups", "soniox"))
+    return _extract_array(text, "project", "dependencies")
 
 
 def _parse_pyproject(text):
@@ -189,39 +185,28 @@ def _drift_report(label_a, raws_a, label_b, raws_b):
 # ======================================================================
 
 def test_project_deps_match_requirements():
-    deps, _ = _parse_pyproject(_read("pyproject.toml"))
+    deps = _parse_pyproject(_read("pyproject.toml"))
     reqs = _parse_requirements(_read("requirements.txt"))
     drift = _drift_report("pyproject [project] dependencies", deps,
                           "requirements.txt", reqs)
     assert not drift, "dependency lists drifted:\n" + "\n".join(drift)
 
 
-def test_soniox_group_matches_optional():
-    _, soniox = _parse_pyproject(_read("pyproject.toml"))
-    opt = _parse_requirements(_read("requirements-optional.txt"))
-    drift = _drift_report("pyproject [dependency-groups] soniox", soniox,
-                          "requirements-optional.txt", opt)
-    assert not drift, "optional dependency lists drifted:\n" + "\n".join(drift)
-
-
 def test_fallback_parser_matches_tomllib():
     # Reference cross-check: on 3.11+ the 3.10 fallback must extract byte-identical
     # tokens to tomllib, so the 3.10-only path is verified here on 3.11+ too. On
-    # 3.10 there is no oracle, but there the fallback IS the live parser of the two
-    # comparison cases above -- it carries the load either way, never skipped-and-idle.
+    # 3.10 there is no oracle, but there the fallback IS the live parser of the
+    # comparison case above -- it carries the load either way, never skipped-and-idle.
     if not HAVE_TOMLLIB:
         print("      (skipped: no tomllib here; the fallback parser IS the live "
-              "parser exercised by the two comparison cases on 3.10)")
+              "parser exercised by the comparison case on 3.10)")
         return
     text = _read("pyproject.toml")
-    t_deps, t_soniox = _parse_pyproject_tomllib(text)
-    f_deps, f_soniox = _parse_pyproject_fallback(text)
+    t_deps = _parse_pyproject_tomllib(text)
+    f_deps = _parse_pyproject_fallback(text)
     assert sorted(f_deps) == sorted(t_deps), (
         "fallback parser extracted different [project] dependencies than tomllib:\n"
         f"  tomllib : {sorted(t_deps)}\n  fallback: {sorted(f_deps)}")
-    assert sorted(f_soniox) == sorted(t_soniox), (
-        "fallback parser extracted different soniox group than tomllib:\n"
-        f"  tomllib : {sorted(t_soniox)}\n  fallback: {sorted(f_soniox)}")
 
 
 def test_python_floor_declared():
@@ -236,7 +221,6 @@ def test_python_floor_declared():
 
 CASES = [
     test_project_deps_match_requirements,
-    test_soniox_group_matches_optional,
     test_fallback_parser_matches_tomllib,
     test_python_floor_declared,
 ]
@@ -244,14 +228,11 @@ CASES = [
 
 def main():
     if SHOW:
-        deps, soniox = _parse_pyproject(_read("pyproject.toml"))
+        deps = _parse_pyproject(_read("pyproject.toml"))
         reqs = _parse_requirements(_read("requirements.txt"))
-        opt = _parse_requirements(_read("requirements-optional.txt"))
         print("pyproject parser:", "tomllib" if HAVE_TOMLLIB else "fallback")
         print("[project] dependencies :", sorted(_norm_set(deps)))
         print("requirements.txt       :", sorted(_norm_set(reqs)))
-        print("[soniox] group         :", sorted(_norm_set(soniox)))
-        print("requirements-optional  :", sorted(_norm_set(opt)))
         print()
 
     failures = []

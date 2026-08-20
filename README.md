@@ -21,13 +21,13 @@ Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup fol
 | API | In short | What it does | Speed | Key & cost |
 |-----|----------|--------------|-------|------------|
 | **Soniox Live** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
-| **Soniox** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~4–6 s (short) / ~10–40 s (long) | Soniox (prepaid) |
+| **Soniox** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
 | **Groq Whisper Large v3** | accurate · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
 | **Groq Whisper Turbo v3** | fast · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
 
 **The free path:** both Groq entries run on Groq's free tier (as of June 2026: per model, 20 requests/min, 2,000 requests/day, 7,200 audio-seconds/hour, 28,800 audio-seconds/day) — you can try Thoughtborne without paying anyone. Soniox has no free tier (as of July 2026): you top up a small prepaid balance and then pay as you go ([soniox.com/pricing](https://soniox.com/pricing)) — $0.12 per hour of audio for the real-time default (Soniox Live), $0.10 for async file uploads (Soniox). In practice that stays small: the maintainer dictates around 25 hours of audio a month (a six-month average), which comes to roughly $3; lighter regular use lands nearer a dollar. There is no subscription: a fraction of what subscription dictation tools charge (about $12–15 a month), and you pay only for what you actually use ([VISION.md](VISION.md)).
 
-Engines, for the curious: `stt-rt-v5` (Soniox Live) · `de_v2` + `stt-async-v5` (Soniox — short recordings run the sync v2 engine, long ones and the automatic fallback run v5 async; you don't need to care which ran) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, for the curious: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox — the polished file-upload engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Requirements
 
@@ -99,11 +99,8 @@ Without uv, the classic way still works. Important: **Python 3.10–3.13, not 3.
 py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-optional.txt
 python thoughtborne.py
 ```
-
-The optional file installs the Soniox SDK. Without it, the `soniox` slot runs entirely on the v5 engine — it works, just slower for short recordings. (On the uv path the SDK is included automatically.)
 
 ## The settings app
 
@@ -135,7 +132,7 @@ Then dictate:
 
 **Self-test:** `Ctrl+Alt+T` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
-Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v5`, `Son-v2`, `Son-v5`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If the default engine comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
+Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v5`, `Son-v5`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If the default engine comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
 
 `Ctrl+Alt+4` exits the tool.
 
@@ -164,7 +161,7 @@ Transcripts are always inserted in recording order, even when several recordings
 
 Most of what follows is also available graphically in [the settings app](#the-settings-app) — it writes the very same files described below, so you can mix the two freely.
 
-**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and both paths of the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
+**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
 
 ```
 copy personal_settings.example.json personal_settings.json

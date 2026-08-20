@@ -21,13 +21,13 @@ Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstel
 | API | Kurz | Was sie tut | Geschwindigkeit | Key & Kosten |
 |-----|------|-------------|-----------------|--------------|
 | **Soniox Live** | wortgetreu · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, nah an dem, wie du wirklich gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert); ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
-| **Soniox** | poliert · braucht länger | Schickt das Audio nach dem Stopp und liefert Text, der sich wie Geschriebenes liest — saubere Interpunktion, keine Füllwörter; für E-Mails und Texte, die an Menschen gehen. | ~4–6 s (kurz) / ~10–40 s (lang) | Soniox (Prepaid) |
+| **Soniox** | poliert · braucht länger | Schickt das Audio nach dem Stopp und liefert Text, der sich wie Geschriebenes liest — saubere Interpunktion, keine Füllwörter; für E-Mails und Texte, die an Menschen gehen. | ~5–40 s (Datei-Upload + Polling) | Soniox (Prepaid) |
 | **Groq Whisper Large v3** | genau · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
 | **Groq Whisper Turbo v3** | schnell · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
 
 **Der kostenlose Weg:** Beide Groq-Einträge laufen im Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) — damit lässt sich Thoughtborne ausprobieren, ohne irgendwen zu bezahlen. Soniox hat keinen Free Tier (Stand Juli 2026): Ein kleines Prepaid-Guthaben aufladen und dann nach Verbrauch zahlen ([soniox.com/pricing](https://soniox.com/pricing)) — 0,12 $ pro Stunde Audio beim Echtzeit-Default (Soniox Live), 0,10 $ bei asynchronen Datei-Uploads (Soniox). In der Praxis bleibt das gering: Der Maintainer diktiert rund 25 Stunden Audio im Monat (Schnitt der letzten sechs Monate), was etwa 3 $ ergibt; leichtere regelmäßige Nutzung liegt eher bei einem Dollar. Kein Abo: ein Bruchteil dessen, was Abo-Diktier-Tools kosten (etwa 12–15 $ im Monat), und man zahlt nur für das, was man tatsächlich nutzt ([VISION.md](VISION.md)).
 
-Engines, für Neugierige: `stt-rt-v5` (Soniox Live) · `de_v2` + `stt-async-v5` (Soniox — kurze Aufnahmen laufen über die synchrone v2-Engine, lange und der automatische Fallback über v5 async; welcher Pfad lief, muss einen beim Diktieren nicht kümmern) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, für Neugierige: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox — die polierte Datei-Upload-Engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Voraussetzungen
 
@@ -99,11 +99,8 @@ Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.13
 py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-optional.txt
 python thoughtborne.py
 ```
-
-Die optionale Datei installiert das Soniox-SDK. Ohne das SDK läuft der `soniox`-Slot vollständig über die v5-Engine — funktioniert, ist bei kurzen Aufnahmen nur langsamer. (Auf dem uv-Weg ist das SDK automatisch enthalten.)
 
 ## Die Einstellungs-App
 
@@ -135,7 +132,7 @@ Dann diktieren:
 
 **Selbsttest:** `Ctrl+Alt+T` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
-Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v5`, `Son-v2`, `Son-v5`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt. An eine nicht transkribierte Aufnahme erinnert das Tool nur einmal — beim nächsten Start danach; anschließend bleibt sie per `Ctrl+Alt+R` abrufbar, ohne erneut daran zu erinnern. Kommt die Standard-Engine leer zurück, ohne dass dabei etwas schiefging, enthielt die Aufnahme keine Sprache — sie bleibt in `history/` erhalten, und das Tool sagt das ehrlich, statt eine sinnlose Wiederholung anzubieten.
+Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v5`, `Son-v5`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt. An eine nicht transkribierte Aufnahme erinnert das Tool nur einmal — beim nächsten Start danach; anschließend bleibt sie per `Ctrl+Alt+R` abrufbar, ohne erneut daran zu erinnern. Kommt die Standard-Engine leer zurück, ohne dass dabei etwas schiefging, enthielt die Aufnahme keine Sprache — sie bleibt in `history/` erhalten, und das Tool sagt das ehrlich, statt eine sinnlose Wiederholung anzubieten.
 
 `Ctrl+Alt+4` beendet das Tool.
 
@@ -164,7 +161,7 @@ Transkripte werden immer in Aufnahme-Reihenfolge eingefügt, auch wenn mehrere A
 
 Das meiste davon lässt sich auch grafisch in [der Einstellungs-App](#die-einstellungs-app) erledigen — sie schreibt genau die unten beschriebenen Dateien, beides ist frei kombinierbar.
 
-**Erkennungs-Vokabular** (empfohlen): `personal_settings.example.json` als `personal_settings.json` kopieren und den `vocabulary`-Block mit eigenen Namen, Fachbegriffen und häufigen Fremdwörtern füllen — sie werden dem Sprachmodell als Kontext mitgegeben und verbessern die Erkennung spürbar. Genutzt von allen Soniox-Engines — Soniox Live und beiden Pfaden des Soniox-Upload-Slots; die Groq-APIs ignorieren es. Fehlt die Datei, läuft das Tool einfach ohne Personalisierung.
+**Erkennungs-Vokabular** (empfohlen): `personal_settings.example.json` als `personal_settings.json` kopieren und den `vocabulary`-Block mit eigenen Namen, Fachbegriffen und häufigen Fremdwörtern füllen — sie werden dem Sprachmodell als Kontext mitgegeben und verbessern die Erkennung spürbar. Genutzt von allen Soniox-Engines — Soniox Live und dem Soniox-Upload-Slot; die Groq-APIs ignorieren es. Fehlt die Datei, läuft das Tool einfach ohne Personalisierung.
 
 ```
 copy personal_settings.example.json personal_settings.json

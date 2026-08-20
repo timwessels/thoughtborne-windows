@@ -3,8 +3,7 @@
 # deliberately no [build-system]: the project is never built or installed as a
 # package (config.py resolves all paths relative to the script directory).
 #
-# Keep `dependencies` in sync with requirements.txt (pip fallback) and the
-# `soniox` group in sync with requirements-optional.txt.
+# Keep `dependencies` in sync with requirements.txt (pip fallback).
 
 [project]
 name = "thoughtborne"
@@ -40,21 +39,9 @@ dependencies = [
 Repository = "https://github.com/timwessels/thoughtborne-windows"
 Changelog = "https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md"
 
-[dependency-groups]
-# The Soniox SDK is needed only by the Soniox V2 (gRPC) transcriber; Live and
-# V4 talk to Soniox via websockets/httpx directly. Installed by default for uv
-# users (see default-groups below) so the Ctrl+Alt+L carousel and the
-# live->V2->V4 fallback chain work out of the box.
-# Pin to 1.x: Soniox rewrote the SDK in 2.x without backward compatibility.
-# SpeechClient and transcribe_file_short exist only in 1.x (last release: 1.10.1).
-soniox = [
-    "soniox>=1.10.1,<2",
-]
-
 [tool.uv]
 # Dependency management only -- never build/install the project itself.
 package = false
-default-groups = ["soniox"]
 # Thoughtborne is Windows-only (Win32 hotkeys, clipboard, SendInput). Restricting
 # resolution to Windows keeps uv.lock free of platforms we never run (e.g.
 # PyAudio has no Linux wheels) and makes an accidental `uv sync` on another OS

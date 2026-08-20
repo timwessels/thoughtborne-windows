@@ -177,7 +177,7 @@ MAX_PARALLEL_TRANSCRIPTIONS = 3
 # app (#144) can tell "user is on the default" from an explicit pick and write a
 # defaults.api override only when it differs -- exactly like DEFAULT_HOTKEYS below.
 # A personal_settings 'defaults.api' override reassigns DEFAULT_API (not this).
-BUILTIN_DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest, soniox v2 = precise)
+BUILTIN_DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest)
 DEFAULT_API = BUILTIN_DEFAULT_API
 # True once a valid personal_settings 'defaults.api' has been accepted below (#193,
 # D-008): PRESENCE decides, not difference -- a hand-written "api": "soniox-live"
@@ -238,17 +238,16 @@ def engine_has_key(api, env=None):
 # changes. Deliberately more technical than the in-tool #86 labels: the audience derives the
 # engine from a filename, no legend. The Son… / GWhisper… stems stay recognizably consistent
 # with the #86 labels (Soniox …, Groq Whisper …). The version suffix records the model
-# generation the tool REQUESTED (the pin) -- `-v2` for the legacy gRPC sync engine, `-v5`
-# for the Live and async REST engines since the #121 re-pin -- which stays truthful even if
-# Soniox silently serves a newer generation under the old name (#82); a re-pin updates the
-# token from that point on, and existing archive files keep the token they were written with.
+# generation the tool REQUESTED (the pin) -- `-v5` for the Live and async REST engines since
+# the #121 re-pin -- which stays truthful even if Soniox silently serves a newer generation
+# under the old name (#82); a re-pin updates the token from that point on, and existing
+# archive files keep the token they were written with.
 ENGINE_TOKENS = {
-    "soniox_live": "SonLive-v5",     # Soniox Live (websocket RT)
-    "soniox_v2":   "Son-v2",         # soniox slot, V2 sync (<58 s)
-    "soniox_v4":   "Son-v5",         # soniox slot, async REST (long / fallback)
-    "groq_large":  "GWhisperLar-v3", # Groq whisper-large-v3
-    "groq_turbo":  "GWhisperTur-v3", # Groq whisper-large-v3-turbo
-    "unknown":     "unknown",        # defensive completeness (engine_code fall-through)
+    "soniox_live":  "SonLive-v5",     # Soniox Live (websocket RT)
+    "soniox_async": "Son-v5",         # soniox slot, async REST
+    "groq_large":   "GWhisperLar-v3", # Groq whisper-large-v3
+    "groq_turbo":   "GWhisperTur-v3", # Groq whisper-large-v3-turbo
+    "unknown":      "unknown",        # defensive completeness (engine_code fall-through)
 }
 
 # ===== API KEYS =====
@@ -256,36 +255,10 @@ ENGINE_TOKENS = {
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 SONIOX_API_KEY = os.getenv('SONIOX_API_KEY')
 
-# ===== SONIOX API SETTINGS =====
-SONIOX_MODEL = "de_v2"  # Language model: "de_v2" for German, "en_v2" for English
-# Soniox sync API has a hard limit of 60s. The threshold must be lower than 60s
-# because audio preprocessing adds silence padding (AUDIO_SILENCE_PADDING_MS) after
-# the duration check, which can push the actual file length over the limit.
-# 58s provides a safe margin (see: Bug 2026-01-30, 59.8s recording + 1000ms padding = 60.5s → rejected).
-SHORT_AUDIO_THRESHOLD = 58
-# SpeechContext boost for the personal vocabulary phrases on the V2 sync path (#73).
-# Soniox's legacy customization docs define boost as a decode-stage bias on recognizing
-# the given phrases; valid range -50..50 (values outside are clipped server-side, no
-# error), with 15 the documented "start here" value and "increase if needed" the next
-# step, and the boost applying to each phrase as a whole. An excessively high boost may
-# hurt accuracy (unquantified by Soniox) -- the false-positive risk of a boosted term
-# landing where it wasn't spoken, exactly the "meaning-bearing wrong word" the quality
-# bar guards against. 15.0 is now a measured optimum, not a copied guess (#85): a sweep
-# of the known V2 failure recording over boosts 0/15/20/25/30/40/50 rescued no hard term
-# at any value (WezTerm, tmux-Session, Kannengießer, van Wynsberghe stay garbled -- the
-# de_v2 base model simply lacks the hypotheses, #81), everything the context can rescue
-# (Cygnus, QISPOS) already lands at 15, boosts 20..30 gained nothing over 15 (same
-# terms rescued, no false positives, only immaterial text differences), and boosts
-# >= 40 began degrading other recordings -- doubling a spoken filler at 40, inserting
-# unspoken vocabulary at 50. So 15 is the safe ceiling. The v5 engines have no equivalent
-# knob -- they let the server weight the context dict -- so this tunes the legacy gRPC
-# (de_v2) path only. Sweep evidence lives in _research/2026-07_soniox-v2-boost-sweep/.
-SONIOX_V2_CONTEXT_BOOST = 15.0
-
 # ===== SONIOX ASYNC REST API SETTINGS =====
-# Async REST engine: used by the 'soniox' slot for long recordings and as
-# automatic fallback when V2 sync fails (#31). File upload → transcription →
-# polling → result.
+# Async REST engine: used by the 'soniox' slot for all recordings and as the
+# empty-live fallback (#31, #212). File upload → transcription → polling →
+# result.
 SONIOX_ASYNC_API_BASE = "https://api.soniox.com"
 SONIOX_ASYNC_MODEL = "stt-async-v5"
 SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds between polling attempts

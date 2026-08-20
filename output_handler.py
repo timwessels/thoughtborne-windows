@@ -337,7 +337,7 @@ class TranscriptionTask:
     no_speech: bool = False  # Empty on every engine -> honest "no speech" verdict, not a failure (#133)
     error_reason: Optional[str] = None  # Coarse failure category on a FAILED task (#138); rendered by #159
     error_provider: Optional[str] = None  # Short engine family that produced the failure (#159): "Soniox"/"Groq"
-    error_inconclusive: bool = False  # Soniox-Live V2->V4 lane ran empty with >=1 errored stage, minus a conclusive auth reject -> "came back empty, worth a retry" (#159)
+    error_inconclusive: bool = False  # Soniox-Live async file lane ran empty with >=1 errored stage, minus a conclusive auth reject -> "came back empty, worth a retry" (#159)
 
 
 @dataclass

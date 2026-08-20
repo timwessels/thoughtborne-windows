@@ -554,7 +554,7 @@ def _failed_top(tag, rest, ansi, tag_codes=(BOLD, RED)):
 # #159: FAILED reason -> (what happened, the one realistic next step). {P} = the
 # short provider token ("Soniox"/"Groq"), never the long display name (width).
 # CYAN, never ACCENT (masthead-exclusive). The "inconclusive" row is the Soniox
-# Live V2->V4 file lane ending empty with >=1 errored stage -- shown regardless of
+# Live → async file lane ending empty with >=1 errored stage -- shown regardless of
 # the reason category. reason=None (uncategorized failure) omits the block.
 _REASON_LINES = {
     "no-connection": ("Couldn't reach the {P} server", "Is the Wi-Fi down again?"),

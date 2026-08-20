@@ -3,12 +3,13 @@ Transcriber Module
 
 This module handles speech-to-text transcription using multiple APIs.
 It provides a clean interface for transcribing audio files using
-Groq (Whisper Large V3 / Large V3 Turbo) and Soniox (V2 sync, V4 async, Live streaming).
+Groq (Whisper Large V3 / Large V3 Turbo) and Soniox (async upload, Live streaming).
 
 Classes:
     AbstractTranscriber: Base class for all transcriber implementations
     GroqTranscriber: Handles transcription using Groq API
-    SonioxTranscriber: Handles transcription using Soniox API
+    SonioxAsyncTranscriber: Handles transcription using the Soniox async REST API
+    SonioxLiveTranscriber: Handles live transcription using the Soniox WebSocket RT API
 """
 
 import os
@@ -26,8 +27,7 @@ from groq import Groq, AuthenticationError
 
 from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
-    GROQ_API_KEY, SONIOX_API_KEY, SONIOX_MODEL, API_DISPLAY, ENGINE_TOKENS,
-    SHORT_AUDIO_THRESHOLD, SONIOX_V2_CONTEXT_BOOST,
+    GROQ_API_KEY, SONIOX_API_KEY, API_DISPLAY, ENGINE_TOKENS,
     SONIOX_ASYNC_API_BASE, SONIOX_ASYNC_MODEL, SONIOX_ASYNC_POLL_INTERVAL,
     SONIOX_ASYNC_MAX_POLL_ATTEMPTS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
@@ -52,19 +52,6 @@ class MissingAPIKeyError(ValueError):
         super().__init__(f"{env_var} is required for {transcriber_label}")
 
 
-class _EngineTag:
-    """Mutable one-shot holder so SonioxTranscriber.transcribe can report which
-    engine (V2 sync vs. V4 async) actually produced the text (#62), without
-    changing the ABC's `transcribe() -> str` contract. The worker allocates one
-    per call and reads .code afterwards, so it is inherently thread-safe across
-    the parallel transcriptions -- unlike a mutable attribute on the shared
-    transcriber singleton."""
-    __slots__ = ("code",)
-
-    def __init__(self):
-        self.code = None
-
-
 class _ErrorTag:
     """Mutable one-shot holder so an engine's transcribe can report that the call
     failed with a transport/API error rather than completing clean-but-empty
@@ -73,10 +60,9 @@ class _ErrorTag:
     told apart from an outage on every slot -- what generalizes the honest
     no-speech verdict beyond Soniox Live.
 
-    Same shape and thread-safety rationale as _EngineTag above: the caller
-    allocates one per call and reads .errored / .reason afterwards, so it is safe
-    across the parallel transcriptions -- unlike a mutable attribute on the
-    shared transcriber singleton.
+    The caller allocates one per call and reads .errored / .reason afterwards, so
+    it is inherently thread-safe across the parallel transcriptions -- unlike a
+    mutable attribute on the shared transcriber singleton.
 
     reason is a coarse category for #159's panel, meaningful only when errored:
     "auth" | "no-connection" | "rate-limited" | "service-error" | "no-credit"
@@ -91,29 +77,15 @@ class _ErrorTag:
 def _one_line_error(error: BaseException) -> str:
     """Collapse an exception to one console-safe line (#124).
 
-    Some exceptions render str() as a multi-line block -- notably gRPC's
-    _InactiveRpcError from the Soniox V2 sync path, whose str() spans status /
-    details / debug_error_string across ~8 lines. Interpolated straight into a
-    console log message, that reintroduces the multi-line console flood #117
-    removed for tracebacks, pushing the FAILED panel off screen. Callers keep
-    exc_info=True, so thoughtborne.log still records the full exception; this is
-    only what the receding console one-liner shows.
+    Some exceptions render str() as a multi-line block -- e.g. an httpx error
+    whose str() spans several lines. Interpolated straight into a console log
+    message, that reintroduces the multi-line console flood #117 removed for
+    tracebacks, pushing the FAILED panel off screen. Callers keep exc_info=True,
+    so thoughtborne.log still records the full exception; this is only what the
+    receding console one-liner shows.
 
-    A gRPC RpcError exposes code()/details() (duck-typed so the optional grpc
-    import is never forced here): we surface the status code plus the first line
-    of its details. Everything else collapses to the exception class name plus
-    the first non-empty line of str().
+    Collapses to the exception class name plus the first non-empty line of str().
     """
-    code = getattr(error, "code", None)
-    details = getattr(error, "details", None)
-    if callable(code) and callable(details):
-        try:
-            status = code().name
-            detail_lines = (details() or "").strip().splitlines()
-            first = detail_lines[0].strip() if detail_lines else ""
-            return f"{status}: {first}" if first else status
-        except Exception:
-            pass
     text = str(error).strip()
     first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
     return f"{type(error).__name__}: {first}" if first else type(error).__name__
@@ -124,32 +96,14 @@ def _one_line_error(error: BaseException) -> str:
 # (auth / no-connection / rate-limited / service-error / no-credit). Unknown ->
 # service-error. no-credit is an HTTP 402 -- an unfunded account (#179).
 
-# Class names, not isinstance, so neither grpc nor httpx is force-imported here
-# and a partially-stubbed httpx (as in the tests) is never attribute-probed. A
-# builtin ConnectionError/TimeoutError from a raw socket layer maps too.
+# Class names, not isinstance, so httpx is not force-imported here and a
+# partially-stubbed httpx (as in the tests) is never attribute-probed. A builtin
+# ConnectionError/TimeoutError from a raw socket layer maps too.
 _CONNECTION_ERROR_NAMES = frozenset({
     "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
     "PoolTimeout", "TimeoutException", "RemoteProtocolError",
     "ConnectionError", "TimeoutError",
 })
-
-
-def _grpc_error_reason(e) -> str:
-    """gRPC RpcError -> coarse reason (#138). Duck-typed so the optional grpc
-    import is never forced; a non-gRPC exception falls through to service-error."""
-    code = getattr(e, "code", None)
-    name = ""
-    if callable(code):
-        try:
-            name = code().name
-        except Exception:
-            name = ""
-    return {
-        "UNAUTHENTICATED": "auth",
-        "UNAVAILABLE": "no-connection",
-        "DEADLINE_EXCEEDED": "no-connection",
-        "RESOURCE_EXHAUSTED": "rate-limited",
-    }.get(name, "service-error")
 
 
 def _groq_error_reason(e) -> str:
@@ -176,7 +130,7 @@ def _groq_error_reason(e) -> str:
 
 
 def _http_status_reason(status_code) -> str:
-    """Soniox V4 httpx status code -> coarse reason (#138)."""
+    """Soniox async httpx status code -> coarse reason (#138)."""
     if status_code == 401:
         return "auth"
     if status_code == 402:
@@ -187,7 +141,7 @@ def _http_status_reason(status_code) -> str:
 
 
 def _httpx_exc_reason(e) -> str:
-    """A generic exception raised in the Soniox V4 REST path -> coarse reason
+    """A generic exception raised in the Soniox async REST path -> coarse reason
     (#138). A connect/timeout error (httpx's or the builtin) is no-connection;
     everything else is service-error."""
     return "no-connection" if type(e).__name__ in _CONNECTION_ERROR_NAMES else "service-error"
@@ -326,7 +280,7 @@ class AbstractTranscriber(ABC):
         """Remove spoken hesitation fillers ("ähm"/"äh") that some engines
         transcribe verbatim (#31; generalized to every engine in #97).
 
-        Additions-only counterpart to the V2/Groq end-artifact filters (which
+        Additions-only counterpart to the Groq end-artifact filters (which
         stay untouched). Origin: the #31 quality gate
         (_research/2026-06_soniox-v2async-vs-v4-quality/) found 172 inline
         fillers on the Soniox V4 async path, exclusively the forms "ähm"/"äh".
@@ -607,347 +561,26 @@ class GroqTranscriber(AbstractTranscriber):
             return None
 
 
-def _soniox_engine_choice_line(v2_available: bool, duration_seconds: float) -> str:
-    """One terse, console-safe line naming the Soniox file engine this slot will
-    run for a duration_seconds recording, plus the reason (#125).
-
-    Pure and side-effect-free so it is unit-testable without an API key or a
-    constructed transcriber (same rationale as _terms_to_speech_context). A
-    read-only mirror of the transcribe() decision (v2_available and
-    duration_seconds < SHORT_AUDIO_THRESHOLD); the caller emits it on the dim
-    ticker at decision time so the otherwise-silent V2-sync-vs-async pick becomes
-    visible with its "why". The shown second count is truncated (int()), never
-    rounded, so a sub-threshold duration can never read a contradictory
-    "58 s -> under 58 s".
-    """
-    secs = int(duration_seconds)  # truncate toward zero -- see docstring
-    if not v2_available:
-        return f"audio {secs} s -> SDK unavailable -> Soniox async"
-    if duration_seconds < SHORT_AUDIO_THRESHOLD:
-        return f"audio {secs} s -> under {SHORT_AUDIO_THRESHOLD} s -> Soniox V2 (sync)"
-    return f"audio {secs} s -> {SHORT_AUDIO_THRESHOLD} s or longer -> Soniox async"
-
-
-class SonioxTranscriber(AbstractTranscriber):
-    """Soniox file-upload slot: V2 sync for short recordings with automatic
-    V4 async REST fallback; V4 async REST for long recordings (#31)."""
-
-    def __init__(self):
-        """Initialize the transcriber with API key"""
-        super().__init__()
-        self.api_key = self._get_api_key()
-        # Module-internal contract: thoughtborne.py's _try_fallback reads this
-        # flag to skip the empty-live cascade's V2 stage when the SDK is missing.
-        self._v2_available = self._check_soniox_availability()
-        # Eager init is safe: the V4 constructor only builds a header dict,
-        # and _get_api_key() above already raised if the key is missing.
-        self._v4 = SonioxV4Transcriber()
-        # V2 SpeechContext is constant per session -> build it once here and
-        # reuse it on every _transcribe_v2_sync call (#73). None means "send no
-        # context" (no SDK, no personal_settings.json, or no usable terms), in
-        # which case V2 sync stays byte-identical to pre-#73. Never fatal: a
-        # broken vocabulary must not break slot construction or transcription.
-        self._v2_speech_context = None
-        if self._v2_available:
-            try:
-                self._v2_speech_context = self._terms_to_speech_context(
-                    (SONIOX_CONTEXT or {}).get("terms")
-                )
-            except Exception as e:
-                logger.warning(f"Soniox V2 speech context disabled (build failed): {e}")
-            if self._v2_speech_context is not None:
-                n = len(self._v2_speech_context.entries[0].phrases)
-                logger.info(f"Soniox V2 sync context enabled: {n} terms", extra=FILE_ONLY)
-
-    def _get_api_key(self) -> str:
-        """Get API key from environment"""
-        if not SONIOX_API_KEY:
-            logger.debug("SONIOX_API_KEY not found in environment variables!")
-            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox transcriber")
-        
-        logger.info("Using Soniox API key from environment", extra=FILE_ONLY)
-        return SONIOX_API_KEY
-    
-    def _check_soniox_availability(self) -> bool:
-        """Probe for the legacy Soniox 1.x SDK (V2 sync path).
-
-        A missing SDK is no longer fatal (#31): the slot then serves every
-        recording via the V4 async REST engine -- slower start-to-text,
-        but functional.
-        """
-        try:
-            from soniox.speech_service import SpeechClient
-            from soniox.transcribe_file import transcribe_file_short
-            logger.info("Soniox library available", extra=FILE_ONLY)
-            return True
-        except ImportError:
-            logger.warning(
-                "Soniox SDK not installed -- 'soniox' uses V4 async REST for "
-                "all recordings (install the 'soniox' package for the fast "
-                "sync path)"
-            )
-            return False
-    
-    def get_name(self) -> str:
-        """Get the name of this transcriber"""
-        return API_DISPLAY["soniox"]["label"]
-
-    def engine_choice_line(self, duration_seconds: float) -> str:
-        """Ticker line naming the file engine transcribe() will pick for this
-        duration and why (#125). Read-only; changes nothing, decides nothing."""
-        return _soniox_engine_choice_line(self._v2_available, duration_seconds)
-
-    def _clean_transcript_hallucinations(self, transcript: str) -> str:
-        """
-        Remove known hallucination patterns from Soniox transcriptions
-
-        The Soniox model (especially de_v2) often adds incomplete words/phrases
-        at the end of transcriptions that weren't spoken.
-
-        Common patterns (based on analysis of 5000+ transcripts):
-        - " und" (101 occurrences) - most common!
-        - " Das" (23 occurrences)
-        - " Und" (original pattern)
-        - " In", " Also", " Für" (rare but confirmed)
-        """
-        if not transcript:
-            return transcript
-
-        original = transcript
-
-        # Hallucination patterns at the end (with leading space to avoid false positives)
-        # Ordered by frequency
-        hallucination_patterns = [
-            " und",   # Most common (lowercase!)
-            " Und",   # Original pattern (uppercase)
-            " Das",   # Second most common
-            " In",
-            " Also",
-            " Für",
-            " Oder",
-        ]
-
-        # Check each pattern and remove if found at end
-        for pattern in hallucination_patterns:
-            if transcript.endswith(pattern):
-                transcript = transcript[:-len(pattern)]
-                logger.debug(f"Removed hallucination: '{pattern}' at end")
-                break  # Only remove one pattern per transcript
-
-        # Log if something was removed
-        if transcript != original:
-            logger.debug(f"Original ending: ...'{original[-30:]}'")
-            logger.debug(f"Cleaned to: ...'{transcript[-30:]}'")
-
-        return transcript
-    
-    @staticmethod
-    def _terms_to_speech_context(terms):
-        """Translate vocabulary phrase strings into a V2 SpeechContext, or None (#73).
-
-        Pure and side-effect-free so it can be unit-tested without an API key or a
-        constructed transcriber. Lazy-imports soniox so nothing soniox-typed sits on
-        the module-import path -- a missing SDK must stay non-fatal (#31). The legacy
-        gRPC SDK requires a genuine SpeechContext protobuf (transcribe_file_short
-        asserts isinstance), unlike the v4/Live REST paths that pass the raw
-        SONIOX_CONTEXT dict straight through. Non-string / empty entries are dropped:
-        the protobuf phrases field is a repeated string and would raise TypeError on a
-        non-str element; an empty or all-invalid list yields None (send no context).
-        """
-        phrases = [t for t in (terms or []) if isinstance(t, str) and t]
-        if not phrases:
-            return None
-        from soniox.speech_service import SpeechContext, SpeechContextEntry
-        return SpeechContext(
-            entries=[SpeechContextEntry(phrases=phrases, boost=SONIOX_V2_CONTEXT_BOOST)]
-        )
-
-    def _transcribe_v2_sync(self, audio_file_path: str, duration_seconds: float) -> str:
-        """V2 sync attempt (gRPC, transcribe_file_short). Raises on any failure.
-
-        Module-internal contract: also called directly by the empty-live
-        fallback cascade in thoughtborne.py, which needs the raw V2 result
-        without the slot's V4 fallback wrapped around it (#31).
-        """
-        if not self._v2_available:
-            raise RuntimeError("Soniox SDK not installed")
-
-        from soniox.speech_service import SpeechClient
-        from soniox.transcribe_file import transcribe_file_short
-
-        logger.info("Using synchronous Soniox transcription", extra=FILE_ONLY)
-
-        # Create new client for each transcription to avoid connection issues
-        logger.debug("Creating new SpeechClient for synchronous transcription")
-        client = SpeechClient()
-
-        try:
-            start_time = time.time()
-
-            result = transcribe_file_short(
-                audio_file_path,
-                client,
-                model=SONIOX_MODEL,
-                speech_context=self._v2_speech_context,  # None -> byte-identical to pre-#73
-            )
-
-            elapsed = time.time() - start_time
-            logger.info(f"Soniox synchronous transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
-
-            text = "".join(word.text for word in result.words)
-            logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
-
-            # Clean hallucinations
-            text = self._clean_transcript_hallucinations(text)
-            # Clean fillers
-            text = self._remove_spoken_fillers(text)
-
-            return text.strip()
-
-        finally:
-            # Close client
-            try:
-                client.close()
-                logger.debug("Soniox synchronous client closed")
-            except Exception as e:
-                logger.warning(f"Error closing Soniox sync client: {e}")
-
-    @staticmethod
-    def _is_auth_error(e: Exception) -> bool:
-        """True if e is a gRPC UNAUTHENTICATED error from the V2 SDK."""
-        try:
-            import grpc
-        except ImportError:
-            return False
-        return isinstance(e, grpc.RpcError) and e.code() == grpc.StatusCode.UNAUTHENTICATED
-
-    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
-                   engine_sink: Optional['_EngineTag'] = None,
-                   error_sink: Optional['_ErrorTag'] = None) -> str:
-        """Transcribe an audio file via the hybrid V2-sync/V4-async slot (#31).
-
-        Recordings under SHORT_AUDIO_THRESHOLD run V2 sync exactly as before
-        and fall back to V4 async REST when V2 raises (except on auth errors).
-        Long recordings, and every recording when the V2 SDK is missing, go
-        straight to V4 async REST.
-
-        Args:
-            audio_file_path: Path to the audio file
-            duration_seconds: Duration of the audio in seconds
-            engine_sink: Optional _EngineTag the caller reads afterwards to learn
-                which engine won this call (#62) -- ENGINE_TOKENS["soniox_v2"] on
-                the V2 sync path, ENGINE_TOKENS["soniox_v4"] whenever V4 async
-                produced the text (long recording, missing SDK, or V2-raised
-                fallback). Only set on a returned result the
-                caller keeps; the caller ignores it on an empty transcript.
-            error_sink: Optional _ErrorTag the caller reads afterwards to tell a
-                clean-but-empty slot result from a transport/API outage (#138). A
-                clean V2 empty leaves it untouched (genuine silence); V2 auth sets
-                it; whenever the internal V4 stage runs it owns the sink, so a V4
-                outage on the slot surfaces here instead of masquerading as clean.
-
-        Returns:
-            Transcribed text
-        """
-        logger.info(f"Starting Soniox transcription: {audio_file_path} "
-                    f"(Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
-
-        if self._v2_available and duration_seconds < SHORT_AUDIO_THRESHOLD:
-            try:
-                # An empty V2 result without an exception (usually silence) is
-                # returned as-is -- no V4 hop on the slot path. The empty-live
-                # cascade in thoughtborne.py keeps its own empty -> V4
-                # fall-through one level up (#31).
-                result = self._transcribe_v2_sync(audio_file_path, duration_seconds)
-                if engine_sink is not None:
-                    engine_sink.code = ENGINE_TOKENS["soniox_v2"]
-                return result
-            except Exception as e:
-                if self._is_auth_error(e):
-                    # V4 uses the same SONIOX_API_KEY, so a fallback would just
-                    # produce a second 401 and a duplicate [AUTH] line (#32).
-                    self._report_auth_failure("SONIOX_API_KEY")
-                    logger.debug(f"Error during Soniox transcription: {e}", exc_info=True)
-                    if error_sink is not None:
-                        error_sink.errored, error_sink.reason = True, "auth"
-                    return ""
-                try:
-                    reason = e.code().name  # grpc.RpcError carries the status
-                except Exception:
-                    reason = type(e).__name__
-                logger.warning(
-                    f"[FALLBACK] Soniox V2 sync failed ({reason}) -- "
-                    f"retrying with {self._v4.get_name()} (slower)"
-                )
-                # DEBUG keeps the trace file-only so the [FALLBACK] line stands
-                # alone on the console; V4's own handlers log ERROR if the
-                # fallback fails too.
-                logger.debug(f"V2 sync failure detail: {e}", exc_info=True)
-                if engine_sink is not None:
-                    engine_sink.code = ENGINE_TOKENS["soniox_v4"]
-                # The V2 failure's own category is deliberately not stamped here:
-                # if V4 recovers clean-empty it was genuine silence, and if V4
-                # errors its sink wins (#138).
-                return self._v4.transcribe(audio_file_path, duration_seconds, error_sink=error_sink)
-
-        if duration_seconds >= SHORT_AUDIO_THRESHOLD:
-            logger.info(f"Long recording ({duration_seconds:.1f}s >= "
-                        f"{SHORT_AUDIO_THRESHOLD}s) -- using Soniox V4 (async REST)", extra=FILE_ONLY)
-        if engine_sink is not None:
-            engine_sink.code = ENGINE_TOKENS["soniox_v4"]
-        return self._v4.transcribe(audio_file_path, duration_seconds, error_sink=error_sink)
-
-    def test_transcription(self, test_file_path: str) -> Optional[str]:
-        """
-        Test transcription with a specific file
-        
-        Args:
-            test_file_path: Path to test audio file
-            
-        Returns:
-            Transcribed text or None if failed
-        """
-        if not os.path.exists(test_file_path):
-            logger.error(f"Test file not found: {test_file_path}")
-            return None
-        
-        try:
-            # Get audio duration
-            import soundfile as sf
-            data, samplerate = sf.read(test_file_path)
-            duration = len(data) / samplerate
-            
-            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
-            
-            # Transcribe
-            text = self.transcribe(test_file_path, duration)
-            
-            if text:
-                logger.info(f"Soniox test transcription successful: {len(text)} chars", extra=FILE_ONLY)
-                return text
-            else:
-                logger.warning("Soniox test transcription returned empty text")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Soniox test transcription failed: {e}", exc_info=True)
-            return None
-
-
-class SonioxV4Transcriber(AbstractTranscriber):
+class SonioxAsyncTranscriber(AbstractTranscriber):
     """Handles transcription using Soniox Async REST API.
 
     Workflow: Upload file → Create transcription → Poll status → Get result → Cleanup.
     Uses httpx for HTTP requests. No Soniox SDK needed.
     Context feature enabled for better recognition of domain terms and proper nouns.
+
+    Serves two callers from one class, parameterized by display_name -- exactly
+    like GroqTranscriber: the selected 'soniox' slot passes the "Soniox" label so
+    its console/footer wording is unchanged, while the empty-live fallback keeps
+    the more specific "Soniox async" in its own file logs (#212).
     """
 
-    def __init__(self):
+    def __init__(self, display_name: str = "Soniox async"):
         """Initialize the transcriber with API key"""
         super().__init__()
         if not SONIOX_API_KEY:
-            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox v4 transcriber")
+            raise MissingAPIKeyError("SONIOX_API_KEY", "Soniox async transcriber")
         self.api_key = SONIOX_API_KEY
+        self.display_name = display_name
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
         logger.info(f"Soniox async transcriber initialized (model: {SONIOX_ASYNC_MODEL})", extra=FILE_ONLY)
         if SONIOX_CONTEXT:
@@ -955,7 +588,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
 
     def get_name(self) -> str:
         """Get the name of this transcriber"""
-        return "Soniox async"
+        return self.display_name
 
     def transcribe(self, audio_file_path: str, duration_seconds: float, *,
                    error_sink: Optional['_ErrorTag'] = None) -> str:
@@ -976,7 +609,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
         """
         import httpx
 
-        logger.info(f"Starting Soniox v4 transcription: {audio_file_path} "
+        logger.info(f"Starting Soniox async transcription: {audio_file_path} "
                     f"(Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
 
         file_id = None
@@ -1061,7 +694,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             text = resp.json().get("text", "").strip()
 
             elapsed = time.time() - start_time
-            logger.info(f"Soniox v4 transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
+            logger.info(f"Soniox async transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
             logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
 
             # Clean fillers
@@ -1074,7 +707,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
                 self._report_auth_failure("SONIOX_API_KEY")
                 # DEBUG keeps the trace file-only so the [AUTH] line stands
                 # alone on the console (#32)
-                logger.debug(f"Error during Soniox v4 transcription: {e}", exc_info=True)
+                logger.debug(f"Error during Soniox async transcription: {e}", exc_info=True)
             else:
                 logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
             if error_sink is not None:
@@ -1124,7 +757,7 @@ class SonioxV4Transcriber(AbstractTranscriber):
             text = self.transcribe(test_file_path, duration)
 
             if text:
-                logger.info(f"Soniox v4 test transcription successful: {len(text)} chars", extra=FILE_ONLY)
+                logger.info(f"Soniox async test transcription successful: {len(text)} chars", extra=FILE_ONLY)
                 return text
             else:
                 logger.warning(f"{self.get_name()} test transcription returned empty text")
@@ -1551,7 +1184,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             error_sink: Optional _ErrorTag set on a session error (auth on a 401
                 close, else service-error) for ABC uniformity and #138. In the
                 current worker flow an empty live transcript always runs the
-                internal V2->V4 file lane, whose aggregate signal supersedes this
+                internal async file lane, whose aggregate signal supersedes this
                 sink -- so it is honest bookkeeping, not what feeds the verdict.
 
         Returns:
@@ -1766,20 +1399,17 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 def engine_code(transcriber: AbstractTranscriber) -> str:
     """Stable filename token for the engine a transcriber represents (#62).
 
-    Total by design: called on a carousel-slot transcriber, where only
-    'soniox-live', 'groq' and 'groq-large' reach here (the hybrid 'soniox' slot
-    is tagged per-call via engine_sink instead, since its engine is only known
-    at runtime). The remaining branches are defensive completeness.
+    Total by design: every carousel slot now maps straight from its type -- the
+    'soniox' slot is a SonioxAsyncTranscriber, so its engine is statically known
+    like every other slot's. The final branch is defensive completeness.
     """
     if isinstance(transcriber, SonioxLiveTranscriber):
         return ENGINE_TOKENS["soniox_live"]
     if isinstance(transcriber, GroqTranscriber):
         return (ENGINE_TOKENS["groq_large"] if transcriber.model == GROQ_LARGE_MODEL
                 else ENGINE_TOKENS["groq_turbo"])
-    if isinstance(transcriber, SonioxV4Transcriber):
-        return ENGINE_TOKENS["soniox_v4"]
-    if isinstance(transcriber, SonioxTranscriber):
-        return ENGINE_TOKENS["soniox_v2"]
+    if isinstance(transcriber, SonioxAsyncTranscriber):
+        return ENGINE_TOKENS["soniox_async"]
     return ENGINE_TOKENS["unknown"]
 
 
@@ -1801,7 +1431,10 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     elif api_name == "groq-large":
         return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name=API_DISPLAY["groq-large"]["label"])
     elif api_name == "soniox":
-        return SonioxTranscriber()
+        # The selected slot passes the "Soniox" label so its console/footer
+        # wording is byte-identical to the old hybrid slot; the same class also
+        # serves the empty-live fallback under its own "Soniox async" name (#212).
+        return SonioxAsyncTranscriber(display_name=API_DISPLAY["soniox"]["label"])
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()
     else:
