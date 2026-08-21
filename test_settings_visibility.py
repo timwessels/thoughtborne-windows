@@ -39,6 +39,13 @@ a regression check against the REAL app that patches tkinter's geometry methods 
       wrapping stays deferred and coalesced -- which is what a future edit would break to
       bring the stall back. A dead-guard check confirms a genuine resize still re-wraps.
 
+And a second display-gated regression, `test_maximize_restore_with_display`, drives a
+maximize -> restore width cycle (800 -> 3400 -> 800) on both the Overview and Provider
+tabs and asserts the #216 content-vanish fix: after the restore the active tab's body
+stays mapped, origin-anchored (scrollregion x1=0) and inside the viewport, rather than
+parked off-view and unmapped. It fails on the unfixed code with the exact frozen-state
+signature -- a stale, maximized-era scrollregion and a view clamped off the content.
+
     python3 test_settings_visibility.py          # verify, exit non-zero on any violation
     python3 test_settings_visibility.py --show   # also print sample visible: lines
 """
@@ -272,6 +279,123 @@ def test_storm_guards_with_display():
             pass
 
 
+def test_maximize_restore_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case has
+    # no tkinter or no display and skips cleanly. Builds the REAL settings app and
+    # reproduces the #216 freeze: a maximize -> restore geometry cycle on a WIDE screen
+    # used to leave the active tab's content permanently blank. The scrollregion was fed
+    # ONLY from the body's <Configure> echo, and the restore path silences that echo by
+    # unmapping the off-view body (an unmapped item is never physically moved, so it fires
+    # no <Configure>), freezing a stale, maximized-era region and a parked view. The fix
+    # anchors the scrollregion at the canvas origin (x1=0) and refreshes it synchronously
+    # in the canvas-resize handler, so the body stays mapped and centred. Both tab 0
+    # (Overview) and tab 1 (Provider) were candidates; the fix is tab-agnostic, so both
+    # are exercised. No method patching is needed -- the real geometry cascade runs.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped maximize-restore check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped maximize-restore check: no display)")
+        return
+
+    try:
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped maximize-restore check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    def settle():
+        # Drain the multi-round geometry cascade (canvas -> body -> scrollregion ->
+        # auto-hide -> canvas). A single update() is not enough across a big geometry step.
+        for _ in range(6):
+            root.update_idletasks()
+            root.update()
+
+    def window_item(c):
+        # The canvas carries exactly one embedded window (the body frame); return
+        # (item_id, body_widget) or (None, None).
+        for item in c.find_all():
+            if c.type(item) == "window":
+                return item, root.nametowidget(c.itemcget(item, "window"))
+        return None, None
+
+    _showerror = ts.messagebox.showerror
+    try:
+        # __init__ can pop a MODAL showerror on an unreadable personal_settings.json; no
+        # one dismisses it headless, so the test would hang. Neutralize it for the build.
+        ts.messagebox.showerror = lambda *a, **k: None
+        root.geometry("800x860")
+        app = ts.SettingsApp(root, first_run=False)
+        settle()
+
+        for tab_idx in (0, 1):
+            app.notebook.select(tab_idx)
+            settle()
+            # Maximize stand-in: a window far wider than the 800px restore, past the #216
+            # threshold (the freeze needs the stale region and the restored viewport
+            # horizontally disjoint after clamping -- ~2360px for an 800px window).
+            root.geometry("3400x1500")
+            settle()
+            big_w = root.winfo_width()
+            if big_w < 2400:
+                # A WM-having dev box may clamp the geometry to the screen; bare Xvfb does
+                # not. Without the wide step the freeze cannot form, so there is nothing to
+                # assert -- skip cleanly rather than pass vacuously.
+                print(f"  (skipped maximize-restore check: window reached only {big_w}px "
+                      "< 2400px on the wide step; the freeze provably needs the width step)")
+                return
+            root.geometry("800x860")
+            settle()
+
+            c = app._tab_canvases[tab_idx]
+            item, body = window_item(c)
+            check(item is not None and body is not None,
+                  f"tab {tab_idx}: no embedded window item found on the active canvas")
+            if item is None:
+                continue
+            coords_x = int(c.coords(item)[0])
+            item_w = int(c.itemcget(item, "width"))
+            bbox = c.bbox("all")
+            sr = c.cget("scrollregion")
+            sr_parts = [int(float(v)) for v in str(sr).split()] if sr else []
+
+            # The vanish itself: after restore the body must be MAPPED (the frozen state
+            # left it unmapped and fully off-view).
+            check(body.winfo_ismapped(),
+                  f"tab {tab_idx}: body is NOT mapped after maximize->restore -- the #216 "
+                  "content-vanish freeze (scrollregion never refreshed, body parked "
+                  "off-view and unmapped)")
+            # Physical x == recorded item x => the view origin is 0 => correct centring. In
+            # the frozen state these diverge (measured ~1340 physical vs 33 recorded).
+            check(body.winfo_x() == coords_x,
+                  f"tab {tab_idx}: body physical x ({body.winfo_x()}) != recorded item x "
+                  f"({coords_x}) -- the view is parked off the content origin (#216)")
+            # The normalized scrollregion contract: x1 anchored at 0, y2 == bbox height.
+            check(len(sr_parts) == 4 and sr_parts[0] == 0,
+                  f"tab {tab_idx}: scrollregion x1 must be 0, got {sr!r}")
+            check(bool(bbox) and len(sr_parts) == 4 and sr_parts[3] == bbox[3],
+                  f"tab {tab_idx}: scrollregion y2 must equal bbox[3] "
+                  f"({bbox[3] if bbox else None}), got scrollregion {sr!r}")
+            # The body sits inside the viewport (its right edge within the canvas width).
+            check(coords_x + item_w <= c.winfo_width(),
+                  f"tab {tab_idx}: body right edge ({coords_x + item_w}) exceeds canvas "
+                  f"width ({c.winfo_width()}) -- content pushed out of the viewport (#216)")
+    finally:
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _show():
     print(sv.format_visible_line(
         "2026-08-16 12:00:00", 0.05, 0.42, 1, "Y", "800x860+100+50", "settings"), end="")
@@ -286,6 +410,7 @@ def main():
     test_format_visible_line_failopen()
     test_format_visible_line_partial()
     test_storm_guards_with_display()
+    test_maximize_restore_with_display()
 
     if SHOW:
         _show()
@@ -297,7 +422,8 @@ def main():
         return 1
     print("OK: wrap_length formula, scrollbar auto-hide decision, the visible: line "
           "formatter (full / fail-open / partial), and (with a display) the auto-hide "
-          "grid idempotency + wrap-deferral invariant all pass")
+          "grid idempotency, wrap-deferral invariant, and the #216 maximize->restore "
+          "content-vanish guard all pass")
     return 0
 
 

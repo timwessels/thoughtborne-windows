@@ -641,13 +641,29 @@ class SettingsApp:
             vbar.set(lo, hi)
         canvas.configure(yscrollcommand=_autohide)
 
-        def _on_body_config(event, c=canvas):
+        def _update_region(c=canvas):
+            # Recompute the scrollregion from the body bbox, but x-anchored at the
+            # canvas origin (x1=0) rather than at the centred body's offset. A region
+            # starting at that offset let Tk's confine clamp park the view right of the
+            # content after a maximize -> restore on a wide screen; the body -- fully
+            # off-view -- was then unmapped by the canvas, and an unmapped item is never
+            # physically moved, so its <Configure> echo (the only scrollregion trigger)
+            # never came: a permanent blank tab (#216). With x1=0 an origin of 0 is legal
+            # at every size, so the view can never be parked off the body. The y-span is
+            # the plain bbox height (body y is always 0), so the #180 scrolling/auto-hide
+            # sees exactly the values it always did. Guard: an empty body returns None;
+            # re-set only on a real change, so a settled body stops feeding the cascade
+            # (#203).
             bbox = c.bbox("all")
-            # Guard: an empty body returns None; re-set the scrollregion only when the
-            # bbox actually moved, so a settled body stops feeding the cascade (#203).
-            if bbox and bbox != getattr(c, "_last_scrollregion", None):
-                c._last_scrollregion = bbox
-                c.configure(scrollregion=bbox)
+            if not bbox:
+                return
+            region = (0, 0, bbox[2], bbox[3])
+            if region != getattr(c, "_last_scrollregion", None):
+                c._last_scrollregion = region
+                c.configure(scrollregion=region)
+
+        def _on_body_config(event, c=canvas):
+            _update_region(c)
         body.bind("<Configure>", _on_body_config)
 
         def _on_canvas_config(event, c=canvas, w=win):
@@ -665,6 +681,15 @@ class SettingsApp:
                 c._last_body_geom = (width, x)
                 c.itemconfigure(w, width=width)
                 c.coords(w, x, 0)
+                # Refresh the scrollregion here as well, not only from the body's
+                # <Configure> echo: after a big width drop the stale region has the view
+                # parked off the body and the canvas has unmapped it -- an unmapped body
+                # is never physically moved, so the echo never comes and the parked view
+                # would freeze permanently, a blank tab (#216). The synchronous refresh
+                # re-clamps the view onto the fresh, origin-anchored region, which remaps
+                # the body; its late <Configure> then finds the region current and no-ops
+                # through the guard.
+                _update_region(c)
                 # The body width change re-allocates its fill='x' labels, so each fires
                 # its own <Configure> -> the coalesced wrap push runs from there (#203);
                 # no push is triggered here, which would read pre-propagation widths.
