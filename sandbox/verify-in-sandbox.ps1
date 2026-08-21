@@ -92,12 +92,24 @@ function Copy-Artifacts {
     Save-Screenshot 'exit'
 }
 
-# --- 1) Temporary API key ---------------------------------------------------
-# The key must be present BEFORE the tool launches: on a keyless start the tool
-# opens the #144 wizard and exits(0) *before* hotkey registration
-# (thoughtborne.py:1280), so the 'All hotkeys registered' assertion would never
-# fire. The install dir must exist first, so we drop the .env right after the
-# install (step 2) and before the launch (step 3).
+# --- 1) Temporary API key (placed BEFORE the install) -----------------------
+# Since #223/D-014 setup.ps1's final step hands off by starting the tool itself
+# (step 8), and THAT hand-off is what this harness verifies. So the key must be in
+# place before setup.ps1 runs, making the handed-off instance a KEYED one that
+# registers hotkeys AND has an engine for the self-test -- rather than the #200
+# keyless shop window (which registers hotkeys too, but has nothing to transcribe
+# with).
+#
+# We pre-create the install dir and drop the .env there before the install. That is
+# safe against setup.ps1's CURRENT guards: a dir holding only .env is denylist residue
+# (D-011), which the step-2 fingerprint guard accepts as a re-installable folder, and
+# the denylist copy preserves the .env untouched -- so when step 8 starts the tool the
+# key is present. The step-3 running guard passes too (no log yet, nothing running).
+# "Current" is load-bearing: a pre-#209 published release ran an older fingerprint
+# guard that would REFUSE an .env-only dir. That is not a gap -- this harness verifies
+# the NEXT release by design (the local setup.ps1 before the tag, the versioned
+# one-liner after the asset upload), so it is coupled to the working-tree setup.ps1
+# contract, never an old published one.
 #
 # temp.env in the mapped folder holds one working key line (e.g. GROQ_API_KEY=...
 # or SONIOX_API_KEY=...). With a Groq key the engine carousel falls through to
@@ -108,6 +120,8 @@ if (-not (Test-Path -LiteralPath $KeyFile)) {
     Copy-Artifacts
     return
 }
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+Copy-Item -LiteralPath $KeyFile -Destination (Join-Path $InstallDir '.env') -Force
 
 # --- 2) Run the install path ------------------------------------------------
 # Thread the release version into setup.ps1's own ZIP fetch (both modes need it:
@@ -143,32 +157,35 @@ try {
     return
 }
 
-if (-not (Test-Path -LiteralPath $InstallDir)) {
-    Write-Result 'FAIL' "stage=install: install dir not created: $InstallDir"
+# Install-success probe. Step 1 pre-creates $InstallDir, so a bare dir-exists check
+# can never fail now -- assert the install actually LANDED THE SOURCE instead: the
+# thoughtborne.py fingerprint (setup.ps1's own re-install fingerprint). Any install
+# failure -- a 404 ZIP, a uv error, or a setup.ps1 guard refusal -- leaves the
+# pre-created dir holding only our .env and no source, and fails HERE as stage=install
+# rather than falling silently through to the stage=launch Thoughtborne.bat check below
+# (the detail line must name the reached stage). That later .bat check stays as a
+# backstop for a partial copy that somehow lands .py but not .bat.
+if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'thoughtborne.py'))) {
+    Write-Result 'FAIL' "stage=install: install left no thoughtborne.py in $InstallDir -- the copy did not complete (404 ZIP, uv error, or a setup.ps1 guard refusal)"
     Copy-Artifacts
     return
 }
 
-# Drop the throwaway key into the install dir before launch.
-Copy-Item -LiteralPath $KeyFile -Destination (Join-Path $InstallDir '.env') -Force
+# The throwaway key was already dropped into the install dir in step 1 (before the
+# install), so the setup.ps1 hand-off below starts a keyed instance.
 
-# --- 3) Launch Thoughtborne -------------------------------------------------
-# Launch the real user artifact: the Start-menu shortcut setup.ps1 created as
-# cmd /c "Thoughtborne.bat" with WorkingDirectory = install dir. This exercises
-# the true shortcut -> cmd -> .bat -> uv chain for near-zero extra effort. Fall
-# back to the .bat directly if the shortcut is missing.
-$startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-$lnk = Join-Path $startMenu 'Thoughtborne.lnk'
+# --- 3) The installer hand-off already started the tool ---------------------
+# setup.ps1's final step (step 8, #223/D-014) starts Thoughtborne.bat itself, and
+# THAT hand-off is what this harness verifies -- so we no longer launch the tool
+# ourselves. A second launch would only hit the D-004 second-instance refusal (#166):
+# the handed-off instance already owns the exclusive global hotkeys and the mutex.
+# With the key placed in step 1 that instance is KEYED, so it runs as the Cockpit (not
+# the wizard) and reaches hotkey registration + the self-test. A broken hand-off shows
+# up honestly below as a missing 'hotkeys registered' needle (step 4).
 $launcher = Join-Path $InstallDir 'Thoughtborne.bat'
-$launchNote = ''
-if (Test-Path -LiteralPath $lnk) {
-    Start-Process -FilePath $lnk
-    $launchNote = 'launched via Start-menu shortcut'
-} elseif (Test-Path -LiteralPath $launcher) {
-    Start-Process -FilePath $launcher -WorkingDirectory $InstallDir
-    $launchNote = 'shortcut missing -- launched Thoughtborne.bat directly'
-} else {
-    Write-Result 'FAIL' "stage=launch: no launch artifact (neither $lnk nor $launcher present)"
+$launchNote = 'started by the installer hand-off (setup.ps1 step 8)'
+if (-not (Test-Path -LiteralPath $launcher)) {
+    Write-Result 'FAIL' "stage=launch: installer left no Thoughtborne.bat in $InstallDir -- nothing for the hand-off to start"
     Copy-Artifacts
     return
 }
@@ -194,12 +211,13 @@ if (-not $found) {
     return
 }
 
-# --- 5) Start-menu shortcuts (informational) --------------------------------
-# setup.ps1 writes these two .lnk; note their presence. Its final step also
-# auto-opens the #144 settings wizard (same as a keyless first start) -- that
-# stray window is harmless (no hotkeys, separate process); it may just appear in
-# a screenshot.
-$lnkStatus = @('Thoughtborne.lnk', 'Thoughtborne Settings.lnk') | ForEach-Object {
+# --- 5) Start-menu shortcut (informational) ---------------------------------
+# setup.ps1 writes ONE .lnk since #223/D-014 (the standalone settings shortcut is
+# retired); note its presence. Its final step (step 8) starts the tool itself -- with
+# the key in place that instance is the Cockpit, and it owns the hotkeys + mutex (it
+# IS the instance under test), so it is expected on screen, not a stray window.
+$startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+$lnkStatus = @('Thoughtborne.lnk') | ForEach-Object {
     $p = Join-Path $startMenu $_
     '{0}={1}' -f $_, $(if (Test-Path -LiteralPath $p) { 'present' } else { 'MISSING' })
 }

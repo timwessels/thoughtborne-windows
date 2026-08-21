@@ -479,30 +479,32 @@ def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_load
     return None, None
 
 
-def resolve_save_action(*, first_run, has_key, tool_running):
-    """The rail's save action for the current window state (#202) -- one of
-    'save' / 'save_close' / 'save_start' / 'save_restart'. Each token maps 1:1 to a
-    `btn.<token>` string key AND to how `_save` behaves after the write. Pure, so the
-    whole table is off-Windows tested (the GUI is hands-on only).
+def resolve_save_action(*, first_run, has_key):
+    """The rail's save action for the current window state -- one of
+    'save' / 'save_close' / 'save_restart'. Each token maps 1:1 to a `btn.<token>`
+    string key AND to how `_save` behaves after the write. Pure, so the whole table is
+    off-Windows tested (the GUI is hands-on only).
 
-    `tool_running` wins whenever a launch would be promised AND a key is present: a
-    running tool turns any launch lane into a RESTART (write the signal, wait for the
-    D-004 mutex to free, relaunch) -- in the wizard exactly as in everyday mode,
-    because the #200 keyless shop window keeps a keyless instance open that would
-    otherwise block the wizard's 'Save & start' via the second-instance refusal, and
-    unblocking that is half of what #202 exists for.
+    Since #223 (D-014) the settings window opens ONLY from a running tool (Ctrl+Alt+G
+    or the tool-spawned --first-run wizard, the keyless #200 shop window included) and
+    a tool quit closes the window (#222), so "the tool is running" is an invariant
+    here, not a probe. A key present therefore always means a RESTART: write the
+    signal, wait for the D-004 mutex to free, relaunch (the #202 handshake). Without a
+    key there is never a restart -- relaunching a keyless tool would just re-open the
+    shop window plus another wizard (#200 auto-launch), a window loop -- so a keyless
+    wizard save just closes and a keyless everyday save plain-saves. `has_key` counts a
+    stored key, and a blank field never clobbers one, so the keyless rows are rare.
 
-    Without a key there is never a launch OR a restart: relaunching a keyless tool
-    just re-opens the shop window plus another wizard (#200 auto-launch) -- a window
-    loop -- so a keyless running instance is left in peace (`has_key` counts a stored
-    key, and a blank field never clobbers one, so this is rare anyway). With no tool
-    running, the pre-#202 behavior stands: the wizard promises a start when keyed and
-    a plain close when not (#178), everyday mode plain-saves.
+    The old `tool_running` parameter is gone with the standalone lane: the label sites
+    no longer probe liveness, and the unreachable 'save_start' token retires with it.
+    The crash-while-open case (tool died unclean, window still up) degrades cleanly
+    through _restart_and_relaunch's own liveness poll plus the tool's startup
+    stale-signal clear -- see the caller / D-014.
     """
-    if tool_running and has_key:
+    if has_key:
         return "save_restart"
     if first_run:
-        return "save_start" if has_key else "save_close"
+        return "save_close"
     return "save"
 
 

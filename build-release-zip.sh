@@ -63,7 +63,6 @@ must_have=(
     test_audio.mp3
     assets/logo/favicon.ico
     Thoughtborne.bat
-    Thoughtborne-Settings.bat
     setup.bat
     setup.ps1
     pyproject.toml

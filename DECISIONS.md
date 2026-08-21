@@ -265,10 +265,20 @@ second process disappears. Does not touch D-002 or D-003.
 
 ## D-005 — Settings-app launcher: venv-first (probed), system Python is the rescue lane
 
-Decided 2026-07-29 (#171).
+**Retired 2026-08-21 by D-014 (#223).** The standalone settings launcher is gone —
+the settings window now opens only from the running tool (`Ctrl+Alt+G` / the
+tool-spawned `--first-run` wizard), so there is no separate interpreter-selection
+launcher to design. The rescue for a broken environment is the installer's idempotent
+re-run, not a settings side door. The reasoning below is kept for the record (the
+venv-first ordering, the stdlib-only rescue constraint, the no-`.python-version`
+non-decision); the stdlib-only constraint on the settings-app import chain **still
+holds**, because the tool spawns the app on its own venv interpreter and D-002/D-009
+depend on it.
 
-`Thoughtborne-Settings.bat` selects a Python interpreter in three ordered stages,
-and the order is deliberate:
+Decided 2026-07-29 (#171). *(Retired — see above.)*
+
+The standalone settings launcher selected a Python interpreter in three ordered
+stages, and the order was deliberate:
 
 - **Project venv first, health-probed.** When `.venv\Scripts\pythonw.exe` exists,
   the launcher confirms the venv actually works — `.venv\Scripts\python.exe -c
@@ -581,9 +591,9 @@ tool's `Ctrl+Alt+G` ignore behaviour is widened and made visible. The decisions:
   best-effort: an unfindable window (a near-simultaneous double start whose first
   window is not yet titled) or a cross-integrity UIPI block just means the second
   instance exits without raising — the "at most one window" guarantee still holds.
-- **The in-app guard covers both spawn paths.** `Ctrl+Alt+G` / `--first-run` (via
-  `_launch_settings_app`) and `Thoughtborne-Settings.bat` (double-click / Start menu /
-  setup.ps1 hand-off) both reach the same guard. No spawner-side dedupe in the tool:
+- **The in-app guard covers the tool's spawn path.** `Ctrl+Alt+G` / `--first-run` (via
+  `_launch_settings_app`) reaches the guard — since #223/D-014 the standalone launcher
+  is gone, so this is the one way the window opens. No spawner-side dedupe in the tool:
   every launch either becomes the one window or focuses it, which is exactly the
   "repeat press raises the window" behaviour wanted; deduping in the tool would
   suppress the raise. A tool-side fast-focus that skips the spawn on a repeat press
@@ -864,7 +874,7 @@ D-010, or D-011.
 ## D-014 — Settings is part of the app: no unsaved-changes guard, one exit, one lane
 
 Decided 2026-08-20 (#221 -> #222 -> #223, the "one-unit" doctrine, landed in that
-order; step 1, #221, is implemented here).
+order; all three steps are now implemented, each recorded below).
 
 The settings/onboarding window is part of the app, not an app of its own. From that
 follows radical simplicity: no unsaved-changes bookkeeping, no discard dialog, no

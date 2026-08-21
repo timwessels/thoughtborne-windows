@@ -2,11 +2,12 @@
 """Off-Windows verification of the settings-app theme module (#155, D-010).
 
 `settings_theme` is stdlib-only (tkinter/ttk/font), so it must import on plain
-Python -- the D-005 system-Python rescue lane runs the app without a venv, and a
-theme module that failed to import would break exactly that lane. What can be
-checked without a display, and what needs one:
+Python -- this test loads it directly off-Windows, and the settings app the tool
+spawns imports it on the tool's own venv interpreter, so a theme module that failed
+to import would break exactly those paths. What can be checked without a display, and
+what needs one:
 
-  - the module imports at all on plain Python (the rescue-lane guarantee);
+  - the module imports at all on plain Python (the off-Windows-import guarantee);
   - every palette constant is a `#RRGGBB` string (a typo like a named colour or a
     3-digit hex would slip past py_compile but fail here);
   - the design meets WCAG on the two surfaces it defines: every text colour clears

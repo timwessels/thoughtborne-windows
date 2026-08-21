@@ -39,12 +39,9 @@ _EN = {
     "btn.next": "Next",
     "btn.save": "Save",
     "btn.cancel": "Cancel",
-    "btn.save_start": "Save & start Thoughtborne",
     "btn.save_close": "Save & close",
-    "btn.save_restart": "Save & restart Thoughtborne",
-    "btn.restarting": "Restarting Thoughtborne…",
-    "footer.next_start": "Changes take effect the next time Thoughtborne starts.",
-    "footer.restart": "Thoughtborne is running — “Save & restart” applies changes right away.",
+    "btn.save_restart": "Save & restart",
+    "btn.restarting": "Restarting…",
 
     # ---- welcome / overview tab ----
     "welcome.tab": "Overview",
@@ -291,8 +288,8 @@ _EN = {
     "dlg.nokey.body": (
         "No API key is entered, and none was found on this PC — Thoughtborne can't "
         "transcribe without one. Your hotkeys and preferences will still be saved. "
-        "You can add a key any time via the Start menu → Thoughtborne Settings. Save "
-        "and close now?"),
+        "You can add a key any time — reopen settings from the running tool with "
+        "Ctrl+Alt+G. Save and close now?"),
     "dlg.hotkeywarn.title": "Hotkey problems",
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
@@ -343,12 +340,9 @@ _DE = {
     "btn.next": "Weiter",
     "btn.save": "Speichern",
     "btn.cancel": "Abbrechen",
-    "btn.save_start": "Speichern & Thoughtborne starten",
     "btn.save_close": "Speichern & schließen",
-    "btn.save_restart": "Speichern & Thoughtborne neu starten",
-    "btn.restarting": "Thoughtborne wird neu gestartet…",
-    "footer.next_start": "Änderungen gelten ab dem nächsten Start von Thoughtborne.",
-    "footer.restart": "Thoughtborne läuft — „Speichern & neu starten“ übernimmt Änderungen sofort.",
+    "btn.save_restart": "Speichern & neu starten",
+    "btn.restarting": "Wird neu gestartet…",
 
     # ---- welcome / overview tab ----
     "welcome.tab": "Überblick",
@@ -611,8 +605,9 @@ _DE = {
     "dlg.nokey.body": (
         "Es ist kein API-Key eingetragen, und es wurde keiner gefunden — ohne Key "
         "kann Thoughtborne nicht transkribieren. Deine Hotkeys und Einstellungen "
-        "werden trotzdem gespeichert. Einen Key kannst du jederzeit über Startmenü → "
-        "Thoughtborne-Einstellungen ergänzen. Jetzt speichern und schließen?"),
+        "werden trotzdem gespeichert. Einen Key kannst du jederzeit ergänzen — öffne "
+        "die Einstellungen aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und "
+        "schließen?"),
     "dlg.hotkeywarn.title": "Hotkey-Probleme",
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "

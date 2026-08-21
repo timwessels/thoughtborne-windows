@@ -9,7 +9,7 @@ off-Windows. What can be checked without Windows:
 
   - the module imports at all AND binds no ctypes-family name at module top. `import
     ctypes` is stdlib and succeeds everywhere; what would break off-Windows (and the
-    D-005 system-Python rescue lane) is a module-top `ctypes.WinDLL`/`windll` call --
+    off-Windows import the tests rely on) is a module-top `ctypes.WinDLL`/`windll` call --
     actually loading a Windows DLL. This test proves those stay lazy by asserting the
     module never binds `ctypes` (or `wintypes`) into its own namespace;
   - `settings_window_titles()` returns exactly the four localized titles the window
@@ -59,7 +59,7 @@ def test_ctypes_stays_lazy():
     # sys.modules -- hasattr on the module object checks the actual top-level binding.
     check(not hasattr(si, "ctypes"),
           "settings_instance binds `ctypes` at module top -- the WinDLL calls must "
-          "stay lazy inside the Windows functions (D-005 rescue lane)")
+          "stay lazy inside the Windows functions so the module imports off-Windows")
     check(not hasattr(si, "wintypes"),
           "settings_instance binds `wintypes` at module top -- keep the ctypes "
           "family lazy inside the Windows functions")

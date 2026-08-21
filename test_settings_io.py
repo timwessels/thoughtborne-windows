@@ -1010,41 +1010,44 @@ def check_engine_save_signal():
 
 # ---- save-action decision (#202) ---------------------------------------------
 def check_save_action():
-    """resolve_save_action across all 8 combinations of (first_run, has_key,
-    tool_running). Each token maps 1:1 to a btn.* key and to _save's behavior; the
-    decision is pure so the whole table is off-Windows tested (the GUI is hands-on)."""
+    """resolve_save_action across the 4 combinations of (first_run, has_key). Each
+    token maps 1:1 to a btn.* key and to _save's behavior; the decision is pure so the
+    whole table is off-Windows tested (the GUI is hands-on). Since #223 (D-014) the
+    settings window opens only from a running tool, so the surface has no tool_running
+    axis and no 'save_start' -- a key always means a restart."""
     R = sio.resolve_save_action
     table = [
-        # first_run, has_key, tool_running -> token
-        (True,  True,  True,  "save_restart"),   # wizard, keyed, running -> restart (#200 shop window)
-        (True,  True,  False, "save_start"),     # wizard, keyed, not running -> launch (#178)
-        (True,  False, True,  "save_close"),     # wizard, keyless, running -> close (no keyless relaunch loop)
-        (True,  False, False, "save_close"),     # wizard, keyless, not running -> close (#178)
-        (False, True,  True,  "save_restart"),   # everyday, keyed, running -> restart
-        (False, True,  False, "save"),           # everyday, keyed, not running -> plain save
-        (False, False, True,  "save"),           # everyday, keyless, running -> plain save (degenerate)
-        (False, False, False, "save"),           # everyday, keyless, not running -> plain save
+        # first_run, has_key -> token
+        (True,  True,  "save_restart"),   # wizard, keyed -> restart (running tool: #200 shop window / spawned wizard)
+        (True,  False, "save_close"),     # wizard, keyless -> close (no keyless relaunch loop)
+        (False, True,  "save_restart"),   # everyday, keyed -> restart
+        (False, False, "save"),           # everyday, keyless -> plain save
     ]
     seen = set()
-    for first_run, has_key, running, expected in table:
-        got = R(first_run=first_run, has_key=has_key, tool_running=running)
+    for first_run, has_key, expected in table:
+        got = R(first_run=first_run, has_key=has_key)
         check(got == expected,
-              f"save_action(first_run={first_run}, has_key={has_key}, "
-              f"tool_running={running}) -> {got!r}, expected {expected!r}")
+              f"save_action(first_run={first_run}, has_key={has_key}) -> {got!r}, "
+              f"expected {expected!r}")
         seen.add(got)
-    # The token space is exactly the four btn.* keys the app can render.
-    check(seen == {"save", "save_close", "save_start", "save_restart"},
+    # The token space is exactly the three btn.* keys the app can render.
+    check(seen == {"save", "save_close", "save_restart"},
           f"save_action produced an unexpected token set: {sorted(seen)}")
-    # A running tool + a key is a RESTART regardless of mode -- the half of #202 that
-    # unblocks the wizard's launch over the #200 keyless shop window.
-    check(R(first_run=True, has_key=True, tool_running=True) == "save_restart"
-          and R(first_run=False, has_key=True, tool_running=True) == "save_restart",
-          "a running keyed tool must resolve to save_restart in BOTH modes")
-    # Every save_restart token has its btn.* string in both languages (the label the
-    # rail sets is 'btn.' + token).
-    for tok in ("save", "save_close", "save_start", "save_restart"):
+    # A key present is a RESTART regardless of mode (the window opens only from a
+    # running tool now, so a keyed save is always a restart).
+    check(R(first_run=True, has_key=True) == "save_restart"
+          and R(first_run=False, has_key=True) == "save_restart",
+          "a keyed save must resolve to save_restart in BOTH modes")
+    # Every token has its btn.* string in both languages (the label the rail sets is
+    # 'btn.' + token).
+    for tok in ("save", "save_close", "save_restart"):
         check(f"btn.{tok}" in sstr._EN and f"btn.{tok}" in sstr._DE,
               f"btn.{tok} is missing a string in EN or DE")
+    # Regression guard: the strings retired with the standalone lane stay gone (#223,
+    # D-014) -- the unreachable 'save_start' button and the removed footer line pair.
+    for dead in ("btn.save_start", "footer.next_start", "footer.restart"):
+        check(dead not in sstr._EN and dead not in sstr._DE,
+              f"{dead} must be gone from both string tables (#223)")
 
 
 # ---- first-run mode decision (#163) ------------------------------------------

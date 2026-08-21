@@ -1,13 +1,14 @@
 """Single-instance guard + focus-existing remedy for the settings app (#196, D-009).
 
-The graphical settings app enforces one window: a second launch -- by Ctrl+Alt+G,
-a double-click of Thoughtborne-Settings.bat, or the installer hand-off -- brings the
-existing window to the front instead of stacking another editor of the same two
-config files (D-002). This is the settings-app counterpart of the tool's own
-single-instance mutex (D-004), with two deliberate differences: a *distinct* mutex
-name (sharing the tool's would make a running tool block every settings launch and
-vice versa) and a GUI remedy (focus, don't refuse -- bringing the window forward IS
-the feedback, a notice would be noise). The remedy is a cross-process topmost pulse
+The graphical settings app enforces one window: a second launch -- another
+Ctrl+Alt+G / --first-run spawn from the running tool (the only spawn path since
+#223/D-014) -- brings the existing window to the front instead of stacking another
+editor of the same two config files (D-002). This is the settings-app counterpart of
+the tool's own single-instance mutex (D-004), with two deliberate differences: a
+*distinct* mutex name (sharing the tool's would make a running tool block every
+settings launch and vice versa) and a GUI remedy (focus, don't refuse -- bringing the
+window forward IS the feedback, a notice would be noise). The remedy is a
+cross-process topmost pulse
 that raises the window's Z-order without needing foreground rights (the reliable lift
 where a background SetForegroundWindow is refused, #203), and it reports its outcome
 as a FOCUS_* category the caller logs -- so a silent no-op is no longer
@@ -18,11 +19,12 @@ WM_CLOSE to the same D-009 title-matched window on its own quit, so "one program
 exit" holds and close can never drift from the focus match. It shares this module's
 lazy-ctypes, fail-open shape.
 
-Pure stdlib, so the D-005 system-Python rescue lane keeps working: the mutex/focus
-is `ctypes`, imported lazily *inside* the Windows functions so `import
-settings_instance` never fails off-Windows. The title helper is pure and imports the
-DE/EN string table, so the four localized titles it matches can't drift from what the
-window actually sets. Every Windows path is fail-open: any failure resolves to "start
+Pure stdlib so `import settings_instance` never fails off-Windows (the tool spawns
+the app on its own venv interpreter, and the tests import this module directly): the
+mutex/focus is `ctypes`, imported lazily *inside* the Windows functions. The title
+helper is pure and imports the DE/EN string table, so the four localized titles it
+matches can't drift from what the window actually sets. Every Windows path is
+fail-open: any failure resolves to "start
 normally" (no mutex held, no focus), so a guard fault can never cost a launch.
 
 The mutex mechanics -- permissive security descriptor, session-scoped name,

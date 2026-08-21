@@ -2,7 +2,8 @@
 Graphical settings + first-run onboarding app for Thoughtborne (#144).
 
 One tkinter window that doubles as the first-run wizard (rail: Back / Next /
-"Save & start") and the everyday settings dialog (rail: Save / Cancel) -- the two
+"Save & restart", or "Save & close" until a key is entered) and the everyday settings
+dialog (rail: Save / Cancel) -- the two
 modes differ by the `--first-run` CLI flag, or an auto-promote to the wizard when no
 API key is stored yet (#163); the tabs (Overview -> Provider -> Hotkeys -> Behavior
 -> How you dictate) are identical in both ("one window, one face"). German or
@@ -13,8 +14,9 @@ module holds NO IO or validation logic of its own -- every file read/write, key
 check, hotkey decode/validate/collision check, and preset is a call into the CP1
 modules (`settings_io`, `key_check`, `config`, `settings_strings`) plus
 `engine_memory` for the #193 last-engine state file and `settings_theme` for the
-#155 visual design (all stdlib-only, so the D-005 system-Python rescue lane keeps
-working). The app no longer pins the native `vista` ttk theme: `settings_theme`
+#155 visual design (all stdlib-only, so the tool spawns the app on its own venv
+interpreter and the off-Windows tests load these modules directly). The app no longer
+pins the native `vista` ttk theme: `settings_theme`
 pins `clam` plus an explicit style module as the first step of `__init__`, so the
 window's white surfaces, card sections and type ladder are what this code
 specifies rather than what the OS draws (D-010). Tk is not thread-safe, so the "Test key"
@@ -295,10 +297,11 @@ class SettingsApp:
         self.groq_var = tk.StringVar(value=env.get("GROQ_API_KEY", ""))
         self.soniox_var = tk.StringVar(value=env.get("SONIOX_API_KEY", ""))
         # A readable key is already stored iff read_env surfaced one. Used by the
-        # pre-save "no key" check and the "Save & start" launch guard: a blank field
-        # never clobbers a stored key (settings_io), so an empty field on top of a
-        # stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
-        # that rarer case is caught downstream -- write_env aborts such a save.)
+        # pre-save "no key" check and the save-action decision (a key present makes a
+        # save a restart, #202/#223): a blank field never clobbers a stored key
+        # (settings_io), so an empty field on top of a stored key is NOT keyless. (An
+        # unreadable/ANSI .env reads as no keys here; that rarer case is caught
+        # downstream -- write_env aborts such a save.)
         self._had_stored_key = settings_io.env_has_key(env)
         # Per-provider stored-key snapshot for the key-aware engine control (#201).
         # The console-side predicate is per-engine (config.engine_has_key), so the
@@ -576,8 +579,6 @@ class SettingsApp:
             self.save_btn = ttk.Button(rail, style="Primary.TButton",
                                        command=lambda: self._save(False))
             self.save_btn.pack(side="right", padx=(0, self.theme.sp(8)))
-            self.footer_lbl = ttk.Label(rail, style="Card.Small.TLabel")
-            self.footer_lbl.pack(side="left")
 
     def _scrollable_tab(self):
         """A notebook page whose body scrolls vertically when it overflows (#180).
@@ -1373,10 +1374,11 @@ class SettingsApp:
 
     def _has_any_key(self):
         """True iff a key is entered OR one is already stored. The single predicate
-        behind both the honest last-tab button (#178) and the "Save & start" launch
-        guard in _save, so the button label can never promise a start the guard then
-        refuses. A blank field never clobbers a stored key (settings_io), so an empty
-        field on top of a stored key still counts as keyed."""
+        behind both the honest last-tab button (#178) and the save-action decision in
+        _save (#202/#223: a key present makes a save a restart), so the button label can
+        never promise a restart the save then contradicts. A blank field never clobbers
+        a stored key (settings_io), so an empty field on top of a stored key still
+        counts as keyed."""
         return bool(self.groq_var.get().strip() or self.soniox_var.get().strip()
                     or self._had_stored_key)
 
@@ -1402,13 +1404,12 @@ class SettingsApp:
         if idx < last:
             key = "btn.next"
         else:
-            # Honest last-tab label (#178, #202): a running tool + a key makes this a
-            # RESTART; else the #178 start/close split by key presence. Live mutex
-            # probe -- update_rail fires on tab change and language re-render only, so
-            # a running tool starting/exiting while the window is open stays reflected.
+            # Honest last-tab label (#178, #202): a key makes this a RESTART, else a
+            # plain close (#178). The tool is always running when the wizard is open
+            # (#223/D-014: the keyless #200 shop window spawned this very wizard), so
+            # no liveness probe.
             key = "btn." + settings_io.resolve_save_action(
-                first_run=True, has_key=self._has_any_key(),
-                tool_running=restart_signal.tool_is_running())
+                first_run=True, has_key=self._has_any_key())
         self.next_btn.config(text=strings.t(key, self.lang))
 
     # ---------------------------------------------------------- per-tab scrolling
@@ -1495,17 +1496,14 @@ class SettingsApp:
             self.back_btn.config(text=strings.t("btn.back", self.lang))
             self.update_rail()
         else:
-            # A running tool turns everyday "Save" into "Save & restart" (#202); the
-            # footer then tells the truth (changes apply right away, not next start).
-            # Live probe, mirrored at click time in _save.
+            # A stored/typed key makes everyday "Save" a "Save & restart"; keyless
+            # plain-saves. The tool is always running when this window is open
+            # (#223/D-014), so no liveness probe and nothing left to explain in a
+            # footer -- with one truth about when changes apply the footer is gone.
             action = settings_io.resolve_save_action(
-                first_run=False, has_key=self._has_any_key(),
-                tool_running=restart_signal.tool_is_running())
+                first_run=False, has_key=self._has_any_key())
             self.save_btn.config(text=strings.t("btn." + action, self.lang))
             self.cancel_btn.config(text=strings.t("btn.cancel", self.lang))
-            self.footer_lbl.config(text=strings.t(
-                "footer.restart" if action == "save_restart" else "footer.next_start",
-                self.lang))
 
     # ---------------------------------------------------------------- render_all
     def render_all(self):
@@ -1597,26 +1595,19 @@ class SettingsApp:
                 engine_memory.state_path(config.SCRIPT_DIR), memory_api,
                 config.AVAILABLE_APIS)
 
-        # Post-save action (#202). Re-probe the mutex at CLICK time -- the label's
-        # probe may be minutes stale, and both drift directions must resolve right:
-        # a tool that started since the label was drawn still restarts; one that
-        # exited falls back to a plain save/start with no signal written. `start_after`
-        # is the wizard's launch-after-save flag (== self.first_run at both call
-        # sites), so it doubles as the resolver's first_run.
+        # Post-save action. Since #223 the window opens only from a running tool
+        # (D-014), so a key present means RESTART; a keyless save just closes/plain-
+        # saves. If the tool has meanwhile died unclean (the only not-running case
+        # left), _restart_and_relaunch's own liveness poll relaunches instead, and the
+        # tool's startup stale-signal clear (#202) stops the leftover signal from
+        # shutting the fresh instance down. `start_after` == self.first_run at both
+        # call sites, so it doubles as the resolver's first_run.
         action = settings_io.resolve_save_action(
-            first_run=start_after, has_key=has_key,
-            tool_running=restart_signal.tool_is_running())
+            first_run=start_after, has_key=has_key)
         if action == "save_restart":
             self._restart_and_relaunch()   # owns the window from here (wait -> relaunch)
             return
-        # "Save & start" launches only with a key present: a keyless launch would make
-        # the tool re-detect no key, relaunch this wizard and exit -- a visible bounce.
-        # resolve_save_action already gives save_close (not save_start) when keyless,
-        # so this branch is reached only when a launch is warranted. A failed launch
-        # still saved -- say so, then close.
-        if action == "save_start" and not self._launch_tool():
-            messagebox.showerror(strings.t("dlg.startfail.title", self.lang),
-                                 strings.t("dlg.startfail.body", self.lang))
+        # 'save' / 'save_close' both just persist and close.
         self.root.destroy()
 
     def _launch_tool(self):
@@ -1829,8 +1820,8 @@ def main():
     args, _ = parser.parse_known_args()
 
     # Single-instance guard (#196, D-009): keep the settings app to one window. A
-    # second launch -- from either spawn path (Ctrl+Alt+G / --first-run, or the
-    # Thoughtborne-Settings.bat double-click) -- brings the existing window to the
+    # second launch -- another Ctrl+Alt+G / --first-run spawn from the running tool
+    # (the only spawn path since #223/D-014) -- brings the existing window to the
     # front and exits silently, rather than stacking a second independent editor of
     # .env / personal_settings.json (D-002). Focus IS the feedback for a GUI, so no
     # notice (unlike the tool's D-004 refuse). Checked before tk.Tk() so no window is

@@ -1,8 +1,9 @@
 """
 ttk theme + design tokens for the settings/onboarding app (#155, D-010).
 
-Pure stdlib (tkinter/ttk/font only), so the D-005 system-Python rescue lane keeps
-working. tkinter is imported *lazily*, inside `apply_theme` / `_pick_family` (like
+Pure stdlib (tkinter/ttk/font only), so it imports off-Windows -- the tests load it
+directly, and the settings app the tool spawns runs on the tool's own venv
+interpreter. tkinter is imported *lazily*, inside `apply_theme` / `_pick_family` (like
 `settings_instance`'s ctypes), so the palette + size constants import even on a
 Python that lacks the tk bindings, and the only part that touches tkinter is
 applying the theme -- which needs a real Tk root anyway. One entry point,

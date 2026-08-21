@@ -109,15 +109,25 @@ function New-ThoughtborneShortcuts {
     $cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
     $icon = Join-Path $InstallDir 'assets\logo\favicon.ico'
 
-    # Two Start-menu entries. Target cmd.exe with  /c "<bat>"  rather than the bat
-    # directly: only this form makes the context menu offer "Run as administrator"
-    # while a plain left-click and any assigned hotkey keep working (spike #140).
-    # The two-quote  /c "<path>"  rule tolerates a space in the profile path
-    # (%LOCALAPPDATA% embeds the username, e.g. C:\Users\Tim Wessels\...).
+    # One Start-menu entry (#223, D-014: the standalone settings lane is retired, so
+    # there is no separate settings shortcut). Target cmd.exe with  /c "<bat>"  rather
+    # than the bat directly: only this form makes the context menu offer "Run as
+    # administrator" while a plain left-click and any assigned hotkey keep working
+    # (spike #140). The two-quote  /c "<path>"  rule tolerates a space in the profile
+    # path (%LOCALAPPDATA% embeds the username, e.g. C:\Users\Tim Wessels\...).
     $shortcuts = @(
-        @{ Name = 'Thoughtborne';          Bat = 'Thoughtborne.bat';          Desc = 'Start Thoughtborne voice-to-text' },
-        @{ Name = 'Thoughtborne Settings'; Bat = 'Thoughtborne-Settings.bat'; Desc = 'Thoughtborne settings and onboarding' }
+        @{ Name = 'Thoughtborne'; Bat = 'Thoughtborne.bat'; Desc = 'Start Thoughtborne voice-to-text' }
     )
+
+    # Remove the legacy standalone-settings shortcut from older installs (#223,
+    # D-014): the settings lane is retired, so a lingering entry would point at a
+    # now-deleted launcher. Harmless no-op on a fresh install.
+    $staleSettings = Join-Path $startMenu 'Thoughtborne Settings.lnk'
+    if ($DryRun) {
+        Write-Host ("[dry-run] would remove any legacy settings shortcut: {0}" -f $staleSettings)
+    } elseif (Test-Path -LiteralPath $staleSettings) {
+        Remove-Item -LiteralPath $staleSettings -Force -ErrorAction SilentlyContinue
+    }
 
     if ($DryRun) {
         foreach ($s in $shortcuts) {
@@ -490,12 +500,21 @@ function Install-Thoughtborne {
     #     never deletes user data (D-011).
     Write-UninstallRegistryEntry -InstallDir $installDir -DryRun:$DryRun
 
-    # 8) Hand off to the #144 settings / onboarding app (convenience: the tool
-    #    itself also opens the wizard on a keyless start). setup.ps1 collects no
-    #    secrets (respects D-002) -- the settings app is the only config writer.
-    $settingsBat = Join-Path $installDir 'Thoughtborne-Settings.bat'
+    # 8) Hand off by starting the tool itself (#223, D-014): the standalone settings
+    #    lane is gone. A keyless install opens as the #200 shop window and auto-launches
+    #    the first-run wizard -- the intended first-run experience -- so starting the
+    #    tool IS the onboarding hand-off. setup.ps1 still collects no secrets (D-002).
+    #    The running-instance guard (step 3) already turned setup away if a tool was
+    #    running FROM THIS install dir, so this start does not collide with it. A tool
+    #    running from a DIFFERENT checkout (the git-clone lane) is invisible to that
+    #    log-based guard and still owns the global hotkeys + the D-004 mutex, so this
+    #    start would hit the #166 second-instance refusal (0 hotkeys): the new instance
+    #    flashes a short-lived console with the ALREADY-RUNNING notice, then exits on
+    #    its own -- no lasting window; that is an accepted edge of the convenience
+    #    hand-off.
+    $toolBat = Join-Path $installDir 'Thoughtborne.bat'
     if ($DryRun) {
-        Write-Host ("[dry-run] would hand off to the settings/onboarding app: {0}" -f $settingsBat)
+        Write-Host ("[dry-run] would start Thoughtborne (opens the setup wizard on a keyless install): {0}" -f $toolBat)
         Write-Host ""
         Write-Host "[dry-run] plan complete -- nothing was changed."
         $Global:LASTEXITCODE = 0   # explicit success signal (never a stale session value)
@@ -504,17 +523,16 @@ function Install-Thoughtborne {
 
     Write-Host ""
     Write-Host "Setup done."
-    if (Test-Path -LiteralPath $settingsBat) {
-        Write-Host "The settings app is opening -- pick a provider and paste your API key."
+    if (Test-Path -LiteralPath $toolBat) {
+        Write-Host "Starting Thoughtborne (on a keyless install it opens the setup wizard so you can pick a provider and paste your API key)."
         try {
-            Start-Process -FilePath $settingsBat -WorkingDirectory $installDir | Out-Null
+            Start-Process -FilePath $toolBat -WorkingDirectory $installDir | Out-Null
         } catch {
-            Write-Host "(Could not auto-open it -- launch 'Thoughtborne Settings' from the Start menu.)"
+            Write-Host "(Could not auto-start it -- launch 'Thoughtborne' from the Start menu.)"
         }
     } else {
-        Write-Host "Open 'Thoughtborne Settings' from the Start menu to pick a provider and paste your API key."
+        Write-Host "Open 'Thoughtborne' from the Start menu to begin -- it opens the setup wizard on a keyless install."
     }
-    Write-Host "Start dictation any time from the Start menu (Thoughtborne)."
     $Global:LASTEXITCODE = 0   # explicit success signal (never a stale session value)
 }
 

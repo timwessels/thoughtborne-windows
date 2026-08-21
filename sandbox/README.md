@@ -41,8 +41,9 @@ things only a real Windows box can settle are listed under *What it does not cov
   not hand-edit it** -- `run-sandbox.ps1` substitutes the real absolute path into a
   `%TEMP%` copy at run time (Windows Sandbox needs an absolute host path and does
   not expand env vars, so the tracked file cannot ship a machine-specific path).
-- `verify-in-sandbox.ps1` -- the in-sandbox driver: install -> drop the throwaway
-  key -> launch via the real Start-menu shortcut -> poll `thoughtborne.log` for
+- `verify-in-sandbox.ps1` -- the in-sandbox driver: drop the throwaway key into the
+  install dir -> install (setup.ps1's own #223/D-014 hand-off starts the tool, so the
+  driver never launches it itself) -> poll `thoughtborne.log` for
   `All hotkeys registered successfully` -> fire the `Ctrl+Alt+T` self-test and poll
   for a transcription -> copy logs + screenshots out -> write a `RESULT.txt` verdict.
 
@@ -79,11 +80,12 @@ copies below, and any `*.local.wsb`); keep it out of any commit regardless.
    `-Version` is optional (empty => the release `latest` alias). The verdict is a
    file, so an agent driving this from WSL never blocks on the sandbox-desktop GUI.
 
-Expected during a successful run: after `uv sync`, `setup.ps1` creates the two
-Start-menu shortcuts and **auto-launches the #144 settings wizard** (same handoff
-as a keyless start). That is expected -- the tool still registers its hotkeys, so
-the "hotkeys registered" assertion holds -- but any screenshot capture must time
-around the wizard window being on screen.
+Expected during a successful run: after `uv sync`, `setup.ps1` creates **one**
+Start-menu shortcut and **starts the tool itself** (its #223/D-014 hand-off). Because
+the throwaway key is placed before the install, that instance is a keyed one -- it
+opens as the Cockpit console (not the wizard) and registers its hotkeys, and that is
+the instance the harness then verifies. Any screenshot capture just catches that
+console on screen.
 
 ## Modes
 

@@ -140,14 +140,40 @@ def test_dryrun_present():
 def test_shortcuts():
     text = read_text("setup.ps1")
     names = re.findall(r"@\{\s*Name\s*=", text)
-    assert len(names) == 2, f"expected exactly two shortcuts, found {len(names)}"
+    assert len(names) == 1, f"expected exactly one shortcut, found {len(names)}"
     assert "Name = 'Thoughtborne'" in text, "missing 'Thoughtborne' shortcut"
-    assert "Name = 'Thoughtborne Settings'" in text, "missing 'Thoughtborne Settings' shortcut"
+    # The standalone settings shortcut is retired (#223, D-014). Assert the exact
+    # shortcut-definition absence, NOT a bare 'Thoughtborne Settings' substring -- the
+    # stale-removal line legitimately names 'Thoughtborne Settings.lnk' (.lnk != .bat).
+    assert "Name = 'Thoughtborne Settings'" not in text, "the standalone settings shortcut must be gone (#223)"
     assert "'Thoughtborne.bat'" in text, "shortcut does not reference Thoughtborne.bat"
-    assert "'Thoughtborne-Settings.bat'" in text, "shortcut does not reference Thoughtborne-Settings.bat"
+    # The retired standalone launcher must not be referenced anywhere in the installer
+    # (shortcut, hand-off, comment). Compose the forbidden name so this guard does not
+    # itself trip the repo-wide grep-proof for the literal (#223, D-014).
+    retired_launcher = "Thoughtborne-Settings" + ".bat"
+    assert retired_launcher not in text, f"setup.ps1 must not reference the retired {retired_launcher} (#223)"
     assert "cmd.exe" in text, "shortcut target is not cmd.exe"
     assert "favicon.ico" in text, "shortcut carries no favicon.ico icon"
     assert "'/c \"'" in text, "shortcut does not use the cmd /c \"...\" form (#140)"
+    # In-place updates strip a stale standalone-settings shortcut from older installs
+    # (#223, D-014); the dry-run plan announces it. Positive assertion on the removal.
+    assert "[dry-run] would remove any legacy settings shortcut" in text, \
+        "setup.ps1 does not remove the legacy 'Thoughtborne Settings' shortcut on update (#223)"
+
+
+def test_handoff_starts_tool():
+    # The post-install hand-off starts the TOOL (Thoughtborne.bat), not a standalone
+    # settings app (#223, D-014): a keyless install opens the tool's #200 shop window,
+    # which auto-launches the first-run wizard. Positive assertions on the $toolBat
+    # resolution, the dry-run plan line, and the real Start-Process -- the complement to
+    # test_shortcuts' negative guard that the retired launcher is referenced nowhere.
+    text = read_text("setup.ps1")
+    assert re.search(r"\$toolBat\s*=\s*Join-Path\s+\$installDir\s+'Thoughtborne\.bat'", text), \
+        "the hand-off does not resolve $toolBat to the tool's Thoughtborne.bat (#223)"
+    assert "[dry-run] would start Thoughtborne" in text, \
+        "the hand-off has no '[dry-run] would start Thoughtborne' plan line (#223)"
+    assert re.search(r"Start-Process\s+-FilePath\s+\$toolBat", text), \
+        "the hand-off does not Start-Process the tool ($toolBat) (#223)"
 
 
 def test_no_secret_collection():
@@ -163,7 +189,7 @@ def test_no_secret_collection():
 
 def test_launcher_astral_fallback():
     astral = r"%USERPROFILE%\.local\bin\uv.exe"
-    for name in ("Thoughtborne.bat", "Thoughtborne-Settings.bat"):
+    for name in ("Thoughtborne.bat",):
         assert astral in read_text(name), \
             f"{name}: no Astral per-user uv fallback ({astral})"
 
@@ -708,6 +734,7 @@ CASES = [
     test_running_instance_guard_present,
     test_dryrun_present,
     test_shortcuts,
+    test_handoff_starts_tool,
     test_no_secret_collection,
     test_launcher_astral_fallback,
     test_zip_lane_guard,
