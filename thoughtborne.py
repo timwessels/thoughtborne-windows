@@ -395,11 +395,17 @@ EXIT_NO_API_KEY = 3
 
 # Detach a spawned settings window from the tool's own console so quitting the tool
 # (Ctrl+Alt+4) closes its console window immediately even when a settings window is
-# still open -- without DETACHED_PROCESS the pythonw child stays attached to this
-# console and conhost keeps the window alive until it is closed (#222, carried over
-# from #220). Windows-only flag; getattr(..., 0) is a no-op off-Windows, mirroring
-# thoughtborne_settings.py's CREATE_NEW_CONSOLE idiom.
-_SETTINGS_DETACH_FLAGS = getattr(subprocess, "DETACHED_PROCESS", 0)
+# still open -- attached, the settings child kept conhost holding the window alive
+# until it was closed (#222, carried over from #220). CREATE_NO_WINDOW rather than
+# DETACHED_PROCESS (#227): under uv the venv's pythonw.exe is a console-subsystem
+# trampoline that respawns the base *console* python.exe, and a trampoline stripped
+# of any console (DETACHED_PROCESS) made that respawn allocate a fresh, visible
+# console beside the settings window. CREATE_NO_WINDOW detaches just as fully but
+# pre-creates a windowless console for the whole chain to inherit, so even a
+# console-subsystem interpreter in the chain stays invisible. Windows-only flag;
+# getattr(..., 0) is a no-op off-Windows, mirroring thoughtborne_settings.py's
+# CREATE_NEW_CONSOLE idiom.
+_SETTINGS_DETACH_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # SGR codes for the few _style() call sites left in this module (the dim ticker
 # and the console log formatter). The full palette is single-sourced in
@@ -1256,16 +1262,29 @@ class ThoughtborneApp:
         keyless-start hook, #163); no args opens the normal settings dialog when a
         key is stored (the Ctrl+Alt+G hotkey, #164).
 
-        The child is launched with DETACHED_PROCESS and its stdio redirected to
-        DEVNULL so it holds nothing of the tool's console: without the detach the
-        settings child stayed attached to that console and kept conhost holding the
-        window open past the tool's own exit (#222, carried over from #220). Both
-        the flag and DEVNULL are no-ops off-Windows."""
+        The child is launched with CREATE_NO_WINDOW (see _SETTINGS_DETACH_FLAGS,
+        #222/#227) and its stdio redirected to DEVNULL so it holds nothing of the
+        tool's console: without the detach the settings child stayed attached to
+        that console and kept conhost holding the window open past the tool's own
+        exit (#222, carried over from #220). Both the flag and DEVNULL are no-ops
+        off-Windows."""
         settings_script = SCRIPT_DIR / "thoughtborne_settings.py"
         if not settings_script.exists():
             return False
-        pythonw = Path(sys.executable).with_name("pythonw.exe")
-        interpreter = str(pythonw) if pythonw.exists() else sys.executable
+        # Prefer a genuinely windowless (GUI-subsystem) interpreter. Under uv the
+        # venv's own pythonw.exe is not one -- it is a console-subsystem trampoline
+        # for the base *console* python.exe (#227) -- so the base install's real
+        # pythonw.exe (sys._base_executable's sibling) comes first; the app is pure
+        # stdlib, so running it outside the venv loses nothing. The venv name stays
+        # as a fallback for layouts without a reachable base, and CREATE_NO_WINDOW
+        # keeps even a console-subsystem fallback window-free.
+        exe = Path(sys.executable)
+        base = Path(getattr(sys, "_base_executable", None) or exe)
+        interpreter = sys.executable
+        for candidate in (base.with_name("pythonw.exe"), exe.with_name("pythonw.exe")):
+            if candidate.exists():
+                interpreter = str(candidate)
+                break
         # Pass a wall-clock spawn stamp so the app can measure the otherwise
         # invisible process-creation + interpreter/venv cold start (#195). A plain
         # env var, comparable across processes (time.time); the app drops it silently

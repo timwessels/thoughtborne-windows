@@ -25,8 +25,11 @@ off-Windows. What can be checked without Windows:
   - the FOCUS_* outcome categories are distinct, non-empty strings (#203);
   - a static source guard on thoughtborne.py (read as text, never imported) that the
     #222 one-exit wiring stays in place -- `import settings_instance`, the
-    `close_existing_settings_windows` call, and the `DETACHED_PROCESS` spawn detach --
-    the only automated defence for behaviour that is otherwise Windows-only hands-on.
+    `close_existing_settings_windows` call, and the `CREATE_NO_WINDOW` spawn detach
+    (NOT `DETACHED_PROCESS`, and preferring the base install's real pythonw.exe: under
+    uv the venv trampoline is console-subsystem, so a fully console-less detach popped
+    a stray visible console, #227) -- the only automated defence for behaviour that is
+    otherwise Windows-only hands-on.
 
 The real ctypes mutex/focus/close behavior on Windows is hands-on (#199, #222).
 
@@ -133,7 +136,10 @@ def test_thoughtborne_wires_close_and_detach():
     Windows-only. That the exit hotkey closes the settings window and that the settings
     spawn is detached from the console can only be proven hands-on, so this is the sole
     automated defence that the wiring stays in place (the idiom test_restart_signal /
-    test_engine_memory / test_setup use)."""
+    test_engine_memory / test_setup use). Since #227 the detach must be CREATE_NO_WINDOW
+    and the spawn must prefer the base install's real pythonw.exe: uv's venv pythonw is
+    a console-subsystem trampoline for the base *console* python.exe, so the old fully
+    console-less DETACHED_PROCESS made that respawn pop a stray visible console."""
     src_path = Path(__file__).resolve().parent / "thoughtborne.py"
     try:
         src = src_path.read_text(encoding="utf-8")
@@ -145,9 +151,15 @@ def test_thoughtborne_wires_close_and_detach():
     check("close_existing_settings_windows" in src,
           "thoughtborne.py does not call close_existing_settings_windows -- quit no longer "
           "closes the settings window (#222)")
-    check("DETACHED_PROCESS" in src,
-          "thoughtborne.py no longer detaches the settings spawn (DETACHED_PROCESS gone) -- "
+    check('getattr(subprocess, "CREATE_NO_WINDOW"' in src,
+          "thoughtborne.py no longer detaches the settings spawn (CREATE_NO_WINDOW gone) -- "
           "the console window can linger past exit (#222/#220)")
+    check('getattr(subprocess, "DETACHED_PROCESS"' not in src,
+          "thoughtborne.py uses DETACHED_PROCESS again -- under uv's console-trampoline "
+          "pythonw the settings spawn then pops a stray visible console (#227)")
+    check("_base_executable" in src,
+          "thoughtborne.py no longer prefers the base install's real pythonw.exe -- "
+          "the uv venv trampoline is a console-subsystem stub, not a GUI binary (#227)")
 
 
 def main():
@@ -165,8 +177,9 @@ def main():
         return 1
     print("OK: lazy import, the four titles track the string table, a distinct "
           "session-scoped mutex name, distinct FOCUS_* outcome categories, "
-          "off-Windows fail-open (mutex/focus/close), and the #222 one-exit source "
-          "wiring guard all pass")
+          "off-Windows fail-open (mutex/focus/close), and the #222/#227 one-exit "
+          "source wiring guard (CREATE_NO_WINDOW detach, base-pythonw preference) "
+          "all pass")
     return 0
 
 
