@@ -641,11 +641,28 @@ observability change. The transient pulse is **not** a permanent forced-topmost 
 drops the flag again right away -- best-effort, retried once -- and never activates),
 so it does not reintroduce a window that stays above everything.
 
+**2026-08-21 amendment (#217).** The ignore's *recording* half is **removed** —
+`Ctrl+Alt+G` now opens the settings window during an active recording too; only the
+pending-insert ignore (and its calm console line) remains. Per the maintainer's
+explicit direction of 2026-08-20, the focus argument does not hold for an active
+recording: a settings window only steals the insertion target if it still holds
+focus at *stop* time, a hazard that already exists today (a window can be open from
+before the recording started — recording start is not blocked by an open window),
+and the one genuinely lossy case, a mid-recording *Save & restart*, is caught
+losslessly by the #202 salvage path (the in-flight audio is saved on the clean
+shutdown and `Ctrl+Alt+R` re-transcribes it after the relaunch, D-001). This
+narrows the ignore from *recording or a pending insertion* back to *pending
+insertion only*; it does **not** touch the rest of D-009 — the one-window guarantee,
+the distinct mutex, focus-don't-refuse, the pending-insert extension, and the
+no-deferred-auto-open rule all stand. Not a supersede.
+
 Do not reintroduce: sharing the tool's mutex name for the settings app; a settings
 second-instance that refuses-with-notice instead of focusing; a prefix title match
 that can hit the tool's console window; a deferred settings auto-open that could
 front-run a pending insertion; a DEBUG-only sign for an ignored press; or a
 *permanent* forced-topmost for the focus remedy (the transient pulse is deliberate).
+Nor the recording-active ignore for `Ctrl+Alt+G`: since #217, opening during an
+active recording is deliberately allowed, and only the pending-insert ignore remains.
 
 Respects D-002 — the fix prevents a second config *editor* from existing; the
 `settings_io` write contract is untouched. Respects D-004 as the mutex mechanism

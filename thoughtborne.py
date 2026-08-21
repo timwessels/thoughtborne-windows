@@ -2056,16 +2056,19 @@ class ThoughtborneApp:
         """Open the settings app from the running tool (#164; Ctrl+Alt+G,
         'G as in gear'). Runs on the listener thread -> logger.* only (#11).
 
-        Ignored while a recording is active OR an insertion is still pending
-        (#196): opening a window mid-dictation, or in the seconds between the stop
-        key and the paste, would steal focus from the insertion target. An ignored
-        press now prints a calm, reason-aware console line (INFO) instead of a DEBUG
-        line the INFO-pinned console never shows. Spawns the settings app in normal
-        (non-wizard) mode, detached/non-blocking; never raises. The app enforces a
-        single window itself (D-009), so a repeat press focuses the existing one."""
-        if self.audio_recorder.is_recording:
-            logger.info("Settings not opened -- recording in progress (Ctrl+Alt+G)")
-            return
+        Ignored only while an insertion is still pending (#196; the recording
+        half was dropped in #217): opening a window in the seconds between the
+        stop key and the paste would steal focus from the insertion target.
+        Opening during an active recording is allowed -- the settings app is a
+        separate process that leaves the recording loop untouched, and the one
+        case that could drop the in-flight recording, a mid-recording Save &
+        restart, is salvaged (the audio is saved on the clean shutdown and
+        Ctrl+Alt+R re-transcribes it after the relaunch, #202/D-001). An ignored
+        press prints a calm console line (INFO) instead of a DEBUG line the
+        INFO-pinned console never shows. Spawns the settings app in normal
+        (non-wizard) mode, detached/non-blocking; never raises. The app enforces
+        a single window itself (D-009), so a repeat press focuses the existing
+        one."""
         if self._insertion_pending():
             logger.info("Settings not opened -- finishing the last dictation (Ctrl+Alt+G)")
             return
