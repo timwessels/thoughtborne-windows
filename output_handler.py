@@ -634,20 +634,24 @@ class OutputManager:
             _diag_sample_window("post-paste", CLIPBOARD_RESTORE_DELAY)
             _clipboard_diag("post-paste")
 
-            # Verified single retry (#29): only on the non-text path (the
-            # text path has never been observed to fail), only for control
-            # classes whose WM_GETTEXTLENGTH answer is trustworthy, only when
-            # the length provably did not change, and only while the focus is
-            # still on the same control. Residual double-paste risk is
-            # confined to two narrow cases: a paste that replaced a selection
-            # of exactly equal length, and a target in a nested message loop
-            # that answers sent messages while the V keydown still waits in
-            # its input queue. Must run BEFORE the restore below, while the
-            # clipboard still holds the transcript.
+            # Verified single retry (#29; widened in #225): fires on any
+            # provably-unlanded paste — a control whose WM_GETTEXTLENGTH answer
+            # is trustworthy, a length that provably did not change, and the
+            # focus still on the same control — whatever the clipboard held
+            # before. It was first gated to the non-text path only, on the
+            # assumption the text path never failed; a WSLg clipboard-
+            # contention miss disproved that (2026-08-20: msrdc.exe/WSLg
+            # briefly held the clipboard on a text-path insert, Scintilla's
+            # paste silently no-opped, zero length delta). The double-paste
+            # safety below never depended on that gate. Residual double-paste
+            # risk is confined to two narrow cases: a paste that replaced a
+            # selection of exactly equal length, and a target in a nested
+            # message loop that answers sent messages while the V keydown still
+            # waits in its input queue. Must run BEFORE the restore below,
+            # while the clipboard still holds the transcript.
             len_after = _diag_text_length(focus_hwnd)
             if (
-                clipboard_had_non_text
-                and focus_class in _TEXT_CONTROL_CLASSES
+                focus_class in _TEXT_CONTROL_CLASSES
                 and len_before is not None
                 and len_after == len_before
             ):
