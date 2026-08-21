@@ -14,7 +14,9 @@ rewrite.
     never clobbers a stored key.
   - `personal_settings.json` keeps every unmanaged block and every `_comment`
     untouched; hotkeys are written as a diff against `config.DEFAULT_HOTKEYS` (the
-    default scheme writes no hotkey entries). `defaults.api` follows a three-valued
+    default scheme writes no hotkey entries), unless `hotkeys_effective` is None,
+    which leaves the hotkeys block exactly as found -- the ui.language-only write a
+    settings-app language toggle makes (D-014). `defaults.api` follows a three-valued
     `default_api` contract (#193/#198, D-008/D-002): `None` leaves the file's value
     exactly as found (an untouched engine field -- so an unrelated save never deletes
     a hand-written pin, invalid junk included); the distinct `REMOVE_API_PIN` sentinel
@@ -334,14 +336,17 @@ def _managed_skeleton(example_path) -> dict:
     return skeleton
 
 
-def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
+def write_personal_settings(path, *, hotkeys_effective, default_api,
                             example_path=None, ui_language=None) -> None:
     """Merge-write. Load the existing dict (or build a minimal skeleton from the
     managed blocks' example `_comment` leads -- never the placeholder vocabulary).
     Replace ONLY the managed blocks:
-      - hotkeys: the diff of `hotkeys_effective` vs `config.DEFAULT_HOTKEYS` in
-        #55's partial-override shape; an empty diff leaves only the block's
-        `_comment` (or drops the block). A leading `_comment` is preserved.
+      - hotkeys (three-valued like ui.language / defaults.api): `hotkeys_effective`
+        is written as the diff vs `config.DEFAULT_HOTKEYS` in #55's partial-override
+        shape; an empty diff leaves only the block's `_comment` (or drops the block),
+        a leading `_comment` is preserved. `hotkeys_effective=None` leaves the hotkeys
+        block exactly as found -- the ui.language-only write (a settings-app language
+        toggle, D-014) passes None so a toggle never rewrites or normalizes hotkeys.
       - defaults.api (on demand, like ui.language below; three-valued, #193/#198,
         D-008/D-002): `default_api=None` means "no engine was picked this save" and
         leaves the file's `defaults.api` exactly as found -- untouched, unread,
@@ -372,19 +377,24 @@ def write_personal_settings(path, *, hotkeys_effective: dict, default_api,
     data = existing if existing else _managed_skeleton(example_path)
 
     # ---- hotkeys: write only the diff vs the shipped defaults -----------------
+    # hotkeys_effective=None means "leave the hotkeys block exactly as found"
+    # (symmetric with default_api=None / ui_language=None): the ui.language-only write
+    # a settings-app language toggle makes (D-014) passes None so a toggle never
+    # rewrites or normalizes the user's hotkeys.
     # Preserve every JSON-comment key (any '_'-prefixed key -- apply_hotkey_overrides
     # skips all of them, so a user may park e.g. "_disabled_start_recording"); only
     # the real action entries are replaced by the fresh diff (N7).
-    hk_block = data.get("hotkeys")
-    preserved_hk = ({k: v for k, v in hk_block.items() if k.startswith("_")}
-                    if isinstance(hk_block, dict) else {})
-    diff = hotkeys_diff_vs_default(hotkeys_effective, config.DEFAULT_HOTKEYS)
-    new_hk = dict(preserved_hk)
-    new_hk.update(diff)
-    if new_hk:
-        data["hotkeys"] = new_hk
-    else:
-        data.pop("hotkeys", None)
+    if hotkeys_effective is not None:
+        hk_block = data.get("hotkeys")
+        preserved_hk = ({k: v for k, v in hk_block.items() if k.startswith("_")}
+                        if isinstance(hk_block, dict) else {})
+        diff = hotkeys_diff_vs_default(hotkeys_effective, config.DEFAULT_HOTKEYS)
+        new_hk = dict(preserved_hk)
+        new_hk.update(diff)
+        if new_hk:
+            data["hotkeys"] = new_hk
+        else:
+            data.pop("hotkeys", None)
 
     # ---- defaults.api: on demand; three-valued signal (#193/#198, D-008/D-002) ---
     # None (the "engine field untouched" case) leaves the key exactly as found:

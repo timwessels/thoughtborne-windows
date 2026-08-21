@@ -53,7 +53,10 @@ What is covered:
   - settings_io.write_personal_settings ui.language merge (#144, F6): ui_language
     None preserves an existing ui block untouched (and creates none when absent),
     "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
-    absent-file write with a language seeds a fresh ui block.
+    absent-file write with a language seeds a fresh ui block. hotkeys_effective=None
+    (the D-014 language-toggle self-persist write, #221) leaves every non-ui block
+    exactly as found -- a non-canonical hotkeys value survives verbatim, not
+    re-normalized -- and a three-None call is a content no-op.
   - settings_io.resolve_first_run / env_has_key (#163): the settings app's window-
     mode decision -- flag OR no stored key -> the first-run wizard, a stored key with
     no flag -> the plain dialog; the shared key-presence predicate and the read_env
@@ -701,6 +704,69 @@ def check_ui_language(tmp):
           "UI-new: language missing on absent-file write")
     check("_comment" in data.get("ui", {}), "UI-new: example _comment lead not carried")
     check("vocabulary" not in data, "UI-new: absent-file write seeded a vocabulary block")
+
+    # (f) hotkeys_effective=None (the D-014 language-toggle self-persist write, #221)
+    # leaves every non-ui block exactly as found. The give-away that this is a
+    # leave-as-found path and not a re-diff: a NON-canonical hotkeys value ("Ctrl+Alt+W")
+    # survives VERBATIM instead of being normalized to lowercase. Only ui.language moves.
+    p = tmp / "ps_ui_only.json"
+    p.write_text(json.dumps(
+        {"hotkeys": {"start_recording": "Ctrl+Alt+W"},
+         "defaults": {"api": "groq"},
+         "vocabulary": {"terms": ["keepme"]}},
+        indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=None, default_api=None,
+                                ui_language="de", example_path=EXAMPLE_PS)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "UI-only: file did not reload as valid JSON")
+    check(data.get("hotkeys") == {"start_recording": "Ctrl+Alt+W"},
+          f"UI-only: hotkeys_effective=None rewrote/normalized the hotkeys block: {data.get('hotkeys')}")
+    check(data.get("defaults", {}).get("api") == "groq",
+          f"UI-only: defaults.api was touched: {data.get('defaults')}")
+    check(data.get("vocabulary", {}).get("terms") == ["keepme"],
+          "UI-only: vocabulary clobbered")
+    check(data.get("ui", {}).get("language") == "de",
+          f"UI-only: ui.language not written: {data.get('ui')}")
+
+    # (g) hotkeys_effective=None, default_api=None, ui_language=None is a content no-op:
+    # nothing but a ui block is even eligible to change, and with ui_language=None that
+    # stays too -- the "everything untouched" shape the toggle path relies on.
+    p = tmp / "ps_ui_noop.json"
+    original = {"hotkeys": {"start_recording": "Ctrl+Alt+W"},
+                "defaults": {"api": "groq"},
+                "vocabulary": {"terms": ["keepme"]}}
+    p.write_text(json.dumps(original, indent=2, ensure_ascii=False) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=None, default_api=None,
+                                ui_language=None, example_path=EXAMPLE_PS)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("hotkeys") == original["hotkeys"], "UI-noop: hotkeys block changed")
+    check(data.get("defaults") == original["defaults"], "UI-noop: defaults block changed")
+    check(data.get("vocabulary") == original["vocabulary"], "UI-noop: vocabulary changed")
+    check("ui" not in data, f"UI-noop: a ui block appeared out of nowhere: {data.get('ui')}")
+
+    # (h) the FRESH wizard-mode toggle path (#221, D-014): a language toggle in the
+    # first-run wizard self-persists onto an ABSENT personal_settings.json -- the same
+    # ui.language-only write (hotkeys_effective=None, default_api=None, ui_language set)
+    # as settings-mode, but here the skeleton path runs because the file does not exist
+    # yet. The skeleton seeds only the managed blocks' _comment leads (NEVER the
+    # example's placeholder vocabulary), the hotkeys_effective=None / default_api=None
+    # guards leave those blocks with no real action, and only ui.language is set.
+    p = tmp / "ps_ui_wizard_absent.json"
+    sio.write_personal_settings(p, hotkeys_effective=None, default_api=None,
+                                ui_language="de", example_path=EXAMPLE_PS)
+    check(p.exists(), "UI-wizard-absent: file not created")
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "UI-wizard-absent: file did not reload as valid JSON")
+    check(data.get("ui", {}).get("language") == "de",
+          f"UI-wizard-absent: ui.language not written: {data.get('ui')}")
+    hk_entries = {k: v for k, v in data.get("hotkeys", {}).items() if not k.startswith("_")}
+    check(hk_entries == {},
+          f"UI-wizard-absent: hotkeys_effective=None wrote a real hotkey action: {hk_entries}")
+    check("api" not in data.get("defaults", {}),
+          f"UI-wizard-absent: default_api=None wrote a defaults.api pin: {data.get('defaults')}")
+    check("vocabulary" not in data,
+          "UI-wizard-absent: absent-file write seeded a placeholder vocabulary block")
 
 
 # ---- startup-engine preselection (#178) --------------------------------------

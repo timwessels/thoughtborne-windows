@@ -199,8 +199,6 @@ class SettingsApp:
         self._wrap_labels = []
         self._wrap_push_pending = False
 
-        self.dirty = False
-        self._lang_toggled = False
         # Frozen-rail latch (#202): set once _restart_and_relaunch begins its wait, it
         # makes update_rail / _render_rail early-return so a tab change or language
         # toggle during the wait can't re-enable Back or repaint the "Restarting…"
@@ -247,7 +245,7 @@ class SettingsApp:
         # engine rather than the first carousel slot.
         shown = self._pinned_api or remembered or config.BUILTIN_DEFAULT_API
         self.engine_index = config.AVAILABLE_APIS.index(shown)
-        # Save-time dirty check (#193): only a field an engine was actually
+        # Save-time engine-selection check (#193): only a field an engine was actually
         # SELECTED in -- by the user, or by #178's preselect below -- is persisted,
         # so merely displaying a remembered engine never promotes it into a pin.
         self._engine_index_loaded = self.engine_index
@@ -273,8 +271,7 @@ class SettingsApp:
         self._engine_user_chose = self._pinned_api is not None
 
         ui = personal.get("ui")
-        self._had_ui_block = isinstance(ui, dict)
-        lang = ui.get("language") if self._had_ui_block else None
+        lang = ui.get("language") if isinstance(ui, dict) else None
         if lang not in ("de", "en"):
             lang = strings.detect_ui_language()
         self.lang = lang
@@ -315,7 +312,7 @@ class SettingsApp:
 
         self._build_ui()
 
-        # Field-edit traces added AFTER prefill so the initial fill isn't "dirty".
+        # Field-edit traces added AFTER prefill so the initial prefill isn't seen as a user edit.
         self.groq_var.trace_add("write", lambda *a: self._on_field_edit("groq"))
         self.soniox_var.trace_add("write", lambda *a: self._on_field_edit("soniox"))
 
@@ -332,7 +329,7 @@ class SettingsApp:
             # Text comes from the render registry (warn.corrupt); just make it visible.
             self.warn_strip.pack(side="top", fill="x", padx=12, before=self.notebook)
 
-        root.protocol("WM_DELETE_WINDOW", self._on_close)
+        root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
     # ------------------------------------------------------------------ helpers
     def _reg(self, widget, key):
@@ -490,9 +487,6 @@ class SettingsApp:
         except Exception:
             pass
 
-    def _mark_dirty(self):
-        self.dirty = True
-
     # -------------------------------------------------------------- UI assembly
     def _build_ui(self):
         # rail first (pinned bottom), then header (top), then notebook (fills).
@@ -577,7 +571,7 @@ class SettingsApp:
             self.back_btn.pack(side="right", padx=(0, self.theme.sp(8)))
         else:
             self.cancel_btn = ttk.Button(rail, style="Card.TButton",
-                                         command=self._on_close)
+                                         command=self.root.destroy)
             self.cancel_btn.pack(side="right")
             self.save_btn = ttk.Button(rail, style="Primary.TButton",
                                        command=lambda: self._save(False))
@@ -809,12 +803,11 @@ class SettingsApp:
         # Editing a field voids any pending/shown verdict: bump the generation so an
         # in-flight test's result is discarded when it lands, reset the indicator to
         # idle, and re-enable the test button (so a mid-test edit can't leave it stuck
-        # disabled). Then mark the form dirty.
+        # disabled).
         self._test_gen[provider] += 1
         self._test_state[provider] = None
         self._test_btns[provider].config(state="normal")
         self._render_indicator(provider)
-        self._mark_dirty()
         self._maybe_preselect_engine()   # #178: key-driven startup-engine preselect
         self._render_engine_control()    # #201: live grey/un-grey + guidance as keys change
 
@@ -978,7 +971,6 @@ class SettingsApp:
         self.hotkeys_state = (settings_io.preset_ctrl_alt() if which == "ctrl_alt"
                               else settings_io.preset_fkeys())
         self._disarm()
-        self._mark_dirty()
         self._render_hotkey_grid()
         self._render_hotkey_status()
         self._render_capture_limit()
@@ -1115,7 +1107,6 @@ class SettingsApp:
         self.hotkeys_state[name] = candidate[name]
         self.capture_lbl.config(text="")
         self._disarm()
-        self._mark_dirty()
         self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
@@ -1315,10 +1306,9 @@ class SettingsApp:
         # radio -- a disabled (keyless, or remember-mode) radio ignores the click, so
         # this can never fire for a keyless engine. Track selection by index into
         # AVAILABLE_APIS. An explicit pick locks out the #178 key-driven preselection
-        # for good and marks the pin dirty.
+        # for good.
         self.engine_index = config.AVAILABLE_APIS.index(self.engine_var.get())
         self._engine_user_chose = True
-        self._mark_dirty()
 
     def _on_mode(self):
         # An explicit mode choice is explicit engagement -> stop the #178 key-driven
@@ -1326,7 +1316,6 @@ class SettingsApp:
         # so the dropdown enables/disables and the remember label reflects the mode.
         self._engine_user_chose = True
         self._render_engine_control()
-        self._mark_dirty()
 
     def _maybe_preselect_engine(self):
         # #178: in the first-run wizard, let the entered key preselect the matching
@@ -1360,9 +1349,27 @@ class SettingsApp:
         if new == self.lang:
             return
         self.lang = new
-        self._lang_toggled = True
-        self._mark_dirty()
         self.render_all()
+        self._persist_language()   # D-014: a toggle self-persists at once
+
+    def _persist_language(self):
+        # A language toggle self-persists immediately (D-014): with no unsaved-changes
+        # guard, Cancel/[X] just close, so a toggle not written now would be lost. A
+        # narrow ui.language-only surgical write -- hotkeys/defaults/unmanaged blocks
+        # stay exactly as found (hotkeys_effective=None, default_api=None), so a session
+        # that only ever toggles the language leaves every other block byte-identical.
+        # One rule for both modes: the language radios live in the shared header, so this
+        # fires in the wizard and the everyday dialog alike. Best-effort -- a failed write
+        # costs only the remembered display language, never the settings, so it stays
+        # silent rather than raising an error dialog on every failed toggle (mirrors
+        # engine_memory.write_last_engine's stance).
+        try:
+            settings_io.write_personal_settings(
+                config.SCRIPT_DIR / "personal_settings.json",
+                hotkeys_effective=None, default_api=None, ui_language=self.lang,
+                example_path=config.SCRIPT_DIR / "personal_settings.example.json")
+        except Exception:
+            pass
 
     def _has_any_key(self):
         """True iff a key is entered OR one is already stored. The single predicate
@@ -1542,10 +1549,6 @@ class SettingsApp:
                                        strings.t("dlg.hotkeywarn.body", self.lang)):
                 return
 
-        # Write rule for ui.language: persist iff toggled this session or the file
-        # already carried a ui block -- else None, so a no-choice user stays clean.
-        ui_lang = self.lang if (self._lang_toggled or self._had_ui_block) else None
-
         # Engine field (#193/#198, D-008): derive the two on-save signals from the
         # two-mode control in one pure, off-Windows-tested place. `default_api_signal`
         # is what defaults.api gets -- None (leave as found) / REMOVE_API_PIN (drop
@@ -1572,7 +1575,9 @@ class SettingsApp:
                 hotkeys_effective=self.hotkeys_state,
                 default_api=default_api_signal,
                 example_path=config.SCRIPT_DIR / "personal_settings.example.json",
-                ui_language=ui_lang)
+                # language self-persists on toggle (D-014); the save never writes it --
+                # ui_language=None leaves any existing ui block exactly as found.
+                ui_language=None)
         except Exception as e:
             # Atomic writes + abort-on-unreadable (CP1) mean no file is left half-
             # written or corrupted. .env is written before personal_settings.json, so
@@ -1592,7 +1597,6 @@ class SettingsApp:
                 engine_memory.state_path(config.SCRIPT_DIR), memory_api,
                 config.AVAILABLE_APIS)
 
-        self.dirty = False
         # Post-save action (#202). Re-probe the mutex at CLICK time -- the label's
         # probe may be minutes stale, and both drift directions must resolve right:
         # a tool that started since the label was drawn still restarts; one that
@@ -1699,13 +1703,6 @@ class SettingsApp:
             acting, other = self.save_btn, self.cancel_btn
         acting.config(text=strings.t("btn.restarting", self.lang), state="disabled")
         other.config(state="disabled")
-
-    def _on_close(self):
-        if self.dirty:
-            if not messagebox.askyesno(strings.t("dlg.discard.title", self.lang),
-                                       strings.t("dlg.discard.body", self.lang)):
-                return
-        self.root.destroy()
 
 
 def _probe_viewable(root):

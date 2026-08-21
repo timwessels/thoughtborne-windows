@@ -860,3 +860,61 @@ Respects D-002 -- the default change flows through the settings app's existing
 diff-vs-default write; no new write surface, and a user's explicit pin is never
 touched. Does not touch D-001, D-003, D-004, D-005, D-006, D-007, D-008, D-009,
 D-010, or D-011.
+
+## D-014 — Settings is part of the app: no unsaved-changes guard, one exit, one lane
+
+Decided 2026-08-20 (#221 -> #222 -> #223, the "one-unit" doctrine, landed in that
+order; step 1, #221, is implemented here).
+
+The settings/onboarding window is part of the app, not an app of its own. From that
+follows radical simplicity: no unsaved-changes bookkeeping, no discard dialog, no
+"are you sure" layer. Save saves; Cancel/[X] closes, period. The maintainer accepts
+the trade-off explicitly -- the worst case is retyping an API key.
+
+- **No unsaved-changes concept (step 1, #221).** The `dirty` flag, its mark-on-edit
+  hooks (`_mark_dirty` and its call sites), the close-time discard prompt (`_on_close`),
+  and its DE/EN strings (`dlg.discard.*`) are gone -- built as if the concept had never
+  existed, not as "the old code minus the check". Close paths close: the window [X] and
+  the Cancel button wire straight to `root.destroy`, the teardown every Save path already
+  uses. Save paths are untouched. Field-edit callbacks that also drive real work stay --
+  the test-generation stamping, the #178 engine preselect, the #201 key-aware render, the
+  hotkey state -- only their poke at the removed flag is gone; not one trace or callback
+  existed solely to feed the flag. The separate #193 save-time engine-SELECTION check
+  (which field an engine was actually chosen in, feeding `resolve_engine_save_signal`,
+  D-008) is NOT this concept and stays.
+- **Language toggle self-persists.** With no dirty concept a toggle would be silently
+  lost on close, so it is written the instant it happens, via a ui.language-only surgical
+  merge: `write_personal_settings(hotkeys_effective=None, default_api=None,
+  ui_language=<new>)`, where every managed block's `None` now means "leave exactly as
+  found" (the invariant `defaults.api`/`ui.language` already had, generalized to hotkeys
+  rather than adding a parallel writer). It fires only on a real toggle, so a session that
+  never toggles leaves `personal_settings.json` byte-identical (the #144 contract). The
+  write is best-effort: a failed toggle-persist costs only the remembered display language,
+  never the settings, so it stays silent rather than raising a dialog. One rule for both
+  wizard and settings mode -- the language radios live in the shared header, so there is no
+  mode fork. Because the toggle self-persists, the Save path no longer writes ui.language
+  at all (`ui_language=None`), which retires the `_lang_toggled` / `_had_ui_block` save
+  bookkeeping too; a keyed save still preserves an existing `ui` block as-found, so the
+  language is never dropped.
+- **One exit (step 2, #222) and one lane (step 3, #223)** build on this: quitting the tool
+  ends the settings window too, and the standalone settings lane is retired. Those steps
+  cite D-014. D-005's venv-first launcher design retires with the standalone lane in step 3;
+  D-009's single-window mutex + focus-existing remedy **stays** (one window is still one
+  window).
+
+Absorbs #215 -- removing the dialog machinery removes the false-"dirty" symptom that
+issue reported, wholesale.
+
+Do not reintroduce: an unsaved-changes flag; a discard / "are you sure" prompt on close;
+a close handler that does anything but destroy the window; a pass-through `_on_close`
+wrapper that only forwards to `destroy`; or a language toggle that is persisted only at
+Save time.
+
+Respects D-002 -- `settings_io` stays the only writer of `.env` / `personal_settings.json`,
+and the ui.language-only write is the existing surgical merge with hotkeys/defaults left
+exactly as found, so no unmanaged block or `_comment` is dropped (a deliberate consequence:
+an invalid hand-typed `ui.language` is now left as found on Save, like the `defaults.api`
+invalid-value rule, instead of being normalized). Respects D-008 -- the engine memory and
+displaying-vs-selecting logic is untouched. Respects D-009 -- the single-window guard and
+focus-existing remedy stand. Does not touch D-001, D-003, D-004, D-006, D-007, D-010,
+D-011, or D-012 (D-005 is retired by step 3, not this step).

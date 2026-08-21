@@ -287,8 +287,6 @@ _EN = {
         "own console."),
 
     # ---- dialogs & warnings ----
-    "dlg.discard.title": "Discard changes?",
-    "dlg.discard.body": "There are unsaved changes. Close without saving?",
     "dlg.nokey.title": "No API key",
     "dlg.nokey.body": (
         "No API key is entered, and none was found on this PC — Thoughtborne can't "
@@ -609,8 +607,6 @@ _DE = {
         "läuft in seiner eigenen Konsole."),
 
     # ---- dialogs & warnings ----
-    "dlg.discard.title": "Änderungen verwerfen?",
-    "dlg.discard.body": "Es gibt ungespeicherte Änderungen. Ohne Speichern schließen?",
     "dlg.nokey.title": "Kein API-Key",
     "dlg.nokey.body": (
         "Es ist kein API-Key eingetragen, und es wurde keiner gefunden — ohne Key "
