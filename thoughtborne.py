@@ -40,6 +40,7 @@ from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 import console_ui
 import engine_memory
 import restart_signal
+import settings_instance
 from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
@@ -391,6 +392,14 @@ _ANSI_ENABLED = _enable_vt_mode()
 # has nothing to do with. Any other non-zero code keeps the bat's generic
 # dependency hint, where "check uv/your connection" can actually help.
 EXIT_NO_API_KEY = 3
+
+# Detach a spawned settings window from the tool's own console so quitting the tool
+# (Ctrl+Alt+4) closes its console window immediately even when a settings window is
+# still open -- without DETACHED_PROCESS the pythonw child stays attached to this
+# console and conhost keeps the window alive until it is closed (#222, carried over
+# from #220). Windows-only flag; getattr(..., 0) is a no-op off-Windows, mirroring
+# thoughtborne_settings.py's CREATE_NEW_CONSOLE idiom.
+_SETTINGS_DETACH_FLAGS = getattr(subprocess, "DETACHED_PROCESS", 0)
 
 # SGR codes for the few _style() call sites left in this module (the dim ticker
 # and the console log formatter). The full palette is single-sourced in
@@ -1239,13 +1248,19 @@ class ThoughtborneApp:
 
     @staticmethod
     def _launch_settings_app(*extra_args) -> bool:
-        """Detached-launch the settings app (#144/#164). Prefers pythonw (no stray
-        console beside the window) and never raises -- a False return lets the
-        caller fall back. The app is pure stdlib, so the interpreter running
-        Thoughtborne can run it directly. extra_args selects the mode:
-        '--first-run' forces the wizard (the keyless-start hook, #163); no args
-        opens the normal settings dialog when a key is stored (the Ctrl+Alt+G
-        hotkey, #164)."""
+        """Spawn the settings app detached from the tool's own console
+        (#144/#164/#222). Prefers pythonw (no stray console beside the window) and
+        never raises -- a False return lets the caller fall back. The app is pure
+        stdlib, so the interpreter running Thoughtborne can run it directly.
+        extra_args selects the mode: '--first-run' forces the wizard (the
+        keyless-start hook, #163); no args opens the normal settings dialog when a
+        key is stored (the Ctrl+Alt+G hotkey, #164).
+
+        The child is launched with DETACHED_PROCESS and its stdio redirected to
+        DEVNULL so it holds nothing of the tool's console: without the detach the
+        settings child stayed attached to that console and kept conhost holding the
+        window open past the tool's own exit (#222, carried over from #220). Both
+        the flag and DEVNULL are no-ops off-Windows."""
         settings_script = SCRIPT_DIR / "thoughtborne_settings.py"
         if not settings_script.exists():
             return False
@@ -1258,7 +1273,11 @@ class ThoughtborneApp:
         env = {**os.environ, "THOUGHTBORNE_SPAWN_TS": repr(time.time())}
         try:
             subprocess.Popen([interpreter, str(settings_script), *extra_args],
-                             cwd=str(SCRIPT_DIR), env=env)
+                             cwd=str(SCRIPT_DIR), env=env,
+                             creationflags=_SETTINGS_DETACH_FLAGS,
+                             stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
             return True
         except Exception as e:
             logger.debug(f"Could not launch the settings app: {e}")
@@ -2057,7 +2076,22 @@ class ThoughtborneApp:
                          "(thoughtborne_settings.py missing or launch failed)")
 
     def on_exit_program(self):
-        """Callback for exit program"""
+        """Exit hotkey (Ctrl+Alt+4): end the whole app, an open settings window
+        included (#222, D-014 -- one program, one exit). The settings window is
+        closed best-effort and non-blocking BEFORE the tool's own teardown, so both
+        disappear together; the tool exits regardless of whether a window was found.
+        The #202 restart path shuts down via stop_program directly from the recording
+        loop and never reaches here, so the Save-&-Restart-owned window is never
+        closed out from under it. Runs on the hotkey-listener thread -> logger.* only
+        (#11); the close is wrapped so a settings_instance fault can never hang the
+        quit (the function is already fail-open -- this is suspenders)."""
+        try:
+            closed = settings_instance.close_existing_settings_windows()
+            if closed:
+                logger.info(f"Closed {closed} settings window(s) on exit",
+                            extra=FILE_ONLY)
+        except Exception as e:
+            logger.debug(f"Close-settings-on-exit failed: {e}")
         self.stop_program()
 
     def _salvage_active_recording(self, reason: str) -> Optional[str]:

@@ -13,6 +13,11 @@ where a background SetForegroundWindow is refused, #203), and it reports its out
 as a FOCUS_* category the caller logs -- so a silent no-op is no longer
 indistinguishable from a real raise.
 
+The module also hosts `close_existing_settings_windows` (#222, D-014): the tool posts
+WM_CLOSE to the same D-009 title-matched window on its own quit, so "one program, one
+exit" holds and close can never drift from the focus match. It shares this module's
+lazy-ctypes, fail-open shape.
+
 Pure stdlib, so the D-005 system-Python rescue lane keeps working: the mutex/focus
 is `ctypes`, imported lazily *inside* the Windows functions so `import
 settings_instance` never fails off-Windows. The title helper is pure and imports the
@@ -256,3 +261,71 @@ def focus_existing_settings_window() -> str:
         return FOCUS_RAISED if raised else FOCUS_REFUSED
     except Exception:
         return FOCUS_NOT_FOUND
+
+
+def close_existing_settings_windows() -> int:
+    """Post WM_CLOSE to every open settings window; return how many were asked to
+    close (#222, D-014). The tool calls this on its own quit so "one program, one
+    exit" holds -- the settings window ends with the tool. Best-effort and
+    NON-BLOCKING: PostMessageW queues the close in the settings process and returns
+    at once (never SendMessageW, which would block on the target's message loop and
+    could hang the quit on a wedged settings process). Since #221/D-014 the window's
+    WM_DELETE_WINDOW handler is just root.destroy, so WM_CLOSE closes it cleanly with
+    no prompt.
+
+    Enumerates top-level windows and matches the title EXACTLY against the four known
+    localized settings/first-run titles (the same D-009 set focus_existing_settings_window
+    uses, so close and focus can never drift), which keeps the tool's own console
+    window out of the match. Closes ALL matches though the mutex allows only one.
+    Returns the count of windows posted to -- 0 when none are open (the
+    settings-never-opened / already-closed / crashed cases the spec's "best-effort
+    close finds nothing" names). Fail-open: off-Windows or on any exception -> 0, so a
+    guard fault can never cost the quit. WM_CLOSE = 0x0010.
+    """
+    import os
+    if os.name != "nt":
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.PostMessageW.restype = wintypes.BOOL
+
+        wanted = set(settings_window_titles())
+        found = []
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def _cb(hwnd, _lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 256)
+                if buf.value in wanted:
+                    found.append(hwnd)
+            except Exception:
+                pass
+            return True     # keep enumerating -- close ALL matches, not just the first
+
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+        WM_CLOSE = 0x0010
+        posted = 0
+        for hwnd in found:
+            try:
+                if user32.PostMessageW(hwnd, WM_CLOSE, 0, 0):
+                    posted += 1
+            except Exception:
+                pass
+        return posted
+    except Exception:
+        return 0            # fail-open, always
