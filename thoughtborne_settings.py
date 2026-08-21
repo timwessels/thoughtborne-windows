@@ -71,6 +71,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 import config
+import console_ui
 import engine_memory
 import key_check
 import restart_signal
@@ -88,7 +89,7 @@ _T_IMPORTS = time.perf_counter()
 # colours (glyph + colour + text together; red stays for the rejected key) plus
 # the two surfaces the non-ttk widgets (tk.Label links, key chips) sit on. ----
 from settings_theme import (LINK_COLOR, TEXT_COLOR, GREEN, RED, GREY, AMBER,
-                            PAGE, CARD)
+                            PAGE, CARD, MUTED, ACCENT)
 
 # CreateProcess flag exists only on Windows; 0 is a harmless no-op elsewhere so a
 # stray import off-Windows can't fail at module load.
@@ -110,6 +111,27 @@ def _enable_high_dpi() -> None:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def _enable_dark_title_bar(root) -> None:
+    """Ask DWM to draw this window's title bar dark (settings-terminal-style).
+
+    The title bar is OS-drawn -- the one surface the theme module cannot touch
+    (the seam D-010 originally cited against a dark look). Windows 10 20H1+
+    honours DWMWA_USE_IMMERSIVE_DARK_MODE (attribute 20; 19 on slightly older
+    builds); anything else -- off-Windows, ancient builds, a fault -- is a silent
+    no-op and the window simply keeps a light title bar."""
+    try:
+        import ctypes
+        root.update_idletasks()      # realize the window so the HWND exists
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        value = ctypes.c_int(1)
+        for attr in (20, 19):        # DWMWA_USE_IMMERSIVE_DARK_MODE, pre-20H2 alias
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                break
     except Exception:
         pass
 
@@ -161,6 +183,7 @@ class SettingsApp:
         # deletes a Font from Tk once its last Python reference drops.
         self.theme = settings_theme.apply_theme(root)
         self._column_px = self.theme.column_px()
+        _enable_dark_title_bar(root)   # OS-drawn bar joins the dark page (no-op off-Windows)
 
         # Re-render registries: simple text-bearing widgets and link widgets.
         self._text_widgets = []     # (widget, string-key)
@@ -461,12 +484,18 @@ class SettingsApp:
         return lbl
 
     def _section(self, parent, heading_key, level="H1", pady=(0, 0)):
-        """A section heading (Title/H1/H2 style), registered for language re-render
-        and packed left. Replaces the repeated ttk.Label(font=...) + _reg + pack of
-        the pre-#155 code; the type ladder now lives entirely in the styles."""
-        lbl = ttk.Label(parent, style=level + ".TLabel")
+        """A section heading (H1/H2 style), registered for language re-render.
+        Terminal-style (settings-terminal-style): the heading sits in a row with a
+        stretching hairline rule to its right -- the settings twin of the console's
+        labelled zone separators (`== MODEL ==...`). The row packs itself with the
+        caller's pady, like the bare label used to; returns the heading label."""
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=pady)
+        lbl = ttk.Label(row, style=level + ".TLabel")
         self._reg(lbl, heading_key)
-        lbl.pack(anchor="w", pady=pady)
+        lbl.pack(side="left")
+        ttk.Frame(row, style="Hair.TFrame", height=1).pack(
+            side="left", fill="x", expand=True, padx=(self.theme.sp(8), 0))
         return lbl
 
     def _card(self, parent, heading_key=None):
@@ -544,6 +573,28 @@ class SettingsApp:
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
         ttk.Radiobutton(lang_frame, text=strings.t("lang.en", "en"), value="en",
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
+        # Terminal masthead (settings-terminal-style): the console's disc mark +
+        # block wordmark, white-on-dark, so the settings window wears the same face
+        # as the tool. Drawn as PIXELS on a canvas, not as font glyphs: each console
+        # half-block char (▀/▄/█) is two stacked cells of a pixel grid, so the mark
+        # renders crisply on every system regardless of which fonts carry the Block
+        # Elements range (the Xvfb harness's core-font Tk has none, and even on
+        # Windows the block coverage of a fallback family is not a given). Static
+        # and language-free (brand, not copy) -- not _reg-istered.
+        self._masthead_canvas(header).pack(side="top", anchor="w")
+        # Tagline row with a slow terminal block cursor -- decorative only. The
+        # cursor is a fixed-size frame whose colour toggles, so nothing ever shifts.
+        tagrow = ttk.Frame(header, style="Header.TFrame")
+        tagrow.pack(side="top", anchor="w",
+                    pady=(self.theme.sp(6), self.theme.sp(8)))
+        tk.Label(tagrow, text=console_ui.TAGLINE + " ", font=self.theme.small_font,
+                 fg=MUTED, bg=PAGE).pack(side="left")
+        cursor_h = max(self.theme.small_font.metrics("linespace") - 2, 8)
+        self._cursor_frame = tk.Frame(tagrow, width=max(cursor_h // 2, 5),
+                                      height=cursor_h, bg=ACCENT)
+        self._cursor_frame.pack(side="left")
+        self._cursor_on = True
+        self.root.after(600, self._blink_cursor)
         self.title_lbl = ttk.Label(header, style="Title.TLabel")
         self._reg(self.title_lbl,
                   "welcome.heading" if self.first_run else "app.title.settings")
@@ -553,6 +604,44 @@ class SettingsApp:
                 side="top", anchor="w", fill="x", pady=(self.theme.sp(4), 0))
         # A 1px hairline under the header so it reads as chrome above the tabs (#155).
         ttk.Frame(self.root, style="Hair.TFrame", height=1).pack(side="top", fill="x")
+
+    def _masthead_canvas(self, parent):
+        """The masthead as a pixel canvas: disc mark + block wordmark from
+        console_ui, decoded through the console's half-block pixel model (one
+        char cell = two stacked pixels: ▀ top, ▄ bottom, █ both). One square
+        `px` per pixel keeps the terminal cell aspect (a char cell is px wide,
+        2*px tall); sp() scales it with DPI. A few hundred one-off rectangles --
+        drawn once, never touched again."""
+        rows = [f"{m:<7}  {w}" for m, w in
+                zip(console_ui.LOGO_MARK_A5, console_ui.WM)]
+        grid = []
+        for row in rows:
+            grid.append([ch in "▀█" for ch in row])
+            grid.append([ch in "▄█" for ch in row])
+        px = self.theme.sp(4)
+        w = max(len(bits) for bits in grid) * px
+        h = len(grid) * px
+        canvas = tk.Canvas(parent, width=w, height=h, bg=PAGE,
+                           highlightthickness=0, borderwidth=0)
+        for y, bits in enumerate(grid):
+            for x, on in enumerate(bits):
+                if on:
+                    canvas.create_rectangle(x * px, y * px,
+                                            (x + 1) * px, (y + 1) * px,
+                                            fill=TEXT_COLOR, width=0)
+        return canvas
+
+    def _blink_cursor(self):
+        """The masthead's slow block cursor (600 ms phase). Purely decorative --
+        deliberately slower than a real caret so it reads as a calm idle prompt,
+        not a demand for input. Ends silently once the window is torn down (the
+        config on a dead widget raises TclError and the chain just stops)."""
+        try:
+            self._cursor_on = not self._cursor_on
+            self._cursor_frame.config(bg=ACCENT if self._cursor_on else PAGE)
+            self.root.after(600, self._blink_cursor)
+        except tk.TclError:
+            pass
 
     def _build_rail(self):
         rail = ttk.Frame(self.root, style="Rail.TFrame",
