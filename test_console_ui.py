@@ -619,13 +619,15 @@ def _line_has_dim(line):
 
 
 def check_keyless_lineup():
-    """#200 key-aware lineup: the removed `(default)` marker appears nowhere; a
-    row whose key env var is absent renders DIM while keyed and current rows do
-    not; the fully-keyless masthead greys every row; and its yellow guidance line
-    is YELLOW, never red."""
+    """#200 key-aware lineup: no `(default)` tag in any no-pin rendering (#219
+    reintroduced it, but only under an active pin, which none of these fixtures
+    carry); a row whose key env var is absent renders DIM while keyed and current
+    rows do not; the fully-keyless masthead greys every row; and its yellow
+    guidance line is YELLOW, never red."""
     model = "Soniox Live"
 
-    # `(default)` must not survive in any lineup rendering, any fixture, any form.
+    # `(default)` must not appear in any NO-PIN rendering (masthead/switched/
+    # switch-failed), any fixture, any form -- none of these pass a pin (#219).
     fixtures = [
         ("all", lineup_for(DEFAULT_API)),
         ("keyless", lineup_keyed(None, set())),
@@ -643,7 +645,7 @@ def check_keyless_lineup():
         ]
         for rname, lines in renders:
             if "(default)" in strip("".join(lines)):
-                _record(f"{fname}/{rname}: still renders the removed (default) marker")
+                _record(f"{fname}/{rname}: renders a (default) tag with no pin active")
 
     # Grey rule, checked positionally on the two lineup renderers (labels overlap
     # as substrings -- "Soniox" is inside "Soniox Live" -- so zip by AVAILABLE_APIS
@@ -702,12 +704,72 @@ def check_keyless_lineup():
         _record("keyed masthead: guidance line shown without a keyless start")
 
 
-def _masthead_with(lineup, *, guidance=None, compact=False):
-    """A masthead render for the #200 checks (ANSI), wordmark on, given lineup."""
+def _masthead_with(lineup, *, guidance=None, compact=False, pinned_default=None):
+    """A masthead render for the #200/#219 checks (ANSI), wordmark on, given lineup."""
     return u.render_masthead(
         lineup, KEYS, KEY_PREFIX, PATHS[1] + r"\history", OPEN_LETTER, SWITCH_LETTER,
         START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
-        ansi=True, compact=compact)
+        pinned_default=pinned_default, ansi=True, compact=compact)
+
+
+def check_pinned_default_tag():
+    """#219: a valid fixed-mode pin tags its engine's masthead row with a dim
+    ` (default)` -- only that row, dim even when the row is bold (current), gone
+    when the row is keyless (#200 wins), and only in the masthead (switched /
+    switch-failed never receive a pin, covered by check_keyless_lineup's ban)."""
+    TAG = " (default)"
+    DIM_TAG = f"\x1b[{u.DIM}m{TAG}\x1b[0m"        # exact bytes of (" (default)", (DIM,))
+
+    # The label match relies on label uniqueness -- assert it (cheap insurance;
+    # a future duplicate label would tag two rows).
+    labels = [API_DISPLAY[a]["label"] for a in AVAILABLE_APIS]
+    if len(set(labels)) != len(labels):
+        _record("API_DISPLAY labels are not unique; pinned_default match is ambiguous")
+
+    # (A) pin on a NON-current keyed engine: tag present, dim, exactly one row.
+    lu = lineup_for("soniox-live")               # all keyed; current = soniox-live
+    pin = API_DISPLAY["groq"]["label"]           # pin a different engine
+    ma = _masthead_with(lu, pinned_default=pin)
+    check_block("masthead/pinned", ma, ansi=True, compact=False, stress=False)
+    tag_rows = [ln for ln in ma if TAG in strip(ln)]
+    if len(tag_rows) != 1:
+        _record(f"pinned masthead: {len(tag_rows)} rows carry the tag, expected 1")
+    else:
+        row = tag_rows[0]
+        if pin not in strip(row):
+            _record("pinned masthead: tag is not on the pinned engine's row")
+        if DIM_TAG not in row:
+            _record("pinned masthead: (default) tag is not dim (SGR 90)")
+
+    # (B) pin on the CURRENT (bold) engine: the bold row still carries a dim tag.
+    lu = lineup_for("groq")
+    ma = _masthead_with(lu, pinned_default=API_DISPLAY["groq"]["label"])
+    brow = next((ln for ln in ma
+                 if API_DISPLAY["groq"]["label"] in strip(ln) and TAG in strip(ln)), None)
+    if brow is None or DIM_TAG not in brow or f"\x1b[{u.BOLD}m" not in brow:
+        _record("pinned+current masthead: expected a bold row with a dim (default) tag")
+
+    # (C) keyless pin: the #200 keyless dim wins -> NO tag anywhere.
+    lu = lineup_keyed("groq-large", {"GROQ_API_KEY"})   # the two soniox rows keyless
+    ma = _masthead_with(lu, pinned_default=API_DISPLAY["soniox-live"]["label"])
+    if TAG in strip("".join(ma)):
+        _record("keyless pinned masthead: a greyed row still shows (default)")
+
+    # (D) compact masthead carries the tag on the pinned row, dim, within COMPACT_MAX.
+    lu = lineup_for("soniox-live")
+    mac = _masthead_with(lu, pinned_default=API_DISPLAY["groq"]["label"], compact=True)
+    check_block("masthead/pinned/compact", mac, ansi=True, compact=True, stress=False)
+    if not any(TAG in strip(ln) and DIM_TAG in ln for ln in mac):
+        _record("pinned compact masthead: dim (default) tag missing")
+
+    # (E) plain twin: ASCII tag present on the pinned row, no ESC.
+    mplain = u.render_masthead(
+        lu, KEYS, KEY_PREFIX, PATHS[1] + r"\history", OPEN_LETTER, SWITCH_LETTER,
+        START, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
+        pinned_default=API_DISPLAY["groq"]["label"], ansi=False, compact=False)
+    prow = next((ln for ln in mplain if API_DISPLAY["groq"]["label"] in ln), None)
+    if prow is None or TAG not in prow or "\x1b" in prow:
+        _record("pinned masthead plain twin: ASCII (default) tag missing or ESC present")
 
 
 def check_engine_has_key():
@@ -919,6 +981,9 @@ def main():
     # ---- #200 key-aware lineup + keyless shop-window -------------------------
     check_keyless_lineup()
     check_engine_has_key()
+
+    # ---- #219 dim (default) tag on the fixed-pin engine ----------------------
+    check_pinned_default_tag()
 
     # ---- report -------------------------------------------------------------
     if SHOW:

@@ -234,17 +234,27 @@ def _wrap(text, width, indent, first=None):
 # =====================================================================
 # Shared zone builders
 # =====================================================================
-def _lineup_lines(lineup, ansi):
+def _lineup_lines(lineup, ansi, pinned_label=None):
     """MODEL lineup rows. lineup: list of (label, descriptor, is_current,
     has_key). The current row is bold; a row whose key env var is absent renders
-    dim (#200), so the greyed rows show at a glance which engines are usable."""
+    dim (#200), so the greyed rows show at a glance which engines are usable.
+    `pinned_label` (a label, or None) tags the engine an active defaults.api pin
+    forces at startup with a dim ` (default)`."""
     width = max((len(lbl) for lbl, *_ in lineup), default=0)
     rows = []
     for label, descriptor, is_current, has_key in lineup:
         marker = ">" if is_current else " "
         main = "  " + marker + " " + label.ljust(width) + " - " + descriptor
         codes = (BOLD,) if is_current else () if has_key else (DIM,)
-        rows.append(dline([(main, codes)], ansi))
+        segs = [(main, codes)]
+        # #219: dim (default) tag on the engine an active fixed pin forces. Dim
+        # regardless of the row's own weight; the `and has_key` lets the #200
+        # keyless dim win, so a greyed (unusable) row never claims to be default.
+        # Distinct from the #200-removed built-in-default marker (this keys on an
+        # explicit pin, not the fallback DEFAULT_API).
+        if pinned_label is not None and has_key and label == pinned_label:
+            segs.append((" (default)", (DIM,)))
+        rows.append(dline(segs, ansi))
     return rows
 
 
@@ -298,10 +308,11 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 def render_masthead(lineup, keys, key_prefix, history_path,
                     open_key, switch_key, start_key,
                     guidance=None, with_wordmark=True, logo_lines=None,
-                    *, ansi, compact):
+                    pinned_default=None, *, ansi, compact):
     if compact:
         return _masthead_compact(lineup, keys, open_key, switch_key,
-                                 start_key, guidance, with_wordmark, ansi)
+                                 start_key, guidance, with_wordmark, ansi,
+                                 pinned_default)
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, ansi))
@@ -313,7 +324,7 @@ def render_masthead(lineup, keys, key_prefix, history_path,
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before MODEL
     lines.append(dzone([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
-    lines.extend(_lineup_lines(lineup, ansi))
+    lines.extend(_lineup_lines(lineup, ansi, pinned_default))
     if guidance:
         lines.extend(_guidance_lines(guidance, ansi))
     if with_wordmark:
@@ -1017,12 +1028,15 @@ def _noapi_zone_lines(missing, other_failures, ansi, compact):
 # =====================================================================
 # Compact masthead + compact lineup
 # =====================================================================
-def _compact_lineup(lineup, ansi):
+def _compact_lineup(lineup, ansi, pinned_label=None):
     rows = []
     for label, _desc, is_current, has_key in lineup:
         marker = ">" if is_current else " "
         codes = (BOLD,) if is_current else () if has_key else (DIM,)
-        rows.append(cline([(f" {marker} ", ()), (label, codes)], ansi))
+        segs = [(f" {marker} ", ()), (label, codes)]
+        if pinned_label is not None and has_key and label == pinned_label:  # #219, see _lineup_lines
+            segs.append((" (default)", (DIM,)))
+        rows.append(cline(segs, ansi))
     return rows
 
 
@@ -1044,7 +1058,7 @@ def _compact_keys(keys, ansi):
 
 
 def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
-                      guidance, with_wordmark, ansi):
+                      guidance, with_wordmark, ansi, pinned_default=None):
     lines = []
     if with_wordmark:
         # ANSI: WM_COMPACT carries the brand ACCENT; plain degrades to WM_PLAIN
@@ -1057,7 +1071,7 @@ def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
     if with_wordmark:
         lines.append("")
     lines.append(cline([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
-    lines.extend(_compact_lineup(lineup, ansi))
+    lines.extend(_compact_lineup(lineup, ansi, pinned_default))
     if guidance:   # #200 keyless shop-window hint, calm YELLOW under the lineup
         for i, seg in enumerate(_wrap(guidance, COMPACT_MAX - 2, 2)):
             lines.append(cline([(("  " + seg) if i == 0 else seg, (YELLOW,))], ansi))

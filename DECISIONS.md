@@ -538,14 +538,36 @@ it the next time it starts — but only where nothing is configured:
   "`(default)` names the configured default" bullet above is retired with the marker;
   the "do not reintroduce a 'default'-worded fallback note" rule stands (the note is now
   removed, not reworded). Maintainer-settled via the #200 spec. Not a supersede.
+- **2026-08-21 addendum (#219).** A dim `(default)` tag returns to the console lineup —
+  but keyed on an **active explicit pin**, not the built-in default the #200-removed
+  marker showed. When a valid `defaults.api` sets a fixed-mode pin
+  (`config.DEFAULT_API_IS_EXPLICIT` True), the pinned engine's **startup-masthead**
+  lineup row carries a dim ` (default)` tag: the breadcrumb back to the settings app for
+  a user who pinned an engine, forgot, and wonders why every start lands on it no matter
+  what they switch to — the pin outranks the `Ctrl+Alt+L` memory, so a switch never
+  changes the next start. Remember-mode and the built-in default show no tag — exactly
+  the states where "default" would name nothing, the emptiness that retired the old
+  marker. The tag is **display-only**: it reads the flag, never writes, and touches
+  neither precedence (config > memory > default) nor the memory-write rules. It is dim
+  regardless of the row's own weight (a keyed-current pinned row stays bold with a dim
+  tag), and the #200 keyless dim **wins** — a greyed keyless row shows no tag, since an
+  unusable engine does not advertise itself as the default. It appears in the startup
+  masthead **only**; the SWITCHED / switch-failed panels omit it (the tag follows the
+  pin, and the masthead is the startup-orientation surface). The pin reaches the pure
+  renderer as a `pinned_default` label argument (default `None`), so config coupling
+  stays out of `console_ui`. Not a supersede — the #200 removal of the *built-in-default*
+  marker stands; only its "do not reintroduce" bullet below is narrowed to the semantics
+  that were actually wrong. Maintainer-requested via the #219 spec.
 
 Do not reintroduce: writing `personal_settings.json` from the running tool;
 persisting the carousel's fall-through engine; a "default"-worded fallback note on
 a start that never tried the default; a value-comparison test for "is a default
 configured"; writing an untouched engine field back to the file (it creates or normalizes a pin
-the user never set); the `(default)` lineup marker or the startup fallback NOTE
-(removed by #200); a fully keyless start that exits instead of staying open as a
-shop window;
+the user never set); the **built-in-default** `(default)` lineup marker — the one keyed
+on `DEFAULT_API` and shown always, removed by #200 (the **active-pin** `(default)` tag of
+#219, keyed on `DEFAULT_API_IS_EXPLICIT` and shown only in fixed mode, is deliberately
+distinct and permitted) — or the startup fallback NOTE (removed by #200); a fully keyless
+start that exits instead of staying open as a shop window;
 or a settings-app engine field that shows `defaults.api` alone.
 
 Respects D-002 — `settings_io.py` remains the only writer of `.env` and

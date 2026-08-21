@@ -2770,6 +2770,13 @@ class ThoughtborneApp:
             if self._keyless:
                 guidance = ("To enable dictation, enter an API key in Settings "
                             f"({self._format_hotkey(HOTKEYS['open_settings'])})")
+            # #219: only an active valid defaults.api pin (DEFAULT_API_IS_EXPLICIT)
+            # tags its engine's masthead row with a dim (default) -- the breadcrumb
+            # back to Settings. Remember-mode and the built-in default show no tag.
+            pinned_default = None
+            if DEFAULT_API_IS_EXPLICIT:
+                entry = API_DISPLAY.get(DEFAULT_API)
+                pinned_default = entry["label"] if entry else DEFAULT_API
             self._emit_block(
                 'startup',
                 lambda ansi, compact: console_ui.render_masthead(
@@ -2781,6 +2788,7 @@ class ThoughtborneApp:
                     self._format_hotkey(HOTKEYS['start_recording']),
                     guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
+                    pinned_default=pinned_default,
                     ansi=ansi, compact=compact))
         else:
             # No READY invitation after a shortfall -- the tool keeps running
