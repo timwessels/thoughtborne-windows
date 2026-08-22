@@ -8,9 +8,12 @@ maintained side by side; `test_settings_io.py` imports this module off-Windows t
 assert the two tables carry the exact same key set (a missing translation is a
 test failure, not a silent English leak).
 
-The only Windows-bound call lives inside `detect_ui_language()` behind a
-try/except, so importing this module on plain Python never touches ctypes -- the
-i18n completeness test depends on that.
+The app starts in English unless a stored `ui.language` says otherwise (D-015):
+the tool itself speaks English, so the settings default matches; German is one
+header-toggle away and the choice self-persists. The system display language is
+deliberately not consulted (the `detect_ui_language()` that once did is gone),
+which also keeps this module pure string tables -- importing it never touches
+ctypes, and the i18n completeness test depends on that.
 
 Two wording contracts are load-bearing (mirror them if either source changes):
   - `engine.desc.*` EN equals `config.API_DISPLAY[api]["descriptor"]` (one engine
@@ -669,26 +672,3 @@ def t(key: str, lang: str = "de") -> str:
     if value is not None:
         return value
     return key                    # last resort: the visible key name
-
-
-def detect_ui_language() -> str:
-    """Best-effort initial UI language: 'de' on a German Windows display language,
-    else 'en'. The Windows path reads GetUserDefaultUILanguage (primary-language
-    0x07 == LANG_GERMAN) via kernel32; all of it is guarded, so off-Windows -- or a
-    missing DLL -- degrades to the process locale environment rather than raising
-    (this function is imported and called by the off-Windows i18n test)."""
-    try:
-        import ctypes
-        langid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
-        # The low 10 bits are the primary language id; 0x07 is German.
-        return "de" if (langid & 0x3FF) == 0x07 else "en"
-    except Exception:
-        pass
-    # Off-Windows / no kernel32: read the POSIX locale environment. (Env vars, not
-    # the deprecated locale.getdefaultlocale, so this stays warning-free on 3.11+.)
-    import os
-    for var in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
-        value = os.environ.get(var)
-        if value:
-            return "de" if value.lower().startswith("de") else "en"
-    return "en"

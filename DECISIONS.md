@@ -967,3 +967,34 @@ invalid-value rule, instead of being normalized). Respects D-008 -- the engine m
 displaying-vs-selecting logic is untouched. Respects D-009 -- the single-window guard and
 focus-existing remedy stand. Does not touch D-001, D-003, D-004, D-006, D-007, D-010,
 D-011, or D-012 (D-005 is retired by step 3, not this step).
+
+---
+
+## D-015 — The settings app defaults to English; German is an explicit opt-in
+
+Decided 2026-08-22 (maintainer call in session; no issue).
+
+The settings/onboarding window used to auto-select German when the Windows
+display language was German (`detect_ui_language()`, #144). It now always starts
+in English; the header's DE/EN toggle stays, and a chosen language self-persists
+to `ui.language` (D-014) exactly as before.
+
+- **Why English.** The app itself — console, hotkey grid, panels — speaks
+  English. A settings window that opens in German in front of an English tool is
+  the inconsistency, not the fix: settings prose *explains* the English UI, so it
+  should match it by default.
+- **Why German stays offered.** Settings prose is harder than the console's
+  short commands; a German-speaking user may genuinely be helped by the German
+  variant. Offering it as a visible choice keeps that value without making the
+  choice for them.
+- **What was removed.** `detect_ui_language()` and its system-language probe are
+  gone (guarded by `test_settings_io.py`); `settings_strings` is now pure string
+  tables. A stored `ui.language` keeps winning over the default, so existing
+  users who toggled keep their language.
+
+Do not reintroduce: system-display-language detection or any other implicit
+language guess; the default is a constant, the user's stored choice the only
+override.
+
+Respects D-014 (the toggle + self-persist mechanics are untouched) and D-002
+(no new writer; the stored choice still comes from the same surgical merge).

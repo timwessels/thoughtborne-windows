@@ -48,8 +48,9 @@ What is covered:
   - settings_strings i18n (#144): the DE and EN tables carry the identical key set
     (a missing translation fails here, not silently at runtime), every value is a
     non-empty string, the t() lang -> EN -> key-itself fallback chain, the
-    engine.desc.* EN wording tracks config.API_DISPLAY, and detect_ui_language()'s
-    off-Windows branch returns "de"/"en".
+    engine.desc.* EN wording tracks config.API_DISPLAY, and the retired
+    detect_ui_language() stays gone (D-015: English default, no system-language
+    detection).
   - settings_io.write_personal_settings ui.language merge (#144, F6): ui_language
     None preserves an existing ui block untouched (and creates none when absent),
     "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
@@ -616,8 +617,11 @@ def check_i18n():
               f"i18n: behavior.engine.keyless ({lang}) must name the provider tab exactly "
               f"as provider.tab renders it ({sstr.t('provider.tab', lang)!r})")
 
-    check(sstr.detect_ui_language() in ("de", "en"),
-          "detect_ui_language() off-Windows must return 'de' or 'en'")
+    # D-015: the settings app defaults to English; the system-language detection is
+    # retired on purpose. Guard the removal so it cannot quietly come back and flip
+    # the default on German Windows again.
+    check(not hasattr(sstr, "detect_ui_language"),
+          "detect_ui_language() is retired (D-015) and must not return")
 
     # Placeholder parity (#178): the key-set check above proves DE and EN carry the
     # same keys, but not that a format string uses the same {…} tokens in both -- a

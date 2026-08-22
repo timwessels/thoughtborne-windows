@@ -275,8 +275,8 @@ class SettingsApp:
         ui = personal.get("ui")
         lang = ui.get("language") if isinstance(ui, dict) else None
         if lang not in ("de", "en"):
-            lang = strings.detect_ui_language()
-        self.lang = lang
+            lang = "en"   # English default (D-015): the app itself speaks English;
+        self.lang = lang  # German stays one header-toggle away and self-persists
 
         # Title the window as early as possible (#196, D-009): the focus-existing
         # remedy matches on this exact title, and _build_ui below can take a moment
