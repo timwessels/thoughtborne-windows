@@ -614,7 +614,11 @@ class SettingsApp:
         px = self.theme.sp(3)
         gear_bits = [[{"#": 1.0, "+": 0.5}.get(ch, 0.0) for ch in row]
                      for row in _GEAR_PIXELS]
-        self._pixel_canvas(mast, gear_bits, px).pack(
+        # The gear renders on a finer grain than the wordmark (~70 % cell
+        # size): same 15x15 matrix, smaller icon, so the lockup leads with
+        # the name rather than the ornament. Pack centers it vertically.
+        gear_px = max(round(px * 0.7), 1)
+        self._pixel_canvas(mast, gear_bits, gear_px).pack(
             side="left", padx=(0, self.theme.sp(10)))
         self._pixel_canvas(mast, self._halfblock_bits(console_ui.WM), px).pack(
             side="left")

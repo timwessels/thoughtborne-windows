@@ -57,7 +57,7 @@ _EN = {
     "welcome.loop.body": (
         "The whole loop: click into a text field, press {start}, speak, then press "
         "{stop} — and the text is there. It works in every application."),
-    "welcome.loop.link": "→ How you dictate, in detail",
+    "welcome.loop.link": "▸ How you dictate, in detail",
     "welcome.console.heading": "The console is a status display",
     "welcome.console.body": (
         "The black console window is a status monitor — it shows what Thoughtborne "
@@ -65,7 +65,7 @@ _EN = {
         "normal use you never type into it; dictation keeps working even with the "
         "window hidden. The one exception is a failed start: then the console asks "
         "you to press Enter to close it."),
-    "welcome.byok.link": "→ Provider & API key",
+    "welcome.byok.link": "▸ Provider & API key",
     "welcome.next.heading": "Set things up",
     "welcome.step1.heading": "1 — Get an API key",
     "welcome.step1.body": (
@@ -83,9 +83,9 @@ _EN = {
     "welcome.step3.body": (
         "Optional polish: which engine Thoughtborne starts on, and how to tuck the "
         "console into the tray."),
-    "welcome.link.hotkeys": "→ Hotkeys",
-    "welcome.link.behavior": "→ Startup & windows",
-    "welcome.link.readme": "→ Full README (opens in your browser)",
+    "welcome.link.hotkeys": "▸ Hotkeys",
+    "welcome.link.behavior": "▸ Startup & windows",
+    "welcome.link.readme": "▸ Full README (opens in your browser)",
     "url.readme": "https://github.com/timwessels/thoughtborne-windows",
 
     # ---- provider tab ----
@@ -225,7 +225,7 @@ _EN = {
     "behavior.engine.remember.none": (
         "No switch recorded yet — starts on the built-in default ({engine})"),
     "behavior.engine.keyless": (
-        "→  Enter an API key on the “Provider & API key” tab to enable dictation."),
+        "▸  Enter an API key on the “Provider & API key” tab to enable dictation."),
     "engine.desc.soniox-live": "verbatim, instant",
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
@@ -360,7 +360,7 @@ _DE = {
         "Der ganze Ablauf: in ein Textfeld klicken, {start} drücken, sprechen, dann "
         "{stop} drücken — und der Text steht da. Das funktioniert in jeder "
         "Anwendung."),
-    "welcome.loop.link": "→ So diktierst du, ausführlich",
+    "welcome.loop.link": "▸ So diktierst du, ausführlich",
     "welcome.console.heading": "Die Konsole ist eine Statusanzeige",
     "welcome.console.body": (
         "Das schwarze Konsolenfenster ist ein Status-Monitor — es zeigt, was "
@@ -369,7 +369,7 @@ _DE = {
         "funktioniert auch bei verstecktem Fenster. Die einzige Ausnahme ist ein "
         "fehlgeschlagener Start: Dann bittet die Konsole dich, zum Schließen Enter "
         "zu drücken."),
-    "welcome.byok.link": "→ Anbieter & API-Key",
+    "welcome.byok.link": "▸ Anbieter & API-Key",
     "welcome.next.heading": "Jetzt einrichten",
     "welcome.step1.heading": "1 — Einen API-Key holen",
     "welcome.step1.body": (
@@ -389,9 +389,9 @@ _DE = {
     "welcome.step3.body": (
         "Optionaler Feinschliff: mit welcher Engine Thoughtborne startet und wie "
         "du die Konsole in den Tray schickst."),
-    "welcome.link.hotkeys": "→ Hotkeys",
-    "welcome.link.behavior": "→ Start & Fenster",
-    "welcome.link.readme": "→ Vollständiges README (öffnet im Browser)",
+    "welcome.link.hotkeys": "▸ Hotkeys",
+    "welcome.link.behavior": "▸ Start & Fenster",
+    "welcome.link.readme": "▸ Vollständiges README (öffnet im Browser)",
     "url.readme": ("https://github.com/timwessels/thoughtborne-windows/blob/"
                    "main/README.de.md"),
 
@@ -539,7 +539,7 @@ _DE = {
     "behavior.engine.remember.none": (
         "Noch kein Wechsel gemerkt — startet auf dem Standard ({engine})"),
     "behavior.engine.keyless": (
-        "→  Trage auf dem Tab „Anbieter & API-Key“ einen API-Key ein, "
+        "▸  Trage auf dem Tab „Anbieter & API-Key“ einen API-Key ein, "
         "um das Diktieren zu aktivieren."),
     "engine.desc.soniox-live": "wortgetreu, sofort fertig",
     "engine.desc.soniox": "poliert, braucht länger",
