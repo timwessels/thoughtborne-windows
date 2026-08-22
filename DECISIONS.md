@@ -724,7 +724,10 @@ visual design pass leaves it for `clam` plus one explicit style module,
   first-run user passes through, found at runtime relative to the script dir, whose
   Tcl error would kill the very window the D-005 rescue lane exists to save. Our
   needs are met by ~60 `style.configure` lines.
-- **Light, not dark.** `messagebox` dialogs, the window title bar and the combobox
+- **Light, not dark.** *(Reversed by the 2026-08-22 #228 addendum below — the app
+  now ships the dark terminal palette; the OS-drawn seams named here are answered by
+  a DWM dark title bar and a dark-styled combobox popdown, leaving only the light
+  messagebox as an accepted rarity.)* `messagebox` dialogs, the window title bar and the combobox
   popdown are OS-drawn and stay light; a dark theme would guarantee a visible seam
   in exactly those surfaces we do not control. The five shipped status colours are
   tuned for light backgrounds, and the product already *has* a dark surface (the
@@ -742,14 +745,41 @@ The module is stdlib-only and imports tkinter lazily (inside `apply_theme` /
 a Python without the tk bindings and the off-Windows `test_settings_theme.py` can
 WCAG-check the palette without a display. The palette is the project's own website
 palette (`docs/style.css`), so the settings window, the site and the console read
-as one product.
+as one product. *(#228 addendum below: the palette is now the console's dark twin
+of `docs/style.css`, not the light website palette itself — still one product.)*
+
+**2026-08-22 addendum (#228).** The **light-over-dark call is reversed.** The
+settings/onboarding app now wears the tool console's own **dark terminal face** — a
+blue-black page, the monospace type chain, the console's light-blue brand accent
+(`console_ui.ACCENT`, `#59C2FF`) and the bright terminal status colours, a dark twin
+of the light `docs/style.css` — plus a pixel masthead (a generated six-tooth gear +
+the console wordmark drawn as Canvas pixel art) that reads as one product with the
+console. The **mechanics of D-010 are untouched and stay in force**: `clam` stays
+pinned (the leave-vista argument — OS-drawn chrome ignores ttk colour — is exactly
+what lets a fully custom dark look exist at all), `settings_theme.py` stays the single
+source of both the page and card surfaces (the #180 canvas still reads `TFrame`'s
+background, so the two follow each other), and every text/background pair is still
+WCAG-checked in `test_settings_theme.py` (AA on both surfaces, the `CONTROL_LINE` 3:1
+floor), re-tuned for the dark palette. The OS-drawn seams the *Light, not dark* bullet
+warned of are **answered, not avoided**: the **window title bar** is darkened via the
+`DwmSetWindowAttribute` dark-mode attribute (guarded — a silent no-op off-Windows and
+on Windows builds without it), and the **combobox popdown** (a plain tk `Listbox`) is
+dark-styled through the tk option database; only the **messagebox**, OS-drawn and
+rarely surfaced, stays light — an **accepted residual seam**, the trade the bullet
+said would need paying and that the maintainer now accepts. Maintainer-approved in the
+design session of 2026-08-22 (branch `settings-terminal-style`, #228). This reverses
+one sub-call of D-010; it is an in-entry addendum, **not** a new-D-number supersede —
+the clam / single-source / WCAG mechanics all stand.
 
 Do not reintroduce: pinning `vista` (or any native theme) for the settings app;
 styling only frames/labels while leaving OS-drawn chrome (the half-restyled
 window); a vendored image-based `.tcl` theme (DPI-blurry, and a runtime-found file
 whose error kills the rescue-lane window); a dark palette (it seams the OS-drawn
-messagebox / title bar / popdown); or a second place that defines the page/canvas
-surface apart from `settings_theme.py`.
+messagebox / title bar / popdown) — **superseded by the 2026-08-22 #228 addendum
+above: the dark terminal palette is the shipped design, its title-bar seam answered
+by the DWM dark attribute, its popdown dark-styled, and its lone messagebox seam
+accepted**; or a second place that defines the page/canvas surface apart from
+`settings_theme.py`.
 
 Respects D-002 — a visual pass changes no write surface and no save semantics.
 Respects D-005 — `settings_theme.py` is stdlib-only, so the system-Python rescue
