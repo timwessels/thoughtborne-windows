@@ -42,6 +42,6 @@
   },
 
   "ui": {
-    "_comment": "GUI-only (Issue #144). The graphical settings app remembers its own display language here — 'language' is 'de' or 'en'. The dictation tool itself ignores this whole block; it has no effect on transcription, hotkeys, or the console. If absent, the settings app follows the Windows display language. Example:  \"language\": \"de\"."
+    "_comment": "GUI-only (Issue #144). The graphical settings app remembers its own display language here — 'language' is 'de' or 'en'. The dictation tool itself ignores this whole block; it has no effect on transcription, hotkeys, or the console. If absent, the settings app starts in English — a stored value here is the only thing that overrides that default. Example:  \"language\": \"de\"."
   }
 }

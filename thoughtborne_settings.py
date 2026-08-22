@@ -600,15 +600,15 @@ class SettingsApp:
         ttk.Radiobutton(lang_frame, text=strings.t("lang.de", "de"), value="de",
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
         # Terminal masthead (settings-terminal-style), one line: pixel gear +
-        # the console's block wordmark + a static "Settings" suffix with a slow
-        # block cursor. The art is drawn as PIXELS on canvases, not font glyphs:
-        # each console half-block char (▀/▄/█) is two stacked cells of a pixel
-        # grid, so the mark renders crisply on every system regardless of which
-        # fonts carry the Block Elements range (the Xvfb harness's core-font Tk
-        # has none, and even on Windows a fallback family's block coverage is not
-        # a given). "Settings" stays English in both UI languages on purpose --
-        # a brand lockup like the console's own untranslated face, not copy --
-        # so neither piece is _reg-istered.
+        # the console's block wordmark + a static "Settings" suffix. The art is
+        # drawn as PIXELS on canvases, not font glyphs: each console half-block
+        # char (▀/▄/█) is two stacked cells of a pixel grid, so the mark renders
+        # crisply on every system regardless of which fonts carry the Block
+        # Elements range (the Xvfb harness's core-font Tk has none, and even on
+        # Windows a fallback family's block coverage is not a given). "Settings"
+        # stays English in both UI languages on purpose -- a brand lockup like
+        # the console's own untranslated face, not copy -- so neither piece is
+        # _reg-istered.
         mast = ttk.Frame(header, style="Header.TFrame")
         mast.pack(side="top", anchor="w", pady=(0, self.theme.sp(6)))
         px = self.theme.sp(3)
@@ -623,19 +623,7 @@ class SettingsApp:
         self._pixel_canvas(mast, self._halfblock_bits(console_ui.WM), px).pack(
             side="left")
         tk.Label(mast, text="Settings", font=self.theme.title_font,
-                 fg=ACCENT, bg=PAGE).pack(side="left", padx=(self.theme.sp(8), 0))
-        cursor_h = max(self.theme.title_font.metrics("linespace")
-                       - self.theme.sp(6), 10)
-        self._cursor_frame = tk.Frame(mast, width=max(cursor_h // 2, 6),
-                                      height=cursor_h, bg=ACCENT)
-        self._cursor_frame.pack(side="left", padx=(self.theme.sp(5), 0))
-        self._cursor_on = True
-        self._cursor_after = self.root.after(600, self._blink_cursor)
-        # The window must take its pending blink timer with it: a leftover
-        # after-callback fires into the torn-down interpreter and Tcl logs
-        # "invalid command name" as a background error. Every child carries
-        # the toplevel in its bindtags, so filter for the root's own event.
-        self.root.bind("<Destroy>", self._cancel_blink, add="+")
+                 fg=ACCENT, bg=PAGE).pack(side="left", padx=(self.theme.sp(15), 0))
         if self.first_run:
             # The wizard keeps its greeting under the masthead; the everyday mode
             # needs no second title -- the masthead already says Settings.
@@ -676,28 +664,6 @@ class SettingsApp:
                                             fill=fill if level >= 1 else dim,
                                             width=0)
         return canvas
-
-    def _blink_cursor(self):
-        """The masthead's slow block cursor (600 ms phase). Purely decorative --
-        deliberately slower than a real caret so it reads as a calm idle prompt,
-        not a demand for input. Ends silently once the window is torn down (the
-        config on a dead widget raises TclError and the chain just stops)."""
-        try:
-            self._cursor_on = not self._cursor_on
-            self._cursor_frame.config(bg=ACCENT if self._cursor_on else PAGE)
-            self._cursor_after = self.root.after(600, self._blink_cursor)
-        except tk.TclError:
-            self._cursor_after = None
-
-    def _cancel_blink(self, event):
-        """<Destroy> handler: drop the pending blink after-callback with the
-        window (see the bind site in _build_header)."""
-        if event.widget is self.root and self._cursor_after is not None:
-            try:
-                self.root.after_cancel(self._cursor_after)
-            except tk.TclError:
-                pass
-            self._cursor_after = None
 
     def _build_rail(self):
         rail = ttk.Frame(self.root, style="Rail.TFrame",
