@@ -89,13 +89,34 @@ _T_IMPORTS = time.perf_counter()
 # colours (glyph + colour + text together; red stays for the rejected key) plus
 # the two surfaces the non-ttk widgets (tk.Label links, key chips) sit on. ----
 from settings_theme import (LINK_COLOR, TEXT_COLOR, GREEN, RED, GREY, AMBER,
-                            PAGE, CARD, MUTED, ACCENT)
+                            PAGE, CARD, ACCENT)
 
 # CreateProcess flag exists only on Windows; 0 is a harmless no-op elsewhere so a
 # stray import off-Windows can't fail at module load.
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
 _TAB_KEYS = ("welcome.tab", "provider.tab", "hotkeys.tab", "behavior.tab", "done.tab")
+
+# Pixel gear for the masthead (settings-terminal-style): 13x13, hand-drawn in the
+# console's pixel aesthetic -- 8 teeth (4 cardinal, 4 diagonal), round body, open
+# hub; the gear cites the settings hotkey's own mnemonic ("G as in gear", #164).
+# "#" is one lit pixel; rendered by SettingsApp._pixel_canvas. Art, not prose --
+# edit like console_ui's logo marks, never "reformat".
+_GEAR_PIXELS = (
+    ".....###.....",
+    ".##..###..##.",
+    ".###########.",
+    "..#########..",
+    "..#########..",
+    "#####...#####",
+    "####.....####",
+    "#####...#####",
+    "..#########..",
+    "..#########..",
+    ".###########.",
+    ".##..###..##.",
+    ".....###.....",
+)
 
 
 def _enable_high_dpi() -> None:
@@ -573,62 +594,69 @@ class SettingsApp:
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
         ttk.Radiobutton(lang_frame, text=strings.t("lang.en", "en"), value="en",
                         variable=self.lang_var, command=self._on_lang).pack(side="left")
-        # Terminal masthead (settings-terminal-style): the console's disc mark +
-        # block wordmark, white-on-dark, so the settings window wears the same face
-        # as the tool. Drawn as PIXELS on a canvas, not as font glyphs: each console
-        # half-block char (▀/▄/█) is two stacked cells of a pixel grid, so the mark
-        # renders crisply on every system regardless of which fonts carry the Block
-        # Elements range (the Xvfb harness's core-font Tk has none, and even on
-        # Windows the block coverage of a fallback family is not a given). Static
-        # and language-free (brand, not copy) -- not _reg-istered.
-        self._masthead_canvas(header).pack(side="top", anchor="w")
-        # Tagline row with a slow terminal block cursor -- decorative only. The
-        # cursor is a fixed-size frame whose colour toggles, so nothing ever shifts.
-        tagrow = ttk.Frame(header, style="Header.TFrame")
-        tagrow.pack(side="top", anchor="w",
-                    pady=(self.theme.sp(6), self.theme.sp(8)))
-        tk.Label(tagrow, text=console_ui.TAGLINE + " ", font=self.theme.small_font,
-                 fg=MUTED, bg=PAGE).pack(side="left")
-        cursor_h = max(self.theme.small_font.metrics("linespace") - 2, 8)
-        self._cursor_frame = tk.Frame(tagrow, width=max(cursor_h // 2, 5),
+        # Terminal masthead (settings-terminal-style), one line: pixel gear +
+        # the console's block wordmark + a static "Settings" suffix with a slow
+        # block cursor. The art is drawn as PIXELS on canvases, not font glyphs:
+        # each console half-block char (▀/▄/█) is two stacked cells of a pixel
+        # grid, so the mark renders crisply on every system regardless of which
+        # fonts carry the Block Elements range (the Xvfb harness's core-font Tk
+        # has none, and even on Windows a fallback family's block coverage is not
+        # a given). "Settings" stays English in both UI languages on purpose --
+        # a brand lockup like the console's own untranslated face, not copy --
+        # so neither piece is _reg-istered.
+        mast = ttk.Frame(header, style="Header.TFrame")
+        mast.pack(side="top", anchor="w", pady=(0, self.theme.sp(6)))
+        px = self.theme.sp(3)
+        gear_bits = [[ch == "#" for ch in row] for row in _GEAR_PIXELS]
+        self._pixel_canvas(mast, gear_bits, px).pack(
+            side="left", padx=(0, self.theme.sp(10)))
+        self._pixel_canvas(mast, self._halfblock_bits(console_ui.WM), px).pack(
+            side="left")
+        tk.Label(mast, text="Settings", font=self.theme.title_font,
+                 fg=ACCENT, bg=PAGE).pack(side="left", padx=(self.theme.sp(8), 0))
+        cursor_h = max(self.theme.title_font.metrics("linespace")
+                       - self.theme.sp(6), 10)
+        self._cursor_frame = tk.Frame(mast, width=max(cursor_h // 2, 6),
                                       height=cursor_h, bg=ACCENT)
-        self._cursor_frame.pack(side="left")
+        self._cursor_frame.pack(side="left", padx=(self.theme.sp(5), 0))
         self._cursor_on = True
         self.root.after(600, self._blink_cursor)
-        self.title_lbl = ttk.Label(header, style="Title.TLabel")
-        self._reg(self.title_lbl,
-                  "welcome.heading" if self.first_run else "app.title.settings")
-        self.title_lbl.pack(side="top", anchor="w")
         if self.first_run:
+            # The wizard keeps its greeting under the masthead; the everyday mode
+            # needs no second title -- the masthead already says Settings.
+            self.title_lbl = ttk.Label(header, style="Title.TLabel")
+            self._reg(self.title_lbl, "welcome.heading")
+            self.title_lbl.pack(side="top", anchor="w")
             self._prose(header, "welcome.sub", surface="Muted.").pack(
                 side="top", anchor="w", fill="x", pady=(self.theme.sp(4), 0))
         # A 1px hairline under the header so it reads as chrome above the tabs (#155).
         ttk.Frame(self.root, style="Hair.TFrame", height=1).pack(side="top", fill="x")
 
-    def _masthead_canvas(self, parent):
-        """The masthead as a pixel canvas: disc mark + block wordmark from
-        console_ui, decoded through the console's half-block pixel model (one
-        char cell = two stacked pixels: ▀ top, ▄ bottom, █ both). One square
-        `px` per pixel keeps the terminal cell aspect (a char cell is px wide,
-        2*px tall); sp() scales it with DPI. A few hundred one-off rectangles --
-        drawn once, never touched again."""
-        rows = [f"{m:<7}  {w}" for m, w in
-                zip(console_ui.LOGO_MARK_A5, console_ui.WM)]
+    @staticmethod
+    def _halfblock_bits(rows):
+        """Decode console half-block art (▀ top pixel, ▄ bottom, █ both) into
+        pixel bit-rows: one char cell becomes two stacked cells of the grid."""
         grid = []
         for row in rows:
             grid.append([ch in "▀█" for ch in row])
             grid.append([ch in "▄█" for ch in row])
-        px = self.theme.sp(4)
-        w = max(len(bits) for bits in grid) * px
-        h = len(grid) * px
+        return grid
+
+    def _pixel_canvas(self, parent, bitrows, px, fill=TEXT_COLOR):
+        """Render pixel-art bit-rows as a canvas of square `px` cells. Square
+        cells keep the terminal aspect for half-block art (a char cell is px
+        wide, 2*px tall); sp()-derived px scales with DPI. A few hundred one-off
+        rectangles -- drawn once, never touched again."""
+        w = max(len(bits) for bits in bitrows) * px
+        h = len(bitrows) * px
         canvas = tk.Canvas(parent, width=w, height=h, bg=PAGE,
                            highlightthickness=0, borderwidth=0)
-        for y, bits in enumerate(grid):
+        for y, bits in enumerate(bitrows):
             for x, on in enumerate(bits):
                 if on:
                     canvas.create_rectangle(x * px, y * px,
                                             (x + 1) * px, (y + 1) * px,
-                                            fill=TEXT_COLOR, width=0)
+                                            fill=fill, width=0)
         return canvas
 
     def _blink_cursor(self):
