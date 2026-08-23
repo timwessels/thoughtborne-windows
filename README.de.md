@@ -35,13 +35,45 @@ Engines, für Neugierige: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox �
 - **Ein Mikrofon**, mit erlaubtem Mikrofonzugriff in Windows (Einstellungen > Datenschutz und Sicherheit > Mikrofon).
 - **Mindestens ein API-Key** — Groq (kostenlos) oder Soniox (Prepaid); siehe [API-Keys](#api-keys).
 - **Internet.** Die Transkription läuft über die APIs; der erste Start lädt außerdem einmalig Python und die Dependencies.
-- **Kein Python nötig** auf dem Standard-Weg — uv lädt automatisch ein passendes. (pip-Fallback: Python 3.10–3.13, nicht 3.14.)
+- **Kein Python nötig** auf dem Standard-Weg — uv lädt automatisch ein passendes. (pip-Fallback: Python 3.10–3.12 oder 3.13.1+, nicht 3.14.)
 
 ## Installation
 
-<!-- quick-start slot (#51): a guided setup path drops in here as the first option, when it exists -->
+<!-- quick-start (#51): guided installer -->
 
-Drei Wege — einen wählen. Die Befehle funktionieren in PowerShell wie in cmd.
+### Schnellstart
+
+Der schnellste Einstieg ist der Installer — er braucht kein git und kein manuell installiertes Python. Ein Terminal öffnen und eine Zeile einfügen.
+
+**PowerShell:**
+
+```
+irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex
+```
+
+**cmd** (funktioniert in PowerShell wie in cmd):
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"
+```
+
+Unklar, welche Konsole gerade offen ist? Die cmd-Form nutzen — sie läuft in beiden.
+
+Das Skript installiert [uv](https://docs.astral.sh/uv/) (einen Python-Projektmanager) falls nötig, lädt Thoughtborne nach `%LOCALAPPDATA%\Programs\Thoughtborne`, legt den Startmenü-Eintrag **Thoughtborne** an, registriert das Programm unter Einstellungen > Installierte Apps und startet das Tool — was bei einer frischen Installation ohne Key den Einrichtungs-Assistenten öffnet, in dem man einen Anbieter wählt und einen API-Key einfügt. Kein Adminrecht an irgendeinem Punkt. Das Skript ist offen — [vorher hineinlesen](https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1), wer mag.
+
+**Oder: herunterladen und doppelklicken.** Lieber keinen Befehl einfügen? `thoughtborne.zip` vom [neuesten Release](https://github.com/timwessels/thoughtborne-windows/releases/latest) herunterladen, im Explorer Rechtsklick → **Alle extrahieren**, dann im entpackten Ordner **`setup.bat`** doppelklicken — dasselbe Setup läuft von dort. Ein Sicherheitsdialog erscheint (eine unsignierte Datei aus dem Internet); der hervorgehobene Standard-Button ist **Abbrechen**, also nicht einfach Enter drücken, sondern bewusst auf **Ausführen** klicken. Die entpackten Dateien sind nur ein Träger für `setup.bat`, das die aktuelle Release-Version übers Netz lädt — dieser Weg braucht also ebenfalls Internet, ein Offline-Versuch scheitert genau hier. *Nur* `setup.bat` ausführen: Der Ordner enthält auch `Thoughtborne.bat`, und ein Doppelklick darauf aus dem Downloads-Ordner würde eine fehlplatzierte Kopie mit eigener `.env`, eigenem `history/` und eigenem `.venv` starten (es warnt vorher, die Warnung lässt sich aber wegklicken). Ist das Setup fertig, startet es Thoughtborne selbst; danach startet der Startmenü-Eintrag **Thoughtborne** das Tool.
+
+**Auf einem verwalteten oder Firmengerät** kann eine maschinenweite Gruppenrichtlinie die Ausführungsrichtlinie des Skripts überschreiben und es blockieren. Schlägt der Installer dort fehl, einen der manuellen Wege unten nutzen oder die IT-Abteilung fragen.
+
+**Smart App Control** kann unsignierte Installationsskripte blockieren — die ZIP-Spur genauso wie den Einzeiler. Nachsehen unter Windows-Sicherheit > App- und Browsersteuerung > Smart App Control; ist die Funktion eingeschaltet, lässt sie sich für die Installation ausschalten und danach wieder einschalten (Letzteres nur auf Windows 11 24H2 oder neuer mit den Updates ab April 2026 und nur bei aktivierten optionalen Diagnosedaten — sonst bleibt sie bis zum Zurücksetzen oder Neuinstallieren von Windows aus).
+
+**Aktualisieren.** Den Einzeiler erneut ausführen oder `setup.bat` im Installationsordner — kein manueller Download nötig. Das Update holt die aktuelle Release-Version selbst und behält Aufnahmen, Keys und Einstellungen.
+
+**Deinstallieren.** Thoughtborne registriert sich wie jedes andere Programm: **Einstellungen > Installierte Apps > Thoughtborne > Deinstallieren**. Das entfernt die Programmdateien und den Startmenü-Eintrag und behält Aufnahmen, Transkripte und API-Key — es sei denn, man setzt das Häkchen, das sie mitlöscht. Kein Adminrecht.
+
+**Bereits einen Git-Clone in Benutzung?** Der Installer legt eine *separate* Kopie unter `%LOCALAPPDATA%\Programs\Thoughtborne` an, mit eigener `.env`, eigenem `history/` und eigenem `.venv` — die vorhandenen Daten bleiben unberührt, und der Clone läuft unverändert weiter (weiter mit `git pull` aktualisieren). Zum Umstieg zuerst `.env`, `personal_settings.json` und `history/` in den neuen Ordner kopieren.
+
+**Python lieber selbst einrichten oder von einem Git-Clone aus arbeiten?** Die Wege unten sind die manuellen Alternativen zum Installer oben — einen wählen. Die Befehle funktionieren in PowerShell wie in cmd.
 
 ### Standard-Setup (uv)
 
@@ -64,7 +96,7 @@ Thoughtborne nutzt [uv](https://docs.astral.sh/uv/) als Python-Projektmanager: u
    cd thoughtborne-windows
    ```
 
-   Oder das ZIP von GitHub herunterladen und entpacken — der entpackte Ordner heißt `thoughtborne-windows-main`, das `cd` entsprechend anpassen.
+   Oder das Quell-ZIP von GitHub herunterladen und entpacken (der grüne **Code**-Button — nicht das Release-Asset `thoughtborne.zip` oben); der entpackte Ordner heißt `thoughtborne-windows-main`, das `cd` entsprechend anpassen.
 
 3. **API-Keys einrichten:** `.env.example` als `.env` kopieren und mindestens einen Key eintragen — wo es die Keys gibt, steht unter [API-Keys](#api-keys). Oder diesen Schritt überspringen: Beim ersten Start ohne Key öffnet sich [die Einstellungs-App](#die-einstellungs-app) und führt hindurch.
 
@@ -93,10 +125,10 @@ Read llms-install.md and guide me through the setup. Ask before running commands
 
 ### Klassisch mit pip + venv (Fallback)
 
-Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.13, nicht 3.14** — PyAudio liefert für 3.14 noch keine vorkompilierten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
+Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.12 oder 3.13.1+, nicht 3.14** — PyAudio liefert für 3.14 noch keine vorkompilierten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
 
 ```
-py -3.13 -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 python thoughtborne.py
@@ -120,9 +152,9 @@ Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträg
 
 ## Der erste Start
 
-Das Tool starten — Doppelklick auf `Thoughtborne.bat` oder `uv run thoughtborne.py`. Ein Konsolenfenster öffnet sich mit einem Start-Banner, das die aktive API und die Hotkey-Liste zeigt; Details landen in `thoughtborne.log`.
+Das Tool starten — über den Startmenü-Eintrag **Thoughtborne** (wer den Installer genutzt hat), per Doppelklick auf `Thoughtborne.bat` oder mit `uv run thoughtborne.py`. Ein Konsolenfenster öffnet sich mit einem Start-Banner, das die aktive API und die Hotkey-Liste zeigt; Details landen in `thoughtborne.log`.
 
-**Tipp — per Tastatur starten:** Eine Windows-Verknüpfung auf `Thoughtborne.bat`, abgelegt auf dem Desktop oder im Startmenü, lässt Thoughtborne in der Suche auftauchen — und gibt man der Verknüpfung ein Tastenkürzel (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), startet ein Tastendruck das Tool. Windows berücksichtigt solche Tastenkürzel nur bei Verknüpfungen an diesen beiden Orten. Als Verknüpfungsziel empfiehlt sich `C:\Windows\System32\cmd.exe /c "C:\Pfad\zu\Thoughtborne.bat"` statt der `.bat` direkt: Der Start ist identisch, aber der Startmenü-Eintrag bietet dann per Rechtsklick auch *Als Administrator ausführen* an, was Verknüpfungen direkt auf eine `.bat` dort nie bekommen (siehe den Admin-Fenster-Hinweis unter Troubleshooting).
+**Tipp — per Tastatur starten.** Wer mit dem Einzeiler oder ZIP installiert hat, findet den Eintrag **Thoughtborne** bereits im Startmenü — um ihn per Tastendruck zu starten, Rechtsklick darauf → **Eigenschaften** → ins Feld **Tastenkombination** klicken und eine freie Kombination drücken (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), und ein Druck startet das Tool. Bei einem Git-Clone gibt es noch keinen Startmenü-Eintrag: eine Windows-Verknüpfung auf `Thoughtborne.bat` anlegen, im Startmenü oder auf dem Desktop ablegen (Windows berücksichtigt Tastenkürzel nur dort) und ihr dasselbe Kürzel geben. Diese Verknüpfung auf `C:\Windows\System32\cmd.exe /c "C:\Pfad\zu\Thoughtborne.bat"` statt direkt auf die `.bat` zeigen lassen — der Start ist identisch, aber der Eintrag bietet dann per Rechtsklick auch *Als Administrator ausführen* an, was eine Verknüpfung direkt auf die `.bat` nie bekommt (der Eintrag des Installers nutzt diese Form bereits). Siehe den Admin-Fenster-Hinweis unter Troubleshooting.
 
 Dann diktieren:
 
@@ -204,9 +236,9 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 
 **Das Tool startet, aber kein Audio / leere Transkripte.** Mikrofon-Berechtigung in Windows prüfen (Einstellungen > Datenschutz und Sicherheit > Mikrofon) und das Standard-Eingabegerät; `thoughtborne.log` protokolliert, welches Eingabegerät genutzt wurde.
 
-**Ein Hotkey registriert sich nicht** (eine `FAILED:`-Zeile im Start-Log). Ein anderes Programm besitzt die Kombination bereits — globale Hotkeys sind in Windows exklusiv. Die Kombination im `HOTKEYS`-Dict in `config.py` ändern.
+**Ein Hotkey registriert sich nicht** (eine `FAILED:`-Zeile im Start-Log). Ein anderes Programm besitzt die Kombination bereits — globale Hotkeys sind in Windows exklusiv. Die Kombination im `hotkeys`-Block der `personal_settings.json` ändern (`config.py` hält die Defaults) — siehe [Anpassung](#anpassung).
 
-**Einfügen bewirkt in einem bestimmten Fenster nichts.** Die Ziel-App läuft mit erhöhten Rechten (als Administrator), und Windows' User Interface Privilege Isolation (UIPI) blockiert simulierte Eingaben aus einem nicht-erhöhten Prozess — das Transkript entsteht, landet aber nirgends, das Diktat scheint also zu verschwinden. Um in Admin-Fenster zu diktieren, Thoughtborne selbst mit erhöhten Rechten starten: Rechtsklick auf `Thoughtborne.bat` im Explorer — oder auf den Startmenü-Eintrag, wenn dessen Verknüpfung auf die `cmd.exe /c`-Form aus dem Start-Tipp zeigt (Verknüpfungen direkt auf die `.bat` bekommen den Eintrag dort nicht) — und *Als Administrator ausführen* wählen; der UAC-Dialog nennt *Windows-Befehlsprozessor*, weil Windows Batch-Dateien über `cmd.exe` ausführt. Es kann immer nur eine Instanz laufen — globale Hotkeys sind in Windows exklusiv. Startet man Thoughtborne, während es schon läuft, bemerkt das zweite Fenster das, zeigt einen kurzen Hinweis und schließt sich selbst; die laufende Instanz behält die Tasten. Vor dem Start einer erhöhten Kopie ist also nichts aufzuräumen — soll aber die *erhöhte* die Tasten halten, zuerst die laufende Instanz schließen (`Strg+Alt+4`), dann erhöht starten.
+**Einfügen bewirkt in einem bestimmten Fenster nichts.** Die Ziel-App läuft mit erhöhten Rechten (als Administrator), und Windows' User Interface Privilege Isolation (UIPI) blockiert simulierte Eingaben aus einem nicht-erhöhten Prozess — das Transkript entsteht, landet aber nirgends, das Diktat scheint also zu verschwinden. Um in Admin-Fenster zu diktieren, Thoughtborne selbst mit erhöhten Rechten starten: Rechtsklick auf `Thoughtborne.bat` im Explorer — oder auf den Startmenü-Eintrag **Thoughtborne** (der Installer legt ihn in der `cmd.exe /c`-Form an, sodass *Als Administrator ausführen* per Rechtsklick angeboten wird; eine selbst angelegte Verknüpfung braucht dieselbe Form — siehe den Start-Tipp) — und *Als Administrator ausführen* wählen; der UAC-Dialog nennt *Windows-Befehlsprozessor*, weil Windows Batch-Dateien über `cmd.exe` ausführt. Es kann immer nur eine Instanz laufen — globale Hotkeys sind in Windows exklusiv. Startet man Thoughtborne, während es schon läuft, bemerkt das zweite Fenster das, zeigt einen kurzen Hinweis und schließt sich selbst; die laufende Instanz behält die Tasten. Vor dem Start einer erhöhten Kopie ist also nichts aufzuräumen — soll aber die *erhöhte* die Tasten halten, zuerst die laufende Instanz schließen (`Strg+Alt+4`), dann erhöht starten.
 
 **Erster Start sehr langsam oder schlägt offline fehl.** uv lädt einmalig Python und die Dependencies; dafür braucht es dieses eine Mal Internet.
 

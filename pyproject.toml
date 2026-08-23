@@ -7,7 +7,7 @@
 
 [project]
 name = "thoughtborne"
-version = "1.0.0"
+version = "1.1.0-rc2"
 description = "Hotkey-driven voice-to-text tool for Windows"
 license = "MIT"
 authors = [{ name = "Tim Wessels" }]

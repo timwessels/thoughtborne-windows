@@ -4,6 +4,8 @@ You are an AI coding agent setting up Thoughtborne for a human user. This file i
 
 Thoughtborne is a hotkey-driven voice-to-text tool for Windows. The user presses `Ctrl+Alt+W`, speaks, presses `Ctrl+Alt+A` — and the transcript appears at the cursor in whatever app is active.
 
+> **Where this fits:** The README offers three installation paths — a one-liner, a download-and-click ZIP, and a git clone. This file covers the **clone path**: the right guide when you need the git repository directly (development, customization, or agent-assisted setup). The one-liner and ZIP paths handle everything — uv, Python, the Start-menu entry — automatically and need no agent guidance; on a fresh machine with no repo work to do, the one-liner is the shortest route in, and there is nothing here you need to run for it.
+
 ## Objective
 
 A working installation on the user's Windows machine.
@@ -33,7 +35,7 @@ Known-bad: a single-line `cmd.exe /c start "title" ...` from WSL — interop quo
 
 - Is `uv` installed? (`where uv` on Windows, `where.exe uv` from WSL.) If not, Step 2 covers installing it.
 - Is `winget` available? (Only needed for the easiest uv install.)
-- Only if the pip fallback becomes necessary: enumerate Pythons via the `py` launcher (`py --list`). Do not trust a bare `python` on a fresh machine — it may be the Microsoft Store stub, which opens the Store instead of running anything. Thoughtborne needs Python 3.10–3.13, **not 3.14** (PyAudio ships no 3.14 wheels).
+- Only if the pip fallback becomes necessary: enumerate Pythons via the `py` launcher (`py --list`). Do not trust a bare `python` on a fresh machine — it may be the Microsoft Store stub, which opens the Store instead of running anything. Thoughtborne needs Python **3.10–3.12 or 3.13.1+**, not 3.14 (PyAudio ships no 3.14 wheels; CPython 3.13.0 has a venv-tkinter bug that breaks the settings app).
 
 **Hardware & permissions.** A microphone must exist, and Windows microphone access must be on (Settings > Privacy & security > Microphone). Not fully checkable from the CLI — ask the user.
 
@@ -47,7 +49,7 @@ If you are reading this file inside the cloned repo, this step is done. Otherwis
 git clone https://github.com/timwessels/thoughtborne-windows.git
 ```
 
-or download and unpack the ZIP from GitHub.
+or download and unpack the source ZIP from GitHub (the green **Code** button — not the release ZIP, which runs its own setup).
 
 **From WSL.** Clone onto a Windows drive — `/mnt/c/...` or any other `/mnt/<drive>/...` path (see the WSL trap in Step 0). If the repo already sits inside WSL's Linux filesystem (typically a clone into the Linux home), move the folder to a `/mnt/...` path before continuing.
 
@@ -56,10 +58,12 @@ or download and unpack the ZIP from GitHub.
 Outcome: `uv run thoughtborne.py` can resolve and launch. There is no separate "install dependencies" command on the uv path — `uv run` (and `Thoughtborne.bat`) creates and syncs the local `.venv` on every start.
 
 - **Primary (uv).** If uv is missing: `winget install --id=astral-sh.uv -e` — or simply have the user double-click `Thoughtborne.bat`, which offers the uv install itself. (A shell that was already open does not see winget's PATH update; open a fresh one, or let the .bat find the uv shim on its own.)
+
+  (On the one-liner and ZIP paths, `setup.ps1` installs uv automatically via Astral's official installer — this step applies only to the clone path.)
 - **Fallback (pip + venv)** — only when uv is not an option:
 
   ```
-  py -3.13 -m venv .venv
+  py -3.12 -m venv .venv
   .venv\Scripts\activate
   pip install -r requirements.txt
   ```

@@ -115,9 +115,11 @@ gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
 
 ## Follow-ups
 
-- **First execution is v1.1.0** (#104) — the first release to carry these assets.
-  Until then `releases/latest/download/thoughtborne.zip` 404s (v1.0.0 predates the
-  ritual and has no such asset).
+- **First execution was v1.1.0-rc2** (2026-08-23, #104) — the first release to
+  carry these assets, published deliberately as **Latest** (not a pre-release) so
+  the stable alias resolves for the installer. The v1.1.0 final follows the same
+  ritual and supersedes it as Latest. (v1.0.0 predates the ritual and has no such
+  assets.)
 - **Site Download-ZIP button (#103).** The landing page's button currently points
   at the `main` auto-archive, which unzips as `thoughtborne-windows-main` — the
   folder the README setup step names. Whether to switch it to the release asset is

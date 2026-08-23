@@ -940,6 +940,54 @@ diff-vs-default write; no new write surface, and a user's explicit pin is never
 touched. Does not touch D-001, D-003, D-004, D-005, D-006, D-007, D-008, D-009,
 D-010, or D-011.
 
+## D-013 — In-place updates are replace-only; orphaned files from an older release survive
+
+Decided 2026-08-15 (#76, #104).
+
+An in-place update -- re-running the one-liner, or `setup.bat` in the install folder
+-- overwrites every file the new release carries and adds the ones it gained. A file
+an *earlier* release left in the install dir that the new release no longer ships is
+**not** deleted. The residue is accepted deliberately; this is the "(a) replace-only"
+option of the one-liner spec's stale-file question, and recording it here closes that
+spec's open decision no. 3.
+
+- **Why not clean up the orphans.** Deleting what the new release no longer ships
+  means knowing what it ships -- a file manifest. The release does not carry one: the
+  ZIP is a flat `git archive` of the tag (D-006) that is simply unpacked over the
+  install dir, and nothing in it says "these files and no others". Adding a manifest
+  means a new artifact to build, version, and keep honest, on the one lane whose whole
+  value is that it has no moving parts. The cost of the alternative is real work; the
+  cost of the residue is a few dead files on disk.
+- **Why the residue is tolerable.** Orphans are dead weight, not a hazard: nothing
+  imports them, and `uv sync` rebuilds `.venv` from `pyproject.toml` + `uv.lock`
+  regardless of what else sits in the folder. The one case that could bite is a
+  *renamed* module -- the old name stays importable, so a stale import resolves
+  against the old file instead of failing loudly. That is the trigger to revisit, not
+  a reason to pre-build the machinery.
+- **User data is a separate guarantee and unaffected.** The install denylist
+  (`DENYLIST-BEGIN`/`END` in `setup.ps1`) keeps `.env`, `personal_settings.json`,
+  `runtime_state.json`, `history/`, the legacy archives, the logs, and `.venv` from
+  being overwritten at all. Replace-only is about *code* files; nothing here weakens
+  the data protection, and the denylist is already written so a future clean-up pass
+  can reuse the same list.
+- **If orphans ever bite,** the recorded target is (b) manifest-diff-clean: ship a
+  manifest with the release and delete on-disk files absent from it, gated by the data
+  denylist. Option (c), wiping a code subtree, stays out of reach until code and data
+  live in separate folders -- today the tree is flat, with `history/`, `.env` and the
+  log beside the `.py` files.
+
+Do not reintroduce: an ad-hoc deletion pass that guesses which files "look stale"
+(anything without a manifest is guessing, and it is guessing next to the user's data);
+a manifest bolted on without also making it part of the release build; or a "clean
+install" that silently deletes the install dir on update -- the uninstaller is the
+place where deletion is a deliberate, user-confirmed act (D-011).
+
+Respects D-006 (no change to the asset contract -- the same two assets, unpacked the
+same way), D-002 (setup collects no secrets and writes no config file; user data is
+denylisted, not merged), D-007 (the `setup.bat` self-overwrite guard is untouched),
+and D-011 (uninstalling, where files really are removed, keeps user data by default).
+Does not touch D-001, D-003, D-004, D-005, D-008, D-009, D-010, or D-012.
+
 ## D-014 — Settings is part of the app: no unsaved-changes guard, one exit, one lane
 
 Decided 2026-08-20 (#221 -> #222 -> #223, the "one-unit" doctrine, landed in that

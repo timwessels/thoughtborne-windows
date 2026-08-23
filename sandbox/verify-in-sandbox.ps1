@@ -132,7 +132,8 @@ if ($Version) { $env:THOUGHTBORNE_VERSION = $Version }
 try {
     if ($Mode -eq 'oneliner') {
         # The real user path. Build the setup.ps1 fetch URL versioned when a tag is
-        # given: latest/download resolves to the assetless v1.0.0, so a pre-release
+        # given: latest/download resolves to the newest non-prerelease Latest
+        # (v1.1.0-rc2 and later carry the assets); a tag published as pre-release
         # is reachable ONLY at its versioned URL (respects D-006).
         if ($Version) {
             $url = "https://github.com/timwessels/thoughtborne-windows/releases/download/$Version/setup.ps1"
