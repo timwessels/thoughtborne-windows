@@ -1,6 +1,14 @@
-/* Thoughtborne site v3 — shared stylesheet for all four pages:
+/* Thoughtborne site — shared stylesheet for all four pages:
    / (DE), /en/ (EN), /legal.html (DE), /en/legal.html (EN).
-   Extracted from the approved v3 prototype's inline styles (#148).
+   Visual direction: the #213 design-contest winner "a4-dark-hero-band" applied
+   to the v3 content (#148) — ONE dark console band at the top holds the app's
+   terminal masthead as an object; the rest of the page stays light and quiet.
+   The rule that carries the design: everything terminal is a dark object
+   (band, install card, screenshot), everything human is set in ink on paper.
+   Two accents, strictly assigned: the console blue #59C2FF appears ONLY on
+   dark surfaces, its deep sibling #0F6BA8 ONLY on light ones (the OS dark
+   theme flips the page dark, so there the console blue takes over).
+   The half-block logo keeps line-height: 1 and a monospace stack — hard rule.
    Self-contained note: this file and everything under assets/ are first-party
    static files served from the site's own origin — the "self-contained" hard
    rule forbids third-party origins (CDN scripts, external fonts, remote
@@ -12,14 +20,24 @@ img, svg { display: block; max-width: 100%; }
 a { color: inherit; }
 
 :root {
+  color-scheme: light;
+
+  /* terminal surfaces (the dark objects — constant in both OS themes) */
+  --term:      #0C1218;
+  --term-line: #24333F;
+  --term-text: #DEE7ED;
+  --term-dim:  #8A9AA6;
+  --accent:    #59C2FF;   /* console accent, ported from console_ui.py — dark surfaces only */
+
+  /* the page (the clean room) */
   --navy:      #0E202E;
   --e-gray:    #8A939C;
-  --e-on-dark: #71828F;
   --paper:     #F7F9FB;
   --ink:       #0E202E;
   --ink-soft:  rgba(14, 32, 46, .72);
   --line:      rgba(14, 32, 46, .14);
   --panel:     rgba(14, 32, 46, .035);
+  --accent-deep: #0F6BA8; /* darker sibling of the console accent — AA on paper */
   --hero-ink:  #FFFFFF;
   --hero-soft: rgba(255,255,255,.80);
   --hero-line: rgba(255,255,255,.42);
@@ -31,12 +49,14 @@ a { color: inherit; }
 }
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --paper:     #0A141D;
     --ink:       #E9EDF0;
     --ink-soft:  rgba(233, 237, 240, .72);
     --line:      rgba(233, 237, 240, .16);
     --panel:     rgba(233, 237, 240, .04);
     --e-gray:    #71828F;
+    --accent-deep: #59C2FF; /* dark page ground -> the console accent applies */
     --link-dark: #AFC3D2;
     --btn-ghost-fg: var(--ink);
     --btn-bg: #AFC3D2; --btn-fg: var(--navy);
@@ -61,7 +81,7 @@ a:hover { text-decoration-color: currentColor; }
   main a, .site-footer a { color: var(--link-dark); text-decoration-color: rgba(175,195,210,.45); }
 }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
-.hero :focus-visible { outline-color: var(--hero-ink); }
+.term-band :focus-visible, .install :focus-visible { outline-color: var(--term-text); }
 
 h1, h2 { font-weight: 600; letter-spacing: -0.012em; line-height: 1.2; }
 h2 { font-size: clamp(1.45rem, 1rem + 1.9vw, 2rem); }
@@ -79,7 +99,10 @@ code {
   padding: 0.1em 0.35em; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
 }
 
-/* ---- language switch (prominent, top-right) ---- */
+/* ---- language switch ----
+   On the landing pages it sits in the dark band's top corner (.band-top);
+   the legal pages keep the sticky navy .langbar. Both grounds are dark, so
+   the toggle styling is shared. */
 .langbar { position: sticky; top: 0; z-index: 20; background: var(--navy); }
 .langbar-inner {
   max-width: var(--measure-wide); margin-inline: auto;
@@ -95,29 +118,100 @@ code {
 .lang-toggle a[aria-current="page"] { background: var(--hero-ink); color: var(--navy); }
 .lang-toggle a:not([aria-current="page"]):hover { background: rgba(255,255,255,.12); color: var(--hero-ink); }
 
-/* ---- hero ---- */
-.hero { background: var(--navy); color: var(--hero-ink); padding-block: clamp(3rem, 7vw, 5rem); }
-.hero-inner { max-width: var(--measure-wide); text-align: center; }
-.mark path { fill: currentColor; }
-.mark-hero { width: clamp(88px, 20vw, 120px); height: auto; margin: 0 auto clamp(1.5rem, 4vw, 2.25rem); color: var(--hero-ink); }
-.wordmark-h1 { margin: 0 auto; max-width: 30rem; }
-.wordmark { width: 100%; height: auto; color: var(--hero-ink); }
-.wordmark .letters { fill: currentColor; }
-.wordmark .silent-e { fill: var(--e-on-dark); }
-.tagline {
-  font-size: clamp(1.12rem, 0.95rem + 0.9vw, 1.4rem); line-height: 1.45; color: var(--hero-soft);
-  max-width: 40rem; margin: clamp(1.75rem, 4vw, 2.5rem) auto 0;
+/* ==== the dark console band ==== */
+.term-band { background: var(--term); color: var(--term-text); border-bottom: 1px solid var(--term-line); }
+.band-inner {
+  max-width: var(--measure-wide); margin-inline: auto;
+  padding: 0.85rem clamp(1.25rem, 5vw, 2rem) clamp(2.5rem, 6vw, 3.5rem);
 }
-.tagline strong { color: var(--hero-ink); font-weight: 600; }
-.subline { color: var(--hero-soft); margin: 0.85rem auto 0; max-width: 40rem; }
-.benefits { font-size: 0.97rem; color: var(--hero-soft); margin: 1.35rem auto 0; max-width: 52rem; letter-spacing: 0.01em; }
-.benefits span { white-space: nowrap; color: var(--hero-ink); font-weight: 500; }
-.benefits span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; color: var(--hero-soft); font-weight: 400; }
-.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: clamp(1.75rem, 4vw, 2.4rem); }
-.meta { font-size: 0.86rem; color: var(--hero-soft); margin-top: 1.5rem; letter-spacing: 0.01em; }
-.meta span { white-space: nowrap; }
-.meta span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; font-weight: 400; }
+.band-top { display: flex; justify-content: flex-end; align-items: center; gap: 0.6rem; }
 
+/* The app masthead as live text (console_ui.py: LOGO_MARK_A5 + WM, gap 4;
+   58 columns). line-height MUST stay 1.0 — half-block art breaks apart
+   otherwise. Two-tone: the mark glyph keeps the console accent, the wordmark
+   letters sit in console off-white. No glow, no motion. */
+.term-logo {
+  font-family: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
+  font-size: clamp(8px, 2.55vw, 16px);
+  line-height: 1;
+  letter-spacing: 0;
+  width: max-content; max-width: 100%;
+  margin: clamp(2.4rem, 5vw, 3.4rem) auto 0;
+  text-align: left;
+  overflow: hidden;
+  user-select: none;
+}
+.lg-mark { color: var(--accent); }
+.lg-word { color: var(--term-text); }
+
+/* the console's dim status line (v3's meta line, re-homed into the band) */
+.term-status {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem; letter-spacing: 0.04em;
+  color: var(--term-dim); text-align: center;
+  margin-top: 1.3rem;
+}
+.term-status span { white-space: nowrap; }
+.term-status span:not(:last-child)::after { content: "·"; padding: 0 0.5em 0 0.75em; color: rgba(138, 154, 166, .55); }
+
+/* ==== the light intro under the band ==== */
+.intro-hero { text-align: center; padding-block: clamp(2.75rem, 6vw, 4.25rem) clamp(1.5rem, 3vw, 2rem); }
+.headline {
+  font-size: clamp(1.5rem, 1.05rem + 2vw, 2.15rem); line-height: 1.2; letter-spacing: -0.014em;
+  color: var(--ink); max-width: 36rem; margin-inline: auto;
+}
+.tagline {
+  font-size: clamp(1.05rem, 0.95rem + 0.55vw, 1.25rem); line-height: 1.5; color: var(--ink-soft);
+  max-width: 40rem; margin: 1.1rem auto 0;
+}
+.tagline strong { color: var(--ink); font-weight: 600; }
+.subline { color: var(--ink-soft); margin: 0.85rem auto 0; max-width: 40rem; }
+.benefits { font-size: 0.97rem; color: var(--ink-soft); margin: 1.35rem auto 0; max-width: 52rem; letter-spacing: 0.01em; }
+.benefits span { white-space: nowrap; color: var(--ink); font-weight: 500; }
+.benefits span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; color: var(--ink-soft); font-weight: 400; }
+
+/* ==== install box: a dark terminal card on the light page ==== */
+.install {
+  max-width: 44rem; margin: clamp(2rem, 4.5vw, 2.75rem) auto 0; text-align: left;
+  background: var(--term);
+  border: 1px solid var(--term-line);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 16px 44px -22px rgba(14, 32, 46, .5), 0 2px 8px -3px rgba(14, 32, 46, .25);
+}
+.install-label {
+  font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--term-dim);
+  padding: 0.7em 1.15rem;
+  border-bottom: 1px solid var(--term-line);
+}
+.install-panel { display: flex; align-items: flex-start; gap: 0.9rem; padding: 0.95rem 0.95rem 0.95rem 1.15rem; }
+.install-cmd {
+  /* wraps instead of scrolling so the whole command stays visible */
+  flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.87rem; line-height: 1.55;
+  background: none; border: none; padding: 0; border-radius: 0;
+  color: var(--term-text);
+}
+.copy-btn {
+  flex: 0 0 auto;
+  font: inherit; font-size: 0.85rem; font-weight: 600; line-height: 1.2;
+  color: var(--term-text); background: transparent;
+  border: 1px solid #33475A; border-radius: 7px;
+  padding: 0.55em 1em; cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.copy-btn:hover { background: rgba(222,231,237,.08); border-color: var(--term-dim); }
+.copy-btn.copied { color: #9BE8A8; border-color: rgba(155,232,168,.6); }
+.get-started .install { margin-inline: 0; }
+
+/* the "what happens after Enter" steps (get-started) */
+.setup-steps { margin-block: 1rem 1.25rem; padding-left: 1.5rem; display: grid; gap: 0.5rem; color: var(--ink-soft); font-size: 0.97rem; line-height: 1.55; }
+.setup-steps li { padding-left: 0.25rem; }
+.setup-steps strong { color: var(--ink); font-weight: 600; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: clamp(1.75rem, 4vw, 2.4rem); }
 .btn {
   display: inline-block; font-size: 0.95rem; font-weight: 600; line-height: 1.2;
   padding: 0.7em 1.25em; border-radius: 7px; text-decoration: none; border: 1px solid transparent;
@@ -127,10 +221,6 @@ code {
 .btn-ghost { background: transparent; color: var(--btn-ghost-fg); border-color: var(--btn-ghost-line); }
 .btn:hover { transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
-.hero .btn-primary { --btn-bg: #FFFFFF; --btn-fg: var(--navy); }
-.hero .btn-primary:hover { background: #EAF0F4; }
-.hero .btn-ghost { color: var(--hero-ink); border-color: var(--hero-line); }
-.hero .btn-ghost:hover { background: rgba(255,255,255,.10); border-color: var(--hero-ink); }
 .btn-primary:hover { background: #16354a; }
 .btn-ghost:hover { border-color: var(--ink); background: var(--panel); }
 @media (prefers-color-scheme: dark) { .btn-primary:hover { background: #C4D6E2; } }
@@ -144,21 +234,21 @@ code {
 .prose p + p { margin-top: 1rem; }
 .prose p strong { color: var(--ink); font-weight: 600; }
 
-/* ---- screenshot, right under the hero ---- */
+/* ---- screenshot, right under the hero: the third dark object ---- */
 .shot { padding-block: clamp(2.5rem, 6vw, 3.75rem); }
 .shot .wrap { max-width: var(--measure-wide); }
 .shot-frame {
   max-width: 40rem; margin-inline: auto;
-  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--term-line); border-radius: 12px; overflow: hidden;
   box-shadow: 0 18px 50px -20px rgba(14,32,46,.45), 0 2px 8px -2px rgba(14,32,46,.2);
-  background: #0c0c0c;
+  background: var(--term);
 }
-@media (prefers-color-scheme: dark) { .shot-frame { box-shadow: 0 18px 50px -20px rgba(0,0,0,.7); } }
+@media (prefers-color-scheme: dark) { .shot-frame, .install { box-shadow: 0 18px 50px -20px rgba(0,0,0,.7); } }
 .shot-frame img { width: 100%; height: auto; display: block; }
 .shot-cap { color: var(--ink-soft); font-size: 0.93rem; margin-top: 1.1rem; max-width: var(--measure); line-height: 1.55; }
 .shot-cap strong { color: var(--ink); font-weight: 600; }
 
-/* ---- feature list with green checks, right after hero ---- */
+/* ---- feature list with checks, right after hero ---- */
 .features-top { padding-block: clamp(2.75rem, 6vw, 4rem); }
 .features-top .wrap { max-width: var(--measure-wide); }
 .features-top .intro { max-width: var(--measure); margin-bottom: 2rem; }
@@ -170,9 +260,8 @@ code {
 .feat-grid li { position: relative; padding-left: 1.7rem; line-height: 1.5; }
 .feat-grid li::before {
   content: "✓"; position: absolute; left: 0; top: 0.05em;
-  color: #1f9d55; font-weight: 700; font-size: 1rem;
+  color: var(--accent-deep); font-weight: 700; font-size: 1rem;
 }
-@media (prefers-color-scheme: dark) { .feat-grid li::before { color: #4ade80; } }
 .feat-grid b { color: var(--ink); font-weight: 600; }
 .feat-grid span { color: var(--ink-soft); font-size: 0.95rem; }
 
@@ -189,7 +278,7 @@ code {
 }
 .arg-num {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.78rem;
-  letter-spacing: 0.08em; color: var(--e-gray); padding-top: 0.35rem;
+  letter-spacing: 0.08em; color: var(--accent-deep); padding-top: 0.35rem;
 }
 .arg h3 { grid-column: 2; font-size: 1.18rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--ink); }
 .arg-lead { grid-column: 2; color: var(--ink-soft); margin-top: 0.4rem; font-size: 0.98rem; }
@@ -233,7 +322,7 @@ code {
 .aud-cols h3 { font-size: 1.02rem; font-weight: 600; color: var(--ink); margin-bottom: 0.75rem; }
 .aud-cols ul { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
 .aud-cols li { padding-left: 1.3rem; position: relative; color: var(--ink-soft); font-size: 0.94rem; line-height: 1.5; }
-.aud-for li::before { content: "✓"; position: absolute; left: 0; color: var(--ink); font-weight: 700; }
+.aud-for li::before { content: "✓"; position: absolute; left: 0; color: var(--accent-deep); font-weight: 700; }
 .aud-not li::before { content: "—"; position: absolute; left: 0; color: var(--e-gray); }
 
 /* ---- get started ---- */
@@ -244,6 +333,7 @@ code {
 .footer-inner { max-width: var(--measure-wide); text-align: center; margin-inline: auto; padding-inline: clamp(1.25rem, 5vw, 2rem); }
 .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem 1.15rem; font-size: 0.9rem; }
 .footer-note { color: var(--ink-soft); font-size: 0.9rem; margin-top: 1.5rem; }
+.mark path { fill: currentColor; }
 .mark-footer { width: 64px; height: auto; margin: 1.75rem auto 0; color: var(--ink); opacity: 0.9; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .btn:hover { transform: none; } }
@@ -260,6 +350,8 @@ code {
   .fig-unit { margin-top: 0; }
   .benefits span { display: block; }
   .benefits span:not(:last-child)::after { content: none; }
+  .install-panel { flex-wrap: wrap; }
+  .copy-btn { width: 100%; text-align: center; }
   .arg { grid-template-columns: 1fr; }
   .arg-num { padding: 0 0 0.4rem; }
   .arg h3, .arg-lead, .arg-evidence { grid-column: 1; }

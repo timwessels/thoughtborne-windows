@@ -12,7 +12,7 @@
 <link rel="icon" href="../favicon.ico" sizes="48x48">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/thoughtborne-avatar-512.png">
-<meta name="theme-color" content="#0E202E">
+<meta name="theme-color" content="#0C1218">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="de_DE">
@@ -21,60 +21,72 @@
 <meta property="og:url" content="https://thoughtborne.app/en/">
 <meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="../style.css">
+<!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
+     stale cached sheet can never style the new markup (site-v4 idea). -->
+<link rel="stylesheet" href="../style.css?v=4">
 </head>
 <body>
 
 <a class="skip-link" href="#main">Skip to content</a>
 
-<!-- Language switcher: prominent, sticky on every page. Nav hrefs are
-     root-absolute (correct on the deployed site; they don't resolve under
-     file:// — review click-through over a local HTTP server). -->
-<div class="langbar">
-  <div class="langbar-inner">
-    <span class="langbar-label">Language</span>
-    <span class="lang-toggle">
-      <a href="/" hreflang="de" aria-label="German version">DE</a>
-      <a href="/en/" aria-current="page">EN</a>
-    </span>
+<header class="masthead">
+
+  <!-- The dark console band (#148, direction: design-contest winner a4, #213):
+       the app's terminal masthead as an object on top; the page below stays
+       light. Everything dark on this page is a terminal object — band,
+       install card, screenshot. -->
+  <div class="term-band">
+    <div class="band-inner">
+
+      <!-- Language switcher, in the band's top corner. Nav hrefs are
+           root-absolute (correct on the deployed site; they don't resolve under
+           file:// — review click-through over a local HTTP server). -->
+      <div class="band-top">
+        <span class="langbar-label">Language</span>
+        <span class="lang-toggle">
+          <a href="/" hreflang="de" aria-label="German version">DE</a>
+          <a href="/en/" aria-current="page">EN</a>
+        </span>
+      </div>
+
+      <!-- The app's terminal masthead, ported character-exact from console_ui.py
+           (LOGO_MARK_A5 + WM, gap 4). Spans are colour-only: mark glyph in the
+           console accent, wordmark in console off-white. Concatenated span text
+           is identical to the app's output — regenerate from console_ui.py
+           whenever the app masthead changes. line-height stays 1.0. -->
+      <pre class="term-logo" aria-hidden="true"><span class="lg-mark"> ▄███▄ </span><span class="lg-word">    ▀█▀ █ █ █▀█ █ █ █▀▀ █ █ ▀█▀ █▀▄ █▀█ █▀▄ █▀█ █▀▀</span>
+<span class="lg-mark">▄▀▀████</span><span class="lg-word">     █  █▀█ █ █ █ █ █ █ █▀█  █  █▀▄ █ █ █▀▄ █ █ █▀▀</span>
+<span class="lg-mark"> ▀█▄ ▀ </span><span class="lg-word">     ▀  ▀ ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀  ▀  ▀▀  ▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀</span></pre>
+
+      <!-- v3's meta line, re-homed as the console's dim status line. -->
+      <p class="term-status"><span>Open source</span> <span>MIT</span> <span>Windows</span> <span>your own API keys</span></p>
+
+    </div>
   </div>
-</div>
 
-<header class="hero">
-  <div class="wrap hero-inner">
-    <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. Channel is true negative space; it shows the navy band through. -->
-    <svg class="mark mark-hero" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
-
-    <h1 class="wordmark-h1">
-      <!-- path data from assets/logo/thoughtborne-wordmark.svg — keep in sync. Letters inherit currentColor; the silent e keeps the brand gray. -->
-      <svg class="wordmark" viewBox="-26.03 -99.87 727.95 148.62" role="img" aria-label="Thoughtborne">
-        <g class="letters">
-          <path transform="translate(0.00 0.00) scale(0.048828 -0.048828)" d="M626 1118V939H403V302Q403 235 431.5 203.5Q460 172 525 172Q543 172 570.5 176.0Q598 180 618 184L657 8Q622 -4 581.5 -9.5Q541 -15 503 -15Q351 -15 267.0 63.5Q183 142 183 284V939H20V1118H183V1384H403V1118Z"/>
-          <path transform="translate(36.63 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1490H366V917Q419 1028 504.0 1080.0Q589 1132 704 1132Q875 1132 980.0 1024.5Q1085 917 1085 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
-          <path transform="translate(99.29 0.00) scale(0.048828 -0.048828)" d="M618 -23Q461 -23 343.5 49.0Q226 121 161.0 250.5Q96 380 96 553Q96 727 161.0 857.5Q226 988 343.5 1060.0Q461 1132 618 1132Q776 1132 893.5 1060.0Q1011 988 1076.0 857.5Q1141 727 1141 553Q1141 380 1076.0 250.5Q1011 121 893.5 49.0Q776 -23 618 -23ZM618 163Q720 163 786.5 216.5Q853 270 885.5 358.5Q918 447 918 553Q918 660 885.5 749.5Q853 839 786.5 892.5Q720 946 618 946Q517 946 451.0 892.5Q385 839 352.5 749.5Q320 660 320 553Q320 447 352.5 358.5Q385 270 451.0 216.5Q517 163 618 163Z"/>
-          <path transform="translate(162.19 0.00) scale(0.048828 -0.048828)" d="M529 -14Q358 -14 253.0 93.5Q148 201 148 408V1118H368V435Q368 314 431.5 246.0Q495 178 604 178Q716 178 790.0 250.5Q864 323 864 456V1118H1085V0H874L873 217Q820 95 732.5 40.5Q645 -14 529 -14Z"/>
-          <path transform="translate(224.84 0.00) scale(0.048828 -0.048828)" d="M616 -442Q422 -442 305.0 -371.0Q188 -300 141 -199L325 -112Q345 -144 378.5 -179.5Q412 -215 468.5 -240.0Q525 -265 615 -265Q742 -265 822.0 -204.5Q902 -144 902 -15V203H883Q863 166 827.5 123.0Q792 80 728.5 48.5Q665 17 563 17Q431 17 325.5 79.0Q220 141 158.0 262.5Q96 384 96 563Q96 741 157.5 868.5Q219 996 325.0 1064.0Q431 1132 566 1132Q669 1132 733.5 1097.5Q798 1063 834.5 1017.0Q871 971 890 936H906V1118H1121V-16Q1121 -163 1054.0 -257.0Q987 -351 873.0 -396.5Q759 -442 616 -442ZM614 200Q754 200 828.5 297.0Q903 394 903 566Q903 734 829.5 839.5Q756 945 614 945Q517 945 451.5 894.5Q386 844 353.5 758.5Q321 673 321 566Q321 402 395.5 301.0Q470 200 614 200Z"/>
-          <path transform="translate(289.31 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1490H366V917Q419 1028 504.0 1080.0Q589 1132 704 1132Q875 1132 980.0 1024.5Q1085 917 1085 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
-          <path transform="translate(351.96 0.00) scale(0.048828 -0.048828)" d="M626 1118V939H403V302Q403 235 431.5 203.5Q460 172 525 172Q543 172 570.5 176.0Q598 180 618 184L657 8Q622 -4 581.5 -9.5Q541 -15 503 -15Q351 -15 267.0 63.5Q183 142 183 284V939H20V1118H183V1384H403V1118Z"/>
-          <path transform="translate(388.59 0.00) scale(0.048828 -0.048828)" d="M703 -22Q601 -22 537.0 12.5Q473 47 436.5 93.0Q400 139 380 175H362V0H148V1490H368V936H380Q399 970 434.5 1016.5Q470 1063 534.0 1097.5Q598 1132 703 1132Q837 1132 942.5 1064.0Q1048 996 1109.0 867.0Q1170 738 1170 556Q1170 376 1110.0 246.0Q1050 116 944.5 47.0Q839 -22 703 -22ZM654 165Q750 165 814.5 217.0Q879 269 912.0 358.0Q945 447 945 558Q945 668 912.5 755.5Q880 843 815.5 894.0Q751 945 654 945Q512 945 438.0 838.5Q364 732 364 558Q364 383 439.0 274.0Q514 165 654 165Z"/>
-          <path transform="translate(452.91 0.00) scale(0.048828 -0.048828)" d="M618 -23Q461 -23 343.5 49.0Q226 121 161.0 250.5Q96 380 96 553Q96 727 161.0 857.5Q226 988 343.5 1060.0Q461 1132 618 1132Q776 1132 893.5 1060.0Q1011 988 1076.0 857.5Q1141 727 1141 553Q1141 380 1076.0 250.5Q1011 121 893.5 49.0Q776 -23 618 -23ZM618 163Q720 163 786.5 216.5Q853 270 885.5 358.5Q918 447 918 553Q918 660 885.5 749.5Q853 839 786.5 892.5Q720 946 618 946Q517 946 451.0 892.5Q385 839 352.5 749.5Q320 660 320 553Q320 447 352.5 358.5Q385 270 451.0 216.5Q517 163 618 163Z"/>
-          <path transform="translate(515.81 0.00) scale(0.048828 -0.048828)" d="M148 0V1118H361V938H373Q403 1029 480.5 1081.5Q558 1134 656 1134Q677 1134 704.5 1132.0Q732 1130 749 1128V918Q737 921 703.0 925.5Q669 930 634 930Q519 930 443.5 859.5Q368 789 368 679V0Z"/>
-          <path transform="translate(558.25 0.00) scale(0.048828 -0.048828)" d="M368 662V0H148V1118H358L359 903Q411 1021 498.5 1076.5Q586 1132 704 1132Q875 1132 979.5 1024.5Q1084 917 1084 710V0H864V683Q864 804 801.0 872.0Q738 940 628 940Q516 940 442.0 867.5Q368 795 368 662Z"/>
-          <path class="silent-e" transform="translate(620.91 0.00) scale(0.048828 -0.048828)" d="M630 -23Q465 -23 345.0 48.0Q225 119 160.5 248.0Q96 377 96 551Q96 723 159.5 854.0Q223 985 339.0 1058.5Q455 1132 611 1132Q738 1132 852.5 1075.5Q967 1019 1038.5 895.5Q1110 772 1110 570V492H317Q323 330 409.0 244.5Q495 159 632 159Q724 159 790.5 199.0Q857 239 886 317L1093 268Q1053 137 931.0 57.0Q809 -23 630 -23ZM318 656H892Q880 788 809.5 869.0Q739 950 612 950Q480 950 403.5 863.5Q327 777 318 656Z"/>
-        </g>
-      </svg>
-    </h1>
-
-    <p class="tagline"><strong>Hotkey dictation for Windows.</strong> Press a hotkey, speak, press a second hotkey — the text lands at the cursor position, in any app, as if you had typed it.</p>
+  <!-- The light intro under the band: headline, the v3 hero copy, install path. -->
+  <div class="wrap intro-hero">
+    <h1 class="headline"><span class="visually-hidden">Thoughtborne — </span>Hotkey dictation for&nbsp;Windows</h1>
+    <p class="tagline">Press a hotkey, speak, press a second hotkey — the text lands at the <strong>cursor position, in any app</strong>, as if you had typed it.</p>
     <p class="subline">Built for German — and above all for dictating into AI chats.</p>
     <p class="benefits"><span>built for German</span> <span>no subscription</span> <span>send it unread</span> <span>straight into the AI chat</span></p>
 
+    <!-- Install one-liner (#148 stage 2): the canonical release lane —
+         releases/latest/download resolves to the newest published release. -->
+    <div class="install">
+      <p class="install-label">Install — one PowerShell command</p>
+      <div class="install-panel">
+        <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex</code>
+        <button class="copy-btn" type="button" data-label="Copy" data-done="✓ Copied" data-fail="Press Ctrl+C">Copy</button>
+      </div>
+    </div>
+
     <p class="actions">
       <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">View on GitHub</a>
-      <a class="btn btn-ghost" href="#get-started">Get started</a>
+      <a class="btn btn-ghost" href="#get-started">More on setup</a>
     </p>
-    <p class="meta"><span>Open source</span> <span>MIT</span> <span>Windows</span> <span>your own API keys</span></p>
   </div>
+
 </header>
 
 <main id="main">
@@ -314,24 +326,34 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Get started</h2>
-      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The setup lives in the repo: the standard path via <strong>uv</strong>, a guided setup for <strong>AI coding agents</strong> (<code>llms-install.md</code>), and a classic pip fallback.</p>
-      <p>An API key is a kind of personal password that lets Thoughtborne sign in to a transcription service — you create it at the provider and paste it into a text file. Groq's is free: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
-      <p>The code is lean and readable front to back — easy to adapt if you want to.</p>
-      <!-- guided-setup slot (#51 successor): when the on-site guided setup exists, it
-           becomes the first option in this section; the download + GitHub pointers below
-           move after it. -->
+      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The fastest path is the installer: open PowerShell, paste the command, press Enter.</p>
+
+      <!-- Same canonical one-liner as the hero box (#148 stage 2). -->
+      <div class="install">
+        <div class="install-panel">
+          <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex</code>
+          <button class="copy-btn" type="button" data-label="Copy" data-done="✓ Copied" data-fail="Press Ctrl+C">Copy</button>
+        </div>
+      </div>
+
+      <ol class="setup-steps">
+        <li>The installer sets everything up — no admin rights, inside your user profile. The script is open, you can <a href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1">read it first</a>.</li>
+        <li>The setup wizard opens: pick a provider and paste an API key — free with Groq, a real free tier.</li>
+        <li>Dictate: press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> and talk — in any app.</li>
+      </ol>
+
+      <p>An API key is a kind of personal password that lets Thoughtborne sign in to a transcription service — you create it at the provider and paste it into the wizard. Groq's is free: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
       <p class="actions">
-        <!-- Direct download of the current source tree (#103). Points at the main-branch
-             zip, not a tagged release: main is the maintained, current state of the tool
-             and this URL stays current with zero page edits, whereas the only
-             release tag (v1.0.0) trails main and would hand users stale code. Unpacks as
-             thoughtborne-windows-main — the folder the README's ZIP step already names.
-             Revisit only if a per-release tagging/asset process starts. -->
-        <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows/archive/refs/heads/main.zip">Download ZIP</a>
+        <!-- Release-asset download (#148, replaces the #103 main-branch archive):
+             thoughtborne.zip is the snapshot the release ritual builds (D-006) —
+             it unzips flat and carries setup.bat, which runs the same installer
+             without pasting a command. releases/latest keeps the URL current
+             with zero page edits. -->
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip">Download ZIP</a>
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Setup guide (README)</a>
-        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/blob/main/llms-install.md">Agent-guided setup</a>
       </p>
-      <p class="audience">The download is the source tree — unzip it, then follow the README. Built for people who think technically — who start a script in a terminal and drop an API key into a <code>.env</code> file.</p>
+      <p class="audience">Rather not paste a command? Unzip the ZIP and double-click <code>setup.bat</code> — the same setup. And if you want full control, follow the README step by step.</p>
+      <p>The code is lean and readable front to back — easy to adapt if you want to.</p>
     </div>
   </section>
 
@@ -354,6 +376,42 @@
     <svg class="mark mark-footer" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
   </div>
 </footer>
+
+<script>
+/* Copy buttons on the install boxes. First-party, inline, no dependencies.
+   The Clipboard API needs a secure context (https / localhost); a
+   hidden-textarea fallback covers the rest. Without JS the button is inert
+   and the command stays selectable text. */
+document.querySelectorAll('.copy-btn').forEach(function (btn) {
+  var reset;
+  btn.addEventListener('click', function () {
+    var text = btn.closest('.install-panel').querySelector('.install-cmd').textContent.trim();
+    var done = function (ok) {
+      btn.textContent = ok ? btn.dataset.done : btn.dataset.fail;
+      btn.classList.toggle('copied', ok);
+      clearTimeout(reset);
+      reset = setTimeout(function () {
+        btn.textContent = btn.dataset.label;
+        btn.classList.remove('copied');
+      }, 2200);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done(ok);
+    }
+  });
+});
+</script>
 
 </body>
 </html>
