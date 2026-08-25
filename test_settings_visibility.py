@@ -46,6 +46,17 @@ stays mapped, origin-anchored (scrollregion x1=0) and inside the viewport, rathe
 parked off-view and unmapped. It fails on the unfixed code with the exact frozen-state
 signature -- a stale, maximized-era scrollregion and a view clamped off the content.
 
+A third, `test_verdict_wrap_with_display`, delivers every key-test verdict to both provider
+cards and asserts the #231 fix: the verdict line is not clipped at the column edge (the
+bug), has not collapsed to the wraplength floor (the trap the obvious fix falls into -- a
+label packed without `fill="x"` gets its own requested width from pack, so wrapping feeds
+back on itself), keeps a width that does not depend on its text at all (the mechanism
+`fill="x"` provides), and really does wrap whenever the text outgrows the label. The #179
+Soniox balance note on the same card is covered with it -- it shipped with the identical
+fault. A dead guard on the cost side confirms a genuine width change still re-wraps, once
+per settled width. All thresholds are relative (ratios and comparisons between two
+measurements), never pixel constants.
+
     python3 test_settings_visibility.py          # verify, exit non-zero on any violation
     python3 test_settings_visibility.py --show   # also print sample visible: lines
 """
@@ -396,6 +407,159 @@ def test_maximize_restore_with_display():
             pass
 
 
+def test_verdict_wrap_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. Builds the REAL settings app on the Provider tab and delivers each verdict
+    # to both cards, guarding the #231 fix AND the trap the obvious fix falls into.
+    #
+    # #231: the verdict label was a plain, unregistered ttk.Label, so a full-sentence
+    # verdict clipped at the column edge -- hiding exactly the reassuring "saving works
+    # anyway" half. Registering it for wrapping alone is NOT enough: a label packed
+    # without fill="x" gets its OWN requested width from pack, so every wraplength push
+    # shrinks it, and (starting from empty text) it is pinned at the 120px floor as a
+    # narrow vertical ribbon -- worse than the clipping it replaced, and invisible to the
+    # #203 invariant test (those writes do go through _push_wraps). fill="x" pins the
+    # width to the card, which makes that feedback structurally impossible.
+    #
+    # The thresholds are relative (ratios and comparisons between two measurements), never
+    # pixel constants -- the absolute numbers depend on font and DPI.
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception:
+        print("  (skipped verdict-wrap check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped verdict-wrap check: no display)")
+        return
+
+    try:
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped verdict-wrap check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    KeyStatus = ts.KeyStatus
+    writes = {}                       # id(widget) -> wraplength writes so far
+    _configure = tk.Misc.configure
+
+    def configure(self, cnf=None, **kw):
+        keys = set(kw) | (set(cnf) if isinstance(cnf, dict) else set())
+        if "wraplength" in keys:
+            writes[id(self)] = writes.get(id(self), 0) + 1
+        return _configure(self, cnf, **kw)
+
+    def settle():
+        # Drain the multi-round cascade: text -> label <Configure> -> idle wrap push.
+        for _ in range(6):
+            root.update_idletasks()
+            root.update()
+
+    def deliver(provider, status):
+        app._test_state[provider] = status
+        app._render_indicator(provider)
+        settle()
+
+    def natural_width(lbl):
+        # What this text would need on ONE line: a throwaway twin in the same style,
+        # without the wraplength the real label carries. Measured, not assumed, so the
+        # "did it wrap" check below stays honest if a verdict string is ever reworded.
+        probe = ttk.Label(lbl.master, style=str(lbl.cget("style")), text=lbl.cget("text"))
+        try:
+            return probe.winfo_reqwidth()
+        finally:
+            probe.destroy()
+
+    def check_readable(lbl, what, short_w, short_h):
+        # The first two guards are the two failure modes above; the third is the
+        # mechanism itself -- a label whose width is pinned to its parcel cannot feed its
+        # own wrapping, which is why the second can never come back. The last one is the
+        # counter-check that the text really wrapped rather than being hidden, and it
+        # only applies where the text actually outgrows the label.
+        card_w = lbl.master.winfo_width()
+        w, h, reqw = lbl.winfo_width(), lbl.winfo_height(), lbl.winfo_reqwidth()
+        check(reqw <= w,
+              f"{what}: the text wants {reqw}px but the label is {w}px wide -- a long "
+              "verdict is being clipped at the column edge instead of wrapped (#231)")
+        check(w >= 0.5 * card_w,
+              f"{what}: the label collapsed to {w}px inside a {card_w}px card -- the "
+              "wraplength feedback ran it down to the floor; it needs fill='x' so pack "
+              "hands it the card's width instead of its own requested width (#231)")
+        check(w == short_w,
+              f"{what}: the label is {w}px wide for a long verdict but {short_w}px for a "
+              "short one -- its width follows its content, so wrapping can feed back on "
+              "itself (fill='x' pins it to the card, #231)")
+        if natural_width(lbl) > w:
+            check(h > short_h,
+                  f"{what}: the text needs more than the label's {w}px yet stays "
+                  f"{h}px tall, exactly like the short verdict -- it is not wrapping "
+                  "onto a second line, it is being cut off (#231)")
+
+    _showerror = ts.messagebox.showerror
+    try:
+        tk.Misc.configure = configure
+        tk.Misc.config = configure
+        # A modal showerror from __init__ (unreadable personal_settings.json) would hang
+        # a headless run with nobody to dismiss it; neutralized for the build.
+        ts.messagebox.showerror = lambda *a, **k: None
+
+        root.geometry("900x860")
+        app = ts.SettingsApp(root, first_run=False)
+        app._goto_tab("provider.tab")
+        settle()
+
+        for provider in ("groq", "soniox"):
+            ind = app._indicators[provider]
+            deliver(provider, KeyStatus.VALID)      # the one short verdict = the baseline
+            short_w, short_h = ind.winfo_width(), ind.winfo_height()
+            for status in (KeyStatus.INVALID, KeyStatus.INCONCLUSIVE,
+                           KeyStatus.UNREACHABLE):
+                deliver(provider, status)
+                check_readable(ind, f"{provider} verdict {status.name}", short_w, short_h)
+
+        # The #179 Soniox balance note sits on the same card and had the identical
+        # packing fault -- it shipped as a ~110px vertical ribbon. It only appears under
+        # a green Soniox verdict, which is why no journey test ever caught it.
+        note = app._soniox_balance_note
+        deliver("soniox", KeyStatus.VALID)
+        card_w = note.master.winfo_width()
+        check(note.winfo_reqwidth() <= note.winfo_width(),
+              f"soniox balance note: text wants {note.winfo_reqwidth()}px in a "
+              f"{note.winfo_width()}px label -- clipped instead of wrapped (#179/#231)")
+        check(note.winfo_width() >= 0.5 * card_w,
+              f"soniox balance note: collapsed to {note.winfo_width()}px inside a "
+              f"{card_w}px card -- it needs fill='x' like the verdict line (#179/#231)")
+
+        # Dead-guard on the cost side: a genuine width change must re-wrap the verdict
+        # label, and do so once per settled width -- not never (a label frozen at the
+        # floor never re-wraps) and not per <Configure> (the #203 Windows stall).
+        ind = app._indicators["groq"]
+        deliver("groq", KeyStatus.INCONCLUSIVE)
+        before = writes.get(id(ind), 0)
+        for w in ("820x860", "900x860"):
+            root.geometry(w)
+            settle()
+        rewraps = writes.get(id(ind), 0) - before
+        check(1 <= rewraps <= 6,
+              f"{rewraps} wraplength write(s) on the verdict label across two width "
+              "changes -- 0 means it never re-wraps (frozen at the floor), many means "
+              "it is re-measured per <Configure> instead of once per settled width (#203)")
+    finally:
+        tk.Misc.configure = _configure
+        tk.Misc.config = _configure
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _show():
     print(sv.format_visible_line(
         "2026-08-16 12:00:00", 0.05, 0.42, 1, "Y", "800x860+100+50", "settings"), end="")
@@ -411,6 +575,7 @@ def main():
     test_format_visible_line_partial()
     test_storm_guards_with_display()
     test_maximize_restore_with_display()
+    test_verdict_wrap_with_display()
 
     if SHOW:
         _show()
@@ -422,8 +587,8 @@ def main():
         return 1
     print("OK: wrap_length formula, scrollbar auto-hide decision, the visible: line "
           "formatter (full / fail-open / partial), and (with a display) the auto-hide "
-          "grid idempotency, wrap-deferral invariant, and the #216 maximize->restore "
-          "content-vanish guard all pass")
+          "grid idempotency, wrap-deferral invariant, the #216 maximize->restore "
+          "content-vanish guard, and the #231 verdict-line wrap all pass")
     return 0
 
 

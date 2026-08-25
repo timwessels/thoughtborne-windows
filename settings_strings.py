@@ -136,6 +136,10 @@ _EN = {
         "This checks the key, not your balance — a new Soniox account must add "
         "credit first, or the first dictation fails with a payment error."),
     "test.invalid": "Key rejected — check for typos, or copy it fresh from the console.",
+    "test.inconclusive": (
+        "The server refused the check — that's not a network problem, and not a "
+        "verdict on the key: it may well work for dictation. Saving works anyway; "
+        "the key just wasn't verified."),
     "test.unreachable": (
         "Couldn't reach the server — check your internet connection. Saving works "
         "anyway; the key just wasn't verified."),
@@ -444,6 +448,10 @@ _DE = {
         "Das prüft den Key, nicht dein Guthaben — ein neues Soniox-Konto muss erst "
         "Guthaben aufladen, sonst scheitert das erste Diktat mit einem Zahlungsfehler."),
     "test.invalid": "Key abgelehnt — auf Tippfehler prüfen oder frisch aus der Console kopieren.",
+    "test.inconclusive": (
+        "Der Server hat die Prüfung abgelehnt — das ist kein Netzwerkproblem und kein "
+        "Urteil über den Key: Zum Diktieren kann er trotzdem funktionieren. Speichern "
+        "geht ohnehin; der Key wurde nur nicht geprüft."),
     "test.unreachable": (
         "Server nicht erreichbar — Internetverbindung prüfen. Speichern geht "
         "trotzdem; der Key wurde nur nicht geprüft."),

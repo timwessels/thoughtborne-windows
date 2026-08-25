@@ -914,16 +914,26 @@ class SettingsApp:
         self._reg(tbtn, "btn.test_key")
         tbtn.pack(side="left", padx=(sp(6), 0))
         self._test_btns[provider] = tbtn
-        ind = ttk.Label(card, style="Card.TLabel")
-        ind.pack(anchor="w", pady=(sp(6), 0))
+        # The verdict line wraps inside the card (#231): the verdicts are full
+        # sentences and used to clip at the column edge, hiding exactly the reassuring
+        # "saving works anyway" tail. fill="x" is load-bearing, not cosmetic: without it
+        # pack hands the label its OWN requested width, so each wraplength push shrinks
+        # it and the next one shrinks it again, down to the 120px floor -- a narrow
+        # ribbon of text, worse than the clipping. fill="x" pins the width to the card,
+        # so the wrap is computed from a width the text cannot influence.
+        ind = ttk.Label(card, style="Card.TLabel", justify="left")
+        ind.pack(anchor="w", fill="x", pady=(sp(6), 0))
         self._indicators[provider] = ind
+        self._register_wrap(ind)
         # #179: a Soniox-only reminder under the card that a green test proves the
         # key, not the account balance. Toggled from _render_indicator by the test
         # verdict; not _reg-istered (its text is state-driven, re-rendered via
         # render_all() -> _render_indicator on a language switch).
         if provider == "soniox":
             self._soniox_balance_note = self._prose_dyn(card, surface="Card.Small.")
-            self._soniox_balance_note.pack(anchor="w", pady=(sp(3), 0))
+            # fill="x" for the same load-bearing reason as the verdict line above: it
+            # wraps, so its width must come from the card, not from its own text.
+            self._soniox_balance_note.pack(anchor="w", fill="x", pady=(sp(3), 0))
 
     def _toggle_reveal(self, provider):
         revealed = not self._revealed[provider]
@@ -966,9 +976,12 @@ class SettingsApp:
             try:
                 result = checker(key)
             except Exception:
-                # key_check never raises by contract; belt-and-braces so a stray
-                # failure degrades to UNREACHABLE instead of a dead worker.
-                result = key_check.KeyResult(KeyStatus.UNREACHABLE, "error")
+                # key_check never raises by contract; belt-and-braces so a stray failure
+                # degrades to a verdict instead of a dead worker. INCONCLUSIVE, not
+                # UNREACHABLE: "no judgement on the key, saving works" holds for any
+                # failure here, while UNREACHABLE's "check your internet" would send the
+                # user hunting network problems for a fault inside the tool (#205).
+                result = key_check.KeyResult(KeyStatus.INCONCLUSIVE, "error")
             q.put((gen, result))
 
         threading.Thread(target=work, daemon=True).start()
@@ -993,8 +1006,9 @@ class SettingsApp:
         lbl = self._indicators[provider]
         state = self._test_state.get(provider)
         # #179: the Soniox balance reminder rides on a VALID verdict only -- cleared
-        # for idle / testing / rejected / unreachable. Runs before the early returns
-        # so a field edit (state -> None) also clears a previously shown note.
+        # for every other state (idle, testing, and each non-VALID verdict). It runs
+        # before the early returns so a field edit (state -> None) also clears a
+        # previously shown note.
         if provider == "soniox" and self._soniox_balance_note is not None:
             self._soniox_balance_note.config(
                 text=strings.t("test.valid.soniox_balance", self.lang)
@@ -1006,9 +1020,15 @@ class SettingsApp:
             lbl.config(text=strings.t("test.testing", self.lang), foreground=GREY)
             return
         # glyph + color + text together (never color alone -- accessibility).
+        # INCONCLUSIVE is amber, not red: the server answered without judging the key,
+        # so nothing is broken (#205) -- and red stays reserved for a real error. Grey
+        # would blur it into UNREACHABLE, which is precisely the distinction the verdict
+        # exists to draw. Every KeyStatus member needs a row here: the lookup below is
+        # deliberately hard, and test_settings_io pins the coverage.
         table = {
             KeyStatus.VALID: ("✓", GREEN, "test.valid"),
             KeyStatus.INVALID: ("✗", RED, "test.invalid"),
+            KeyStatus.INCONCLUSIVE: ("▲", AMBER, "test.inconclusive"),
             KeyStatus.UNREACHABLE: ("●", GREY, "test.unreachable"),
         }
         glyph, color, key = table[state]

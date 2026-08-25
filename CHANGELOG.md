@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The key test tells the truth again — and its verdict is readable** (#205, #231):
+  testing a Groq key reported "couldn't reach the server — check your internet
+  connection" for a key that dictates perfectly well, and a new user met that false
+  verdict at their very first key interaction in the setup wizard. The cause was neither
+  the key nor the network: Groq's protection layer refuses urllib's default user agent
+  outright, so the check's request was turned away before it ever reached the key —
+  measurably identically for a good key, a bad key and no key at all. The check now
+  identifies itself, and the endpoint answers honestly again. As a second line of
+  defence, a server that answers but says nothing about the key — a refusal, a moved
+  endpoint, a rate limit, a server error — now gets its own honest verdict instead of
+  being dressed up as a network fault: it says that saving works anyway and that the key
+  may well dictate fine. "Couldn't reach the server" is from now on reserved for a
+  request that got no answer at all. The verdict line also wraps inside its card instead
+  of clipping at the column edge, where it used to cut off exactly the reassuring half of
+  the message.
+- **The Soniox balance reminder is readable again** (#231): the note that a green key
+  test proves the key and not the account balance rendered as a narrow ribbon of text a
+  few characters wide. It had the same layout fault as the verdict line and is fixed with
+  it.
+
 ## [1.1.0-rc2] - 2026-08-23
 
 ### Added

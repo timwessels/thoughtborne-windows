@@ -45,6 +45,15 @@ What is covered:
     malformed key (embedded newline / non-latin-1 glyph) rejected as INVALID without
     an exception escaping the worker thread, and a padded key stripped before the
     Authorization header (localhost capture).
+  - key_check's #205 honesty contract: an ANSWERED status is never UNREACHABLE (swept
+    over 200..599, the rule rather than examples -- a 403/404/429/5xx is INCONCLUSIVE,
+    the server said something that is simply not about the key), and _check_bearer
+    really puts the explicit User-Agent on the wire (localhost capture) -- urllib's
+    default one is WAF-banned at Groq and was the whole cause of the false verdict.
+    Plus the coupling nobody else enforces: every KeyStatus member has a row in
+    _render_indicator's verdict table (a static source check -- a missing row is a
+    KeyError inside the render, i.e. a dead "Test key" button) and a test.<value>
+    string in both languages.
   - settings_strings i18n (#144): the DE and EN tables carry the identical key set
     (a missing translation fails here, not silently at runtime), every value is a
     non-empty string, the t() lang -> EN -> key-itself fallback chain, the
@@ -474,8 +483,20 @@ def check_key_check():
     check(kc.classify_http(200) == KeyStatus.VALID, "classify_http 200 -> VALID")
     check(kc.classify_http(204) == KeyStatus.VALID, "classify_http 204 -> VALID")
     check(kc.classify_http(401) == KeyStatus.INVALID, "classify_http 401 -> INVALID")
-    check(kc.classify_http(403) == KeyStatus.UNREACHABLE, "classify_http 403 -> UNREACHABLE")
-    check(kc.classify_http(500) == KeyStatus.UNREACHABLE, "classify_http 500 -> UNREACHABLE")
+    check(kc.classify_http(403) == KeyStatus.INCONCLUSIVE,
+          "classify_http 403 -> INCONCLUSIVE (the WAF ban of #205: the server answered, "
+          "but not about the key)")
+    for code in (400, 402, 404, 405, 418, 429, 500, 502, 503):
+        check(kc.classify_http(code) == KeyStatus.INCONCLUSIVE,
+              f"classify_http {code} -> INCONCLUSIVE")
+    # The rule that makes the two grey-ish verdicts distinguishable at all (#205): an
+    # ANSWERED status is never UNREACHABLE. UNREACHABLE now means no answer arrived,
+    # which only _check_bearer's transport-exception path can produce. Swept rather than
+    # sampled, so a future "let's special-case 5xx again" fails here.
+    for code in range(200, 600):
+        check(kc.classify_http(code) != KeyStatus.UNREACHABLE,
+              f"classify_http({code}) returned UNREACHABLE -- a status the server "
+              "answered must never be reported as a network failure")
     # an empty key short-circuits without a network call
     check(kc.check_groq_key("").status == KeyStatus.INVALID,
           "check_groq_key('') should be INVALID without touching the network")
@@ -572,6 +593,78 @@ def check_key_check_strip():
           f"padded key not stripped before the header: {captured.get('auth')!r}")
     check(res is not None and res.status == KeyStatus.VALID,
           f"stripped padded key should get a 200 VALID, got {res}")
+
+
+def check_key_check_user_agent():
+    # #205, the root cause: urllib's default UA ("Python-urllib/3.x") is banned outright
+    # by Groq's WAF, which then answers a fast, key-INDEPENDENT 403 -- the false
+    # UNREACHABLE a perfectly working key produced. _check_bearer must therefore send an
+    # explicit User-Agent; without this check the fix has no automated cover at all and a
+    # later tidy-up of the header dict would re-open the bug silently. Capture what a
+    # localhost server really receives; no outside network, pure stdlib.
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    captured = {}
+
+    def _serve():
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        try:
+            data = conn.recv(4096)
+            for raw in data.split(b"\r\n"):
+                if raw.lower().startswith(b"user-agent:"):
+                    # Keep the VALUE only. The header NAME's casing on the wire is a
+                    # urllib/http.client detail (it .title()s whatever it is handed), so
+                    # the filter above matches the name case-insensitively and the
+                    # assertion below pins the value exactly -- the part a WAF grades.
+                    captured["ua"] = raw.decode("latin-1").split(":", 1)[1].strip()
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+    t = threading.Thread(target=_serve, daemon=True)
+    t.start()
+    kc._check_bearer(f"http://127.0.0.1:{port}/", "gsk_dummy", timeout=5.0)
+    t.join(timeout=2.0)
+    srv.close()
+    check(captured.get("ua") == kc.USER_AGENT,
+          f"_check_bearer must send the explicit User-Agent, got {captured.get('ua')!r}")
+    check("urllib" not in captured.get("ua", "").lower(),
+          "the request went out with urllib's default User-Agent -- exactly the "
+          "signature Groq's WAF bans (#205)")
+    check(kc.USER_AGENT.strip() == kc.USER_AGENT and kc.USER_AGENT != ""
+          and "\n" not in kc.USER_AGENT and "\r" not in kc.USER_AGENT,
+          f"USER_AGENT must be a single, non-empty, unpadded header line: "
+          f"{kc.USER_AGENT!r}")
+
+
+def check_verdict_coverage():
+    # A KeyStatus member nobody adds to _render_indicator's verdict table makes its hard
+    # table[state] lookup raise KeyError INSIDE the render -- the "Test key" button would
+    # die silently on exactly the verdict just introduced (#205). thoughtborne_settings
+    # imports tkinter at module level and cannot be imported from this ladder, so the
+    # coverage is pinned statically, on the source text (the idiom of the
+    # thoughtborne.py guards in test_restart_signal.py).
+    src = (config.SCRIPT_DIR / "thoughtborne_settings.py").read_text(encoding="utf-8")
+    for member in KeyStatus:
+        check(f"KeyStatus.{member.name}:" in src,
+              f"_render_indicator has no verdict row for KeyStatus.{member.name} -- "
+              "table[state] would raise KeyError on that verdict")
+        # ... and the string it names must exist in BOTH languages. The verdict table
+        # keys its strings off the enum VALUE ("test.<value>"), so enum and string table
+        # are coupled by convention; this is what enforces it.
+        key = f"test.{member.value}"
+        for lang in ("en", "de"):
+            check(sstr.t(key, lang) != key, f"i18n: missing {key} ({lang})")
+        check(f'"{key}"' in src,
+              f"the verdict table never names {key!r} -- the string exists but no "
+              "verdict renders it")
 
 
 # ---- settings_strings i18n (#144) --------------------------------------------
@@ -1121,6 +1214,8 @@ def main():
     check_key_check_socket()
     check_key_check_malformed()
     check_key_check_strip()
+    check_key_check_user_agent()
+    check_verdict_coverage()
     check_i18n()
     check_preselect()
     check_engine_keyed()
