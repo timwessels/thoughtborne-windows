@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boolean-only read the toggle displays from, and the pure save-signal table are covered
   in `test_settings_io.py`.
 
+### Changed
+
+- **The website's terminal screenshot shows the current console.** The landing page
+  (DE and EN) still showed the pre-Cockpit log view with a `python.exe` title bar; it
+  now shows the real thing — the pixel masthead, the READY line, the model carousel and
+  key panel, and a full recording pass from `REC` to the inserted-text confirmation. The
+  shot is displayed at roughly 70 % of its pixel size so the terminal text reads as part
+  of the page rather than shouting over it; alt texts updated to match.
+
 ### Fixed
 
 - **The key test tells the truth again — and its verdict is readable** (#205, #231):
