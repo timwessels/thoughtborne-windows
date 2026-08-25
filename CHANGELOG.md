@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Push-to-talk can be switched on in the settings app** (#233): holding a key while you
+  speak — tap Ctrl, let go, then press and hold — has been in Thoughtborne since #66, but
+  it could only ever be switched on by hand-writing `personal_settings.json`, so nobody
+  meeting the tool for the first time knew it existed. The **Hotkeys** tab now opens with
+  it, ahead of the presets: a short explanation of the gesture, why the first tap is what
+  keeps `Ctrl+C` and AltGr safe, and a plain **Off / On** choice. It stays **off** unless
+  you choose otherwise — the section is there to make the decision a conscious one, not to
+  talk anyone into it — and the trigger key, insert path and the three timings stay
+  hand-editable in the `push_to_talk` block, which the fine print names. Switching the
+  feature off and on again leaves a hand-tuned block exactly as you wrote it, and a save
+  that never touched the toggle leaves it byte-identical (**D-002**, a dated addendum
+  records the fourth app-managed key and its three-valued write contract); with a key
+  stored, the save restarts the tool so the change takes effect at once. The merge, the
+  boolean-only read the toggle displays from, and the pure save-signal table are covered
+  in `test_settings_io.py`.
+
 ### Fixed
 
 - **The key test tells the truth again — and its verdict is readable** (#205, #231):

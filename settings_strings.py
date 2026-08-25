@@ -149,10 +149,31 @@ _EN = {
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
     "hotkeys.intro": (
-        "Thoughtborne is driven entirely by global hotkeys — they work in every "
+        "Thoughtborne is driven by global hotkeys — they work in every "
         "application, whatever has focus; in return, each combo is reserved "
-        "system-wide while the tool runs. Pick a preset as the base, then change "
-        "any single action below if a combo clashes with something you use."),
+        "system-wide while the tool runs. Below you first decide whether "
+        "push-to-talk joins them as a second way to dictate; then pick a preset as "
+        "the base and change any single action if a combo clashes with something "
+        "you use."),
+    "hotkeys.ptt.heading": "Push-to-talk — hold a key while you speak",
+    "hotkeys.ptt.body": (
+        "A second way to dictate, made for short bursts: tap the left Ctrl key, let "
+        "go, then press it again right away and hold it. Recording runs for as long "
+        "as you keep it held, and letting go inserts the transcript at the cursor — "
+        "the same delivery the stop hotkeys perform. The first tap is what makes it "
+        "safe: a single Ctrl press never starts anything, so Ctrl+C, Ctrl+V and "
+        "every other Ctrl combination are left alone. On a German keyboard AltGr is "
+        "filtered out as well (Windows reports it as Ctrl+Alt), so typing "
+        "@ \\ { } [ ] | € ~ never starts a recording."),
+    "hotkeys.ptt.off": "Off — dictate with the hotkeys only",
+    "hotkeys.ptt.on": "On — double-tap and hold Ctrl to dictate",
+    "hotkeys.ptt.fine": (
+        "Off by default: while it is on, Thoughtborne watches every Ctrl press. The "
+        "trigger key (left Ctrl, right Ctrl or left Alt), how the text is inserted "
+        "and the three timings stay hand-editable in the \"push_to_talk\" block of "
+        "personal_settings.json. One collision worth knowing: in JetBrains IDEs a "
+        "double Ctrl opens \"Run Anything\" — enable \"Disable double modifier key "
+        "shortcuts\" in the IDE's Advanced Settings if that gets in the way."),
     "hotkeys.presets.heading": "Two presets to choose from",
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt letters — the shipped default",
     "hotkeys.preset.ctrl_alt.body": (
@@ -461,11 +482,34 @@ _DE = {
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
     "hotkeys.intro": (
-        "Thoughtborne wird komplett über globale Hotkeys gesteuert — sie "
+        "Thoughtborne wird über globale Hotkeys gesteuert — sie "
         "funktionieren in jeder Anwendung, egal was gerade den Fokus hat; dafür "
-        "ist jede Kombination systemweit reserviert, solange das Tool läuft. Als "
-        "Basis ein Preset wählen und darunter einzelne Aktionen ändern, falls eine "
-        "Kombination mit etwas kollidiert, das man nutzt."),
+        "ist jede Kombination systemweit reserviert, solange das Tool läuft. "
+        "Darunter zuerst die Entscheidung, ob Push-to-talk als zweiter Weg zum "
+        "Diktieren dazukommt; danach als Basis ein Preset wählen und einzelne "
+        "Aktionen ändern, falls eine Kombination mit etwas kollidiert, das man "
+        "nutzt."),
+    "hotkeys.ptt.heading": "Push-to-talk — beim Sprechen eine Taste halten",
+    "hotkeys.ptt.body": (
+        "Ein zweiter Weg zu diktieren, gedacht für kurze Einwürfe: die linke "
+        "Ctrl-Taste kurz antippen, loslassen, dann gleich darauf erneut drücken und "
+        "halten. Solange sie gehalten wird, läuft die Aufnahme; beim Loslassen wird "
+        "das Transkript an der Cursorposition eingefügt — genau wie bei den "
+        "Stopp-Hotkeys. Das erste Antippen ist der Schutz: ein einzelner "
+        "Ctrl-Druck löst nie etwas aus, Ctrl+C, Ctrl+V und jede andere "
+        "Ctrl-Kombination bleiben unberührt. Auf deutschen Tastaturen wird "
+        "zusätzlich AltGr herausgefiltert (Windows meldet es als Ctrl+Alt), sodass "
+        "@ \\ { } [ ] | € ~ nie eine Aufnahme starten."),
+    "hotkeys.ptt.off": "Aus — nur über die Hotkeys diktieren",
+    "hotkeys.ptt.on": "An — Ctrl doppelt tippen und halten zum Diktieren",
+    "hotkeys.ptt.fine": (
+        "Standardmäßig aus: solange es an ist, wertet Thoughtborne jeden Ctrl-Druck "
+        "aus. Trigger-Taste (linke Ctrl, rechte Ctrl oder linke Alt), der "
+        "Einfüge-Weg und die drei Zeitschwellen bleiben im Block „push_to_talk“ in "
+        "personal_settings.json von Hand einstellbar. Eine Kollision, die man kennen "
+        "sollte: In JetBrains-IDEs öffnet doppeltes Ctrl „Run Anything“ — wenn das "
+        "stört, in den Advanced Settings der IDE „Disable double modifier key "
+        "shortcuts“ aktivieren."),
     "hotkeys.presets.heading": "Zwei Presets zur Wahl",
     "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt-Buchstaben — der Auslieferungszustand",
     "hotkeys.preset.ctrl_alt.body": (

@@ -31,6 +31,11 @@ rewrite.
     managed block, but written only on demand: `write_personal_settings` touches it
     solely when passed a `ui_language`, so a user who never changed the language
     leaves no `ui` block behind (the dictation tool ignores it entirely).
+    `push_to_talk.enabled` (#233, D-002 addendum) is a fourth managed key written the
+    same way -- only on demand, and outside `MANAGED_BLOCKS` for the same reason:
+    `ptt_enabled=None` leaves the whole `push_to_talk` block exactly as found (and
+    creates none), a bool writes ONLY `enabled` and keeps every sibling the user
+    hand-tuned beside it.
 All writes are atomic (temp file in the same dir + `os.replace`). A present-but-
 unreadable target aborts the save (the read error propagates) rather than
 clobbering it, and a UTF-8 BOM is tolerated on read and healed (dropped) on write.
@@ -265,7 +270,9 @@ def engine_keyed(api, live_fields: dict, stored_env: dict) -> bool:
 # in this set: it is written only when a `ui_language` is passed, so seeding an
 # empty `ui` block on every first write (which adding it here would do) would
 # violate the "no language changed -> no ui block" minimal-diff rule. See
-# write_personal_settings.
+# write_personal_settings. `push_to_talk` (#233) is the second block kept out for
+# exactly that reason: its toggle writes only on demand, so listing it here would
+# drop a push_to_talk block into every fresh install's first write.
 MANAGED_BLOCKS = ("hotkeys", "defaults")
 
 # The distinct "drop the pin" signal for write_personal_settings' `default_api`
@@ -311,6 +318,21 @@ def read_personal_settings(path) -> tuple:
     return data, None
 
 
+def read_ptt_enabled(personal: dict) -> bool:
+    """True iff a personal_settings dict switches push-to-talk ON, by exactly the
+    rule the running tool applies (config.py): the value must be a real JSON boolean.
+    A quoted "yes", a 1, a missing key, a missing or non-dict block -> False, which is
+    what the tool does too (it warns and keeps the shipped default OFF). So the
+    settings toggle can never show ON for a file the tool reads as OFF, and a hand-
+    typed typo is surfaced as the off state it actually produces. Pure -> off-Windows
+    testable."""
+    block = personal.get("push_to_talk")
+    if not isinstance(block, dict):
+        return False
+    value = block.get("enabled")
+    return value if isinstance(value, bool) else False
+
+
 def _managed_skeleton(example_path) -> dict:
     """A minimal personal_settings dict with only the managed blocks, each
     carrying its `_comment` lead from the example (so the written file stays
@@ -337,7 +359,8 @@ def _managed_skeleton(example_path) -> dict:
 
 
 def write_personal_settings(path, *, hotkeys_effective, default_api,
-                            example_path=None, ui_language=None) -> None:
+                            example_path=None, ui_language=None,
+                            ptt_enabled=None) -> None:
     """Merge-write. Load the existing dict (or build a minimal skeleton from the
     managed blocks' example `_comment` leads -- never the placeholder vocabulary).
     Replace ONLY the managed blocks:
@@ -361,9 +384,23 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
         creates none), so a user who never toggled the language keeps a clean file.
         When set, any other keys in `ui` (and its `_comment`) are preserved; a
         brand-new `ui` block gets the example's `_comment` lead if available.
-    Every unmanaged block (vocabulary / push_to_talk / soniox_endpointing) and
-    every `_comment` is preserved untouched. Serialized json.dump(indent=2,
-    ensure_ascii=False) + trailing newline. Atomic (temp file + os.replace).
+      - push_to_talk.enabled (#233, on demand like ui.language above; three-valued,
+        D-002 addendum): written ONLY when `ptt_enabled` is not `None` -- callers pass
+        a bool or `None` (resolve_ptt_save_signal returns exactly that), anything else
+        is coerced with bool(). `None` -- the untouched toggle -- leaves the whole
+        `push_to_talk` block exactly as found and creates none, a hand-typed invalid
+        `enabled` included (the tool warns about that at every start, the honest way
+        to surface a typo). A write touches only `enabled`, so the block's `_comment`
+        and every sibling (`trigger`, `insert`, the three thresholds) survive and
+        switching the feature off and on again can never cost a hand-tuned value;
+        config's defaults fill the rest, so a freshly created block needs no other
+        key. Unlike `defaults.api` there is no
+        removal sentinel -- there is no "delete the block" state to express.
+    Every unmanaged block (vocabulary / soniox_endpointing) and every `_comment` is
+    preserved untouched; `push_to_talk` is preserved untouched too unless
+    `ptt_enabled` is set, which touches only its `enabled` key. Serialized
+    json.dump(indent=2, ensure_ascii=False) + trailing newline. Atomic (temp file +
+    os.replace).
 
     A MISSING target is the normal first-run case (read -> {}), so only the managed
     skeleton is written. A present-but-UNREADABLE target makes the read raise, which
@@ -435,6 +472,28 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
         new_ui["language"] = ui_language
         data["ui"] = new_ui
 
+    # ---- push_to_talk.enabled: on demand, three-valued (#233, D-002 addendum) ---
+    # None -> leave the whole block exactly as found (and create none), so a save
+    # that never touched the toggle keeps the file byte-identical and a hand-typed
+    # invalid `enabled` survives (same stance as defaults.api). Anything else -- in
+    # practice the bool resolve_ptt_save_signal returns -- writes ONLY
+    # `enabled`: the `_comment` and every sibling the user hand-tuned there --
+    # trigger, insert, the three thresholds -- are carried over, so disabling and
+    # re-enabling never costs a timing. A non-dict block is replaced by a fresh one
+    # (the ui rule above): the tool ignores such a block entirely, so nothing of
+    # value is lost.
+    if ptt_enabled is not None:
+        ptt_block = data.get("push_to_talk")
+        if isinstance(ptt_block, dict):
+            new_ptt = dict(ptt_block)
+        else:
+            new_ptt = {}
+            comment = _example_block_comment(example_path, "push_to_talk")
+            if comment is not None:
+                new_ptt["_comment"] = comment
+        new_ptt["enabled"] = bool(ptt_enabled)
+        data["push_to_talk"] = new_ptt
+
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     _atomic_write(path, content)
 
@@ -477,6 +536,21 @@ def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_load
     if remember_display_now != remember_display_loaded:
         return None, remember_display_now
     return None, None
+
+
+def resolve_ptt_save_signal(*, enabled_now, enabled_loaded):
+    """The on-save push-to-talk signal for write_personal_settings' `ptt_enabled`
+    (#233). `None` when the toggle still sits where it was loaded: the file's
+    `push_to_talk` block is then left exactly as found, so a save about something
+    else stays byte-identical there and a hand-typed invalid `enabled` survives
+    (D-002). A real change returns the new bool, which writes only `enabled`.
+
+    Pure, so the whole table is off-Windows tested (the GUI is hands-on only).
+    Deliberately NOT symmetric with resolve_engine_save_signal's REMOVE sentinel:
+    there is no "delete the block" state to express here."""
+    if bool(enabled_now) == bool(enabled_loaded):
+        return None
+    return bool(enabled_now)
 
 
 def resolve_save_action(*, first_run, has_key):

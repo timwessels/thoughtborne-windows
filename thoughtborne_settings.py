@@ -271,6 +271,13 @@ class SettingsApp:
         # Start from exactly what the running tool would register (junk tolerated).
         self.hotkeys_state = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, hk)[0]
 
+        # Push-to-talk (#233): the toggle shows what the TOOL would do with this file --
+        # read_ptt_enabled applies config.py's boolean-only rule, so a hand-typed "yes"
+        # shows OFF rather than promising a gesture that never fires. _loaded is frozen
+        # here so _save can tell an untouched toggle (-> leave the whole push_to_talk
+        # block exactly as found, D-002) from a real change.
+        self._ptt_enabled_loaded = settings_io.read_ptt_enabled(personal)
+
         # The engine field shows the engine the tool would actually START on
         # (#193, D-008): the `defaults.api` pin if the file carries a valid one,
         # else the engine remembered from the last Ctrl+Alt+L switch, else the
@@ -1040,6 +1047,31 @@ class SettingsApp:
         sp = self.theme.sp
         self._prose(f, "hotkeys.intro").pack(fill="x")
 
+        # Push-to-talk (#233): a conscious on/off choice, ahead of the presets. The
+        # feature ships OFF and used to be reachable only by hand-writing
+        # personal_settings.json, so nobody meeting the tool ever found it. It sits
+        # first because it decides HOW you dictate, not which key does it -- but at
+        # H2 like the presets: making it the tab's only H1 would rank it above the
+        # hotkey scheme that governs every day. Shape follows the engine control:
+        # heading, prose, a radio pair in a card, so both options are read rather
+        # than a lone checkbox skimmed past.
+        self._section(f, "hotkeys.ptt.heading", level="H2", pady=(sp(16), sp(8)))
+        ptt_card = self._card(f)
+        ptt_card.pack(fill="x")
+        self._prose(ptt_card, "hotkeys.ptt.body", surface="Card.").pack(
+            fill="x", pady=(0, sp(8)))
+        # No `command`: nothing renders off this var, so _save reads it directly. A
+        # programmatic .set() fires no command either -- the property the engine
+        # radios rely on for the D-002 byte-identity of an untouched save.
+        self.ptt_var = tk.StringVar(value="on" if self._ptt_enabled_loaded else "off")
+        for value, key in (("off", "hotkeys.ptt.off"), ("on", "hotkeys.ptt.on")):
+            rb = ttk.Radiobutton(ptt_card, style="Card.TRadiobutton",
+                                 value=value, variable=self.ptt_var)
+            self._reg(rb, key)
+            rb.pack(anchor="w")
+        self._prose(ptt_card, "hotkeys.ptt.fine", surface="Card.Small.").pack(
+            fill="x", pady=(sp(8), 0))
+
         # Presets: a heading (the tab used to jump straight from prose into the
         # boxes) then the two cards STACKED (#155 §4.4 -- side by side inside the
         # capped column squeezed the F-key card's text and its button until they
@@ -1718,6 +1750,13 @@ class SettingsApp:
             engine_now=engine_now, engine_loaded=engine_loaded,
             remember_display_now=self._remember_display_api,
             remember_display_loaded=self._remember_display_loaded_api)
+        # Push-to-talk (#233): None unless the toggle actually moved, so a save that
+        # never touched it leaves the whole block -- comment, trigger, insert, the
+        # three timings -- exactly as found (D-002). Pure and off-Windows tested, like
+        # the engine signal above.
+        ptt_signal = settings_io.resolve_ptt_save_signal(
+            enabled_now=(self.ptt_var.get() == "on"),
+            enabled_loaded=self._ptt_enabled_loaded)
         try:
             settings_io.write_env(
                 config.SCRIPT_DIR / ".env",
@@ -1731,7 +1770,8 @@ class SettingsApp:
                 example_path=config.SCRIPT_DIR / "personal_settings.example.json",
                 # language self-persists on toggle (D-014); the save never writes it --
                 # ui_language=None leaves any existing ui block exactly as found.
-                ui_language=None)
+                ui_language=None,
+                ptt_enabled=ptt_signal)
         except Exception as e:
             # Atomic writes + abort-on-unreadable (CP1) mean no file is left half-
             # written or corrupted. .env is written before personal_settings.json, so

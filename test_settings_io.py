@@ -30,6 +30,19 @@ What is covered:
   - settings_io.engine_keyed (#201): the per-engine "has a usable key" predicate the
     key-aware engine control greys off -- stored vs live field per provider, a blank
     field falling back to the stored key, all-keyless, and an unknown engine id.
+  - the push-to-talk toggle's persistence (#233, D-002 addendum): the three-valued
+    `ptt_enabled` merge -- an untouched toggle leaves the file byte-identical (a
+    hand-typed invalid `enabled` included), a bool writes ONLY `enabled` so a
+    hand-tuned block's _comment, trigger, insert and three timings survive an
+    off-and-on round trip, a fresh block carries the example's _comment lead and
+    nothing beyond `enabled`, an untouched toggle creates no block at all, and one
+    save carrying all three managed keys at once lands each of them. Plus
+    read_ptt_enabled (what the toggle SHOWS: config.py's JSON-boolean-only rule, so
+    it can never show ON for a file the tool reads as OFF) and the pure
+    resolve_ptt_save_signal table behind the byte-identity guarantee. And the two
+    write call sites the whole guarantee hangs on, pinned statically on
+    thoughtborne_settings.py's syntax tree (the GUI is hands-on only): _save must
+    pass the RESOLVED signal, and _persist_language must pass no ptt_enabled at all.
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -76,6 +89,7 @@ What is covered:
 Hands-on gates (a separate test issue, not reachable here): the real Tk state-bit
 values in decode_key_event, and the live "Test key" round-trip against real keys.
 """
+import ast
 import json
 import logging
 import os
@@ -710,6 +724,14 @@ def check_i18n():
               f"i18n: behavior.engine.keyless ({lang}) must name the provider tab exactly "
               f"as provider.tab renders it ({sstr.t('provider.tab', lang)!r})")
 
+    # #233: the push-to-talk fine print points the user at the JSON block by name in
+    # both languages -- guard that coupling so a rename of the block can never leave
+    # the UI naming a block that no longer exists (same style as the guards above).
+    for lang in ("en", "de"):
+        check("push_to_talk" in sstr.t("hotkeys.ptt.fine", lang),
+              f"i18n: hotkeys.ptt.fine ({lang}) must name the push_to_talk block verbatim, "
+              "since that block is where the trigger key and the timings stay hand-edited")
+
     # D-015: the settings app defaults to English; the system-language detection is
     # retired on purpose. Guard the removal so it cannot quietly come back and flip
     # the default on German Windows again.
@@ -1105,6 +1127,303 @@ def check_engine_save_signal():
           "signal: REMOVE must never coincide with a memory write")
 
 
+# ---- settings_io push_to_talk.enabled merge (#233, D-002) --------------------
+def check_ptt_toggle(tmp):
+    """The three-valued `ptt_enabled` contract (#233, D-002 addendum). `None` means
+    "the toggle was not touched": the whole `push_to_talk` block is left exactly as
+    found (and none is created), so an unrelated save stays byte-identical there and a
+    hand-typed invalid `enabled` survives. A bool writes ONLY `enabled`, preserving the
+    `_comment` and every sibling -- the trigger, insert path and three thresholds a
+    maintainer hand-tuned -- so switching the feature off and on again costs none of
+    them."""
+    # The hand-tuned shape this has to protect: a full push_to_talk block with a
+    # _comment lead and all six settings, in a file that carries NO hotkeys and NO
+    # defaults block (what a personal_settings.json written by hand actually looks
+    # like -- those two blocks only appear once the settings app has written them).
+    live_ptt = {
+        "_comment": "Opt-in push-to-talk (Issue #66): tap the trigger key, release, "
+                    "then press-and-HOLD it.",
+        "enabled": True, "trigger": "rctrl", "insert": "type",
+        "tap_window_s": 0.35, "min_hold_s": 0.25, "release_tail_s": 0.18,
+    }
+    siblings = {k: v for k, v in live_ptt.items() if k != "enabled"}
+
+    # (a) an untouched toggle on a hand-tuned file -> byte-identical.
+    p = tmp / "ps_ptt_untouched.json"
+    raw = json.dumps({"push_to_talk": live_ptt, "vocabulary": {"terms": ["keepme"]}},
+                     indent=2, ensure_ascii=False) + "\n"
+    p.write_text(raw, encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ui_language=None, ptt_enabled=None)
+    check(p.read_text(encoding="utf-8") == raw,
+          "PTT-none: an untouched toggle did not leave the file byte-identical: "
+          f"{p.read_text(encoding='utf-8')!r}")
+
+    # (b) switching it OFF writes only `enabled`; every hand-tuned sibling stays.
+    p = tmp / "ps_ptt_off.json"
+    p.write_text(json.dumps({"push_to_talk": live_ptt, "vocabulary": {"terms": ["keepme"]}},
+                            indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ptt_enabled=False)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "PTT-off: file did not reload as valid JSON")
+    block = data.get("push_to_talk", {})
+    check(block.get("enabled") is False, f"PTT-off: enabled not written as False: {block}")
+    check({k: v for k, v in block.items() if k != "enabled"} == siblings,
+          f"PTT-off: a hand-tuned sibling or the _comment was lost: {block}")
+    check(data.get("vocabulary", {}).get("terms") == ["keepme"], "PTT-off: vocabulary clobbered")
+
+    # (c) and back ON -- the off/on round trip a hand-tuned block must survive.
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ptt_enabled=True)
+    data, _ = sio.read_personal_settings(p)
+    block = data.get("push_to_talk", {})
+    check(block.get("enabled") is True, f"PTT-on: enabled not written as True: {block}")
+    check({k: v for k, v in block.items() if k != "enabled"} == siblings,
+          f"PTT-on: the off/on round trip cost a hand-tuned value: {block}")
+
+    # (d) no block at all + True -> one created with `enabled` and the example's
+    # _comment lead, and NOTHING else: config's defaults fill trigger/insert/timings,
+    # so writing them would freeze today's defaults into the user's file.
+    p = tmp / "ps_ptt_new.json"
+    p.write_text(json.dumps({"vocabulary": {"terms": ["x"]}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ptt_enabled=True)
+    data, _ = sio.read_personal_settings(p)
+    block = data.get("push_to_talk", {})
+    check(block.get("enabled") is True, f"PTT-new: enabled not written: {block}")
+    check("_comment" in block, "PTT-new: example _comment lead not carried")
+    check(set(block) == {"_comment", "enabled"},
+          f"PTT-new: a fresh block wrote more than enabled + the comment: {sorted(block)}")
+
+    # (e) absent file + True: the block is created and the placeholder vocabulary
+    # still never leaks (the D-002 data bug, guarded on every write path).
+    p = tmp / "ps_ptt_absent.json"
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS,
+                                ptt_enabled=True)
+    raw = p.read_text(encoding="utf-8")
+    check("Project Name" not in raw and "Company Name" not in raw,
+          "PTT-absent: the write leaked the placeholder vocabulary (DATA BUG)")
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("push_to_talk", {}).get("enabled") is True,
+          f"PTT-absent: enabled not written on an absent file: {data.get('push_to_talk')}")
+
+    # (f) no block + None -> none is created (the untouched toggle on a fresh install,
+    # the twin of the "no ui block" rule).
+    p = tmp / "ps_ptt_none_absent.json"
+    p.write_text(json.dumps({"vocabulary": {"terms": ["x"]}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS, ptt_enabled=None)
+    data, _ = sio.read_personal_settings(p)
+    check("push_to_talk" not in data,
+          f"PTT-none-absent: an untouched toggle created a block: {data.get('push_to_talk')}")
+
+    # (g) a block that carries only a _comment (no `enabled` key at all): untouched
+    # stays byte-identical, then True adds the key beside the comment.
+    p = tmp / "ps_ptt_comment_only.json"
+    raw = json.dumps({"push_to_talk": {"_comment": "mine"}}, indent=2,
+                     ensure_ascii=False) + "\n"
+    p.write_text(raw, encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=None, default_api=None,
+                                example_path=EXAMPLE_PS, ptt_enabled=None)
+    check(p.read_text(encoding="utf-8") == raw,
+          "PTT-comment-only: an untouched toggle rewrote a comment-only block")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS, ptt_enabled=True)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("push_to_talk") == {"_comment": "mine", "enabled": True},
+          f"PTT-comment-only: enabled not added beside the comment: {data.get('push_to_talk')}")
+
+    # (h) a NON-dict block is replaced by a fresh one -- the rule ui already applies.
+    # The tool ignores such a block entirely, so nothing of value is lost.
+    p = tmp / "ps_ptt_nondict.json"
+    p.write_text(json.dumps({"push_to_talk": "yes"}, indent=2) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS, ptt_enabled=True)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("push_to_talk", {}).get("enabled") is True,
+          f"PTT-nondict: a non-dict block was not replaced: {data.get('push_to_talk')}")
+
+    # (i) an untouched toggle preserves an INVALID hand-typed `enabled` verbatim.
+    # Deliberate, and the twin of the invalid-pin rule: the tool warns about it at
+    # every start; correcting what the user typed, on a save about something else,
+    # is the worse behavior.
+    p = tmp / "ps_ptt_invalid.json"
+    p.write_text(json.dumps({"push_to_talk": {"enabled": "yes"}}, indent=2) + "\n",
+                 encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS, ptt_enabled=None)
+    data, _ = sio.read_personal_settings(p)
+    check(data.get("push_to_talk", {}).get("enabled") == "yes",
+          f"PTT-invalid: an untouched save destroyed a hand-typed value: {data.get('push_to_talk')}")
+
+    # (j) all three on-demand keys in ONE write. Each is merged by its own block, so
+    # nothing couples them in the code -- which is exactly why a case that exercises
+    # them together is worth having: a future refactor that shares state between the
+    # three merges would show up here and nowhere else.
+    p = tmp / "ps_ptt_combined.json"
+    p.write_text(json.dumps({"push_to_talk": live_ptt, "ui": {"language": "en"},
+                             "defaults": {"api": "groq"},
+                             "vocabulary": {"terms": ["keepme"]}},
+                            indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api="soniox", example_path=EXAMPLE_PS,
+                                ui_language="de", ptt_enabled=False)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "PTT-combined: file did not reload as valid JSON")
+    check(data.get("push_to_talk", {}).get("enabled") is False,
+          f"PTT-combined: the toggle did not land: {data.get('push_to_talk')}")
+    check({k: v for k, v in data.get("push_to_talk", {}).items() if k != "enabled"} == siblings,
+          f"PTT-combined: a hand-tuned push_to_talk sibling was lost: {data.get('push_to_talk')}")
+    check(data.get("ui", {}).get("language") == "de",
+          f"PTT-combined: ui.language did not land: {data.get('ui')}")
+    check(data.get("defaults", {}).get("api") == "soniox",
+          f"PTT-combined: defaults.api did not land: {data.get('defaults')}")
+    check(data.get("vocabulary", {}).get("terms") == ["keepme"],
+          "PTT-combined: the unmanaged vocabulary was clobbered")
+
+
+def check_ptt_read():
+    """read_ptt_enabled: what the settings toggle SHOWS for a given file, by exactly
+    the rule config.py applies -- a real JSON boolean or nothing. The point is that the
+    toggle can never show ON for a file the tool reads as OFF."""
+    R = sio.read_ptt_enabled
+    check(R({}) is False, "ptt-read: an empty settings dict must read as OFF")
+    check(R({"push_to_talk": {}}) is False, "ptt-read: an empty block must read as OFF")
+    check(R({"push_to_talk": {"enabled": True}}) is True,
+          "ptt-read: a real JSON true must read as ON")
+    check(R({"push_to_talk": {"enabled": False}}) is False,
+          "ptt-read: a real JSON false must read as OFF")
+    for junk in ("yes", "true", "True", 1, 0, None, [], {}):
+        check(R({"push_to_talk": {"enabled": junk}}) is False,
+              f"ptt-read: {junk!r} must read as OFF (config.py honors only a JSON boolean)")
+    for junk in ("yes", None, [], 3):
+        check(R({"push_to_talk": junk}) is False,
+              f"ptt-read: a non-dict block ({junk!r}) must read as OFF")
+    # The shipped example ships the feature OFF -- the file the user reads, and the
+    # one whose _comment lead a freshly created block inherits.
+    example, _ = sio.read_personal_settings(EXAMPLE_PS)
+    check(R(example) is False,
+          "ptt-read: personal_settings.example.json must ship push-to-talk OFF")
+
+    # The ship default itself (#233's premise, and what the fine print states as
+    # fact), checked as SOURCE rather than as config.PTT_ENABLED: the imported
+    # attribute is the EFFECTIVE value -- this checkout's own personal_settings.json
+    # overrides it at import -- so asserting the attribute would fail on every machine
+    # whose user switched the gesture on. What must not change is the module-level
+    # initializer; flipping it to True would arm the trigger polling for every install
+    # unasked, which is the one thing default-off exists to prevent.
+    config_src = (config.SCRIPT_DIR / "config.py").read_text(encoding="utf-8")
+    toplevel = re.findall(r"^PTT_ENABLED\s*=\s*(\S+)", config_src, re.MULTILINE)
+    check(toplevel == ["False"],
+          f"ptt-read: config.py must carry exactly one module-level PTT_ENABLED "
+          f"initializer and it must be False, found {toplevel}")
+
+
+def check_ptt_save_signal():
+    """resolve_ptt_save_signal across its whole (loaded, now) table. Identity asserts,
+    not truthiness: a stray 0 or "" returned instead of False would still write, and
+    the None row is exactly the D-002 byte-identity guarantee."""
+    R = sio.resolve_ptt_save_signal
+    check(R(enabled_now=False, enabled_loaded=False) is None,
+          "ptt-signal: untouched OFF must leave the block as found")
+    check(R(enabled_now=True, enabled_loaded=True) is None,
+          "ptt-signal: untouched ON must leave the block as found")
+    check(R(enabled_now=True, enabled_loaded=False) is True,
+          "ptt-signal: switching it on must write True")
+    check(R(enabled_now=False, enabled_loaded=True) is False,
+          "ptt-signal: switching it off must write False")
+
+
+def check_ptt_wiring():
+    """The two write call sites in thoughtborne_settings.py, pinned statically (#233).
+    Everything above proves the MERGE keeps its promises; what nothing else can catch
+    is the writer being fed the wrong thing. Both byte-identity guarantees live in the
+    call sites alone: _save must hand `ptt_enabled=` the RESOLVED signal (the raw
+    toggle state would rewrite the block on every save -- D-002), and
+    _persist_language's ui.language-only write must carry no `ptt_enabled` at all (a
+    language toggle would otherwise write the push_to_talk block, D-014). The settings
+    app imports tkinter at module level and cannot be imported from this ladder, so
+    the wiring is checked on the source -- as a syntax tree rather than as text, so
+    renaming the local or reflowing the call proves nothing while a real regression
+    still goes red (the idiom of the thoughtborne.py guards in test_restart_signal.py,
+    one step more precise)."""
+    src_path = config.SCRIPT_DIR / "thoughtborne_settings.py"
+    try:
+        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        failures.append(f"ptt-wiring: could not parse thoughtborne_settings.py: "
+                        f"{type(e).__name__}: {e}")
+        return
+
+    methods = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "SettingsApp":
+            methods = {n.name: n for n in node.body if isinstance(n, ast.FunctionDef)}
+            break
+
+    def writes_in(method):
+        """Every write_personal_settings call inside one method."""
+        return [c for c in ast.walk(method) if isinstance(c, ast.Call)
+                and getattr(c.func, "attr", None) == "write_personal_settings"]
+
+    # ---- _save: ptt_enabled= gets the resolver's result, never the raw toggle ----
+    save = methods.get("_save")
+    if save is None:
+        failures.append("ptt-wiring: SettingsApp._save not found -- the save path was "
+                        "renamed and this guard no longer guards anything")
+        return
+    resolved = set()
+    for node in ast.walk(save):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and getattr(node.value.func, "attr", None) == "resolve_ptt_save_signal"):
+            resolved |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+    check(resolved,
+          "ptt-wiring: _save never assigns settings_io.resolve_ptt_save_signal(...) to "
+          "a local -- without it the toggle state reaches the writer unresolved and "
+          "every save rewrites the push_to_talk block (D-002)")
+    save_writes = writes_in(save)
+    check(len(save_writes) == 1,
+          f"ptt-wiring: expected exactly one write_personal_settings call in _save, "
+          f"found {len(save_writes)} -- this guard assumes the single save write")
+    for call in save_writes:
+        passed = {k.arg: k.value for k in call.keywords if k.arg}
+        check("ptt_enabled" in passed,
+              "ptt-wiring: _save's write_personal_settings call passes no ptt_enabled -- "
+              "the toggle would never persist")
+        value = passed.get("ptt_enabled")
+        check(isinstance(value, ast.Name) and value.id in resolved,
+              "ptt-wiring: _save passes ptt_enabled="
+              f"{ast.unparse(value) if value is not None else '<missing>'}, not the "
+              f"resolve_ptt_save_signal result ({' / '.join(sorted(resolved)) or 'none'}) -- "
+              "an untouched toggle would then rewrite the block on every save (D-002)")
+
+    # ---- _persist_language: the ui.language-only write stays ui.language-only ----
+    persist = methods.get("_persist_language")
+    if persist is None:
+        failures.append("ptt-wiring: SettingsApp._persist_language not found -- the "
+                        "D-014 language self-persist was renamed and this guard no "
+                        "longer guards anything")
+        return
+    persist_writes = writes_in(persist)
+    check(len(persist_writes) == 1,
+          f"ptt-wiring: expected exactly one write_personal_settings call in "
+          f"_persist_language, found {len(persist_writes)}")
+    for call in persist_writes:
+        check(not any(k.arg == "ptt_enabled" for k in call.keywords),
+              "ptt-wiring: _persist_language passes ptt_enabled -- a language toggle "
+              "would then write the push_to_talk block, so a session that only ever "
+              "switched the display language would not leave the file byte-identical "
+              "(D-002/D-014)")
+
+
 # ---- save-action decision (#202) ---------------------------------------------
 def check_save_action():
     """resolve_save_action across the 4 combinations of (first_run, has_key). Each
@@ -1205,6 +1524,7 @@ def main():
         check_personal_settings(tmp)
         check_ui_language(tmp)
         check_engine_pin(tmp)
+        check_ptt_toggle(tmp)
         check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
@@ -1220,6 +1540,9 @@ def main():
     check_preselect()
     check_engine_keyed()
     check_engine_save_signal()
+    check_ptt_read()
+    check_ptt_save_signal()
+    check_ptt_wiring()
     check_save_action()
 
     if SHOW:

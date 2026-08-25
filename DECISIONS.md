@@ -158,6 +158,24 @@ not config. So "the settings app and the running tool do not coordinate" now rea
 supersede — D-002's write contract and all its other guarantees stand.
 Maintainer-settled via issue #202.
 
+**2026-08-25 addendum (#233).** `push_to_talk.enabled` becomes a **fourth app-managed
+key**, written **only on demand** — exactly like `ui.language`, so the enumeration in
+the surgical-merge bullet above gains one entry and nothing else changes.
+`write_personal_settings` takes a three-valued `ptt_enabled`: `None` leaves the whole
+`push_to_talk` block exactly as found (and creates none), so a save that never touched
+the toggle stays byte-identical there and a hand-typed invalid `enabled` survives to be
+warned about at the next start; `True`/`False` writes **only** `enabled`, preserving the
+block's `_comment` and every sibling (`trigger`, `insert`, the three thresholds), so
+switching the feature off and on again can never cost a hand-tuned value. Unlike
+`defaults.api` there is **no removal sentinel** — there is no "delete the block" state
+to express. The block is deliberately **not** added to `MANAGED_BLOCKS`, for the reason
+`ui` is not: that tuple seeds a block into every absent-file write, which would drop an
+unwanted `push_to_talk` block into every fresh install. The settings toggle *displays*
+the file through `read_ptt_enabled`, which applies `config.py`'s JSON-boolean-only rule,
+so it can never show ON for a file the tool reads as OFF. Not a supersede — D-002's
+write contract and all its other guarantees stand.
+Maintainer-directed via issue #233 (spec of 2026-08-25).
+
 Do not reintroduce: a full-file rewrite that drops user comments or unmanaged blocks;
 a save that silently overwrites an unreadable or undecodable settings file; freezing
 the default hotkeys into the file; seeding the placeholder vocabulary; or a silent
