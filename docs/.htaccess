@@ -1,0 +1,10 @@
+# Cache policy: every response revalidates. "no-cache" still lets browsers
+# store files — they just confirm freshness with a conditional request, and
+# the server's ETag answers 304 when nothing changed. Without this header the
+# host sent no cache policy at all, so browsers fell back to heuristic
+# freshness and kept serving a stale screenshot/stylesheet for hours after a
+# deploy. The site is a handful of small files; the 304 round-trips are noise.
+# The ?v= query strings in the HTML stay as belt-and-braces.
+<IfModule mod_headers.c>
+  Header set Cache-Control "no-cache"
+</IfModule>

@@ -31,8 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (DE and EN) still showed the pre-Cockpit log view with a `python.exe` title bar; it
   now shows the real thing — the pixel masthead, the READY line, the model carousel and
   key panel, and a full recording pass from `REC` to the inserted-text confirmation. The
-  shot is displayed at roughly 70 % of its pixel size so the terminal text reads as part
-  of the page rather than shouting over it; alt texts updated to match.
+  shot is displayed at a bit over half its pixel size so the terminal text reads as part
+  of the page rather than shouting over it; alt texts updated to match. The site also
+  gains an explicit cache policy (`docs/.htaccess`, `Cache-Control: no-cache`): the host
+  sent no cache headers at all, so browsers fell back to heuristic freshness and kept
+  serving a stale screenshot or stylesheet for hours after a deploy — now every file
+  revalidates (cheap 304s via the existing ETags) and changes show up on a plain reload.
 
 ### Fixed
 
