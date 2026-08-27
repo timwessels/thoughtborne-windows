@@ -45,6 +45,23 @@ WSB = "sandbox/thoughtborne-install-test.wsb"
 VERIFY = "sandbox/verify-in-sandbox.ps1"
 LAUNCHER = "sandbox/run-sandbox.ps1"
 WSB_HOST_PLACEHOLDER = "SANDBOX_HOSTFOLDER_ABS_PATH"
+# #191: the settings-window lane's host-side grading contract.
+CHECKLIST = "sandbox/settings-shot-checklist.md"
+SANDBOX_DOCS = ("sandbox/README.md", CHECKLIST)
+
+
+def read_source(name):
+    # The TOOL's own sources (thoughtborne.py, hotkey_manager.py, ...) carry
+    # non-ASCII by design -- read them utf-8, never through the ASCII read_text
+    # the installer/harness scripts are held to.
+    return (REPO / name).read_text(encoding="utf-8")
+
+
+def ps_code_lines(name):
+    # A PowerShell script's lines with whole-line comments dropped, so a comment
+    # that merely NAMES a construct can never satisfy a structural check (the idiom
+    # test_sandbox_launcher_present_and_safe uses inline).
+    return [ln for ln in read_text(name).splitlines() if not ln.strip().startswith("#")]
 
 # #209: the GUI uninstaller.
 UNINSTALL = "uninstall.ps1"
@@ -377,6 +394,261 @@ def test_verify_threads_version():
     text = read_text(VERIFY)
     assert "THOUGHTBORNE_VERSION" in text, "driver never sets THOUGHTBORNE_VERSION"
     assert "releases/download/" in text, "driver builds no versioned release URL"
+
+
+# ======================================================================
+# #191 sandbox harness polish: a self-test injection lane that depends on
+# nothing being present in the image, the settings-window lane, and the
+# launcher's boot probe + cleanup. Static, like everything above -- the
+# real behavior is a sandbox run.
+# ======================================================================
+
+def test_wsb_clipboard_disabled():
+    # #191/#225: host<->sandbox clipboard sharing stays OFF. The sandbox's msrdc
+    # clipboard sync is the contention source behind the #225 silent paste miss, so
+    # a verification run must never be able to disturb dictation on the host. The
+    # regression to catch is someone "restoring the default" -- Default is what turns
+    # sharing back on (Enable is not even a valid value, but pin it too so a plausible
+    # hand-edit fails here rather than in a GUI dialog no automated run sees).
+    wsb = read_text(WSB)
+    assert "<ClipboardRedirection>Disable</ClipboardRedirection>" in wsb, \
+        "sandbox .wsb must declare <ClipboardRedirection>Disable</ClipboardRedirection>"
+    for bad in ("<ClipboardRedirection>Default</ClipboardRedirection>",
+                "<ClipboardRedirection>Enable</ClipboardRedirection>"):
+        assert bad not in wsb, \
+            f"sandbox .wsb declares {bad} -- host clipboard sharing is back on and a run can disturb dictation on the host"
+
+
+def test_verify_injection_is_compiler_free():
+    # #191: the primary key-injection route must need nothing on disk. Add-Type
+    # compiles C# with csc.exe from the .NET Framework directory, which a trimmed
+    # sandbox image need not carry; DefinePInvokeMethod on a Reflection.Emit type
+    # declares the same user32!keybd_event binding in memory. Keep BOTH (they fail
+    # under disjoint conditions) but never collapse back to Add-Type alone.
+    code = "\n".join(ps_code_lines(VERIFY))
+    assert "DefineDynamicAssembly" in code and "DefinePInvokeMethod" in code, \
+        "the driver has no compiler-free (Reflection.Emit) key-injection route -- a sandbox image without csc.exe cannot fire the self-test"
+
+
+def test_verify_notepad_is_optional():
+    # THE #191 root cause. An unguarded `Start-Process notepad.exe` is what made both
+    # #181 E2E runs land PARTIAL: the image carries no Notepad, Start-Process threw
+    # instantly, and the self-test was never fired. Notepad is a NICETY (it makes the
+    # inserted text visible in the screenshot) -- it must never be able to fail a run.
+    # Comment lines are dropped first, so a comment about the old bug can neither
+    # satisfy nor trip this.
+    code = ps_code_lines(VERIFY)
+    for i, line in enumerate(code):
+        if not re.search(r"Start-Process\s+notepad", line, re.I):
+            continue
+        window = "\n".join(code[max(0, i - 6):i + 1])
+        assert "Get-Command notepad.exe" in window, \
+            f"line {line.strip()!r} starts Notepad without a preceding presence probe -- an image without Notepad fails the whole self-test lane (#191)"
+        assert re.search(r"\btry\s*\{", window), \
+            f"line {line.strip()!r} starts Notepad outside a try -- a throw here must never cost the self-test (#191)"
+
+
+def test_verify_reports_injection_route():
+    # #191: every run must state, in one token, which injection mechanism carried it
+    # -- otherwise the next failure produces another hypothesis instead of a fact.
+    # And an image supporting no route at all is a NAMED outcome, not an exception
+    # string caught somewhere downstream.
+    code = "\n".join(ps_code_lines(VERIFY))
+    assert "injection-route=" in code, \
+        "the driver's result detail carries no injection-route= token"
+    assert "no key-injection route available" in code, \
+        "the driver has no explicit 'no injection route' message -- an unusable image would surface as a stray caught exception"
+
+
+def test_verify_settings_lane_present():
+    # #191 settings-window lane: press Ctrl+Alt+G, wait for the window to report its
+    # first paint, photograph the desktop. Two details are load-bearing and easy to
+    # lose in a cleanup: the chord is parsed for the open_settings ACTION (not a
+    # hard-coded key), and the tool legitimately IGNORES the press while the
+    # self-test's insert is still pending (#196), so the refusal line must be
+    # tolerated and the press retried rather than graded as a failure.
+    code = "\n".join(ps_code_lines(VERIFY))
+    assert "'open_settings'" in code, "the driver does not parse the open_settings chord from the log"
+    assert "Opened the settings app" in code, "the driver never waits for the settings-open confirmation"
+    assert "Settings not opened" in code, \
+        "the driver does not tolerate the #196 insertion-pending refusal -- a swallowed press would be graded as a failure"
+    assert "[SETTINGS] visible:" in code, "the driver never waits for the settings app's first-paint line"
+    assert "Save-Screenshot 'settings'" in code, "the driver captures no settings screenshot"
+
+    # The mirror image of that tolerance: 'Could not open the settings app' is a HARD
+    # state (script missing / launch threw), which no further chord can change. It must
+    # END the retry loop, not feed it -- otherwise a broken settings app costs the run
+    # two more 20 s windows and says so only at the end.
+    lines = ps_code_lines(VERIFY)
+    hard = [i for i, ln in enumerate(lines) if "Could not open the settings app" in ln]
+    assert hard, "the driver does not detect the hard 'could not open' state at all"
+    assert any("$settingsHardFail = $true" in ln for ln in lines[hard[0]:hard[0] + 4]), \
+        "the hard 'could not open the settings app' branch does not raise the hard-failure flag"
+    loop = re.search(r"for\s*\(\s*\$attempt[^)]*\)", "\n".join(lines))
+    assert loop and "$settingsHardFail" in loop.group(0), \
+        f"the settings retry loop is not gated on the hard-failure flag: {loop.group(0) if loop else None!r} -- a missing settings app would still be retried"
+
+
+def test_settings_checklist_present():
+    # #191: the repo carries the CONTRACT for grading the settings screenshot (the
+    # harness cannot grade a picture), and the launcher points at it. Pin both, so
+    # the pointer cannot rot away from the file or the other way round.
+    data = read_bytes(CHECKLIST)
+    for bom in _BOMS:
+        assert not data.startswith(bom), f"{CHECKLIST}: starts with a BOM"
+    bad = [i for i, b in enumerate(data) if b >= 0x80]
+    assert not bad, f"{CHECKLIST}: non-ASCII byte(s) at offset(s) {bad[:5]}"
+    text = data.decode("ascii")
+    assert "SETTINGS-SHOT.txt" in text, "the checklist does not name the verdict file"
+    for token in ("PASS", "FAIL", "UNSURE"):
+        assert token in text, f"the checklist does not name the {token} verdict token"
+    assert "#227" in text, \
+        "the checklist lost the stray-console item (#227) -- the one regression class only a screenshot catches"
+    assert "settings-shot-checklist.md" in read_text(LAUNCHER), \
+        "run-sandbox.ps1 does not point at the checklist -- a graded run would need the reader to find it"
+
+
+def test_launcher_boot_probe():
+    # #191: the launcher must notice within minutes that no sandbox came up, instead
+    # of sitting out the full result timeout. A rejected .wsb is reported only as a
+    # GUI dialog an automated run never sees.
+    text = read_text(LAUNCHER)
+    assert "$BootTimeoutSec" in text, "the launcher has no -BootTimeoutSec boot probe"
+    assert re.search(r"\$exitCode\s*=\s*6", text), "the launcher never emits exit code 6 (sandbox never came up)"
+    assert re.search(r"#.*\b6\b.*never came up", text), \
+        "exit code 6 is not documented in the launcher header -- an undocumented exit code is a silent contract"
+    # The interesting half: WSL2 runs on the same Hyper-V worker process, so vmwp and
+    # vmmem* are alive on this machine with NO sandbox running (verified 2026-08-27).
+    # A probe keyed on them would report "booted" always.
+    for line in ps_code_lines(LAUNCHER):
+        assert not re.search(r"vmwp|vmmem", line, re.I), \
+            f"the launcher keys on a Hyper-V worker process: {line.strip()!r} -- WSL2 keeps those alive, so the probe would always claim the sandbox booted"
+
+    # ...and the other half: the boot window is a FAIL-FAST window, never a kill
+    # deadline. The .wsb's own mapped-folder wait can eat most of it before the driver
+    # gets to run, so a single-stage probe that stops the VM when the window expires
+    # would behead healthy slow runs. Two stages: exit 6 straight away when nothing is
+    # alive, otherwise a second wait on the same out-* signal bounded by the run's
+    # overall budget, and only then exit 6.
+    code = "\n".join(ps_code_lines(LAUNCHER))
+    assert re.search(r"\$bootGraceDeadline\s*=\s*\$startedAt\.AddSeconds\(\s*\$BootTimeoutSec\s*\+\s*\$ResultTimeoutSec\s*\)", code), \
+        "the launcher has no grace deadline derived from both timeouts -- the wait after a slow boot has nothing to bound it"
+    grace = code.find("while ((Get-Date) -lt $bootGraceDeadline)")
+    assert grace > 0, "the launcher has no second-stage wait bounded by the grace deadline"
+    sixes = [m.start() for m in re.finditer(r"\$exitCode\s*=\s*6", code)]
+    assert len(sixes) == 2 and sixes[0] < grace < sixes[1], \
+        ("exit 6 is not two-staged: it must fire immediately when NO sandbox is alive and only "
+         "after the grace wait when one is -- as written, a slow but healthy sandbox can be stopped mid-run")
+    # And the result window still starts when the driver signalled life: trimming it by
+    # the grace already spent would turn a slow start into a false TIMEOUT instead.
+    assert re.search(r"\$deadline\s*=\s*\(Get-Date\)\.AddSeconds\(\$ResultTimeoutSec\)", code), \
+        "the result-poll deadline is no longer a full -ResultTimeoutSec from the moment of boot"
+
+
+def test_launcher_cleanup_scoped():
+    # #191: an unattended run must leave no orphan VM -- and must never stop a sandbox
+    # it did not start. The scoping rests on a PRE-launch id snapshot, and the stop
+    # must sit in a finally so it also runs on the timeout and no-boot paths.
+    text = read_text(LAUNCHER)
+    assert "[switch]$KeepSandbox" in text, "the launcher has no -KeepSandbox opt-out"
+    for marker in ("$preIds = @(Get-SandboxIds)", "Start-Process -FilePath $sandboxExe",
+                   "} finally {"):
+        assert marker in text, f"the launcher lost {marker!r} -- the scoped-cleanup contract cannot hold without it"
+    snapshot_idx = text.index("$preIds = @(Get-SandboxIds)")
+    launch_idx = text.index("Start-Process -FilePath $sandboxExe")
+    assert snapshot_idx < launch_idx, \
+        "the sandbox-id snapshot is taken AFTER the launch -- cleanup could then stop a sandbox this run did not start"
+
+    # Anchor on the REAL call site, and follow the variable it stops: `stop --id` also
+    # appears in the -KeepSandbox hint text a few lines above, and anchoring there put
+    # the whole HOST.txt block (which filters ids for a different purpose) inside the
+    # searched window -- so the filter could be deleted from the stop itself and this
+    # guard stayed green. Derive it instead: stop -> loop variable -> collection ->
+    # that collection's assignment.
+    code = "\n".join(ps_code_lines(LAUNCHER))
+    stop_m = re.search(r"&\s*\$wsb\.Source\s+stop\s+--id\s+\$(\w+)", code)
+    assert stop_m, "the launcher has no `& $wsb.Source stop --id $<var>` call -- an unattended run would leave the VM running"
+    assert code.index("} finally {") < stop_m.start(), \
+        "the sandbox stop is not inside the finally -- a timeout or no-boot path would leave the VM running"
+    loop_m = re.search(r"foreach\s*\(\s*\$" + stop_m.group(1) + r"\s+in\s+\$(\w+)\s*\)", code)
+    assert loop_m, \
+        f"the stop's ${stop_m.group(1)} does not come from a foreach -- cannot tell which ids it would stop"
+    assign_m = re.search(r"\$" + loop_m.group(1) + r"\s*=\s*(.+)", code)
+    assert assign_m, f"the stopped collection ${loop_m.group(1)} is never assigned in the launcher"
+    assert "$preIds -notcontains" in assign_m.group(1), \
+        (f"the stopped ids (${loop_m.group(1)}) are not filtered against the pre-launch snapshot: "
+         f"{assign_m.group(1).strip()!r} -- the cleanup could stop a sandbox this run did not start")
+
+
+def test_sandbox_files_cite_no_source_lines():
+    # #191 (folds in the 2026-08-16 doc report): the harness comments used to cite
+    # tool sources by LINE NUMBER (thoughtborne.py:2565, hotkey_manager.py:328) and
+    # every one of them had rotted. Cite the behavior and the issue instead -- the
+    # content coupling guards below are what keep the harness honest, and unlike a
+    # line number they cannot go stale in silence.
+    for name in (VERIFY, LAUNCHER, WSB):
+        for m in re.finditer(r"\w+\.py:\d+", read_text(name)):
+            raise AssertionError(
+                f"{name} cites {m.group(0)!r} -- a source line number rots on the next commit; "
+                "name the logged string or the issue instead")
+    for name in SANDBOX_DOCS:
+        for m in re.finditer(r"\w+\.py:\d+", (REPO / name).read_text(encoding="utf-8")):
+            raise AssertionError(f"{name} cites {m.group(0)!r} -- see above")
+
+
+def test_verify_needles_match_the_tool():
+    # THE coupling guard (#191). The driver polls the tool's log for fixed strings and
+    # parses its hotkey-registration line. A silent rename on the tool side used to
+    # cost a 60 s hang and a PARTIAL graded for the wrong reason -- with no test going
+    # red anywhere. Assert both directions: the driver really polls for each string,
+    # and the source that produces it still writes it.
+    driver = "\n".join(ps_code_lines(VERIFY))
+    tb = read_source("thoughtborne.py")
+    for needle in ("All hotkeys registered successfully",
+                   "Test transcription successful",
+                   "Test: no transcription received",
+                   "Test file not found",
+                   "Opened the settings app",
+                   "Settings not opened",
+                   "Could not open the settings app"):
+        assert needle in driver, \
+            f"the needle list here names {needle!r}, which the driver no longer polls for -- update the list with the lane"
+        assert needle in tb, \
+            f"the driver polls for {needle!r}, which thoughtborne.py no longer logs -- the harness would hang and grade PARTIAL for the wrong reason"
+
+    # The registration line the chord is parsed out of, as the tool actually builds it.
+    tpl = "  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})"
+    assert tpl in read_source("hotkey_manager.py"), \
+        "hotkey_manager.py no longer logs the exact 'Registered: ... (id=, mod=0x, vk=0x)' line the driver parses its chord out of"
+
+    # ...and the driver's fenced regex really matches a line rendered from it.
+    m = re.search(r"#\s*HOTKEY-REGEX-BEGIN(.*?)#\s*HOTKEY-REGEX-END", read_text(VERIFY), re.S)
+    assert m, "HOTKEY-REGEX-BEGIN/END sentinels not found in the driver"
+    lit = re.search(r"'([^']*)'", m.group(1))
+    assert lit, "no single-quoted regex literal between the HOTKEY-REGEX sentinels"
+    sample = tpl.format(hotkey_str="ctrl+alt+t", name="test_transcription",
+                        hotkey_id=7, modifiers=0x4003, vk_code=0x54)
+    hit = re.search(lit.group(1).format("test_transcription"), sample)
+    assert hit, f"the driver's hotkey regex does not match the line the tool writes: {sample!r}"
+    assert int(hit.group(1), 16) == 0x4003 and int(hit.group(2), 16) == 0x54, \
+        "the driver's hotkey regex matches but captures the wrong modifier/VK groups -- it would inject the wrong chord"
+
+
+def test_verify_settings_visible_needle():
+    # Same coupling logic as above for the settings lane: the driver waits for the
+    # settings app's first-paint line, which settings_visibility.format_visible_line
+    # is the single source of. Render one and assert the needle is really in it.
+    import settings_visibility
+
+    m = re.search(r"#\s*SETTINGS-VISIBLE-NEEDLE-BEGIN(.*?)#\s*SETTINGS-VISIBLE-NEEDLE-END",
+                  read_text(VERIFY), re.S)
+    assert m, "SETTINGS-VISIBLE-NEEDLE-BEGIN/END sentinels not found in the driver"
+    lit = re.search(r"'([^']*)'", m.group(1))
+    assert lit, "no single-quoted needle between the SETTINGS-VISIBLE-NEEDLE sentinels"
+    line = settings_visibility.format_visible_line(
+        "2026-08-27 12:00:00", 0.05, 3.10, 1, "Y", "900x700+10+10", "settings")
+    assert lit.group(1) in line, \
+        f"the driver waits for {lit.group(1)!r}, which the settings app no longer writes: {line.strip()!r}"
 
 
 # ======================================================================
@@ -750,6 +1022,17 @@ CASES = [
     test_sandbox_scripts_ascii,
     test_sandbox_launcher_present_and_safe,
     test_verify_threads_version,
+    test_wsb_clipboard_disabled,
+    test_verify_injection_is_compiler_free,
+    test_verify_notepad_is_optional,
+    test_verify_reports_injection_route,
+    test_verify_settings_lane_present,
+    test_settings_checklist_present,
+    test_launcher_boot_probe,
+    test_launcher_cleanup_scoped,
+    test_sandbox_files_cite_no_source_lines,
+    test_verify_needles_match_the_tool,
+    test_verify_settings_visible_needle,
     test_uninstall_ascii_only_no_bom,
     test_registry_write_present,
     test_registry_quiet_lane_silent,

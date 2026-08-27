@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The pre-release sandbox check also takes a look at the settings window** (#191):
+  after the self-test it now opens the settings window inside the throwaway VM and
+  photographs the desktop, so a release check can catch a stray console window or a
+  clipped line of text in the real app before a release does. The picture is graded
+  against a fixed checklist that ships with the harness (`sandbox/settings-shot-checklist.md`),
+  and the answer is written beside the screenshot; the launcher prints both paths when
+  a run produced one. The item is reported, not gating — a run still passes or fails on
+  install, hotkeys and the transcribed self-test alone. Each run now also leaves two
+  small records beside its verdict: what the sandbox image offered, and whether the
+  host screen was locked while the run worked.
 - **Push-to-talk can be switched on in the settings app** (#233): holding a key while you
   speak — tap Ctrl, let go, then press and hold — has been in Thoughtborne since #66, but
   it could only ever be switched on by hand-writing `personal_settings.json`, so nobody
@@ -42,6 +52,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pre-release sandbox check no longer stops before it presses a key** (#191): the
+  throwaway-VM verification could install Thoughtborne, start it and watch all twelve
+  hotkeys register, but the last step — pressing the self-test hotkey from inside the
+  VM — died before it pressed anything, because it first opened Notepad and that call
+  failed instantly in the throwaway image. Two release-gate runs ended "partial" with
+  the end-to-end path unproven. The step no longer depends on any program being present
+  in the image: it synthesizes the exact key combination the tool logged, through a
+  binding built in memory that needs no compiler on disk, keeps the old route as a
+  fallback, reports which of the two carried the run, and says so plainly when neither
+  is available. Notepad is now what it always should have been — a nicety that makes the
+  inserted text visible in the screenshot, and never a reason for the check to fail.
+  What that does *not* settle, stated plainly because it is the whole point of the
+  check: whether the injected keypress really reaches the running tool inside the VM
+  has still never been seen happen — the known reason it never got that far is gone,
+  and the next real run is what proves the rest. A run where it does not stays
+  "partial" with the cause named, never a failed install. The launcher also notices
+  within minutes when nothing came up at all, instead of waiting out the full fifteen,
+  while a sandbox that is alive but slow is waited out rather than stopped mid-run; and
+  it stops the sandbox it started when it is done, so an unattended run leaves no orphan
+  VM behind. Clipboard sharing between host and sandbox is switched off, so a
+  verification run can no longer interfere with dictation on the host (#225).
 - **The key test tells the truth again — and its verdict is readable** (#205, #231):
   testing a Groq key reported "couldn't reach the server — check your internet
   connection" for a key that dictates perfectly well, and a new user met that false

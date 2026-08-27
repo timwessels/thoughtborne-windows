@@ -12,13 +12,19 @@
 #              transcribing (injection unconfirmed, or fired-but-no-transcription).
 #              The detail line names the cause. A real-box look settles it.
 #   FAIL    -- install / boot / hotkey registration is broken (release-blocking).
-#   SKIP    -- no temp.env, so the run cannot even reach hotkey registration.
+#   SKIP    -- no temp.env, so the installed tool has no engine: it starts as the
+#              #200 keyless shop window (which does register its hotkeys) but has
+#              nothing to transcribe with, so the self-test lane -- the part that
+#              separates PASS from PARTIAL -- can never run.
 # The detail line (line 2) always names the reached/failed stage (install /
-# launch / hotkeys / self-test).
+# launch / hotkeys / self-test). It also carries two REPORTED-ONLY items that
+# never gate the verdict: injection-route= (which key-injection mechanism carried
+# the run, or 'none') and settings= (the #191 settings-window lane, whose
+# screenshot is graded host-side against sandbox/settings-shot-checklist.md).
 #
-# It cannot be exercised off-Windows. The two things only the first real sandbox
-# pass can settle are called out inline: the injected-input -> RegisterHotKey
-# self-test path, and the exact launch/poll timing under a first-run uv sync.
+# It cannot be exercised off-Windows. What only a real sandbox pass can settle is
+# called out inline: the injected-input -> RegisterHotKey path itself, and the
+# exact launch/poll timing under a first-run uv sync.
 #
 # ASCII-only by house style (dropped in via the mapped folder, not fetched as a
 # release asset, so the setup.ps1 BOM/charset constraint does not strictly apply
@@ -63,7 +69,8 @@ function Save-Screenshot {
     # Best-effort full-virtual-screen capture using the .NET GUI assemblies that
     # ship on every Windows -- no external dependency. A capture failure is a lost
     # diagnostic only and must NEVER change the verdict, so the whole block is
-    # swallowed.
+    # swallowed. Returns the bare file name (or '' on failure) so a caller can name
+    # the artifact in RESULT.txt.
     param([string]$Tag)
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -76,20 +83,159 @@ function Save-Screenshot {
         $bmp.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
         $gfx.Dispose(); $bmp.Dispose()
         Write-Host "screenshot: $shot"
+        return (Split-Path -Leaf $shot)
     } catch {
         Write-Host ("screenshot ({0}) skipped: {1}" -f $Tag, $_.Exception.Message)
+        return ''
     }
 }
 
 function Copy-Artifacts {
     # Pull the log out for the host to inspect regardless of verdict, and grab a
-    # screenshot of whatever is on screen at this exit point (Cockpit, or the
-    # setup-opened wizard). The tool does not log key VALUES, so the copied log
-    # carries no secret -- confirm that on the first real pass before trusting it.
+    # screenshot of whatever is on screen at this exit point (Cockpit, plus the
+    # settings window when the #191 lane opened one). The tool does not log key
+    # VALUES, so the copied log carries no secret -- confirm that on the first real
+    # pass before trusting it.
     if (Test-Path -LiteralPath $LogFile) {
         Copy-Item -LiteralPath $LogFile -Destination $OutDir -Force -ErrorAction SilentlyContinue
     }
-    Save-Screenshot 'exit'
+    Save-Screenshot 'exit' | Out-Null
+}
+
+function Read-LogText {
+    # One guarded read of the tool's log as a single string. Python is actively
+    # writing it, so a transient sharing violation just yields '' and the caller
+    # retries on the next tick. Returning '' rather than $null matters for the
+    # length-marking the settings lane does (a $null has no .Length to compare).
+    $t = Get-Content -LiteralPath $LogFile -Raw -ErrorAction SilentlyContinue
+    if ($t) { return [string]$t }
+    return ''
+}
+
+# --- Key injection (#191) ---------------------------------------------------
+# The tool logs one line per registered hotkey (hotkey_manager.py, file-only):
+#   Registered: ctrl+alt+t -> test_transcription (id=7, mod=0x4003, vk=0x54)
+# Parsing mod+vk out of it keeps every injected chord layout-independent: we
+# replay exactly what RegisterHotKey was given and never map a character through
+# the active layout, so the "is this sandbox US or German?" question never
+# arises. test_setup.py pins this pattern against the tool's own f-string, and
+# pins the polled log strings against the source that produces them -- a silent
+# rename there used to cost a 60 s hang and a PARTIAL for the wrong reason.
+# HOTKEY-REGEX-BEGIN
+$HotkeyLineRegex = '->\s*{0}\s*\(id=\d+,\s*mod=0x([0-9A-Fa-f]{{1,4}}),\s*vk=0x([0-9A-Fa-f]{{1,2}})\)'
+# HOTKEY-REGEX-END
+
+function New-KeyInjector {
+    # Build a user32!keybd_event binding WITHOUT the on-disk C# compiler (#191).
+    #
+    # Route A (preferred): Reflection.Emit. DefinePInvokeMethod declares the
+    # binding directly in an in-memory assembly, so nothing on disk is invoked --
+    # exactly the failure mode a trimmed sandbox image can produce.
+    # Route B (fallback): the classic Add-Type C# block, which needs csc.exe from
+    # the .NET Framework directory. The two fail under disjoint conditions, which
+    # is the point of keeping both.
+    # Neither survives Constrained Language Mode; ENV.txt records LanguageMode so
+    # that shape is one look away instead of a guess.
+    $errs = @()
+    try {
+        $an = New-Object System.Reflection.AssemblyName 'TbInject'
+        $ab = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
+                  $an, [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
+        $dm = $ab.DefineDynamicModule('TbInjectModule')
+        $tb = $dm.DefineType('TbKb', 'Public, Class')
+        $mi = $tb.DefinePInvokeMethod(
+                  'keybd_event', 'user32.dll',
+                  [System.Reflection.MethodAttributes]'Public, Static, PinvokeImpl',
+                  [System.Reflection.CallingConventions]::Standard,
+                  [type]'System.Void',
+                  @([byte], [byte], [uint32], [UIntPtr]),
+                  [System.Runtime.InteropServices.CallingConvention]::Winapi,
+                  [System.Runtime.InteropServices.CharSet]::Auto)
+        $mi.SetImplementationFlags(
+            $mi.GetMethodImplementationFlags() -bor
+            [System.Reflection.MethodImplAttributes]::PreserveSig)
+        return @{ Route = 'reflection-emit'; Type = $tb.CreateType(); Errors = @() }
+    } catch {
+        $errs += ('reflection-emit: ' + $_.Exception.Message)
+    }
+
+    try {
+        Add-Type -ErrorAction Stop @"
+using System;
+using System.Runtime.InteropServices;
+public static class TbKbCs {
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+"@
+        return @{ Route = 'add-type-csc'; Type = [TbKbCs]; Errors = $errs }
+    } catch {
+        $errs += ('add-type-csc: ' + $_.Exception.Message)
+    }
+
+    return @{ Route = $null; Type = $null; Errors = $errs }
+}
+
+function Get-HotkeyChord {
+    # Pull the registered modifier bits + virtual key for one action out of the log.
+    # $null when the line is not there (yet).
+    param([string]$LogText, [string]$Action)
+    if (-not $LogText) { return $null }
+    $rx = [string]::Format($HotkeyLineRegex, [regex]::Escape($Action))
+    if ($LogText -match $rx) {
+        return @{ Mod = [Convert]::ToInt32($matches[1], 16)
+                  Vk  = [Convert]::ToInt32($matches[2], 16) }
+    }
+    return $null
+}
+
+function Send-Chord {
+    # Synthesize the exact modifier+VK combination RegisterHotKey was given.
+    # RegisterHotKey fires on injected input regardless of focus, and the injecting
+    # PowerShell and the tool share the same (non-elevated) integrity level in the
+    # sandbox -- setup.ps1's hand-off is a plain Start-Process, no -Verb RunAs -- so
+    # there is no UIPI barrier and we need not focus the Cockpit.
+    param($Injector, [int]$Mod, [int]$Vk)
+    $KEYUP = [uint32]2
+    # Map the logged modifier bits to virtual-key codes; ignore MOD_NOREPEAT.
+    $mods = @()
+    if ($Mod -band 0x0002) { $mods += 0x11 }  # MOD_CONTROL -> VK_CONTROL
+    if ($Mod -band 0x0001) { $mods += 0x12 }  # MOD_ALT     -> VK_MENU
+    if ($Mod -band 0x0004) { $mods += 0x10 }  # MOD_SHIFT   -> VK_SHIFT
+    if ($Mod -band 0x0008) { $mods += 0x5B }  # MOD_WIN     -> VK_LWIN
+
+    $kb = $Injector.Type
+    foreach ($m in $mods) { $kb::keybd_event([byte]$m, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
+    $kb::keybd_event([byte]$Vk, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40
+    $kb::keybd_event([byte]$Vk, 0, $KEYUP, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30
+    $rev = $mods.Clone(); [array]::Reverse($rev)
+    foreach ($m in $rev) { $kb::keybd_event([byte]$m, 0, $KEYUP, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
+}
+
+function Save-EnvFingerprint {
+    # A few facts about the image this run happened in, written next to the verdict
+    # (#191). Three of them settle questions that cost two PARTIAL runs to argue
+    # about: whether the image carries notepad.exe, whether it carries the C#
+    # compiler, and which injection route actually bound. Diagnostics only -- never
+    # read back, never part of a verdict. Read notepad= as "Get-Command found
+    # something": an App Execution Alias counts here and can still fail to launch,
+    # which is why the caller wraps the start rather than trusting this line.
+    param($Injector)
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $lines = @(
+            "psversion=$($PSVersionTable.PSVersion)",
+            "languagemode=$($ExecutionContext.SessionState.LanguageMode)",
+            "admin=$((New-Object Security.Principal.WindowsPrincipal $id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))",
+            "notepad=$($null -ne (Get-Command notepad.exe -ErrorAction SilentlyContinue))",
+            "csc=$(Test-Path -LiteralPath (Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'))",
+            "injection-route=$(if ($Injector.Route) { $Injector.Route } else { 'none' })",
+            "injection-errors=$($Injector.Errors -join ' | ')"
+        )
+        Set-Content -LiteralPath (Join-Path $OutDir 'ENV.txt') -Value $lines -Encoding ascii
+    } catch {
+        Write-Host ("ENV.txt skipped: {0}" -f $_.Exception.Message)
+    }
 }
 
 # --- 1) Temporary API key (placed BEFORE the install) -----------------------
@@ -116,7 +262,7 @@ function Copy-Artifacts {
 # groq-large and the self-test transcribes via Groq. NEVER committed.
 $KeyFile = Join-Path $Share 'temp.env'
 if (-not (Test-Path -LiteralPath $KeyFile)) {
-    Write-Result 'SKIP' "stage=preflight: no temp.env in $Share -- cannot reach hotkey registration without a key. See sandbox/README.md."
+    Write-Result 'SKIP' "stage=preflight: no temp.env in $Share -- the tool would start keyless (shop window, no engine), so the self-test lane cannot run. See sandbox/README.md."
     Copy-Artifacts
     return
 }
@@ -192,7 +338,7 @@ if (-not (Test-Path -LiteralPath $launcher)) {
 }
 
 # --- 4) Poll the log for successful hotkey registration ---------------------
-# The exact substring the tool writes (thoughtborne.py:2565, file-only log line).
+# The exact substring the tool writes (thoughtborne.py, file-only log line).
 # Get-Content -Raw with SilentlyContinue: Python is actively writing the log, so a
 # transient sharing violation just retries next tick.
 $needle = 'All hotkeys registered successfully'
@@ -225,90 +371,178 @@ $lnkStatus = @('Thoughtborne.lnk') | ForEach-Object {
 $shortcuts = 'shortcuts: ' + ($lnkStatus -join ', ')
 Write-Host $shortcuts
 
-# --- 6) End-to-end self-test (gates PASS vs PARTIAL) ------------------------
+# --- 6) Key-injection preflight (#191) --------------------------------------
+# Build the binding ONCE, before anything needs it, so an image that supports no
+# route at all is a named outcome ('none') instead of an exception string caught
+# somewhere downstream. Both later lanes (self-test, settings window) depend on it.
+$Injector = New-KeyInjector
+$routeLabel = 'injection-route=' + $(if ($Injector.Route) { $Injector.Route } else { 'none' })
+Write-Host $routeLabel
+Save-EnvFingerprint $Injector
+
+# --- 7) End-to-end self-test (gates PASS vs PARTIAL) ------------------------
 # Fire the test_transcription hotkey from inside the sandbox by synthesizing the
-# EXACT modifier+VK the tool logged it registered -- a layout-independent method
-# that removes the "is the sandbox US or German?" guess. After the needle, the
-# log already carries (file-only, hotkey_manager.py:328) a line like
-#   Registered: ctrl+alt+t -> test_transcription (id=7, mod=0x4003, vk=0x54)
-# We parse mod+vk from the ASCII portion and inject that chord. RegisterHotKey
-# fires on injected input regardless of focus, and the injecting PowerShell and
-# the tool share the same (non-elevated) integrity level in the sandbox, so no
-# UIPI barrier -- we do not need to focus the Cockpit.
+# EXACT modifier+VK the tool logged it registered (see the Get-HotkeyChord /
+# Send-Chord pair above).
 #
-# ONLY-REAL-BOX CAVEAT: this injected-input -> RegisterHotKey path is reasoned
-# from the code, not run. The first real sandbox pass confirms it; if injection
-# ever fails to trip the hotkey, this stays PARTIAL (not FAIL -- install is fine)
-# and the cause is named, with a documented hands-on keypress as the backstop.
+# ONLY-REAL-BOX CAVEAT: the injected-input -> RegisterHotKey path itself is still
+# reasoned from the code, not run -- the two #181 E2E attempts never got that far,
+# both dying in the injection MECHANISM instead (an unguarded Start-Process
+# notepad.exe, #191). If injection ever fails to trip the hotkey, this stays
+# PARTIAL (not FAIL -- install is fine), the cause is named, injection-route= says
+# which mechanism was in play, and a hands-on keypress is the documented backstop.
 $selfTest = 'unknown'
 $selfDetail = ''
-try {
-    $logNow = Get-Content -LiteralPath $LogFile -Raw -ErrorAction SilentlyContinue
-    if ($logNow -match '->\s*test_transcription\s*\(id=\d+,\s*mod=0x([0-9A-Fa-f]{1,4}),\s*vk=0x([0-9A-Fa-f]{1,2})\)') {
-        $mod = [Convert]::ToInt32($matches[1], 16)
-        $vk  = [Convert]::ToInt32($matches[2], 16)
-
-        # Open + focus a plain Notepad so the tool's typed insert lands there and is
-        # screenshot-able. The chord itself is swallowed by RegisterHotKey, so
-        # Notepad only ever receives the later transcription text.
-        Start-Process notepad.exe
-        Start-Sleep -Seconds 2
-
-        Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class Kb {
-    [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-}
-"@
-        $KEYUP = [uint32]2
-        # Map the logged modifier bits to virtual-key codes; ignore MOD_NOREPEAT.
-        $mods = @()
-        if ($mod -band 0x0002) { $mods += 0x11 }  # MOD_CONTROL -> VK_CONTROL
-        if ($mod -band 0x0001) { $mods += 0x12 }  # MOD_ALT     -> VK_MENU
-        if ($mod -band 0x0004) { $mods += 0x10 }  # MOD_SHIFT   -> VK_SHIFT
-        if ($mod -band 0x0008) { $mods += 0x5B }  # MOD_WIN     -> VK_LWIN
-
-        foreach ($m in $mods) { [Kb]::keybd_event([byte]$m, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
-        [Kb]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40
-        [Kb]::keybd_event([byte]$vk, 0, $KEYUP, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30
-        $rev = $mods.Clone(); [array]::Reverse($rev)
-        foreach ($m in $rev) { [Kb]::keybd_event([byte]$m, 0, $KEYUP, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
-
-        # Poll for the self-test outcome. Success: 'Test transcription successful'
-        # (thoughtborne.py:1181). Fired-but-empty: 'Test: no transcription received'
-        # (1195) / 'Test file not found' (1209). Give the Groq call ~60 s.
-        $stDeadline = (Get-Date).AddSeconds(60)
-        while ((Get-Date) -lt $stDeadline) {
-            $log2 = Get-Content -LiteralPath $LogFile -Raw -ErrorAction SilentlyContinue
-            if ($log2) {
-                if ($log2 -match 'Test transcription successful') { $selfTest = 'pass'; break }
-                if (($log2 -match 'Test: no transcription received') -or ($log2 -match 'Test file not found')) {
-                    $selfTest = 'fired-no-transcription'; break
+if (-not $Injector.Route) {
+    $selfDetail = ('no key-injection route available in this image ({0}) -- ' +
+                   'the self-test could not be fired') -f ($Injector.Errors -join '; ')
+} else {
+    try {
+        $chord = Get-HotkeyChord (Read-LogText) 'test_transcription'
+        if ($chord) {
+            # Best-effort insert target. The self-test really does insert its
+            # transcript (handle_test_transcription queues an immediate task), so a
+            # plain Notepad makes that visible in the exit screenshot. It is a
+            # NICETY, never a requirement: the verdict comes from the log, and a
+            # trimmed sandbox image may not carry notepad.exe at all -- an unguarded
+            # Start-Process here is what made both #181 E2E runs land PARTIAL (#191).
+            # The presence probe alone would not be enough, which is why the try is
+            # here too: notepad.exe can exist as an App Execution Alias that
+            # Get-Command finds happily and Start-Process still refuses to launch.
+            # Without a target the insert lands in the Cockpit console, which is
+            # harmless: the tool reads stdin only on fatal paths. The chord itself is
+            # swallowed by RegisterHotKey, so Notepad only ever receives the later
+            # transcription text.
+            if (Get-Command notepad.exe -ErrorAction SilentlyContinue) {
+                try {
+                    Start-Process notepad.exe
+                    Start-Sleep -Seconds 2
+                } catch {
+                    Write-Host ("notepad skipped: {0}" -f $_.Exception.Message)
                 }
+            } else {
+                Write-Host 'notepad.exe not available in this image -- the insert will land in the console'
             }
-            Start-Sleep -Seconds 3
+
+            Send-Chord $Injector $chord.Mod $chord.Vk
+
+            # Poll for the self-test outcome. Success: 'Test transcription successful'.
+            # Fired-but-empty: 'Test: no transcription received' / 'Test file not
+            # found'. Give the Groq call ~60 s.
+            $stDeadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $stDeadline) {
+                $log2 = Get-Content -LiteralPath $LogFile -Raw -ErrorAction SilentlyContinue
+                if ($log2) {
+                    if ($log2 -match 'Test transcription successful') { $selfTest = 'pass'; break }
+                    if (($log2 -match 'Test: no transcription received') -or ($log2 -match 'Test file not found')) {
+                        $selfTest = 'fired-no-transcription'; break
+                    }
+                }
+                Start-Sleep -Seconds 3
+            }
+            if ($selfTest -eq 'unknown') {
+                $selfDetail = "self-test injection unconfirmed within 60s (no success/failure line) -- verify the injection path on the real box"
+            } elseif ($selfTest -eq 'fired-no-transcription') {
+                $selfDetail = "self-test fired but no transcription received (check the temp.env key / sandbox network)"
+            }
+        } else {
+            $selfDetail = "could not parse the test_transcription registration line from the log -- self-test not fired"
         }
-        if ($selfTest -eq 'unknown') {
-            $selfDetail = "self-test injection unconfirmed within 60s (no success/failure line) -- verify the injection path on the real box"
-        } elseif ($selfTest -eq 'fired-no-transcription') {
-            $selfDetail = "self-test fired but no transcription received (check the temp.env key / sandbox network)"
-        }
-    } else {
-        $selfDetail = "could not parse the test_transcription registration line from the log -- self-test not fired"
+    } catch {
+        $selfDetail = ("self-test injection errored: {0}" -f $_.Exception.Message)
     }
-} catch {
-    $selfDetail = ("self-test injection errored: {0}" -f $_.Exception.Message)
 }
 
 # Second screenshot after the self-test so the inserted Notepad text is captured.
-Save-Screenshot 'selftest'
+Save-Screenshot 'selftest' | Out-Null
 
-# --- 7) Artifacts + verdict -------------------------------------------------
+# --- 8) Settings-window lane (#191, reported -- never gates the verdict) -----
+# Drive Ctrl+Alt+G and photograph the desktop, so a release check can catch a stray
+# console window (#227 class) or clipped text (#218/#231 class) in the real app
+# before a release does. Runs whenever an injection route exists -- also when the
+# self-test stayed unconfirmed, because a second chord is then the cheapest
+# evidence about whether injection reaches RegisterHotKey at all.
+#
+# The tool refuses to open settings while an insert is still pending (#196), and
+# the self-test inserts its transcript right before this -- so a single press can
+# be legitimately ignored. Retry on the refusal line rather than guessing a sleep.
+#
+# The settings app appends its own first-paint line to the SAME log
+# (thoughtborne_settings.py writes to config.LOG_FILE):
+#   [SETTINGS] visible: map->expose=..s total=..s viewable=1 foreground=Y rect=WxH+X+Y mode=settings
+# foreground= is a machine-checkable answer to "is it frontmost?", so the
+# host-side visual check only has to judge what a picture can judge.
+# SETTINGS-VISIBLE-NEEDLE-BEGIN
+$visibleNeedle = '[SETTINGS] visible:'
+# SETTINGS-VISIBLE-NEEDLE-END
+$settingsItem = 'not-attempted'
+$settingsShot = ''
+if ($Injector.Route) {
+    $g = Get-HotkeyChord (Read-LogText) 'open_settings'
+    if (-not $g) {
+        $settingsItem = 'no-chord-parsed'
+    } else {
+        $opened = $false
+        # 'Could not open the settings app' is a HARD state (the settings script is
+        # missing, or its launch threw) -- unlike the #196 insert-pending refusal, no
+        # further chord can change it. Stop pressing at once instead of spending two
+        # more 20 s windows proving the same thing.
+        $settingsHardFail = $false
+        for ($attempt = 1; $attempt -le 3 -and -not $opened -and -not $settingsHardFail; $attempt++) {
+            $mark = (Read-LogText).Length
+            Send-Chord $Injector $g.Mod $g.Vk
+            $gDeadline = (Get-Date).AddSeconds(20)
+            while ((Get-Date) -lt $gDeadline) {
+                $tail = Read-LogText
+                if ($tail.Length -gt $mark) {
+                    $new = $tail.Substring($mark)
+                    if ($new -match 'Opened the settings app') { $opened = $true; break }
+                    if ($new -match 'Settings not opened') { break }          # insert pending; retry
+                    if ($new -match 'Could not open the settings app') {
+                        $settingsItem = 'launch-failed -- the tool logged that it could not open the settings app (script missing or launch threw), so the press was not retried'
+                        $settingsHardFail = $true
+                        break
+                    }
+                }
+                Start-Sleep -Seconds 2
+            }
+            if (-not $opened -and -not $settingsHardFail) { Start-Sleep -Seconds 5 }
+        }
+        if ($opened) {
+            # Read only what the log gained since the last press, exactly like the
+            # open detection above: the line we want always follows it, and a stale
+            # one from an earlier open must never be mistaken for this one.
+            $visible = ''
+            $vDeadline = (Get-Date).AddSeconds(30)
+            while ((Get-Date) -lt $vDeadline) {
+                $tail = Read-LogText
+                if ($tail.Length -gt $mark) {
+                    $new = $tail.Substring($mark)
+                    if ($new -match ([regex]::Escape($visibleNeedle) + '[^\r\n]*')) { $visible = $matches[0]; break }
+                }
+                Start-Sleep -Seconds 2
+            }
+            Start-Sleep -Seconds 2                 # let the window settle before the shot
+            $settingsShot = Save-Screenshot 'settings'
+            if ($visible) {
+                $settingsItem = 'opened; ' + $visible
+            } else {
+                $settingsItem = "opened; no '$visibleNeedle' line within 30s"
+            }
+        } elseif ($settingsItem -eq 'not-attempted') {
+            $settingsItem = 'chord sent, no open/refusal line observed'
+        }
+        # The window stays open on purpose: the exit screenshot then carries it too,
+        # and the run ends seconds later anyway.
+    }
+}
+$settingsField = "settings=$settingsItem"
+if ($settingsShot) { $settingsField += "; settings-shot=$settingsShot" }
+
+# --- 9) Artifacts + verdict -------------------------------------------------
 Copy-Artifacts
 if ($selfTest -eq 'pass') {
-    Write-Result 'PASS' ("stage=self-test: installed to $InstallDir; hotkeys registered; self-test transcribed; $shortcuts; $launchNote")
+    Write-Result 'PASS' ("stage=self-test: installed to $InstallDir; hotkeys registered; self-test transcribed; $settingsField; $routeLabel; $shortcuts; $launchNote")
 } else {
-    Write-Result 'PARTIAL' ("stage=self-test: installed to $InstallDir; hotkeys registered; $selfDetail; $shortcuts; $launchNote")
+    Write-Result 'PARTIAL' ("stage=self-test: installed to $InstallDir; hotkeys registered; $selfDetail; $settingsField; $routeLabel; $shortcuts; $launchNote")
 }
