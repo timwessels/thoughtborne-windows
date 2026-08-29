@@ -31,16 +31,11 @@
 
 <header class="masthead">
 
-  <!-- The dark console band (#148, direction: design-contest winner a4, #213):
-       the app's terminal masthead as an object on top; the page below stays
-       light. Everything dark on this page is a terminal object — band,
-       install card, screenshot. -->
   <div class="term-band">
     <div class="band-inner">
 
-      <!-- Language switcher, in the band's top corner. Nav hrefs are
-           root-absolute (correct on the deployed site; they don't resolve under
-           file:// — review click-through over a local HTTP server). -->
+      <!-- Nav hrefs are root-absolute — they don't resolve under file://;
+           review click-through over a local HTTP server. -->
       <div class="band-top">
         <span class="langbar-label">Sprache</span>
         <span class="lang-toggle">
@@ -58,21 +53,19 @@
 <span class="lg-mark">▄▀▀████</span><span class="lg-word">     █  █▀█ █ █ █ █ █ █ █▀█  █  █▀▄ █ █ █▀▄ █ █ █▀▀</span>
 <span class="lg-mark"> ▀█▄ ▀ </span><span class="lg-word">     ▀  ▀ ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀  ▀  ▀▀  ▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀</span></pre>
 
-      <!-- v3's meta line, re-homed as the console's dim status line. -->
       <p class="term-status"><span>Open Source</span> <span>MIT</span> <span>Windows</span> <span>eigene API-Keys</span></p>
 
     </div>
   </div>
 
-  <!-- The light intro under the band: headline, the v3 hero copy, install path. -->
   <div class="wrap intro-hero">
     <h1 class="headline"><span class="visually-hidden">Thoughtborne — </span>Diktieren per Hotkey für&nbsp;Windows</h1>
     <p class="tagline">Hotkey drücken, sprechen, zweiten Hotkey drücken — der Text landet an der <strong>Cursorposition, in jeder App</strong>, als wäre er getippt.</p>
     <p class="subline">Für Deutsch gebaut — und vor allem fürs Diktieren in KI-Chats.</p>
     <p class="benefits"><span>für Deutsch gebaut</span> <span>kein Abo</span> <span>ungelesen abschickbar</span> <span>direkt in den KI-Chat</span></p>
 
-    <!-- Install one-liner (#148 stage 2): the canonical release lane —
-         releases/latest/download resolves to the newest published release. -->
+    <!-- The canonical release lane — releases/latest/download always resolves
+         to the newest published release, so this URL never needs a version bump. -->
     <div class="install">
       <p class="install-label">Installation — ein Befehl in PowerShell</p>
       <div class="install-panel">
@@ -91,7 +84,6 @@
 
 <main id="main">
 
-  <!-- ==== Screenshot, right under the hero ==== -->
   <section class="shot">
     <div class="wrap">
       <div class="shot-frame">
@@ -101,7 +93,6 @@
     </div>
   </section>
 
-  <!-- ==== Feature list with green checks, right after the hero ==== -->
   <section class="features-top">
     <div class="wrap">
       <div class="intro">
@@ -154,7 +145,6 @@
     </div>
   </section>
 
-  <!-- ==== The six core arguments, each exactly once, evidence attached ==== -->
   <section class="args">
     <div class="wrap">
       <div class="args-intro">
@@ -230,7 +220,6 @@
     </div>
   </section>
 
-  <!-- ==== The loop ==== -->
   <section class="loop">
     <div class="wrap">
       <h2 class="loop-title">Der Ablauf</h2>
@@ -252,7 +241,6 @@
     </div>
   </section>
 
-  <!-- ==== Second row: everyday reliability ==== -->
   <section class="section reliab">
     <div class="wrap">
       <p class="eyebrow" aria-hidden="true">Im Alltag</p>
@@ -270,7 +258,6 @@
     </div>
   </section>
 
-  <!-- ==== Cost ledger ==== -->
   <section class="section cost">
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Kosten</p>
@@ -294,7 +281,6 @@
     </div>
   </section>
 
-  <!-- ==== Who it's for / expectation management ==== -->
   <section class="audience-box">
     <div class="wrap">
       <p class="eyebrow" aria-hidden="true">Für wen</p>
@@ -321,14 +307,13 @@
     </div>
   </section>
 
-  <!-- ==== Get started ==== -->
   <section class="section get-started" id="los-gehts">
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Loslegen</h2>
       <p>Windows, ein Mikrofon und mindestens ein API-Key — Groqs Free-Tier reicht. Der schnellste Weg ist der Installer: PowerShell öffnen, den Befehl einfügen, Enter drücken.</p>
 
-      <!-- Same canonical one-liner as the hero box (#148 stage 2). -->
+      <!-- Same canonical one-liner as the hero install box — keep the two in sync. -->
       <div class="install">
         <div class="install-panel">
           <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex</code>
@@ -344,11 +329,8 @@
 
       <p>Ein API-Key ist eine Art persönliches Passwort, mit dem sich Thoughtborne bei einem Transkriptionsdienst anmeldet — du erstellst ihn dir beim Anbieter und fügst ihn im Assistenten ein. Bei Groq ist das kostenlos: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
       <p class="actions">
-        <!-- Release-asset download (#148, replaces the #103 main-branch archive):
-             thoughtborne.zip is the snapshot the release ritual builds (D-006) —
-             it unzips flat and carries setup.bat, which runs the same installer
-             without pasting a command. releases/latest keeps the URL current
-             with zero page edits. -->
+        <!-- thoughtborne.zip is the snapshot the release ritual builds (D-006);
+             releases/latest keeps the URL current with zero page edits. -->
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip">ZIP herunterladen</a>
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Installation (README)</a>
       </p>

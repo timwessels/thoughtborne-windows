@@ -1,18 +1,7 @@
 /* Thoughtborne site — shared stylesheet for all four pages:
    / (DE), /en/ (EN), /legal.html (DE), /en/legal.html (EN).
-   Visual direction: the #213 design-contest winner "a4-dark-hero-band" applied
-   to the v3 content (#148) — ONE dark console band at the top holds the app's
-   terminal masthead as an object; the rest of the page stays light and quiet.
-   The rule that carries the design: everything terminal is a dark object
-   (band, install card, screenshot), everything human is set in ink on paper.
-   Two accents, strictly assigned: the console blue #59C2FF appears ONLY on
-   dark surfaces, its deep sibling #0F6BA8 ONLY on light ones (the OS dark
-   theme flips the page dark, so there the console blue takes over).
-   The half-block logo keeps line-height: 1 and a monospace stack — hard rule.
-   Self-contained note: this file and everything under assets/ are first-party
-   static files served from the site's own origin — the "self-contained" hard
-   rule forbids third-party origins (CDN scripts, external fonts, remote
-   images), not self-hosted resources. */
+   Hard rule: the site is self-contained — no third-party origins (CDN scripts,
+   external fonts, remote images); this file and assets/ are first-party. */
 *, *::before, *::after { box-sizing: border-box; }
 * { margin: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -29,7 +18,7 @@ a { color: inherit; }
   --term-dim:  #8A9AA6;
   --accent:    #59C2FF;   /* console accent, ported from console_ui.py — dark surfaces only */
 
-  /* the page (the clean room) */
+  /* the light page */
   --navy:      #0E202E;
   --e-gray:    #8A939C;
   --paper:     #F7F9FB;
@@ -99,10 +88,8 @@ code {
   padding: 0.1em 0.35em; background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
 }
 
-/* ---- language switch ----
-   On the landing pages it sits in the dark band's top corner (.band-top);
-   the legal pages keep the sticky navy .langbar. Both grounds are dark, so
-   the toggle styling is shared. */
+/* language switch — shared between the landing band's top corner and the
+   legal pages' sticky .langbar; both grounds are dark. */
 .langbar { position: sticky; top: 0; z-index: 20; background: var(--navy); }
 .langbar-inner {
   max-width: var(--measure-wide); margin-inline: auto;
@@ -118,7 +105,6 @@ code {
 .lang-toggle a[aria-current="page"] { background: var(--hero-ink); color: var(--navy); }
 .lang-toggle a:not([aria-current="page"]):hover { background: rgba(255,255,255,.12); color: var(--hero-ink); }
 
-/* ==== the dark console band ==== */
 .term-band { background: var(--term); color: var(--term-text); border-bottom: 1px solid var(--term-line); }
 .band-inner {
   max-width: var(--measure-wide); margin-inline: auto;
@@ -144,7 +130,6 @@ code {
 .lg-mark { color: var(--accent); }
 .lg-word { color: var(--term-text); }
 
-/* the console's dim status line (v3's meta line, re-homed into the band) */
 .term-status {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: 0.78rem; letter-spacing: 0.04em;
@@ -154,7 +139,6 @@ code {
 .term-status span { white-space: nowrap; }
 .term-status span:not(:last-child)::after { content: "·"; padding: 0 0.5em 0 0.75em; color: rgba(138, 154, 166, .55); }
 
-/* ==== the light intro under the band ==== */
 .intro-hero { text-align: center; padding-block: clamp(2.75rem, 6vw, 4.25rem) clamp(1.5rem, 3vw, 2rem); }
 .headline {
   font-size: clamp(1.5rem, 1.05rem + 2vw, 2.15rem); line-height: 1.2; letter-spacing: -0.014em;
@@ -170,7 +154,6 @@ code {
 .benefits span { white-space: nowrap; color: var(--ink); font-weight: 500; }
 .benefits span:not(:last-child)::after { content: "·"; padding: 0 0.3em 0 0.6em; color: var(--ink-soft); font-weight: 400; }
 
-/* ==== install box: a dark terminal card on the light page ==== */
 .install {
   max-width: 44rem; margin: clamp(2rem, 4.5vw, 2.75rem) auto 0; text-align: left;
   background: var(--term);
@@ -206,7 +189,6 @@ code {
 .copy-btn.copied { color: #9BE8A8; border-color: rgba(155,232,168,.6); }
 .get-started .install { margin-inline: 0; }
 
-/* the "what happens after Enter" steps (get-started) */
 .setup-steps { margin-block: 1rem 1.25rem; padding-left: 1.5rem; display: grid; gap: 0.5rem; color: var(--ink-soft); font-size: 0.97rem; line-height: 1.55; }
 .setup-steps li { padding-left: 0.25rem; }
 .setup-steps strong { color: var(--ink); font-weight: 600; }
@@ -226,7 +208,6 @@ code {
 @media (prefers-color-scheme: dark) { .btn-primary:hover { background: #C4D6E2; } }
 .get-started .actions { justify-content: flex-start; }
 
-/* ---- sections ---- */
 .section { padding-block: clamp(3rem, 7vw, 4.75rem); }
 .prose { max-width: var(--measure); }
 .prose h2 { margin-bottom: 1rem; }
@@ -234,7 +215,6 @@ code {
 .prose p + p { margin-top: 1rem; }
 .prose p strong { color: var(--ink); font-weight: 600; }
 
-/* ---- screenshot, right under the hero: the third dark object ---- */
 .shot { padding-block: clamp(2.5rem, 6vw, 3.75rem); }
 .shot .wrap { max-width: var(--measure-wide); }
 .shot-frame {
@@ -248,7 +228,6 @@ code {
 .shot-cap { color: var(--ink-soft); font-size: 0.93rem; margin-top: 1.1rem; max-width: 34rem; margin-inline: auto; line-height: 1.55; }
 .shot-cap strong { color: var(--ink); font-weight: 600; }
 
-/* ---- feature list with checks, right after hero ---- */
 .features-top { padding-block: clamp(2.75rem, 6vw, 4rem); }
 .features-top .wrap { max-width: var(--measure-wide); }
 .features-top .intro { max-width: var(--measure); margin-bottom: 2rem; }
@@ -265,7 +244,6 @@ code {
 .feat-grid b { color: var(--ink); font-weight: 600; }
 .feat-grid span { color: var(--ink-soft); font-size: 0.95rem; }
 
-/* ---- the six arguments: each exactly once, evidence attached ---- */
 .args { padding-block: clamp(2.5rem, 6vw, 4rem); }
 .args .wrap { max-width: var(--measure-wide); }
 .args-intro { max-width: var(--measure); margin-bottom: 2.5rem; }
@@ -287,13 +265,11 @@ code {
 .arg-evidence li::before { content: "→"; position: absolute; left: 0; color: var(--e-gray); }
 .arg-evidence strong { color: var(--ink); font-weight: 600; }
 
-/* ---- reliability compact list ---- */
 .reliab .wrap { max-width: var(--measure-wide); }
 .reliab-grid { list-style: none; padding: 0; margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .reliab-grid li { background: var(--paper); padding: 1rem 1.25rem; font-size: 0.93rem; line-height: 1.5; color: var(--ink-soft); }
 .reliab-grid strong { display: block; color: var(--ink); font-weight: 600; font-size: 0.96rem; margin-bottom: 0.15rem; }
 
-/* ---- the loop ---- */
 .loop { padding-block: clamp(2.5rem, 6vw, 4rem); }
 .loop .wrap { max-width: var(--measure-wide); }
 .loop-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); text-align: center; margin-bottom: 1.75rem; }
@@ -305,7 +281,6 @@ code {
 .loop-note { text-align: center; color: var(--ink-soft); font-size: 0.92rem; margin-top: 1.5rem; }
 .loop-note strong { color: var(--ink); font-weight: 600; }
 
-/* ---- cost ledger ---- */
 .figures { margin-top: 2rem; }
 .figures > div { display: grid; grid-template-columns: 9.5rem 1fr; border-top: 1px solid var(--line); padding-block: 1.05rem 1.15rem; }
 .figures dt { padding-right: 1.5rem; }
@@ -315,7 +290,6 @@ code {
 .figures dd strong { color: var(--ink); font-weight: 600; }
 .cost-note { font-size: 0.95rem; margin-top: 1.75rem; }
 
-/* ---- for whom / expectation management ---- */
 .audience-box { background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .audience-box .wrap { max-width: var(--measure-wide); padding-block: clamp(2.75rem, 6vw, 4rem); }
 .aud-cols { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); margin-top: 1.75rem; }
@@ -325,10 +299,8 @@ code {
 .aud-for li::before { content: "✓"; position: absolute; left: 0; color: var(--accent-deep); font-weight: 700; }
 .aud-not li::before { content: "—"; position: absolute; left: 0; color: var(--e-gray); }
 
-/* ---- get started ---- */
 .audience { font-size: 0.92rem; margin-top: 1.6rem; }
 
-/* ---- footer ---- */
 .site-footer { border-top: 1px solid var(--line); padding-block: clamp(2.5rem, 6vw, 3.5rem); }
 .footer-inner { max-width: var(--measure-wide); text-align: center; margin-inline: auto; padding-inline: clamp(1.25rem, 5vw, 2rem); }
 .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem 1.15rem; font-size: 0.9rem; }
@@ -357,11 +329,8 @@ code {
   .arg h3, .arg-lead, .arg-evidence { grid-column: 1; }
 }
 
-/* ==== additions over the prototype CSS (all pages / legal pages) ==== */
-
-/* ---- skip link (all pages; hidden until keyboard focus) — lifted from v2.
-        z-index raised above the sticky .langbar (z-index 20) so the focused
-        link is not covered by it. ---- */
+/* skip link — hidden until keyboard focus; z-index sits above the sticky
+   .langbar (20) so the focused link is not covered by it. */
 .skip-link {
   position: absolute;
   top: -100vh;
@@ -377,16 +346,13 @@ code {
 }
 .skip-link:focus { top: 0; }
 
-/* ---- visually hidden (screen-reader-only text) — kept from v2 for safety ---- */
+/* screen-reader-only text */
 .visually-hidden {
   position: absolute; width: 1px; height: 1px;
   padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
   white-space: nowrap; border: 0;
 }
 
-/* ---- legal pages only (/legal.html, /en/legal.html) — in-flow prose headings.
-        The landing page never renders a bare h1/h3 in prose, so these live here;
-        sizes step down from the shared h2 scale. ---- */
 .legal h1 {
   font-size: clamp(1.7rem, 1.2rem + 2.2vw, 2.4rem);
   margin-bottom: 1rem;
