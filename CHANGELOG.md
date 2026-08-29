@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The install one-liner no longer trips uBlock Origin's ClickFix guard.** uBlock's
+  default filter list silently swallows any copied text matching `irm … | iex` — the
+  website's copy button reported "Copied" while the clipboard kept its old content, and
+  a "potential ClickFix attack" banner appeared over the page. The one-liner on the
+  website and in the READMEs' cmd lane is now the flag-free wrapped form
+  `powershell -c "irm … | iex"`, which the filter deliberately tolerates (it targets the
+  hidden-window/bypass flags and the bare Run-dialog form that ClickFix attacks need) —
+  and which runs unchanged in PowerShell, cmd, and Win+R. The copy button also selects
+  the visible command on click, so if a future filter update swallows the write again,
+  one native Ctrl+C still copies it. The README's separate PowerShell lane keeps the
+  bare form — GitHub is exempt from the filter, and inside PowerShell it stays the
+  shortest path.
 - **The website's terminal screenshot shows the current console.** The landing page
   (DE and EN) still showed the pre-Cockpit log view with a `python.exe` title bar; it
   now shows the real thing — the pixel masthead, the READY line, the model carousel and

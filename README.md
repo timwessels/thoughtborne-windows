@@ -54,7 +54,7 @@ irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/
 **cmd** (works in PowerShell and cmd alike):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"
+powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"
 ```
 
 Not sure which console is open? Use the cmd form — it runs in both.

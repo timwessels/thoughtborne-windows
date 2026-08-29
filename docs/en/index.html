@@ -67,9 +67,12 @@
     <!-- The canonical release lane — releases/latest/download always resolves
          to the newest published release, so this URL never needs a version bump. -->
     <div class="install">
-      <p class="install-label">Install — one PowerShell command</p>
+      <p class="install-label">Install — one terminal command</p>
       <div class="install-panel">
-        <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex</code>
+        <!-- The powershell -c wrapper is deliberate: content blockers (uBlock's
+             ClickFix guard) swallow a bare `irm | iex` clipboard write; the flag-free
+             wrapped form is the tolerated shape — and runs from cmd and Win+R too. -->
+        <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
         <button class="copy-btn" type="button" data-label="Copy" data-done="✓ Copied" data-fail="Press Ctrl+C">Copy</button>
       </div>
     </div>
@@ -311,12 +314,12 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Get started</h2>
-      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The fastest path is the installer: open PowerShell, paste the command, press Enter.</p>
+      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The fastest path is the installer: open a terminal — PowerShell or cmd — paste the command, press Enter.</p>
 
       <!-- Same canonical one-liner as the hero install box — keep the two in sync. -->
       <div class="install">
         <div class="install-panel">
-          <code class="install-cmd">irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex</code>
+          <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
           <button class="copy-btn" type="button" data-label="Copy" data-done="✓ Copied" data-fail="Press Ctrl+C">Copy</button>
         </div>
       </div>
@@ -367,7 +370,20 @@
 document.querySelectorAll('.copy-btn').forEach(function (btn) {
   var reset;
   btn.addEventListener('click', function () {
-    var text = btn.closest('.install-panel').querySelector('.install-cmd').textContent.trim();
+    var cmd = btn.closest('.install-panel').querySelector('.install-cmd');
+    var text = cmd.textContent.trim();
+    // Also select the visible command: content blockers can swallow the
+    // programmatic clipboard write silently (while reporting success), and a
+    // selection leaves the user one native Ctrl+C away from the same result.
+    var select = function () {
+      var sel = window.getSelection();
+      if (!sel) { return; }
+      var range = document.createRange();
+      range.selectNodeContents(cmd);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    };
+    select();
     var done = function (ok) {
       btn.textContent = ok ? btn.dataset.done : btn.dataset.fail;
       btn.classList.toggle('copied', ok);
@@ -389,6 +405,7 @@ document.querySelectorAll('.copy-btn').forEach(function (btn) {
       var ok = false;
       try { ok = document.execCommand('copy'); } catch (e) {}
       document.body.removeChild(ta);
+      select();
       done(ok);
     }
   });
