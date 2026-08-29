@@ -24,6 +24,7 @@ If `thoughtborne.py` is currently running **from this checkout**, do not modify 
 
 - **Language:** English for code, inline comments, commit messages, and all public documentation.
 - **Bilingual README:** `README.md` (English) and `README.de.md` (German) are content-equivalent twins — a change to one is mirrored in the other.
+- **Install-step sync:** the bilingual rule does not cover the install commands fully — they also live in `docs/index.html` and `docs/en/index.html` (hero and setup box each) and are described in prose in `llms-install.md`. A change to the install steps is mirrored across all of these in the same change (#60).
 - **Commit messages:** short, imperative English; reference issues with `(#N)`.
 - **CHANGELOG.md:** non-trivial changes get an entry under `## [Unreleased]` (Keep-a-Changelog categories: `### Added` / `### Changed` / `### Fixed` / `### Removed`).
 - **Decision log:** `DECISIONS.md` records deliberate, contestable product decisions. Check it **before discussing or specifying any behavior change** — issue texts included — so a settled call is not silently reopened. An issue that touches a recorded decision cites it (`respects D-001` / `proposes superseding D-001`); superseding an entry needs the maintainer's okay (mark the old one `Superseded by D-NNN`, never delete it).
