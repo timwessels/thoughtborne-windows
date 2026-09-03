@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The website's install box is now a three-step strip: 1 Install · 2 Connect a
+  provider · 3 Dictate.** The hero's dark box keeps the one-liner as step 1 and gains
+  two tabs beside it, so a first-time visitor sees the whole path at the top of the
+  page: how a provider is connected (speech goes to Groq or Soniox, the transcript comes
+  back; sign-up links for both, Groq free, Soniox on top-up credit; the API key is pasted
+  into Thoughtborne once — with a "more info" jump to the cost section) and what
+  dictating then looks like (start key, speak, stop key, text at the cursor in any app;
+  the hold-Ctrl alternative; the optional Enter that sends a chat message; usually good
+  enough to send unread). Plain buttons in the ARIA tab pattern (arrow keys, Home/End)
+  driven by the page's inline script; without JavaScript the three panels simply stack.
+  DE and EN twins in lockstep; the get-started section's copy of the one-liner is
+  unchanged.
 - **The install one-liner no longer trips uBlock Origin's ClickFix guard.** uBlock's
   default filter list silently swallows any copied text matching `irm … | iex` — the
   website's copy button reported "Copied" while the clipboard kept its old content, and

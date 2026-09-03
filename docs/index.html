@@ -23,7 +23,8 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=8">
+<noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
 
@@ -65,14 +66,48 @@
 
     <!-- The canonical release lane — releases/latest/download always resolves
          to the newest published release, so this URL never needs a version bump. -->
-    <div class="install">
-      <p class="install-label">Installation — ein Befehl im Terminal</p>
-      <div class="install-panel">
-        <!-- The powershell -c wrapper is deliberate: content blockers (uBlock's
-             ClickFix guard) swallow a bare `irm | iex` clipboard write; the flag-free
-             wrapped form is the tolerated shape — and runs from cmd and Win+R too. -->
-        <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
-        <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
+    <div class="install install-tabs">
+      <!-- Three-step strip. Panels 2/3 ship `hidden` so nothing flashes before the
+           script at the end of the body wires the tabs; the head's noscript rule
+           stacks all three without JS. -->
+      <div class="ip-tabs" role="tablist" aria-label="Loslegen in drei Schritten">
+        <button class="ip-tab" role="tab" type="button" id="ip-tab-1" aria-controls="ip-panel-1" aria-selected="true"><span class="ip-num">1</span>Installation</button>
+        <button class="ip-tab" role="tab" type="button" id="ip-tab-2" aria-controls="ip-panel-2" aria-selected="false" tabindex="-1"><span class="ip-num">2</span>Anbieter verbinden</button>
+        <button class="ip-tab" role="tab" type="button" id="ip-tab-3" aria-controls="ip-panel-3" aria-selected="false" tabindex="-1"><span class="ip-num">3</span>Diktieren</button>
+      </div>
+
+      <div class="ip-panel" role="tabpanel" id="ip-panel-1" aria-labelledby="ip-tab-1">
+        <p class="ip-title">Installation — ein Befehl im Terminal</p>
+        <div class="install-panel">
+          <!-- The powershell -c wrapper is deliberate: content blockers (uBlock's
+               ClickFix guard) swallow a bare `irm | iex` clipboard write; the flag-free
+               wrapped form is the tolerated shape — and runs from cmd and Win+R too. -->
+          <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
+          <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
+        </div>
+      </div>
+
+      <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
+        <p class="ip-title">Anbieter kostenlos verbinden</p>
+        <ul class="ip-list">
+          <li>Thoughtborne schickt deine Sprache an einen Anbieter — der schickt das Transkript zurück.</li>
+          <li>Zwei Anbieter sind integriert: <a href="https://groq.com/">Groq</a> und <a href="https://soniox.com/">Soniox</a>.</li>
+          <li><a href="https://console.groq.com/login">Melde dich bei Groq an</a> — die Nutzung ist komplett kostenlos und datenschutzfreundlich.</li>
+          <li>Falls du noch bessere Qualität willst: <a href="https://console.soniox.com/signup/">Probier Soniox</a> — dort musst du aber Guthaben aufladen.</li>
+          <li>Du bekommst vom Anbieter einen Code (API-Key), den du einfach in Thoughtborne kopierst — fertig.</li>
+        </ul>
+        <p class="ip-more"><a href="#kosten">Mehr Infos</a></p>
+      </div>
+
+      <div class="ip-panel" role="tabpanel" id="ip-panel-3" aria-labelledby="ip-tab-3" hidden>
+        <p class="ip-title">In jedes Programm in Top-Qualität diktieren</p>
+        <p class="ip-lead">Egal in welchem Programm du in Windows bist: Jetzt kannst du alles in Top-Qualität einfach einsprechen, statt zu tippen.</p>
+        <ul class="ip-list">
+          <li>Du drückst eine Taste zum Starten der Aufnahme, sprichst, drückst eine zum Beenden — und dein Text wird eingefügt, wo dein Cursor gerade steht: im Browser, in ChatGPT oder in Claude Code.</li>
+          <li>Alternativ: Halte Strg gedrückt, solange du sprichst — sobald du loslässt, wird transkribiert und eingefügt.</li>
+          <li>Wenn du willst, wird nach deinem Text ein „Enter“ gesendet — in KI-Chatbots wie ChatGPT wird dein Text dadurch automatisch gesendet.</li>
+          <li>Die Transkription ist meist so gut, dass du sie einfach an KI-Chatbots senden kannst, ohne nochmal zu lesen. Das heißt: Du sprichst direkt zur KI, statt Nachrichten zu tippen.</li>
+        </ul>
       </div>
     </div>
 
@@ -260,7 +295,7 @@
     </div>
   </section>
 
-  <section class="section cost">
+  <section class="section cost" id="kosten">
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Kosten</p>
       <h2>Was es kostet</h2>
@@ -407,6 +442,31 @@ document.querySelectorAll('.copy-btn').forEach(function (btn) {
       select();
       done(ok);
     }
+  });
+});
+
+/* The hero's three-step strip: the role=tab buttons switch panels; arrow keys
+   move between tabs (wrapping), Home/End jump to the ends. */
+document.querySelectorAll('.install-tabs').forEach(function (box) {
+  var tabs = Array.prototype.slice.call(box.querySelectorAll('[role="tab"]'));
+  var panels = tabs.map(function (tab) { return document.getElementById(tab.getAttribute('aria-controls')); });
+  var show = function (n, focus) {
+    tabs.forEach(function (tab, i) {
+      var on = i === n;
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      tab.tabIndex = on ? 0 : -1;
+      panels[i].hidden = !on;
+    });
+    if (focus) { tabs[n].focus(); }
+  };
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { show(i, false); });
+    tab.addEventListener('keydown', function (e) {
+      var n = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (typeof n !== 'number') { return; }
+      e.preventDefault();
+      show((n + tabs.length) % tabs.length, true);
+    });
   });
 });
 </script>

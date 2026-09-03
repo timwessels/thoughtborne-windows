@@ -162,12 +162,6 @@ code {
   overflow: hidden;
   box-shadow: 0 16px 44px -22px rgba(14, 32, 46, .5), 0 2px 8px -3px rgba(14, 32, 46, .25);
 }
-.install-label {
-  font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em;
-  color: var(--term-dim);
-  padding: 0.7em 1.15rem;
-  border-bottom: 1px solid var(--term-line);
-}
 .install-panel { display: flex; align-items: flex-start; gap: 0.9rem; padding: 0.95rem 0.95rem 0.95rem 1.15rem; }
 .install-cmd {
   /* wraps instead of scrolling so the whole command stays visible */
@@ -187,6 +181,42 @@ code {
 }
 .copy-btn:hover { background: rgba(222,231,237,.08); border-color: var(--term-dim); }
 .copy-btn.copied { color: #9BE8A8; border-color: rgba(155,232,168,.6); }
+/* the hero box as a three-step strip: 1 install, 2 connect a provider,
+   3 dictate. Panels 2/3 ship `hidden` in the markup; the pages' noscript rule
+   stacks all three when the script cannot run. */
+.install-tabs { max-width: 46rem; }
+.ip-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--term-line); }
+.ip-tab {
+  font: inherit; font-size: 0.86rem; font-weight: 600; line-height: 1.3;
+  color: var(--term-dim); background: transparent; border: 0;
+  padding: 0.85em 0.5em 0.75em; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.55em;
+  box-shadow: inset 0 -2px 0 transparent;
+  transition: color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.ip-tab + .ip-tab { border-left: 1px solid var(--term-line); }
+.ip-tab:hover { color: var(--term-text); background: rgba(222,231,237,.05); }
+.ip-tab[aria-selected="true"] { color: var(--term-text); box-shadow: inset 0 -2px 0 var(--accent); }
+.ip-tab:focus-visible { outline-offset: -3px; }
+.ip-num {
+  display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.8em; font-weight: 700;
+  border: 1px solid currentColor;
+}
+.ip-tab[aria-selected="true"] .ip-num { background: var(--accent); border-color: var(--accent); color: var(--term); }
+.ip-title {
+  font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--term-dim); padding: 0.85rem 1.15rem 0;
+}
+.ip-panel .install-panel { padding-top: 0.55rem; }
+.ip-lead, .ip-list, .ip-more { color: var(--term-text); font-size: 0.9rem; line-height: 1.55; padding-inline: 1.15rem; }
+.ip-lead { margin-top: 0.55rem; }
+.ip-list { list-style: none; margin: 0.6rem 0 0; padding-bottom: 1rem; display: grid; gap: 0.45rem; }
+.ip-list li { position: relative; padding-left: 1.05rem; }
+.ip-list li::before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+.ip-panel a { color: var(--accent); text-decoration-color: rgba(89,194,255,.45); }
+.ip-panel a:hover { text-decoration-color: currentColor; }
+.ip-more { margin-top: -0.4rem; padding-bottom: 1rem; font-size: 0.84rem; }
 .get-started .install { margin-inline: 0; }
 
 .setup-steps { margin-block: 1rem 1.25rem; padding-left: 1.5rem; display: grid; gap: 0.5rem; color: var(--ink-soft); font-size: 0.97rem; line-height: 1.55; }
@@ -324,6 +354,7 @@ code {
   .benefits span:not(:last-child)::after { content: none; }
   .install-panel { flex-wrap: wrap; }
   .copy-btn { width: 100%; text-align: center; }
+  .ip-tab { flex-direction: column; gap: 0.35em; font-size: 0.8rem; padding: 0.7em 0.35em 0.65em; }
   .arg { grid-template-columns: 1fr; }
   .arg-num { padding: 0 0 0.4rem; }
   .arg h3, .arg-lead, .arg-evidence { grid-column: 1; }
