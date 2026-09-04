@@ -42,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two tabs beside it, so a first-time visitor sees the whole path at the top of the
   page: how a provider is connected (one line on what a provider does, then a row per
   provider — Groq tagged free, Soniox tagged prepaid — each with its sign-up button, and
-  a "more info" jump to the cost section) and what dictating then looks like (the
-  Ctrl+Alt+W → speak → Ctrl+Alt+A key flow with the text landing at the cursor in any
+  a "more info" jump to the cost section) and what dictating then looks like (a
+  one-line lead on reliability, the Ctrl+Alt+W → speak → Ctrl+Alt+A key flow with the text landing at the cursor in any
   app, plus the optional push-to-talk and Enter-to-send lines); each panel opens with a
   bold one-line headline. Plain buttons in the ARIA tab pattern (arrow keys, Home/End)
   driven by the page's inline script; without JavaScript the three panels simply stack.
