@@ -205,13 +205,13 @@ code {
 }
 .ip-tab[aria-selected="true"] .ip-num { background: var(--accent); border-color: var(--accent); color: var(--term); }
 .ip-title {
-  font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em;
-  color: var(--term-dim); padding: 0.85rem 1.15rem 0;
+  font-size: 1rem; font-weight: 700; line-height: 1.35;
+  color: var(--term-text); padding: 1.05rem 1.15rem 0;
 }
-.ip-panel .install-panel { padding-top: 0.55rem; }
-.ip-lead, .ip-list, .ip-more, .ip-flow, .ip-options, .ip-punch { color: var(--term-text); font-size: 0.9rem; line-height: 1.55; padding-inline: 1.15rem; }
-.ip-lead { margin-top: 0.55rem; }
-.ip-list { list-style: none; margin: 0.7rem 0 0; padding-bottom: 1rem; display: grid; gap: 0.45rem; }
+.ip-panel .install-panel { padding-top: 0.7rem; }
+.ip-lead, .ip-list, .ip-more, .ip-flow, .ip-options { color: var(--term-text); font-size: 0.9rem; line-height: 1.55; padding-inline: 1.15rem; }
+.ip-lead { margin-top: 0.7rem; }
+.ip-list { list-style: none; margin: 1.05rem 0 0; padding-bottom: 1.25rem; display: grid; gap: 0.6rem; }
 .ip-list li { position: relative; padding-left: 1.05rem; }
 .ip-list li::before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
 .ip-panel a { color: var(--accent); text-decoration-color: rgba(89,194,255,.45); }
@@ -219,12 +219,12 @@ code {
 .ip-more { margin-top: -0.4rem; padding-bottom: 1rem; font-size: 0.84rem; }
 .ip-options + .ip-more { margin-top: 0.6rem; }
 .ip-panel kbd { color: var(--term-text); border-color: var(--term-line); background: rgba(222,231,237,.06); }
-.ip-flow { list-style: none; margin: 0.7rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.55rem; }
+.ip-flow { list-style: none; margin: 1rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.55rem; }
 .ip-flow li { display: inline-flex; align-items: center; gap: 0.55rem; }
 .ip-flow li + li::before { content: "→"; color: var(--term-dim); }
 .ip-flow .keys { font-size: inherit; }
 .ip-flow-out { flex-basis: 100%; }
-.ip-options { list-style: none; margin: 0.7rem 0 0; display: grid; gap: 0.5rem; }
+.ip-options { list-style: none; margin: 0.8rem 0 0; display: grid; gap: 0.5rem; }
 .ip-options li {
   display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.3rem 0.9rem;
   padding: 0.55rem 0.7rem 0.55rem 0.9rem; border: 1px solid var(--term-line); border-radius: 8px;
@@ -245,7 +245,6 @@ code {
   transition: background-color .15s ease, border-color .15s ease;
 }
 .ip-panel .ip-opt-btn:hover { background: rgba(222,231,237,.08); border-color: var(--term-dim); }
-.ip-punch { margin-top: -0.2rem; padding-bottom: 1rem; font-weight: 600; }
 .get-started .install { margin-inline: 0; }
 
 .setup-steps { margin-block: 1rem 1.25rem; padding-left: 1.5rem; display: grid; gap: 0.5rem; color: var(--ink-soft); font-size: 0.97rem; line-height: 1.55; }

@@ -44,8 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider — Groq tagged free, Soniox tagged prepaid — each with its sign-up button, and
   a "more info" jump to the cost section) and what dictating then looks like (the
   Ctrl+Alt+W → speak → Ctrl+Alt+A key flow with the text landing at the cursor in any
-  app, the optional push-to-talk and Enter-to-send lines, and the one-line promise that
-  it is usually good enough to send unread). Plain buttons in the ARIA tab pattern (arrow keys, Home/End)
+  app, plus the optional push-to-talk and Enter-to-send lines); each panel opens with a
+  bold one-line headline. Plain buttons in the ARIA tab pattern (arrow keys, Home/End)
   driven by the page's inline script; without JavaScript the three panels simply stack.
   DE and EN twins in lockstep; the get-started section's copy of the one-liner is
   unchanged.
