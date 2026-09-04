@@ -23,7 +23,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="../style.css?v=8">
+<link rel="stylesheet" href="../style.css?v=9">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -88,26 +88,36 @@
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
-        <p class="ip-title">Connect a provider for free</p>
-        <ul class="ip-list">
-          <li>Thoughtborne sends your speech to a provider — the provider sends the transcript back.</li>
-          <li>Two providers are built in: <a href="https://groq.com/">Groq</a> and <a href="https://soniox.com/">Soniox</a>.</li>
-          <li><a href="https://console.groq.com/login">Sign up with Groq</a> — using it is completely free and privacy-friendly.</li>
-          <li>Want even better quality? <a href="https://console.soniox.com/signup/">Try Soniox</a> — but you’ll need to top up credit.</li>
-          <li>The provider gives you a code (an API key) that you simply paste into Thoughtborne — done.</li>
+        <p class="ip-title">Sign up, paste the code — done</p>
+        <p class="ip-lead">Thoughtborne sends your speech to a provider, which sends the text back. All you need is its access code (API key).</p>
+        <ul class="ip-options">
+          <li>
+            <span class="ip-opt-head"><a href="https://groq.com/">Groq</a> <span class="ip-tag ip-tag-free">free</span></span>
+            <span class="ip-opt-text">Privacy-friendly — all you need.</span>
+            <a class="ip-opt-btn" href="https://console.groq.com/login">Sign up</a>
+          </li>
+          <li>
+            <span class="ip-opt-head"><a href="https://soniox.com/">Soniox</a> <span class="ip-tag">prepaid</span></span>
+            <span class="ip-opt-text">Even better quality.</span>
+            <a class="ip-opt-btn" href="https://console.soniox.com/signup/">Try it</a>
+          </li>
         </ul>
         <p class="ip-more"><a href="#costs">More info</a></p>
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-3" aria-labelledby="ip-tab-3" hidden>
-        <p class="ip-title">Dictate into any app, top quality</p>
-        <p class="ip-lead">No matter which app you’re in on Windows: now you can simply say it all instead of typing — top quality.</p>
+        <p class="ip-title">Speak instead of typing — in any app</p>
+        <ol class="ip-flow">
+          <li><span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd></span></li>
+          <li>speak</li>
+          <li><span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></span></li>
+          <li class="ip-flow-out">The text lands at your cursor — in the browser, in Word, in ChatGPT, in Claude Code.</li>
+        </ol>
         <ul class="ip-list">
-          <li>You press a key to start recording, speak, press one to stop — and your text is inserted wherever your cursor is: in the browser, in ChatGPT or in Claude Code.</li>
-          <li>Alternatively: hold Ctrl while you speak — the moment you let go, it’s transcribed and inserted.</li>
-          <li>If you like, an “Enter” is sent after your text — in AI chatbots like ChatGPT, that sends your message automatically.</li>
-          <li>The transcription is usually so good that you can send it straight to AI chatbots without reading it over. In other words: you talk to the AI directly instead of typing messages.</li>
+          <li>Or push-to-talk (optional): hold <kbd>Ctrl</kbd>, speak, let go.</li>
+          <li>In AI chats, send it straight away with Enter if you like — you’re just talking to the AI.</li>
         </ul>
+        <p class="ip-punch">Usually so good you send it unread.</p>
       </div>
     </div>
 

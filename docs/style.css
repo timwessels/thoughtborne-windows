@@ -209,14 +209,43 @@ code {
   color: var(--term-dim); padding: 0.85rem 1.15rem 0;
 }
 .ip-panel .install-panel { padding-top: 0.55rem; }
-.ip-lead, .ip-list, .ip-more { color: var(--term-text); font-size: 0.9rem; line-height: 1.55; padding-inline: 1.15rem; }
+.ip-lead, .ip-list, .ip-more, .ip-flow, .ip-options, .ip-punch { color: var(--term-text); font-size: 0.9rem; line-height: 1.55; padding-inline: 1.15rem; }
 .ip-lead { margin-top: 0.55rem; }
-.ip-list { list-style: none; margin: 0.6rem 0 0; padding-bottom: 1rem; display: grid; gap: 0.45rem; }
+.ip-list { list-style: none; margin: 0.7rem 0 0; padding-bottom: 1rem; display: grid; gap: 0.45rem; }
 .ip-list li { position: relative; padding-left: 1.05rem; }
 .ip-list li::before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
 .ip-panel a { color: var(--accent); text-decoration-color: rgba(89,194,255,.45); }
 .ip-panel a:hover { text-decoration-color: currentColor; }
 .ip-more { margin-top: -0.4rem; padding-bottom: 1rem; font-size: 0.84rem; }
+.ip-options + .ip-more { margin-top: 0.6rem; }
+.ip-panel kbd { color: var(--term-text); border-color: var(--term-line); background: rgba(222,231,237,.06); }
+.ip-flow { list-style: none; margin: 0.7rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.55rem; }
+.ip-flow li { display: inline-flex; align-items: center; gap: 0.55rem; }
+.ip-flow li + li::before { content: "→"; color: var(--term-dim); }
+.ip-flow .keys { font-size: inherit; }
+.ip-flow-out { flex-basis: 100%; }
+.ip-options { list-style: none; margin: 0.7rem 0 0; display: grid; gap: 0.5rem; }
+.ip-options li {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.3rem 0.9rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.9rem; border: 1px solid var(--term-line); border-radius: 8px;
+  background: rgba(222,231,237,.03); line-height: 1.45;
+}
+.ip-opt-head { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+.ip-panel .ip-opt-head a { color: var(--term-text); text-decoration-color: var(--term-line); }
+.ip-panel .ip-opt-head a:hover { text-decoration-color: currentColor; }
+.ip-tag {
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.2;
+  padding: 0.22em 0.55em; border-radius: 999px; border: 1px solid var(--term-dim); color: var(--term-dim);
+}
+.ip-tag-free { color: var(--term); background: var(--accent); border-color: var(--accent); }
+.ip-panel .ip-opt-btn {
+  font-size: 0.85rem; font-weight: 600; line-height: 1.2; white-space: nowrap; text-align: center; justify-self: stretch;
+  color: var(--term-text); text-decoration: none;
+  border: 1px solid #33475A; border-radius: 7px; padding: 0.55em 1em;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.ip-panel .ip-opt-btn:hover { background: rgba(222,231,237,.08); border-color: var(--term-dim); }
+.ip-punch { margin-top: -0.2rem; padding-bottom: 1rem; font-weight: 600; }
 .get-started .install { margin-inline: 0; }
 
 .setup-steps { margin-block: 1rem 1.25rem; padding-left: 1.5rem; display: grid; gap: 0.5rem; color: var(--ink-soft); font-size: 0.97rem; line-height: 1.55; }
@@ -355,6 +384,8 @@ code {
   .install-panel { flex-wrap: wrap; }
   .copy-btn { width: 100%; text-align: center; }
   .ip-tab { flex-direction: column; gap: 0.35em; font-size: 0.8rem; padding: 0.7em 0.35em 0.65em; }
+  .ip-options li { grid-template-columns: 1fr; }
+  .ip-opt-btn { text-align: center; }
   .arg { grid-template-columns: 1fr; }
   .arg-num { padding: 0 0 0.4rem; }
   .arg h3, .arg-lead, .arg-evidence { grid-column: 1; }

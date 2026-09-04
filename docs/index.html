@@ -23,7 +23,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -88,26 +88,36 @@
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
-        <p class="ip-title">Anbieter kostenlos verbinden</p>
-        <ul class="ip-list">
-          <li>Thoughtborne schickt deine Sprache an einen Anbieter — der schickt das Transkript zurück.</li>
-          <li>Zwei Anbieter sind integriert: <a href="https://groq.com/">Groq</a> und <a href="https://soniox.com/">Soniox</a>.</li>
-          <li><a href="https://console.groq.com/login">Melde dich bei Groq an</a> — die Nutzung ist komplett kostenlos und datenschutzfreundlich.</li>
-          <li>Falls du noch bessere Qualität willst: <a href="https://console.soniox.com/signup/">Probier Soniox</a> — dort musst du aber Guthaben aufladen.</li>
-          <li>Du bekommst vom Anbieter einen Code (API-Key), den du einfach in Thoughtborne kopierst — fertig.</li>
+        <p class="ip-title">Anmelden, Code einfügen — fertig</p>
+        <p class="ip-lead">Thoughtborne schickt deine Sprache an einen Anbieter, der schickt den Text zurück. Du brauchst nur seinen Zugangscode (API-Key).</p>
+        <ul class="ip-options">
+          <li>
+            <span class="ip-opt-head"><a href="https://groq.com/">Groq</a> <span class="ip-tag ip-tag-free">kostenlos</span></span>
+            <span class="ip-opt-text">Datenschutzfreundlich — reicht völlig.</span>
+            <a class="ip-opt-btn" href="https://console.groq.com/login">Anmelden</a>
+          </li>
+          <li>
+            <span class="ip-opt-head"><a href="https://soniox.com/">Soniox</a> <span class="ip-tag">mit Guthaben</span></span>
+            <span class="ip-opt-text">Noch bessere Qualität.</span>
+            <a class="ip-opt-btn" href="https://console.soniox.com/signup/">Ausprobieren</a>
+          </li>
         </ul>
         <p class="ip-more"><a href="#kosten">Mehr Infos</a></p>
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-3" aria-labelledby="ip-tab-3" hidden>
-        <p class="ip-title">In jedes Programm in Top-Qualität diktieren</p>
-        <p class="ip-lead">Egal in welchem Programm du in Windows bist: Jetzt kannst du alles in Top-Qualität einfach einsprechen, statt zu tippen.</p>
+        <p class="ip-title">Sprechen statt tippen — in jedem Programm</p>
+        <ol class="ip-flow">
+          <li><span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd></span></li>
+          <li>sprechen</li>
+          <li><span class="keys"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd></span></li>
+          <li class="ip-flow-out">Der Text steht am Cursor — im Browser, in Word, in ChatGPT, in Claude Code.</li>
+        </ol>
         <ul class="ip-list">
-          <li>Du drückst eine Taste zum Starten der Aufnahme, sprichst, drückst eine zum Beenden — und dein Text wird eingefügt, wo dein Cursor gerade steht: im Browser, in ChatGPT oder in Claude Code.</li>
-          <li>Alternativ: Halte Strg gedrückt, solange du sprichst — sobald du loslässt, wird transkribiert und eingefügt.</li>
-          <li>Wenn du willst, wird nach deinem Text ein „Enter“ gesendet — in KI-Chatbots wie ChatGPT wird dein Text dadurch automatisch gesendet.</li>
-          <li>Die Transkription ist meist so gut, dass du sie einfach an KI-Chatbots senden kannst, ohne nochmal zu lesen. Das heißt: Du sprichst direkt zur KI, statt Nachrichten zu tippen.</li>
+          <li>Oder Push-to-Talk (optional): <kbd>Ctrl</kbd> halten, sprechen, loslassen.</li>
+          <li>In KI-Chats auf Wunsch gleich mit Enter abschicken — du redest einfach mit der KI.</li>
         </ul>
+        <p class="ip-punch">Meist so gut, dass du es ungelesen abschickst.</p>
       </div>
     </div>
 
