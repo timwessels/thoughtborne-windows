@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Website typography and links.** The German pages use the German en dash
+  (Halbgeviertstrich) instead of the em dash throughout — prose, titles and meta; the
+  English pages keep the em dash. The four provider links in the hero strip (the two
+  names and the two sign-up buttons) open in a new tab, so a visitor mid-setup keeps
+  the page.
 - **The website's install box is now a three-step strip: 1 Install · 2 Connect a
   provider · 3 Dictate.** The hero's dark box keeps the one-liner as step 1 and gains
   two tabs beside it, so a first-time visitor sees the whole path at the top of the
