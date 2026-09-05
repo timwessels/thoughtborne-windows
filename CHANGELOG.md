@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The test ladder runs in one command — and on every push.** The off-Windows test
+  drivers in the repo root have always been runnable, but only one at a time and only by
+  hand. `python3 run_tests.py` now runs the whole ladder, printing one verdict line per
+  driver (name, PASS/FAIL, how long it took, the driver's own closing line) and exiting
+  non-zero if any failed, with the failing driver's full output printed beneath it. GitHub
+  Actions (`.github/workflows/tests.yml`) runs that same command on every push to `main`
+  and every pull request, on Python 3.10 and 3.12 and under Xvfb, so the display-gated
+  settings checks run for real instead of skipping. Where a check does skip, the verdict
+  line says how many — a green run cannot quietly read as more than it checked.
+- **A security policy and a contributing note.** `SECURITY.md` says what the threat
+  model of a local tool with your own keys actually is, and where to report a
+  vulnerability privately (GitHub private vulnerability reporting is switched on for the
+  repository, plus an email address). `CONTRIBUTING.md` points newcomers at `VISION.md`,
+  `DECISIONS.md` and `AGENTS.md` and at the one-command test ladder.
 - **The pre-release sandbox check also takes a look at the settings window** (#191):
   after the self-test it now opens the settings window inside the throwaway VM and
   photographs the desktop, so a release check can catch a stray console window or a

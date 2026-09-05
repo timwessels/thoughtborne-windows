@@ -100,6 +100,10 @@ personal_settings.json
 # full disk mid-write can strand one, and that must not turn up in `git add -A`.
 runtime_state.json
 .runtime_state.json.*.tmp
+# Same hazard for every other atomic write (settings_io writes `.env` and
+# `personal_settings.json` through `..env.<random>.tmp`-style siblings): a
+# stranded temp could carry a plaintext key, so the whole family is ignored.
+.*.tmp
 
 # Transient restart handshake the settings app drops for the running tool (#202).
 # Its existence IS the signal; the tool deletes it within ~1 s and clears any
