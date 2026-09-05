@@ -21,6 +21,14 @@ from hotkey_parse import (
     parse_hotkey_lexical, classify_key, HotkeyParseError, KEY_INVALID,
 )
 
+# Import-time warnings, collected instead of logged (#206): at `import config` no
+# log handler exists yet, so a direct log call falls to logging.lastResort (stderr)
+# and never reaches thoughtborne.log -- which is where the README promises it. Every
+# import-time lane appends plain strings here; main() replays them through
+# replay_import_warnings() once the handlers exist, the same after-the-fact pattern
+# migrate_legacy_archives() uses.
+IMPORT_WARNINGS = []
+
 # Try to load dotenv, but don't fail if not available
 try:
     from dotenv import load_dotenv
@@ -30,6 +38,17 @@ except ImportError:
     pass
 
 _config_logger = logging.getLogger('Thoughtborne.Config')
+
+
+def replay_import_warnings() -> list:
+    """Log every import-time warning again, now that log handlers exist (#206).
+
+    Called once from main(), beside the migrate_legacy_archives() replay. Returns
+    the list so a test driver can assert on what was replayed.
+    """
+    for _msg in IMPORT_WARNINGS:
+        _config_logger.warning(_msg)
+    return IMPORT_WARNINGS
 
 # ===== PATHS =====
 SCRIPT_DIR = Path(__file__).parent.absolute()
@@ -490,131 +509,185 @@ PTT_RELEASE_TAIL_S = 0.15    # keep recording this long after release (anti-clip
 _PTT_TRIGGER_VK = {"lctrl": 0xA2, "rctrl": 0xA3, "lalt": 0xA4}
 PTT_TRIGGER_VK = _PTT_TRIGGER_VK[PTT_TRIGGER]
 
-SONIOX_CONTEXT = None
 # Captured during the single personal_settings parse below, applied after the
 # HOTKEYS defaults are defined (#55). Stays None when the file/block is absent.
 _hotkeys_override = None
 _personal_settings_path = SCRIPT_DIR / "personal_settings.json"
-if _personal_settings_path.exists():
+
+
+def _load_personal_settings(path):
+    """Read personal_settings.json once, tolerantly (#206).
+
+    Returns (values, warnings): the parsed top-level dict ({} when the file is
+    absent or unusable) and human-readable warning strings for IMPORT_WARNINGS.
+    Never raises -- this is the one config file users are invited to hand-edit,
+    and a hand-editing mistake must never cost a start (VISION principle #1);
+    before #206 a cp1252 file aborted `import config` and took the tool AND the
+    settings app that would repair it down with it.
+
+    Decoded as utf-8-sig, exactly like settings_io.read_personal_settings, so the
+    tool and the settings app can never disagree on what the bytes mean (D-002,
+    and the "can never show ON for a file the tool reads as OFF" invariant
+    read_ptt_enabled states about itself). The file is still read exactly once,
+    at import, so D-002's timing contract is untouched.
+
+    The `vocabulary` block is shape-checked here rather than by a parser below,
+    because it is the only block whose consumers dereference it blindly (both
+    Soniox constructors call .get('terms', []) on it) -- a wrongly shaped block
+    is dropped, so they see the absent-block None.
+    """
+    warnings = []
     try:
-        with open(_personal_settings_path, 'r', encoding='utf-8') as _f:
-            _settings = json.load(_f)
-        SONIOX_CONTEXT = _settings.get("vocabulary")
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return {}, warnings   # absent file: the normal, silent default state
+    except OSError as e:
+        warnings.append(f"Could not load {path.name}: {e}")
+        return {}, warnings
+    if raw.startswith(b"\xef\xbb\xbf"):
+        # PowerShell 5.1 and older Notepads write this by default. Tolerated, but
+        # said out loud: before #206 it silently disabled every personalization
+        # while the settings app kept displaying all of it as active.
+        warnings.append(
+            f"{path.name} starts with a UTF-8 byte-order mark (BOM); tolerated")
+    try:
+        values = json.loads(raw.decode("utf-8-sig"))
+    except ValueError as e:
+        # ValueError covers json.JSONDecodeError AND UnicodeDecodeError; the old
+        # `except (json.JSONDecodeError, OSError)` missed the latter entirely.
+        warnings.append(f"Could not load {path.name}: {e}")
+        return {}, warnings
+    if not isinstance(values, dict):
+        warnings.append(
+            f"{path.name} must be a JSON object at the top level; ignoring the "
+            f"file (got {type(values).__name__})")
+        return {}, warnings
+    _voc = values.get("vocabulary")
+    if _voc is not None and not isinstance(_voc, dict):
+        warnings.append(
+            f"personal_settings 'vocabulary' must be an object; "
+            f"ignoring (got {type(_voc).__name__})")
+        del values["vocabulary"]
+    return values, warnings
 
-        # Push-to-talk override (#66): read from the same _settings dict so the
-        # file is parsed once. Absent block or any invalid field -> the default
-        # beside the constant above stays in force.
-        _ptt_cfg = _settings.get("push_to_talk", {})
-        if isinstance(_ptt_cfg, dict):
-            # Honor "enabled" only as a real JSON boolean: bool("false") is True
-            # in Python, so a quoted-string value would silently switch on this
-            # off-by-default feature that reads every trigger press.
-            _en = _ptt_cfg.get("enabled", PTT_ENABLED)
-            if isinstance(_en, bool):
-                PTT_ENABLED = _en
-            else:
-                _config_logger.warning(
-                    f"push_to_talk.enabled '{_en}' invalid (need a JSON boolean true/false); "
-                    f"using {PTT_ENABLED}")
 
-            _trig = str(_ptt_cfg.get("trigger", PTT_TRIGGER)).lower()
-            if _trig in _PTT_TRIGGER_VK:
-                PTT_TRIGGER, PTT_TRIGGER_VK = _trig, _PTT_TRIGGER_VK[_trig]
-            else:
-                _config_logger.warning(
-                    f"push_to_talk.trigger '{_trig}' unknown; using '{PTT_TRIGGER}'")
+_settings, _ps_warnings = _load_personal_settings(_personal_settings_path)
+IMPORT_WARNINGS.extend(_ps_warnings)
 
-            _ins = str(_ptt_cfg.get("insert", PTT_INSERT)).lower()
-            if _ins in ("type", "clipboard", "send", "no_insert"):
-                PTT_INSERT = _ins
-            else:
-                _config_logger.warning(
-                    f"push_to_talk.insert '{_ins}' unknown; using '{PTT_INSERT}'")
+SONIOX_CONTEXT = _settings.get("vocabulary")
 
-            # Thresholds: accept positive numbers only; reject 0, negatives,
-            # bools, and non-numbers (a stray double-tap firing a 0 s recording
-            # is exactly what the min-hold guards against).
-            for _name, _key in (("PTT_TAP_WINDOW_S", "tap_window_s"),
-                                 ("PTT_MIN_HOLD_S", "min_hold_s"),
-                                 ("PTT_RELEASE_TAIL_S", "release_tail_s")):
-                _v = _ptt_cfg.get(_key)
-                if isinstance(_v, (int, float)) and not isinstance(_v, bool) and _v > 0:
-                    globals()[_name] = float(_v)
-                elif _v is not None:
-                    _config_logger.warning(
-                        f"push_to_talk.{_key} '{_v}' invalid (need a positive number); "
-                        f"using {globals()[_name]}")
+# Push-to-talk override (#66): read from the same _settings dict so the
+# file is parsed once. Absent block or any invalid field -> the default
+# beside the constant above stays in force.
+_ptt_cfg = _settings.get("push_to_talk", {})
+if isinstance(_ptt_cfg, dict):
+    # Honor "enabled" only as a real JSON boolean: bool("false") is True
+    # in Python, so a quoted-string value would silently switch on this
+    # off-by-default feature that reads every trigger press.
+    _en = _ptt_cfg.get("enabled", PTT_ENABLED)
+    if isinstance(_en, bool):
+        PTT_ENABLED = _en
+    else:
+        IMPORT_WARNINGS.append(
+            f"push_to_talk.enabled '{_en}' invalid (need a JSON boolean true/false); "
+            f"using {PTT_ENABLED}")
 
-        # Soniox v5 endpointing override (#121): optional fine-tuning of the
-        # Live-path endpoint detector, read from the same _settings dict. An
-        # absent block or any invalid field leaves the None default in force, so
-        # nothing is sent for that field and the WS config JSON is byte-identical
-        # to today. Validated client-side so an out-of-range value never reaches
-        # Soniox (which would reject it and could drop the live session).
-        _ep_cfg = _settings.get("soniox_endpointing", {})
-        if isinstance(_ep_cfg, dict):
-            # endpoint_sensitivity: number in -1.0..1.0. Reject bool (True/False
-            # are ints in Python and would slip past isinstance + the range).
-            # 0.0 is a VALID explicit value -> use `is not None`, never truthiness,
-            # so an explicitly configured 0.0 is honored and sent (not dropped).
-            _sens = _ep_cfg.get("endpoint_sensitivity")
-            if isinstance(_sens, (int, float)) and not isinstance(_sens, bool) and -1.0 <= _sens <= 1.0:
-                SONIOX_ENDPOINT_SENSITIVITY = float(_sens)
-            elif _sens is not None:
-                _config_logger.warning(
-                    f"soniox_endpointing.endpoint_sensitivity '{_sens}' invalid "
-                    f"(need a number -1.0..1.0); not sending it")
+    _trig = str(_ptt_cfg.get("trigger", PTT_TRIGGER)).lower()
+    if _trig in _PTT_TRIGGER_VK:
+        PTT_TRIGGER, PTT_TRIGGER_VK = _trig, _PTT_TRIGGER_VK[_trig]
+    else:
+        IMPORT_WARNINGS.append(
+            f"push_to_talk.trigger '{_trig}' unknown; using '{PTT_TRIGGER}'")
 
-            # endpoint_latency_adjustment_level: integer 0..3 (strict int; reject
-            # bool and float so a stray 1.0 or True can't be sent as a level).
-            _lvl = _ep_cfg.get("endpoint_latency_adjustment_level")
-            if isinstance(_lvl, int) and not isinstance(_lvl, bool) and 0 <= _lvl <= 3:
-                SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL = _lvl
-            elif _lvl is not None:
-                _config_logger.warning(
-                    f"soniox_endpointing.endpoint_latency_adjustment_level '{_lvl}' invalid "
-                    f"(need an integer 0..3); not sending it")
+    _ins = str(_ptt_cfg.get("insert", PTT_INSERT)).lower()
+    if _ins in ("type", "clipboard", "send", "no_insert"):
+        PTT_INSERT = _ins
+    else:
+        IMPORT_WARNINGS.append(
+            f"push_to_talk.insert '{_ins}' unknown; using '{PTT_INSERT}'")
 
-            # max_endpoint_delay_ms: number in 500..3000, sent as an integer ms.
-            _delay = _ep_cfg.get("max_endpoint_delay_ms")
-            if isinstance(_delay, (int, float)) and not isinstance(_delay, bool) and 500 <= _delay <= 3000:
-                SONIOX_MAX_ENDPOINT_DELAY_MS = int(_delay)
-            elif _delay is not None:
-                _config_logger.warning(
-                    f"soniox_endpointing.max_endpoint_delay_ms '{_delay}' invalid "
-                    f"(need a number 500..3000); not sending it")
+    # Thresholds: accept positive numbers only; reject 0, negatives,
+    # bools, and non-numbers (a stray double-tap firing a 0 s recording
+    # is exactly what the min-hold guards against).
+    for _name, _key in (("PTT_TAP_WINDOW_S", "tap_window_s"),
+                         ("PTT_MIN_HOLD_S", "min_hold_s"),
+                         ("PTT_RELEASE_TAIL_S", "release_tail_s")):
+        _v = _ptt_cfg.get(_key)
+        if isinstance(_v, (int, float)) and not isinstance(_v, bool) and _v > 0:
+            globals()[_name] = float(_v)
+        elif _v is not None:
+            IMPORT_WARNINGS.append(
+                f"push_to_talk.{_key} '{_v}' invalid (need a positive number); "
+                f"using {globals()[_name]}")
 
-        # Hotkey overrides (#55): capture the optional "hotkeys" block here (so the
-        # file is parsed once) and apply it after the HOTKEYS defaults are defined
-        # below -- the defaults don't exist yet at this point in the module.
-        _hk = _settings.get("hotkeys")
-        if _hk is not None and not isinstance(_hk, dict):
-            _config_logger.warning(
-                f"personal_settings 'hotkeys' must be an object of "
-                f"action -> combo; ignoring (got {type(_hk).__name__})")
+# Soniox v5 endpointing override (#121): optional fine-tuning of the
+# Live-path endpoint detector, read from the same _settings dict. An
+# absent block or any invalid field leaves the None default in force, so
+# nothing is sent for that field and the WS config JSON is byte-identical
+# to today. Validated client-side so an out-of-range value never reaches
+# Soniox (which would reject it and could drop the live session).
+_ep_cfg = _settings.get("soniox_endpointing", {})
+if isinstance(_ep_cfg, dict):
+    # endpoint_sensitivity: number in -1.0..1.0. Reject bool (True/False
+    # are ints in Python and would slip past isinstance + the range).
+    # 0.0 is a VALID explicit value -> use `is not None`, never truthiness,
+    # so an explicitly configured 0.0 is honored and sent (not dropped).
+    _sens = _ep_cfg.get("endpoint_sensitivity")
+    if isinstance(_sens, (int, float)) and not isinstance(_sens, bool) and -1.0 <= _sens <= 1.0:
+        SONIOX_ENDPOINT_SENSITIVITY = float(_sens)
+    elif _sens is not None:
+        IMPORT_WARNINGS.append(
+            f"soniox_endpointing.endpoint_sensitivity '{_sens}' invalid "
+            f"(need a number -1.0..1.0); not sending it")
+
+    # endpoint_latency_adjustment_level: integer 0..3 (strict int; reject
+    # bool and float so a stray 1.0 or True can't be sent as a level).
+    _lvl = _ep_cfg.get("endpoint_latency_adjustment_level")
+    if isinstance(_lvl, int) and not isinstance(_lvl, bool) and 0 <= _lvl <= 3:
+        SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL = _lvl
+    elif _lvl is not None:
+        IMPORT_WARNINGS.append(
+            f"soniox_endpointing.endpoint_latency_adjustment_level '{_lvl}' invalid "
+            f"(need an integer 0..3); not sending it")
+
+    # max_endpoint_delay_ms: number in 500..3000, sent as an integer ms.
+    _delay = _ep_cfg.get("max_endpoint_delay_ms")
+    if isinstance(_delay, (int, float)) and not isinstance(_delay, bool) and 500 <= _delay <= 3000:
+        SONIOX_MAX_ENDPOINT_DELAY_MS = int(_delay)
+    elif _delay is not None:
+        IMPORT_WARNINGS.append(
+            f"soniox_endpointing.max_endpoint_delay_ms '{_delay}' invalid "
+            f"(need a number 500..3000); not sending it")
+
+# Hotkey overrides (#55): capture the optional "hotkeys" block here (so the
+# file is parsed once) and apply it after the HOTKEYS defaults are defined
+# below -- the defaults don't exist yet at this point in the module.
+_hk = _settings.get("hotkeys")
+if _hk is not None and not isinstance(_hk, dict):
+    IMPORT_WARNINGS.append(
+        f"personal_settings 'hotkeys' must be an object of "
+        f"action -> combo; ignoring (got {type(_hk).__name__})")
+else:
+    _hotkeys_override = _hk
+
+# Default engine override (#55): defaults.api must be one of AVAILABLE_APIS,
+# else warn and keep DEFAULT_API. Same warn-and-keep pattern as the blocks
+# above; DEFAULT_API and AVAILABLE_APIS are defined far above this block.
+_defaults_cfg = _settings.get("defaults", {})
+if isinstance(_defaults_cfg, dict):
+    _api = _defaults_cfg.get("api")
+    if _api is not None:
+        if isinstance(_api, str) and _api in AVAILABLE_APIS:
+            DEFAULT_API = _api
+            DEFAULT_API_IS_EXPLICIT = True   # outranks the #193 memory
         else:
-            _hotkeys_override = _hk
-
-        # Default engine override (#55): defaults.api must be one of AVAILABLE_APIS,
-        # else warn and keep DEFAULT_API. Same warn-and-keep pattern as the blocks
-        # above; DEFAULT_API and AVAILABLE_APIS are defined far above this block.
-        _defaults_cfg = _settings.get("defaults", {})
-        if isinstance(_defaults_cfg, dict):
-            _api = _defaults_cfg.get("api")
-            if _api is not None:
-                if isinstance(_api, str) and _api in AVAILABLE_APIS:
-                    DEFAULT_API = _api
-                    DEFAULT_API_IS_EXPLICIT = True   # outranks the #193 memory
-                else:
-                    # An invalid value leaves the flag False, so the remembered
-                    # engine applies (#193) -- both outcomes are "not what you
-                    # typed", and this is the friendlier of the two.
-                    _config_logger.warning(
-                        f"defaults.api '{_api}' unknown (need one of "
-                        f"{AVAILABLE_APIS}); not applied -- starting on the "
-                        f"remembered engine or '{DEFAULT_API}'")
-    except (json.JSONDecodeError, OSError) as _e:
-        _config_logger.warning(f"Could not load {_personal_settings_path.name}: {_e}")
+            # An invalid value leaves the flag False, so the remembered
+            # engine applies (#193) -- both outcomes are "not what you
+            # typed", and this is the friendlier of the two.
+            IMPORT_WARNINGS.append(
+                f"defaults.api '{_api}' unknown (need one of "
+                f"{AVAILABLE_APIS}); not applied -- starting on the "
+                f"remembered engine or '{DEFAULT_API}'")
 
 # ===== LOGGING =====
 LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
@@ -677,8 +750,7 @@ DEFAULT_HOTKEYS = {
 HOTKEYS = copy.deepcopy(DEFAULT_HOTKEYS)
 if _hotkeys_override:
     HOTKEYS, _hk_warnings = apply_hotkey_overrides(DEFAULT_HOTKEYS, _hotkeys_override)
-    for _w in _hk_warnings:
-        _config_logger.warning(_w)
+    IMPORT_WARNINGS.extend(_hk_warnings)
 
 # ===== QUEUE SETTINGS =====
 TRANSCRIPT_HISTORY_SIZE = 10

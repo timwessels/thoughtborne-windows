@@ -116,6 +116,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A hand-edited `personal_settings.json` can no longer take the tool down** (#206):
+  that file is the only one you are invited to edit yourself — the vocabulary and the
+  Soniox fine-tuning have no window of their own — and four ordinary editing mistakes
+  had consequences far out of proportion. Saved as ANSI instead of UTF-8, the file
+  aborted the start outright, and it took the settings window that would have repaired
+  it down with it. Saved with a byte-order mark (what PowerShell and older Notepads do
+  by default), it left the tool running on plain defaults while the settings app kept
+  showing every one of your values as active. A stray bracket around the whole file, or
+  a `vocabulary` block written as a flat list of words, killed the start or both Soniox
+  engines. All four now do what the README always promised: the tool says what it could
+  not read, keeps the rest of your settings, and starts. And every such warning finally
+  arrives in `thoughtborne.log` instead of scrolling past in a console window — the tool
+  collects them while it loads and writes them once the log is open.
 - **The pre-release sandbox check no longer stops before it presses a key** (#191): the
   throwaway-VM verification could install Thoughtborne, start it and watch all twelve
   hotkeys register, but the last step — pressing the self-test hotkey from inside the

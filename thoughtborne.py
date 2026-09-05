@@ -48,7 +48,7 @@ from config import (
     SCRIPT_DIR, DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     engine_has_key,
     ARCHIVE_FOLDER, HISTORY_FOLDER,
-    migrate_legacy_archives,
+    migrate_legacy_archives, replay_import_warnings,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
     PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S,
     RECORDING_LOOP_STALE_SECONDS,
@@ -3068,6 +3068,7 @@ def main():
     # The except branches only run after cleanup() has stopped the listener, so
     # their remaining feedback is print() (the only working console channel).
     try:
+        replay_import_warnings()   # import-time config warnings -> log + console (#206)
         migrate_legacy_archives()  # legacy voice_archive/ + text_archive/ -> history/ (#50)
         app = ThoughtborneApp()
         app.run()
