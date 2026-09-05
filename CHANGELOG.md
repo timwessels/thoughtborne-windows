@@ -75,6 +75,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The site deploy can no longer fail quietly.** A preflight refuses to mirror an
+  incomplete `docs/` — the mirror deletes whatever the checkout lacks, so a broken
+  checkout could have erased the live site — and a missing `{{POSTAL_ADDRESS}}`
+  placeholder is now an error instead of a silent skip, so the legal pages cannot go
+  live without the address they are required to carry. After the upload the workflow
+  compares the live `/`, `/en/` and `/style.css` byte for byte against the checkout it
+  just deployed and checks both legal pages for a filled placeholder, instead of merely
+  asking whether the host answers at all; the FTP password now reaches lftp through the
+  environment rather than its command line, and job- and lftp-level timeouts keep a
+  half-dead host from sitting on a half-mirrored site for hours.
 - **The three documents a reader meets first are now shaped to be read** (#243). `AGENTS.md`'s
   verification ladder was a single 24,000-character line — over half the file, and tens of kilobytes of diff
   for a one-word edit; it is now a short paragraph plus a table with one row per test driver (file,

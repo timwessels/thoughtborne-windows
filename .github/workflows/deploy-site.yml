@@ -1,10 +1,11 @@
 # Deploys docs/ (the public site, thoughtborne.app) to the All-Inkl webspace
 # via FTPS on every push to main that touches docs/. See issue #146.
+# workflow_dispatch deploys the ref it runs from — production takes that ref.
 #
 # Secrets:
 #   SITE_FTP_HOST        FTP host (kasserver)
 #   SITE_FTP_USER        FTP login scoped to the site folder
-#   SITE_FTP_PASSWORD    its password
+#   SITE_FTP_PASSWORD    its password, handed to lftp through the environment
 #   SITE_POSTAL_ADDRESS  HTML fragment replacing {{POSTAL_ADDRESS}} in the
 #                        legal pages at deploy time (issue #96 — the postal
 #                        address never enters the repository)
@@ -24,11 +25,40 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      - name: Announce a deploy from outside main
+        if: github.ref != 'refs/heads/main'
+        env:
+          REF: ${{ github.ref }}
+        run: echo "::warning::Deploying from $REF — production will carry this ref's docs/"
+
       - uses: actions/checkout@v4
+
+      - name: Preflight the checkout before anything can mirror
+        run: |
+          # mirror --delete makes the webspace a copy of docs/, so an empty or
+          # incomplete docs/ would erase the live site. Refuse first.
+          for f in docs/index.html docs/en/index.html docs/style.css; do
+            if [ ! -s "$f" ]; then
+              echo "::error::$f is missing or empty — refusing to mirror"
+              exit 1
+            fi
+          done
+          count=$(find docs -type f | wc -l)
+          tracked=$(git ls-files docs | wc -l)
+          echo "docs/ holds $count files, git tracks $tracked, the three landmark pages among them"
+          if [ "$count" -ne "$tracked" ]; then
+            echo "::error::docs/ holds $count files but git tracks $tracked — refusing to mirror"
+            exit 1
+          fi
 
       - name: Fill legal contact block from secret
         env:
@@ -38,28 +68,39 @@ jobs:
             echo "::error::SITE_POSTAL_ADDRESS secret is empty"
             exit 1
           fi
-          files=$(grep -rl '{{POSTAL_ADDRESS}}' docs/ || true)
-          if [ -z "$files" ]; then
-            echo "No {{POSTAL_ADDRESS}} placeholder found — nothing to fill."
-          else
-            for f in $files; do
-              perl -pi -e 's/\{\{POSTAL_ADDRESS\}\}/$ENV{POSTAL_ADDRESS}/g' "$f"
-              echo "Filled contact block in $f"
-            done
-            if grep -rl '{{POSTAL_ADDRESS}}' docs/; then
-              echo "::error::Placeholder still present after replacement"
-              exit 1
-            fi
+          filled=0
+          while IFS= read -r -d '' f; do
+            perl -pi -e 's/\{\{POSTAL_ADDRESS\}\}/$ENV{POSTAL_ADDRESS}/g' "$f"
+            echo "Filled contact block in $f"
+            filled=$((filled + 1))
+          done < <(grep -rlZ '{{POSTAL_ADDRESS}}' docs/ || true)
+          if [ "$filled" -eq 0 ]; then
+            # No placeholder means the legal pages would go live without the
+            # address they are required to carry — a defect, not a no-op.
+            echo "::error::No {{POSTAL_ADDRESS}} placeholder found in docs/"
+            exit 1
+          fi
+          if grep -rl '{{POSTAL_ADDRESS}}' docs/; then
+            echo "::error::Placeholder still present after replacement"
+            exit 1
           fi
 
       - name: Deploy docs/ via FTPS
         env:
           FTP_HOST: ${{ secrets.SITE_FTP_HOST }}
           FTP_USER: ${{ secrets.SITE_FTP_USER }}
-          FTP_PASSWORD: ${{ secrets.SITE_FTP_PASSWORD }}
+          LFTP_PASSWORD: ${{ secrets.SITE_FTP_PASSWORD }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -qq -y lftp
-          lftp -u "$FTP_USER,$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
+          # --env-password reads LFTP_PASSWORD, keeping the password out of argv.
+          # cmd:fail-exit exits on the first failed command — bye alone already
+          # returns mirror's status, this stops whatever gets appended later.
+          # The net: limits keep a half-dead host from retrying for hours over a
+          # half-mirrored site (lftp defaults to 1000 tries, 5 min apart).
+          lftp -u "$FTP_USER" --env-password "$FTP_HOST" <<'EOF'
+          set cmd:fail-exit true
+          set net:max-retries 5
+          set net:timeout 60
           set ftp:ssl-force true
           set ftp:ssl-protect-data true
           set ssl:verify-certificate true
@@ -67,20 +108,35 @@ jobs:
           bye
           EOF
 
-      - name: Verify deployed site answers
-        env:
-          FTP_HOST: ${{ secrets.SITE_FTP_HOST }}
+      - name: Verify the live pages match this checkout
         run: |
-          # The vhost serves the site even before DNS cutover; resolve the
-          # domain to the webspace host explicitly. TLS may not be issued
-          # yet pre-cutover, so fall back to HTTP for the parity ping.
-          IP=$(getent hosts "$FTP_HOST" | awk '{print $1; exit}')
-          echo "Webspace IP: $IP"
-          if curl -sSf --resolve "thoughtborne.app:443:$IP" https://thoughtborne.app/ -o /dev/null; then
-            echo "HTTPS OK"
-          elif curl -sSf --resolve "thoughtborne.app:80:$IP" http://thoughtborne.app/ -o /dev/null; then
-            echo "HTTP OK (TLS not issued yet — expected before DNS cutover)"
-          else
-            echo "::error::Deployed site does not answer on the webspace vhost"
+          live() {
+            rm -f "$RUNNER_TEMP/live"
+            curl -sSf --max-time 20 "https://thoughtborne.app/$1" -o "$RUNNER_TEMP/live" \
+              && cmp -s "$RUNNER_TEMP/live" "$2"
+          }
+          matched=
+          for attempt in 1 2 3 4 5 6; do
+            if live '' docs/index.html && live en/ docs/en/index.html && live style.css docs/style.css; then
+              matched=yes
+              echo "Live /, /en/ and /style.css are byte-identical to this checkout (attempt $attempt)"
+              break
+            fi
+            echo "Not in sync yet (attempt $attempt) — retrying in 5s"
+            sleep 5
+          done
+          if [ -z "$matched" ]; then
+            echo "::error::The live pages differ from the docs/ this run deployed"
             exit 1
           fi
+          # The filled pages cannot be compared byte-wise — the secret is not in
+          # the checkout — so assert the one thing that must not be true of them.
+          for page in legal.html en/legal.html; do
+            rm -f "$RUNNER_TEMP/live"
+            curl -sSf --max-time 20 "https://thoughtborne.app/$page" -o "$RUNNER_TEMP/live"
+            if grep -qF '{{POSTAL_ADDRESS}}' "$RUNNER_TEMP/live"; then
+              echo "::error::/$page is live with its placeholder unfilled"
+              exit 1
+            fi
+            echo "/$page is live and carries no unfilled placeholder"
+          done
