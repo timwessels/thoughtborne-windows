@@ -1,0 +1,51 @@
+# Runs the off-Windows test ladder (run_tests.py -- every test_*.py driver in the
+# repo root) on every push to main and every pull request.
+#
+# The drivers are standalone stdlib scripts, so the job needs no test framework and
+# no venv: just a Python, `soundfile` (the ladder's only third-party import off
+# Windows) and Xvfb. `uv sync` is deliberately not usable here -- pyproject.toml
+# restricts resolution to sys_platform == 'win32', and PyAudio has no Linux wheels.
+#
+# Xvfb matters: the display-gated checks in test_settings_visibility.py and
+# test_settings_theme.py build the real settings window, and without a display they
+# skip. run_tests.py prints a `[n skipped]` marker per driver, so the log says
+# whether they really ran.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ladder:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the ladder's dependencies
+        run: |
+          python -m pip install soundfile
+          # python3-tk brings the Tcl/Tk shared libraries the interpreter's
+          # _tkinter links against; without them the display checks would skip.
+          sudo apt-get update -qq && sudo apt-get install -qq -y xvfb python3-tk
+
+      - name: Run the test ladder
+        run: xvfb-run -a python run_tests.py

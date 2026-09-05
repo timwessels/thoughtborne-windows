@@ -28,6 +28,9 @@ casually.
 
 - On the commit you intend to release (normally `main`), working tree clean.
 - `gh` installed and authenticated (`gh auth status`).
+- The off-Windows test ladder is green (`python3 run_tests.py`), and the `Tests`
+  workflow is green on `main` — CI runs the same ladder
+  ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
 - You have decided the version `X.Y.Z` (semver; the first asset-carrying release
   is v1.1.0, #104).
 
