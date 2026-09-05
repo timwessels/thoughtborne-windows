@@ -51,6 +51,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The README now shows the tool and says how it is built.** The empty screenshot slot under
+  the intro holds the terminal picture from the website — the same file, referenced across, so
+  repo and site cannot drift apart — and the settings section shows the Provider & API key tab.
+  Three badges under the title (the `Tests` workflow, the latest release, the MIT license) say at
+  a glance that the ladder runs in CI and which version the install one-liner fetches. A new
+  **For developers** section above the links is the entry point the README lacked: the shape of
+  the code, why everything that does not have to be Windows is lifted into pure-stdlib modules
+  with a test driver each, the 13-driver ladder and the two things it cannot reach, and pointers
+  to `DECISIONS.md`, `RELEASING.md`, `AGENTS.md`, `CONTRIBUTING.md` and `SECURITY.md`. It closes
+  on what the tool is measured against: its maintainer's daily dictation tool since 2023 and
+  the priorities a daily user has, with the AI-agent authorship named in the same breath — the
+  intro and the closing line say the same. The header logo is now the console masthead's
+  half-block lockup, rendered as crisp pixel SVGs in a light and a dark variant, so repo, site
+  and terminal wear the same mark.
+  Three long blocks — Smart App Control, the launch-from-the-keyboard tip, and the tray route
+  for the console — fold into collapsible sections, so the paths a first-time reader needs stay
+  in view. And the data paragraph in *First run* names three things it left unsaid:
+  `thoughtborne.log` carries excerpts of transcripts and the title of the window dictated into,
+  the clipboard insert paths (`Ctrl+Alt+A` / `Ctrl+Alt+D`) put the text through the Windows
+  clipboard and therefore through Clipboard history and cloud clipboard sync, and the previous
+  clipboard content is restored only when it was text. DE and EN twins in lockstep.
 - **Website typography and links.** The German pages use the German en dash
   (Halbgeviertstrich) instead of the em dash throughout — prose, titles and meta; the
   English pages keep the em dash. The four provider links in the hero strip (the two

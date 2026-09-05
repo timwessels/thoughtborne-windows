@@ -1,18 +1,21 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/thoughtborne-lockup-dark.svg">
-    <img src="assets/logo/thoughtborne-lockup.svg" alt="Thoughtborne" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/thoughtborne-pixel-lockup-dark.svg">
+    <img src="assets/logo/thoughtborne-pixel-lockup.svg" alt="Thoughtborne" width="560">
   </picture>
 </p>
+
 # Thoughtborne
+
+[![Tests](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml/badge.svg)](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml) [![Latest release](https://img.shields.io/github/v/release/timwessels/thoughtborne-windows)](https://github.com/timwessels/thoughtborne-windows/releases) [![License: MIT](https://img.shields.io/github/license/timwessels/thoughtborne-windows)](LICENSE)
 
 **[English version](README.md)** · **Website: [thoughtborne.app](https://thoughtborne.app)**
 
-Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Hotkey drücken, sprechen, zweiten Hotkey drücken — und das Transkript landet an der Cursor-Position in der gerade aktiven Anwendung, als wäre es getippt. Optimiert für Deutsch, gebaut zuallererst für einen Job: mit KI sprechen.
+Hotkey-gesteuertes Voice-to-Text-Tool für Windows. Hotkey drücken, sprechen, zweiten Hotkey drücken — und das Transkript landet an der Cursor-Position in der gerade aktiven Anwendung, als wäre es getippt. Optimiert für Deutsch, gebaut zuallererst für einen Job: mit KI sprechen. Es ist seit 2023 das tägliche Diktierwerkzeug seines Maintainers, und daraus folgen zwei Regeln: Ein Diktat geht nie verloren, und die Konsole meldet nur — bedient wird sie nicht.
 
 Der Qualitätsmaßstab ist einfach: Transkripte müssen **gut genug sein, um sie ungelesen an ein LLM zu schicken** — ohne Korrekturlese-Durchgang. Warum es das Tool gibt, was seine Entscheidungen leitet und was es bewusst nicht ist (kein poliertes GUI-Produkt, keine Cross-Platform-App, kein Abo-Dienst), steht in [VISION.md](VISION.md) (englisch). API-Keys bringt man selbst mit und zahlt nach Verbrauch — oder nimmt den kostenlosen Weg (siehe [Modell-Aufstellung](#die-modell-aufstellung)).
 
-<!-- screenshot slot (#37): glanceable console screenshot drops in here -->
+<p align="center"><img src="docs/assets/screenshot-terminal.png" width="600" alt="Thoughtborne im Terminal: oben die Bereitschaftsanzeige mit dem Modell-Karussell der vier Engines und der Tastenübersicht, darunter eine Aufnahme vom REC-Hinweis bis zur Bestätigung des eingefügten Texts."></p>
 
 ## Die Modell-Aufstellung
 
@@ -65,7 +68,12 @@ Das Skript installiert [uv](https://docs.astral.sh/uv/) (einen Python-Projektman
 
 **Auf einem verwalteten oder Firmengerät** kann eine maschinenweite Gruppenrichtlinie die Ausführungsrichtlinie des Skripts überschreiben und es blockieren. Schlägt der Installer dort fehl, einen der manuellen Wege unten nutzen oder die IT-Abteilung fragen.
 
+<details>
+<summary><b>Smart App Control</b></summary>
+
 **Smart App Control** kann unsignierte Installationsskripte blockieren — die ZIP-Spur genauso wie den Einzeiler. Nachsehen unter Windows-Sicherheit > App- und Browsersteuerung > Smart App Control; ist die Funktion eingeschaltet, lässt sie sich für die Installation ausschalten und danach wieder einschalten (Letzteres nur auf Windows 11 24H2 oder neuer mit den Updates ab April 2026 und nur bei aktivierten optionalen Diagnosedaten — sonst bleibt sie bis zum Zurücksetzen oder Neuinstallieren von Windows aus).
+
+</details>
 
 **Aktualisieren.** Den Einzeiler erneut ausführen oder `setup.bat` im Installationsordner — kein manueller Download nötig. Das Update holt die aktuelle Release-Version selbst und behält Aufnahmen, Keys und Einstellungen.
 
@@ -138,6 +146,8 @@ python thoughtborne.py
 
 Die Konfiguration hat eine grafische Eingangstür: eine kleine Einstellungs-App — ein Fenster, das zugleich Erststart-Assistent und alltäglicher Einstellungsdialog ist, auf Deutsch oder Englisch (umschaltbar im Kopfbereich). Beim ersten Start ohne API-Key öffnet Thoughtborne sie automatisch und führt durch drei Seiten — Transkriptionsanbieter & API-Key (mit Live-Prüfung „Key testen"), Hotkeys (Push-to-talk an oder aus, zwei Ein-Klick-Preset-Schemata oder jede Kombination pro Aktion per Tastendruck aufnehmen), Verhalten (Standard-Engine, dazu Wegweiser für Tray und Admin-Fenster). Später, sobald ein Key gespeichert ist, öffnest du dasselbe Fenster jederzeit aus dem laufenden Tool mit **`Ctrl+Alt+G`** — es ist Teil von Thoughtborne, kein eigenes Programm. Speichern mit vorhandenem Key heißt **Speichern & neu starten**: Es speichert, startet das Tool für dich neu, und die Änderungen greifen sofort — du musst nicht daran denken, es selbst neu zu starten (eine laufende Aufnahme wird vorher gesichert und lässt sich nach dem Neustart mit dem Wiederhol-Hotkey erneut transkribieren). Beendet sich das Tool nicht innerhalb weniger Sekunden, sagt sie das und lässt es unangetastet weiterlaufen; es wird nie etwas erzwungen geschlossen.
 
+<p align="center"><img src="assets/screenshots/settings-provider.png" width="520" alt="Die Einstellungs-App im Reiter Provider &amp; API key: oben die Erklärung, was ein API-Key ist, darunter eine Karte für Groq — die kostenlose Spur — mit verdecktem Key-Feld und den Schaltflächen Show und Test key, darunter eine Karte für Soniox, die Qualitäts-Spur."></p>
+
 Die App schreibt dieselben zwei Dateien, die sich auch von Hand pflegen lassen — `.env` (die Keys) und `personal_settings.json` (Hotkeys, Standard-Engine, Push-to-talk) — und bearbeitet sie chirurgisch: Handgepflegtes wie das Erkennungs-Vokabular und jeder Kommentar bleiben unangetastet, und Hotkeys landen nur dort in der Datei, wo sie von den Defaults abweichen. Ein laufendes Thoughtborne übernimmt Änderungen beim nächsten Start (kein Live-Reload). Alles, was die App tut, bleibt von Hand editierbar — sie ist ein Frontend für die genannten Dateien, kein Ersatz (siehe [Anpassung](#anpassung)).
 
 ## API-Keys
@@ -154,7 +164,12 @@ Nur ein Groq-Key? Nichts umzustellen: Der Start überspringt die Soniox-Einträg
 
 Das Tool starten — über den Startmenü-Eintrag **Thoughtborne** (wer den Installer genutzt hat), per Doppelklick auf `Thoughtborne.bat` oder mit `uv run thoughtborne.py`. Ein Konsolenfenster öffnet sich mit einem Start-Banner, das die aktive API und die Hotkey-Liste zeigt; Details landen in `thoughtborne.log`.
 
-**Tipp — per Tastatur starten.** Wer mit dem Einzeiler oder ZIP installiert hat, findet den Eintrag **Thoughtborne** bereits im Startmenü — um ihn per Tastendruck zu starten, Rechtsklick darauf → **Eigenschaften** → ins Feld **Tastenkombination** klicken und eine freie Kombination drücken (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), und ein Druck startet das Tool. Bei einem Git-Clone gibt es noch keinen Startmenü-Eintrag: eine Windows-Verknüpfung auf `Thoughtborne.bat` anlegen, im Startmenü oder auf dem Desktop ablegen (Windows berücksichtigt Tastenkürzel nur dort) und ihr dasselbe Kürzel geben. Diese Verknüpfung auf `C:\Windows\System32\cmd.exe /c "C:\Pfad\zu\Thoughtborne.bat"` statt direkt auf die `.bat` zeigen lassen — der Start ist identisch, aber der Eintrag bietet dann per Rechtsklick auch *Als Administrator ausführen* an, was eine Verknüpfung direkt auf die `.bat` nie bekommt (der Eintrag des Installers nutzt diese Form bereits). Siehe den Admin-Fenster-Hinweis unter Troubleshooting.
+<details>
+<summary><b>Tipp — per Tastatur starten</b></summary>
+
+Wer mit dem Einzeiler oder ZIP installiert hat, findet den Eintrag **Thoughtborne** bereits im Startmenü — um ihn per Tastendruck zu starten, Rechtsklick darauf → **Eigenschaften** → ins Feld **Tastenkombination** klicken und eine freie Kombination drücken (`Ctrl+Alt+1` ist frei; keiner der In-App-Hotkeys nutzt es), und ein Druck startet das Tool. Bei einem Git-Clone gibt es noch keinen Startmenü-Eintrag: eine Windows-Verknüpfung auf `Thoughtborne.bat` anlegen, im Startmenü oder auf dem Desktop ablegen (Windows berücksichtigt Tastenkürzel nur dort) und ihr dasselbe Kürzel geben. Diese Verknüpfung auf `C:\Windows\System32\cmd.exe /c "C:\Pfad\zu\Thoughtborne.bat"` statt direkt auf die `.bat` zeigen lassen — der Start ist identisch, aber der Eintrag bietet dann per Rechtsklick auch *Als Administrator ausführen* an, was eine Verknüpfung direkt auf die `.bat` nie bekommt (der Eintrag des Installers nutzt diese Form bereits). Siehe den Admin-Fenster-Hinweis unter Troubleshooting.
+
+</details>
 
 Dann diktieren:
 
@@ -165,6 +180,8 @@ Dann diktieren:
 **Selbsttest:** `Ctrl+Alt+T` transkribiert die mitgelieferte `test_audio.mp3` über die aktive API und fügt das Ergebnis an der Cursor-Position ein (vorher ein Textfeld fokussieren) — so lässt sich am schnellsten prüfen, ob alles funktioniert.
 
 Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `history/`-Ordner im Projektverzeichnis — Aufnahmen als MP3 in `history/audio/`, Transkripte in `history/transcripts/`, gepaart über den Zeitstempel. Jeder Dateiname trägt zusätzlich ein Engine-Kürzel — `SonLive-v5`, `Son-v5`, `GWhisperTur-v3` oder `GWhisperLar-v3` —, das die erzeugende Engine benennt (nie transkribierte Aufnahmen behalten den reinen Zeitstempel-Namen). Das Start-Banner zeigt den Pfad und `Ctrl+Alt+6` öffnet den Ordner; beim Update von einer älteren Version werden die bisherigen Ordner `voice_archive/` und `text_archive/` beim ersten Start automatisch dorthin migriert. Schlägt eine Transkription fehl, wiederholt `Ctrl+Alt+R` sie aus der archivierten Aufnahme — und zwar mit der gerade gewählten Engine, sofern diese eine Datei erneut einlesen kann, sodass sich eine vorübergehend gestörte API umgehen lässt, indem man per `Ctrl+Alt+L` die Engine wechselt und erneut `Ctrl+Alt+R` drückt. An eine nicht transkribierte Aufnahme erinnert das Tool nur einmal — beim nächsten Start danach; anschließend bleibt sie per `Ctrl+Alt+R` abrufbar, ohne erneut daran zu erinnern. Kommt die Standard-Engine leer zurück, ohne dass dabei etwas schiefging, enthielt die Aufnahme keine Sprache — sie bleibt in `history/` erhalten, und das Tool sagt das ehrlich, statt eine sinnlose Wiederholung anzubieten.
+
+`thoughtborne.log` ist ein lokales Debug-Log, und es ist ausführlich: Es enthält Ausschnitte der Transkripte und den Titel des Fensters, in das diktiert wurde — wer es weitergibt, sollte es also wie die Transkripte selbst behandeln. Die Zwischenablage-Wege (`Ctrl+Alt+A` und `Ctrl+Alt+D`) schicken das Transkript durch die Windows-Zwischenablage; es taucht damit auch im Zwischenablageverlauf und in der Cloud-Synchronisierung der Zwischenablage auf, sofern diese Funktionen eingeschaltet sind. Der vorherige Inhalt der Zwischenablage wird danach zurückgeschrieben — aber nur, wenn es Text war; ein Bild oder eine Dateiauswahl kommt nicht zurück.
 
 `Ctrl+Alt+4` beendet das Tool.
 
@@ -207,12 +224,17 @@ copy personal_settings.example.json personal_settings.json
 
 **Die zuletzt gewählte Engine wird gemerkt (automatisch):** Unabhängig von diesem Block merkt sich Thoughtborne, auf welche Engine per `Ctrl+Alt+L` gewechselt wurde, und startet beim nächsten Mal darauf — ganz ohne Einstellung. Festgehalten wird dieser eine Wert in `runtime_state.json` neben dem Log: vom Tool selbst geschrieben, keine Einstellungsdatei und gefahrlos löschbar (beim nächsten Wechsel steht sie wieder da). Gemerkt wird nur ein selbst ausgelöster Wechsel; überspringt der Start eine Engine, weil deren Key fehlt, ist das eine Störung und keine Entscheidung — und wird nie festgehalten. Eine selbst gesetzte `defaults.api` behält das letzte Wort: Die bewusste Festlegung schlägt das Gedächtnis, das nur dort einspringt, wo nichts konfiguriert ist. Die Einstellungs-App passt dazu. Ihr Feld **Engine beim Start** bietet zwei ausdrückliche Modi: *mit der zuletzt gewählten Engine starten* — die gemerkte, schreibgeschützt angezeigt — oder *immer mit einer festen Engine starten*, was eine `defaults.api` schreibt, die das Gedächtnis schlägt. Eine feste Engine bleibt dann über Neustarts hinweg bestehen, auch nach einem späteren `Ctrl+Alt+L`-Wechsel (den Standard eingeschlossen); zurück auf *zuletzt gewählt* entfernt die Festlegung. Das Feld unangetastet zu lassen ändert in beiden Modi nichts.
 
-**Konsole aus der Taskleiste (optional):** Thoughtborne läuft in einem Konsolenfenster, das wie jedes andere in der Taskleiste sitzt. Um es aus dem Weg zu räumen — läuft weiter, ein Klick zurück —, wenn dieses Fenster in **Windows Terminal** läuft (dem Standard-Konsolenhost auf aktuellem Windows 11), erledigen das zwei von Terminals eigenen Einstellungen, ohne Zusatz-Tool und ohne Admin-Rechte. Terminals Einstellungen öffnen (`Ctrl+,`) und unter **Interaktion** beide aktivieren:
+<details>
+<summary><b>Konsole aus der Taskleiste (optional)</b></summary>
+
+Thoughtborne läuft in einem Konsolenfenster, das wie jedes andere in der Taskleiste sitzt. Um es aus dem Weg zu räumen — läuft weiter, ein Klick zurück —, wenn dieses Fenster in **Windows Terminal** läuft (dem Standard-Konsolenhost auf aktuellem Windows 11), erledigen das zwei von Terminals eigenen Einstellungen, ohne Zusatz-Tool und ohne Admin-Rechte. Terminals Einstellungen öffnen (`Ctrl+,`) und unter **Interaktion** beide aktivieren:
 
 - „Terminal bei Minimierung im Infobereich ausblenden" (`minimizeToNotificationArea`) — Minimieren schickt das Fenster dann in den Infobereich (den System-Tray) statt in die Taskleiste: Der Taskleisten-Button verschwindet und alles läuft weiter, das Diktieren eingeschlossen (es ist hotkey-gesteuert und funktioniert bei verstecktem Fenster).
 - „Immer ein Symbol im Infobereich anzeigen" (`alwaysShowNotificationIcon`) — hält ein dauerhaftes Tray-Icon als Anker bereit: Ein Einzelklick stellt das Fenster wieder her, ein Rechtsklick listet es auf.
 
 Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf-Ausklappmenü (das `^`-Chevron) — das Terminal-Icon einmal von dort in den sichtbaren Tray-Bereich ziehen, damit es erreichbar bleibt. Zwei ehrliche Grenzen: Beide Einstellungen sind **global**, wirken also auf *jedes* Windows-Terminal-Fenster (und Minimieren trayt immer das ganze Fenster, nie einen einzelnen Tab) — belanglos, wenn man das Terminal sonst nicht nutzt, eine bewusste Wahl, wenn doch; und der Weg braucht Windows Terminal — unter dem klassischen `conhost`-Host (ältere Setups oder wenn man das Standard-Terminal umgestellt hat) gibt es diese Schalter nicht. Unter Windows 10 ist Terminal installierbar und als Standard-Terminal setzbar. Die GUI-Schalter sind der saubere Weg — Terminals `settings.json` von Hand zu editieren ist nicht nötig.
+
+</details>
 
 **Einstellungen in `config.py`:** Die Konfiguration besteht bewusst aus einfachen Konstanten mit Kommentaren. Was die meisten anpassen:
 
@@ -244,6 +266,19 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 
 **API-Fehler.** Keys in der `.env` und die Internetverbindung prüfen; im Free Tier die [Limits](#die-modell-aufstellung) im Blick behalten.
 
+## Für Entwickler
+
+Thoughtborne ist schlichtes Python — ein Skript, das man startet, kein Paket, das man installiert — mit zehn Laufzeit-Dependencies und ohne Framework. Die Teile, die es nur unter Windows geben kann, sprechen über `ctypes` direkt mit Win32: die globalen Hotkeys in `hotkey_manager.py`, die Zwischenablage und die simulierten Tastenanschläge in `output_handler.py` (die Audio-Aufnahme läuft über PyAudio). Alles, was nicht zwingend Windows braucht, ist bewusst in kleine, reine Stdlib-Module mit je einem eigenen Test-Treiber herausgezogen — `typed_cap.py`, `hotkey_parse.py`, `engine_memory.py`, `restart_signal.py`, `console_ui.py` —, eine Konvention dieses Repos und kein Zufall: Genau diese Trennung macht ein Windows-Tool von einem Linux-Rechner aus prüfbar. Die vier Transkriptions-Engines liegen hinter einer gemeinsamen `AbstractTranscriber`-Schnittstelle in `transcriber.py`, erzeugt von einer Factory anhand der Engine-ID; die Einstellungs-App (`thoughtborne_settings.py`) ist schlichtes tkinter, auch dort kein Framework.
+
+Es gibt keine pytest-Suite: Verifiziert wird über eine Leiter aus 13 eigenständigen Test-Treibern, die weder Windows noch ein Test-Framework brauchen. `python3 run_tests.py` fährt sie alle in wenigen Sekunden durch und gibt pro Treiber eine Urteilszeile aus, und [GitHub Actions](.github/workflows/tests.yml) führt denselben Befehl bei jedem Push und jedem Pull Request aus (Python 3.10 und 3.12, unter Xvfb, damit die display-abhängigen Einstellungs-Prüfungen wirklich laufen statt übersprungen zu werden). Über der Leiter stehen die zwei Dinge, die sie nicht erreicht: eine [Windows-Sandbox-Prüfstrecke](sandbox/README.md), die ein Release in eine Wegwerf-VM installiert und bis zu einem echten, transkribierenden Selbsttest treibt, und Prüfungen von Hand für das, was nur ein echter Windows-Desktop zeigt.
+
+- [`DECISIONS.md`](DECISIONS.md) — die getroffenen Produktentscheidungen; vor jeder Verhaltensänderung nachzulesen, damit eine bereits gefällte Entscheidung nicht unbemerkt wieder aufgemacht wird.
+- [`RELEASING.md`](RELEASING.md) — das Release-Ritual.
+- [`AGENTS.md`](AGENTS.md) — die Spielregeln für dieses Repo, für Menschen und KI-Coding-Agenten gleichermaßen.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) — wie ein Pull Request aussehen sollte und wie sich Sicherheitsrelevantes vertraulich melden lässt.
+
+Thoughtborne ist seit 2023 das tägliche Diktierwerkzeug seines Maintainers und um die Prioritäten eines täglichen Nutzers herum gebaut: Transkripte, die gut genug sind, um sie ungelesen an ein LLM zu schicken, und das zuerst auf Deutsch; ein Diktat, das nie verloren geht — jede Aufnahme wird archiviert, bevor sie transkribiert wird, und eine fehlgeschlagene Transkription lässt sich per `Ctrl+Alt+R` aus dem Archiv wiederholen; Bedienung ausschließlich per Hotkey, wobei die Konsole eine Statusanzeige ist und kein Bedienfeld; immer das beste verfügbare Modell für Deutsch, alle paar Monate neu bewertet; und nur Anbieter, die mindestens ein Opt-out vom Training auf Nutzerdaten bieten ([VISION.md](VISION.md)). Der Code entsteht mit KI-Coding-Agenten unter der Regie des Maintainers — die Commit-Trailer nennen sie — und wird an diesen Prioritäten gemessen wie jeder andere Beitrag auch: durch das Entscheidungslog oben und eine Testleiter, die bei jedem Push läuft.
+
 ## Projekt & Links
 
 - [thoughtborne.app](https://thoughtborne.app) — die Projekt-Website.
@@ -253,4 +288,4 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 - Für KI-Coding-Agenten: [AGENTS.md](AGENTS.md) (Arbeiten in diesem Repo) · [llms-install.md](llms-install.md) (geführtes Setup).
 - **macOS:** Es gibt einen Schwester-Port — [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos): drei Transkriptions-APIs statt vier, sonst analog; as-is verfügbar.
 
-Issues und Contributions sind willkommen. Thoughtborne ist seit Jahren das tägliche Arbeitswerkzeug des Maintainers und wird aktiv gepflegt.
+Issues und Contributions sind willkommen — [`CONTRIBUTING.md`](CONTRIBUTING.md) sagt, was dabei hilft, und alles Sicherheitsrelevante läuft über [`SECURITY.md`](SECURITY.md) statt über den öffentlichen Tracker. Thoughtborne ist seit 2023 das tägliche Arbeitswerkzeug des Maintainers und wird aktiv gepflegt.

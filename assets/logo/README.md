@@ -17,7 +17,8 @@ are identical — only writing it down decides.
 | `thoughtborne-wordmark-dark.svg` | Wordmark for dark backgrounds |
 | `thoughtborne-wordmark-mono.svg` | Black wordmark, silent e in gray |
 | `thoughtborne-wordmark-mono-solid.svg` | Strictly one color (engraving, 1-bit contexts) |
-| `thoughtborne-lockup.svg` / `-dark.svg` | Mark + wordmark, light/dark — README header |
+| `thoughtborne-pixel-lockup.svg` / `-dark.svg` | The console masthead's half-block lockup as crisp pixel rects (mark in the console accent, wordmark in navy / off-white), light/dark — README header since 2026-09; generated from `console_ui.LOGO_MARK_A5` + the wordmark art, keep in sync with `console_ui.py` and the site hero |
+| `thoughtborne-lockup.svg` / `-dark.svg` | Mark + wordmark (Inter), light/dark — the former README header |
 | `favicon.ico` | 16/32/48 px; 16/32 use a slightly widened channel so it stays crisp (the true channel antialiases away at that size) |
 | `png/` | Raster exports of the masters (mark 16–512, wordmark/lockup 1024) |
 | `thoughtborne-avatar-512.png` | GitHub avatar upload — flattened on white so the channel reads in every theme |

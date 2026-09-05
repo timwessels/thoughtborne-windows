@@ -1,18 +1,21 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/thoughtborne-lockup-dark.svg">
-    <img src="assets/logo/thoughtborne-lockup.svg" alt="Thoughtborne" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/thoughtborne-pixel-lockup-dark.svg">
+    <img src="assets/logo/thoughtborne-pixel-lockup.svg" alt="Thoughtborne" width="560">
   </picture>
 </p>
+
 # Thoughtborne
+
+[![Tests](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml/badge.svg)](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml) [![Latest release](https://img.shields.io/github/v/release/timwessels/thoughtborne-windows)](https://github.com/timwessels/thoughtborne-windows/releases) [![License: MIT](https://img.shields.io/github/license/timwessels/thoughtborne-windows)](LICENSE)
 
 **[Deutsche Version](README.de.md)** · **Website: [thoughtborne.app](https://thoughtborne.app)**
 
-Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — and the transcript lands at the cursor in whatever app is active, as if you had typed it. Optimized for German, built first and foremost for one job: talking to AI.
+Hotkey-driven voice-to-text for Windows. Press a hotkey, talk, press another — and the transcript lands at the cursor in whatever app is active, as if you had typed it. Optimized for German, built first and foremost for one job: talking to AI. It has been its maintainer's daily dictation tool since 2023, and two rules follow from that: a dictation is never lost, and the console only reports — it is not a window you operate.
 
 The quality bar is simple: transcripts must be **good enough to send to an LLM unread** — no proofreading pass. Why the tool exists, what guides its decisions, and what it deliberately is not (a polished GUI product, a cross-platform app, a subscription service) is in [VISION.md](VISION.md). You bring your own API keys and pay per use — or take the free path (see [the model lineup](#the-model-lineup)).
 
-<!-- screenshot slot (#37): glanceable console screenshot drops in here -->
+<p align="center"><img src="docs/assets/screenshot-terminal.png" width="600" alt="Thoughtborne in the terminal: the ready screen with the four-engine model carousel and the key overview on top, below it a recording from the REC notice to the inserted-text confirmation."></p>
 
 ## The model lineup
 
@@ -65,7 +68,12 @@ The script installs [uv](https://docs.astral.sh/uv/) (a Python project manager) 
 
 **On a managed or corporate device**, a machine-wide group policy can override the script's execution-policy setting and block it. If the installer fails there, use one of the manual routes below, or ask your IT admin.
 
+<details>
+<summary><b>Smart App Control</b></summary>
+
 **Smart App Control** can block unsigned install scripts — the ZIP route as much as the one-liner. Check under Windows Security > App & browser control > Smart App Control; if it is on, you can turn it off for the installation and back on afterwards (the latter only on Windows 11 24H2 or newer with the April 2026 updates or later, and only with optional diagnostic data switched on — otherwise it stays off until you reset or reinstall Windows).
+
+</details>
 
 **Updating.** Run the one-liner again, or `setup.bat` in the install folder — no manual download needed. The update fetches the current release itself and keeps your recordings, keys, and settings.
 
@@ -138,6 +146,8 @@ python thoughtborne.py
 
 Configuration has a graphical front door: a small settings app — one window that doubles as the first-run wizard and the everyday settings dialog, in German or English (switchable in the header). On a first start without any API key, Thoughtborne opens it automatically and walks you through three pages — transcription provider & API key (with a live "Test key" check), hotkeys (push-to-talk on or off, two one-click preset schemes, or capture any combo per action), behavior (default engine, and pointers for the tray and admin-window routes). Later, once a key is stored, open the same window any time from the running tool with **`Ctrl+Alt+G`** — it is part of Thoughtborne, not a separate program. Saving with a key present reads **Save & restart**: it saves, restarts the tool for you, and the changes take effect right away — no need to remember to restart it yourself (a recording in progress is saved first and can be re-transcribed with the retry hotkey after the restart). If the tool doesn't close in a few seconds it says so and leaves it running untouched; it never force-closes anything.
 
+<p align="center"><img src="assets/screenshots/settings-provider.png" width="520" alt="The settings app on its Provider &amp; API key tab: first an explanation of what an API key is, then a card for Groq — the free lane — with a masked key field and Show and Test key buttons, and below it a card for Soniox, the quality lane."></p>
+
 The app writes the same two files you could edit by hand — `.env` (the keys) and `personal_settings.json` (hotkeys, default engine, push-to-talk) — and edits them surgically: hand-maintained content such as your recognition vocabulary and every comment stay untouched, and hotkeys are stored only where they differ from the defaults. A running Thoughtborne picks changes up on its next start (no live reload). Everything the app does remains hand-editable — it is a front end for the files below, not a replacement (see [Customization](#customization)).
 
 ## API keys
@@ -154,7 +164,12 @@ Only a Groq key? Nothing to configure: startup automatically skips the Soniox en
 
 Start the tool — from the **Thoughtborne** Start-menu entry (if you used the installer), by double-clicking `Thoughtborne.bat`, or with `uv run thoughtborne.py`. A console window opens with a startup banner showing the active API and the hotkey list; details go to `thoughtborne.log`.
 
-**Tip — launch it from the keyboard.** If you installed with the one-liner or ZIP, the **Thoughtborne** entry is already in the Start menu — to start it with a key press, right-click it → **Properties** → click the **Shortcut key** field and press a free combo (`Ctrl+Alt+1` is free; none of the in-app hotkeys use it), and one press starts the tool. On a git clone there is no Start-menu entry yet: make a Windows shortcut to `Thoughtborne.bat`, keep it in the Start menu or on the Desktop (Windows honors shortcut keys only there), and give it the same shortcut key. Point that shortcut at `C:\Windows\System32\cmd.exe /c "C:\path\to\Thoughtborne.bat"` rather than the `.bat` directly — it starts identically, but the entry then also offers *Run as administrator* on right-click, which a shortcut pointing straight at a `.bat` never gets (the installer's own entry already uses this form). See the admin-window note under Troubleshooting.
+<details>
+<summary><b>Tip — launch it from the keyboard</b></summary>
+
+If you installed with the one-liner or ZIP, the **Thoughtborne** entry is already in the Start menu — to start it with a key press, right-click it → **Properties** → click the **Shortcut key** field and press a free combo (`Ctrl+Alt+1` is free; none of the in-app hotkeys use it), and one press starts the tool. On a git clone there is no Start-menu entry yet: make a Windows shortcut to `Thoughtborne.bat`, keep it in the Start menu or on the Desktop (Windows honors shortcut keys only there), and give it the same shortcut key. Point that shortcut at `C:\Windows\System32\cmd.exe /c "C:\path\to\Thoughtborne.bat"` rather than the `.bat` directly — it starts identically, but the entry then also offers *Run as administrator* on right-click, which a shortcut pointing straight at a `.bat` never gets (the installer's own entry already uses this form). See the admin-window note under Troubleshooting.
+
+</details>
 
 Then dictate:
 
@@ -165,6 +180,8 @@ Then dictate:
 **Self-test:** `Ctrl+Alt+T` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
 Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v5`, `Son-v5`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If the default engine comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
+
+`thoughtborne.log` is a local debug log, and it is detailed: it carries excerpts of your transcripts and the title of the window you dictated into, so treat it like the transcripts themselves if you ever hand it to anyone. The clipboard insert paths (`Ctrl+Alt+A` and `Ctrl+Alt+D`) put the transcript through the Windows clipboard, so it also turns up in Clipboard history and in cloud clipboard sync if you have those switched on. Whatever was on the clipboard before is put back afterwards — but only if it was text; an image or a list of files is not restored.
 
 `Ctrl+Alt+4` exits the tool.
 
@@ -207,12 +224,17 @@ copy personal_settings.example.json personal_settings.json
 
 **The last engine is remembered (automatic):** independently of that block, Thoughtborne notes the engine you switch to with `Ctrl+Alt+L` and opens on it the next time it starts — no setting needed. It keeps that one value in `runtime_state.json` beside the log: written by the tool itself, not a settings file, and safe to delete (it comes back with your next switch). Only a switch you make yourself is remembered; when startup skips an engine because its key is missing, that is an outage rather than a choice and is never recorded. A `defaults.api` you set stays in charge — a deliberate pin outranks the memory, which only fills the gap where nothing is configured. The settings app agrees with all of this. Its **Engine at startup** field offers two explicit modes: *start with the engine you last switched to* — the remembered one, shown read-only — or *always start with* one fixed engine, which writes a `defaults.api` pin that outranks the memory. A fixed engine then sticks across restarts even through a later `Ctrl+Alt+L` switch (the built-in default included); switching back to *last switched to* removes the pin. Leaving the field untouched changes nothing either way, whichever mode it is in.
 
-**Console out of the taskbar (optional):** Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Interaction**, turn both on:
+<details>
+<summary><b>Console out of the taskbar (optional)</b></summary>
+
+Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Interaction**, turn both on:
 
 - "Hide Terminal in the notification area when it is minimized" (`minimizeToNotificationArea`) — minimizing then sends the window to the tray (the notification area) instead of the taskbar: the taskbar button disappears and everything keeps running, dictation included (it is hotkey-driven and works with the window hidden).
 - "Always display an icon in the notification area" (`alwaysShowNotificationIcon`) — keeps a permanent tray icon as the anchor: a single click restores the window, a right-click lists it.
 
 One-time detail: Windows first tucks a new tray icon into the overflow flyout (the `^` chevron) — drag the Terminal icon out of it into the visible tray once so it stays reachable. Two honest limits: both settings are **global**, so they affect *every* Windows Terminal window (and minimizing always trays the whole window, never a single tab) — irrelevant if you don't otherwise use Terminal, a deliberate choice if you do; and the route needs Windows Terminal specifically — under the classic `conhost` host (older setups, or if you changed the default terminal) these toggles don't exist. On Windows 10, Terminal is installable and can be set as the default terminal. The GUI toggles are the clean way — no need to hand-edit Terminal's `settings.json`.
+
+</details>
 
 **Settings in `config.py`:** the configuration is deliberately plain constants with comments. The ones most users touch:
 
@@ -244,6 +266,19 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 
 **API errors.** Check the keys in `.env` and your internet connection; on the free tier, mind the [rate limits](#the-model-lineup).
 
+## For developers
+
+Thoughtborne is plain Python — a script you run, not a package you install — with ten runtime dependencies and no framework. The parts that can only be Windows talk to Win32 directly through `ctypes`: the global hotkeys in `hotkey_manager.py`, and the clipboard and synthesized keystrokes in `output_handler.py` (audio capture goes through PyAudio). Everything that does not have to be Windows is deliberately lifted out into small, pure-stdlib modules with a test driver each — `typed_cap.py`, `hotkey_parse.py`, `engine_memory.py`, `restart_signal.py`, `console_ui.py` — a convention of this repo rather than an accident, because that extraction is what makes a Windows-only tool verifiable from a Linux box. The four transcription engines sit behind one `AbstractTranscriber` interface in `transcriber.py`, built by a factory from an engine id; the settings app (`thoughtborne_settings.py`) is plain tkinter, no framework there either.
+
+There is no pytest harness: verification is a ladder of 13 standalone test drivers that need neither Windows nor a test framework. `python3 run_tests.py` runs all of them in a few seconds and prints one verdict line per driver, and [GitHub Actions](.github/workflows/tests.yml) runs that same command on every push and pull request (Python 3.10 and 3.12, under Xvfb so the display-gated settings checks really run rather than skipping). Above the ladder sit the two things it cannot reach: a [Windows-Sandbox harness](sandbox/README.md) that installs a release into a throwaway VM and drives it as far as a real transcribing self-test, and hands-on checks for what only a real Windows desktop shows.
+
+- [`DECISIONS.md`](DECISIONS.md) — the settled product decisions, consulted before any behavior change so a call already made is not silently reopened.
+- [`RELEASING.md`](RELEASING.md) — the release ritual.
+- [`AGENTS.md`](AGENTS.md) — the working rules for this repository, for humans and AI coding agents alike.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) — how to open a pull request, and how to report something security-relevant privately.
+
+Thoughtborne has been its maintainer's daily dictation tool since 2023, and it is built around the priorities of a daily user: transcripts good enough to send to an LLM unread, in German first; a dictation that is never lost — every recording is archived before it is transcribed, and a failed one is retried from the archive with `Ctrl+Alt+R`; hotkey-only operation, with the console as a status display rather than a control panel; always the best available model for German, re-evaluated every few months; and only providers that at least let you opt out of training on your data ([VISION.md](VISION.md)). The code is written with AI coding agents under the maintainer's direction — the commit trailers name them — and it is held to those priorities the way any contribution would be: by the decision log above and a test ladder that runs on every push.
+
 ## Project & links
 
 - [thoughtborne.app](https://thoughtborne.app) — the project website.
@@ -253,4 +288,4 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 - For AI coding agents: [AGENTS.md](AGENTS.md) (working in this repo) · [llms-install.md](llms-install.md) (guided setup).
 - **macOS:** a sister port exists — [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos): three transcription APIs instead of four, otherwise analogous; available as-is.
 
-Issues and contributions are welcome. Thoughtborne has been the maintainer's daily tool for years and is actively maintained.
+Issues and contributions are welcome — [`CONTRIBUTING.md`](CONTRIBUTING.md) says what helps, and anything security-relevant goes through [`SECURITY.md`](SECURITY.md) rather than the public tracker. Thoughtborne has been the maintainer's daily tool since 2023 and is actively maintained.
