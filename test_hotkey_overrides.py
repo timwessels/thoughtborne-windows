@@ -313,5 +313,10 @@ def main():
     return 0
 
 
+def test_all():
+    """The pytest entry point (#242): the whole driver as one collected test."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())

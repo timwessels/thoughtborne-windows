@@ -210,6 +210,13 @@ def test_source_guards():
           "guard and the recording loop (expected >= 2 references)")
 
 
+# These take a tempdir positionally and run via main(); they are not pytest items (#242).
+for _helper in (test_path_contract, test_roundtrip, test_signal_present,
+                test_consume_nothing_and_double, test_race_loser_view,
+                test_undeletable_signal, test_unwritable_directory):
+    _helper.__test__ = False
+
+
 def main():
     d = tempfile.mkdtemp(prefix="tb_restart_signal_")
     try:
@@ -234,6 +241,11 @@ def main():
     print("OK: signal round-trip, atomic-consume race semantics, the fail-safe "
           "directions, the mutex-name hoist, and the constants all pass")
     return 0
+
+
+def test_all():
+    """The pytest entry point (#242): the whole driver as one collected test."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

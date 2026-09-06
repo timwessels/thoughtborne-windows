@@ -65,6 +65,8 @@ Thumbs.db
 # Test files
 test_output/
 temp/
+# Written by a local `python -m pytest` run (#242); run_tests.py stays the gate.
+.pytest_cache/
 
 # Local-only folders (not part of the published repo)
 _archive/

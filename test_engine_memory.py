@@ -296,6 +296,11 @@ def test_config_flag_is_module_level():
             f"memory")
 
 
+# These take a tempdir positionally and run via main(); they are not pytest items (#242).
+for _helper in (test_roundtrip, test_validation, test_robustness):
+    _helper.__test__ = False
+
+
 def main():
     d = tempfile.mkdtemp(prefix="tb_engine_memory_")
     try:
@@ -317,6 +322,11 @@ def main():
           "the carousel rotation, the D-008 precedence rule, and config.py's "
           "module-level explicit-default flag all pass")
     return 0
+
+
+def test_all():
+    """The pytest entry point (#242): the whole driver as one collected test."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

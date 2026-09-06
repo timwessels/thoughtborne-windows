@@ -692,6 +692,10 @@ PLAIN_CASES = [
     test_soniox_constructors,
 ]
 
+# These take a tempdir positionally and run via main(); they are not pytest items (#242).
+for _helper in TEMPDIR_CASES:
+    _helper.__test__ = False
+
 
 def main():
     d = tempfile.mkdtemp(prefix="tb_config_loading_")
@@ -720,6 +724,11 @@ def main():
           f"directory as the only source, BOM key-name parity, a broken file warned "
           f"about instead of fatal; plus the warning replay and the static guards)")
     return 0
+
+
+def test_all():
+    """The pytest entry point (#242): the whole driver as one collected test."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

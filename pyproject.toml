@@ -47,3 +47,10 @@ package = false
 # PyAudio has no Linux wheels) and makes an accidental `uv sync` on another OS
 # fail with a clear message instead of a source-build error.
 environments = ["sys_platform == 'win32'"]
+
+[tool.pytest.ini_options]
+# `python -m pytest` is a local convenience -- every driver carries a test_all()
+# since #242, but the gate stays run_tests.py (CI installs no pytest). Without
+# this, a bare run recurses into the gitignored `_*` workspaces of a maintainer
+# checkout and aborts on duplicate test-driver basenames before collecting.
+norecursedirs = [".*", "_*", "build", "dist", "node_modules", ".venv", "docs", "sandbox", "history"]

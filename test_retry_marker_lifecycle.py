@@ -140,7 +140,18 @@ _fake_groq.APIStatusError = _FakeGroqAPIStatusError
 _fake_groq.APIConnectionError = _FakeGroqAPIConnectionError
 _fake_groq.APITimeoutError = _FakeGroqAPITimeoutError
 _fake_groq.RateLimitError = _FakeGroqRateLimitError
-sys.modules.setdefault("groq", _fake_groq)
+_groq_module = sys.modules.setdefault("groq", _fake_groq)
+if _groq_module is not _fake_groq:
+    # Another driver's stub got there first (one pytest process, no SDK on the
+    # box; setdefault means first importer wins). Matching class names would not
+    # be enough: _groq_error_reason imports from that module, and its isinstance
+    # ladder only recognizes those very class objects -- so the cases below
+    # raise them instead of the ones defined here.
+    _FakeGroqAuthenticationError = _groq_module.AuthenticationError
+    _FakeGroqAPIStatusError = _groq_module.APIStatusError
+    _FakeGroqAPIConnectionError = _groq_module.APIConnectionError
+    _FakeGroqAPITimeoutError = _groq_module.APITimeoutError
+    _FakeGroqRateLimitError = _groq_module.RateLimitError
 
 import thoughtborne as tb  # noqa: E402
 import transcriber as tr  # noqa: E402
@@ -1320,9 +1331,20 @@ def main():
         return 0
     finally:
         # Every case shares the module-global throwaway archive dir (mkdtemp at
-        # import); no case runs past this point, so clearing it here leaves no
-        # tb_marker_test_* dir behind in /tmp.
+        # import); no case runs past this point, so clearing it here leaves a
+        # standalone run no tb_marker_test_* dir behind in /tmp.
         shutil.rmtree(ah.ARCHIVE_FOLDER, ignore_errors=True)
+
+
+def test_all():
+    """The pytest entry point (#242). main()'s finally removes the shared archive
+    dir; re-create it so collection order can never strand a later case -- which
+    is why under pytest, unlike a standalone run, one empty tb_marker_test_* dir
+    is left behind in /tmp."""
+    try:
+        assert main() == 0
+    finally:
+        ah.ARCHIVE_FOLDER.mkdir(exist_ok=True)
 
 
 if __name__ == "__main__":
