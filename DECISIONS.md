@@ -89,7 +89,9 @@ follows:
   (Whisper hallucinates on silence rather than returning empty, so an empty Groq
   result is a sound silence signal when it occurs). The Soniox Live lane is
   unchanged: its internal duration-gated V2→V4 file lane still runs on the
-  archived file and its aggregate signal feeds the verdict as before. Maintainer
+  archived file and its aggregate signal feeds the verdict as before. (Since
+  #212 that internal V2 lane is gone — the `soniox` slot is async-only —
+  which leaves the verdict rule above untouched; noted 2026-09-06.) Maintainer
   approved 2026-07-21 (widening) and 2026-07-22 (chain-less). Not a supersede —
   this extends D-001's own clause.
 - **2026-08-15 addendum (#179).** A fifth reason category, `no-credit` (an HTTP
