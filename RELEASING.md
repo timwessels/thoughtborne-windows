@@ -32,7 +32,7 @@ casually.
   workflow is green on `main` — CI runs the same ladder
   ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
 - You have decided the version `X.Y.Z` (semver; the first asset-carrying release
-  is v1.1.0, #104).
+  was v1.1.0-rc2, #104).
 
 ## The ritual
 
@@ -85,11 +85,14 @@ Do not proceed to step 4 unless the verification passes.
 
 ### 4. Create the GitHub release with both assets
 
-Put this version's CHANGELOG block into the release notes (copy the `## [X.Y.Z]`
-body into `dist/release-notes.md`, or pass `--notes` inline). The release **must**
-be published as **Latest**, not as a pre-release: `releases/latest/download/`
-resolves only to the newest non-prerelease, so a pre-release would leave the
-installer's fetch URL pointing at the previous (assetless) release and 404.
+Write the release notes the way v1.1.0-rc2 did (`gh release view v1.1.0-rc2`):
+two or three sentences on what this release is and whom it is for, the install
+one-liner, a highlights line, and a link to this version's `CHANGELOG.md` block
+— not the block itself, which runs to hundreds of lines. Save them as
+`dist/release-notes.md`. The release **must** be published as **Latest**, not as
+a pre-release: `releases/latest/download/` resolves only to the newest
+non-prerelease, so a pre-release would leave the installer's fetch URL pointing
+at the previous (assetless) release and 404.
 
 ```bash
 gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \

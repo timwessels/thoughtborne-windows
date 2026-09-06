@@ -2,6 +2,12 @@
 
 Issues, questions and pull requests are welcome, in English or German.
 
+Every issue carries two labels: a *type* (`bug`, `enhancement`, or `spike` for
+research whose outcome is knowledge rather than code) and a *status* — `idea`
+(raw, not yet evaluated), `backlog` (understood, deliberately deferred) or
+`ready` (specified and being worked on). The `ready` issues are the current
+focus; the newest maintainer comment on an issue is its operative spec.
+
 Before proposing a behaviour change, read [VISION.md](VISION.md) (what the
 tool is and deliberately is not) and check [DECISIONS.md](DECISIONS.md), the
 log of settled product decisions, so a call that was already made is not
