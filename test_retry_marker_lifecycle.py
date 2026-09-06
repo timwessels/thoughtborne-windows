@@ -47,6 +47,9 @@ verdict exactly as before.
     SonioxAsyncTranscriber.transcribe against a scripted fake httpx to prove each
     of its four error returns sets the per-call error sink (and a
     completed-but-empty run does not).
+
+Plus one import-side guard, outside the marker story: #241, importing
+`output_handler` must leave pyautogui's corner fail-safe off.
 """
 import sys
 import types
@@ -1224,6 +1227,18 @@ def test_output_manager_forwards_reason_provider_inconclusive():
     assert captured.get("inconclusive") is False, f"inconclusive must forward to the callback: {captured}"
 
 
+def test_pyautogui_failsafe_off_after_import():
+    """#241: importing output_handler must switch pyautogui's corner fail-safe off.
+    Left on, a pointer resting in a screen corner makes the post-insert Enter press
+    raise, and the insertion handler reports an insert that already landed as a red
+    failure. The assignment lands on the stub module installed at the top of this
+    file, which makes this the ladder's only guard against the line vanishing --
+    e.g. while replacing pyautogui (#257)."""
+    failsafe = getattr(sys.modules["pyautogui"], "FAILSAFE", "<unset>")
+    assert failsafe is False, \
+        f"output_handler must set pyautogui.FAILSAFE = False at import (#241); got {failsafe!r}"
+
+
 CASES = [
     test_write_arms_unannounced,
     test_mark_announced_still_arms_silently,
@@ -1279,6 +1294,8 @@ CASES = [
     # #159 provider-family token + the sink->task->callback propagation
     test_error_provider_maps_family,
     test_output_manager_forwards_reason_provider_inconclusive,
+    # #241 the corner fail-safe stays off (a landed insert must not report red)
+    test_pyautogui_failsafe_off_after_import,
 ]
 
 

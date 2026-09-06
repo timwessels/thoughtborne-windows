@@ -29,6 +29,12 @@ import keyboard
 import pyperclip
 from hotkey_manager import is_key_pressed
 import pyautogui
+# pyautogui is here for a single keystroke: the Enter press after an insert. Its
+# corner fail-safe aborts runaway mouse automation, which this tool never runs --
+# what it actually did was raise on that Enter press whenever the pointer happened
+# to rest in a screen corner, so the insertion handler reported an insert that had
+# already landed as a red failure (#241).
+pyautogui.FAILSAFE = False
 from dataclasses import dataclass
 from typing import Optional, Dict, Deque, List
 from collections import deque

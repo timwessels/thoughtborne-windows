@@ -221,6 +221,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test proves the key and not the account balance rendered as a narrow ribbon of text a
   few characters wide. It had the same layout fault as the verdict line and is fixed with
   it.
+- **Where your mouse pointer happens to rest can no longer fail a dictation that
+  worked** (#241): a transcript that had already been pasted into the target window
+  could still be announced as a red failed insertion — and, on the send hotkey, never be
+  sent — if the pointer was sitting in a corner of the screen. The cause was a safety
+  feature of the library Thoughtborne uses for exactly one keystroke, the Enter press
+  after an insert: it treats the screen corners as an emergency stop for long
+  mouse-driven automation, aborts the keystroke there, and the aborted keystroke was
+  what the tool reported on. It happened twice in normal use on 2026-08-31. That
+  emergency stop is now switched off — Thoughtborne runs no mouse automation for it to
+  interrupt — so the corner is just a corner again.
 
 ## [1.1.0-rc2] - 2026-08-23
 
