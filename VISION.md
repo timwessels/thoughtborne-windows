@@ -22,9 +22,10 @@ constantly reaching for the phone just to dictate felt absurd. I searched for
 a long time, tried everything on offer, found nothing — so I built it myself.
 It's been essential to my workflow ever since; I'd genuinely sooner give up
 the physical keyboard than give up voice input. And I built it the way I
-still build it today: entirely with AI. I'm an IT person, not a programmer,
-and every part of this tool was written with AI assistance. For this project
-that's not a footnote, it's the method.
+still build it today: with AI coding agents, directed by me and held to the
+priorities below — the way any contribution would be. I come from IT
+operations rather than software development; for this project that's not a
+footnote, it's the method.
 
 Commercial voice-typing tools have caught up in the last year or two. The
 reason I still maintain my own comes down to a few things none of them gets
@@ -43,7 +44,7 @@ fully right:
   (Whisper's `Vielen Dank`, Soniox's trailing conjunctions). Most commercial
   tools let them through — my guess is their filtering, if any, targets
   English. Thoughtborne ships model-specific filters for German artifacts,
-  built from three years of annotating my own transcriptions.
+  built from annotating my own transcriptions since 2023.
 - **Pay for usage, not a subscription.** You bring your own API keys and pay
   cents. My own last half-year of heavy use — on the order of 150 hours of
   transcription — cost me roughly $10–15. A free path exists too (Groq's
@@ -92,7 +93,7 @@ reach for the right one:
   no meaning, and get filtered out everywhere, this mode included. Its
   occasional small misrecognitions are the kind an LLM straightens out from
   context — which is why it still clears the bar.
-- **Tidier & patient** (today: the Soniox upload models — audio is sent after
+- **Tidier & patient** (today: the Soniox upload model — audio is sent after
   you stop): a higher threshold for what makes it into the text, so it reads a
   bit more cleanly — fewer spoken-language particles, a little closer to
   something you'd have written. Ten minutes of audio take on the order of a
@@ -184,6 +185,11 @@ rule in (5): no amount of benefit elsewhere outranks a gate.
 
 ## Where it's heading (as of mid-2026)
 
+*Status, September 2026: the near-term items below have shipped — the guided
+installer, the settings and onboarding window, the glanceable console, and
+Whisper Large V3 on the free path. They stay here as the reasoning; the
+current course lives in the issues.*
+
 **Near term — make it work for strangers.** The move to a public repo, with
 outside users and contributors explicitly welcome, frames the current work:
 
@@ -201,9 +207,7 @@ outside users and contributors explicitly welcome, frames the current work:
   V3 (not just Turbo) gives the free tier a better-quality option.
 - **Fewer "you just have to know that" moments:** the small known quirks and
   rough edges should go away; the tool should feel smooth, not folkloric.
-  Part of this is honest packaging of the model lineup — the current split
-  into two Soniox upload models exists for quality reasons, but a newcomer
-  shouldn't need to understand it before dictating.
+  Part of this is honest packaging of the model lineup.
 
 And then actually ship. Software is never finished, and "it could still be
 a bit better" is not a release blocker — at some point you just put it out.
