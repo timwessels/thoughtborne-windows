@@ -144,6 +144,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file has one), and turns an unreadable file into a logged warning and a normal start on
   whatever keys the system environment holds. `.env.example` is plain ASCII now, so
   re-saving a copy of it as ANSI — PowerShell's default — still leaves a readable file.
+- **Switching the settings window between German and English no longer overwrites a
+  damaged `personal_settings.json`** (#239): the two language buttons save your choice
+  the moment you click them — there is no Save step for them — and when the file they
+  wrote into could not be read as JSON, that write replaced it with a clean, empty one.
+  Everything hand-written in it that has no window of its own — your Soniox
+  `vocabulary`, the `soniox_endpointing` tuning — was gone, silently, from a click
+  nobody reads as saving. The click now looks at the file first and leaves a damaged one
+  exactly as it is; the warning strip that already appears for such a file now says so
+  ("Until then, the language chosen here is not remembered"). Repair the file while the
+  window is open and the very next switch is remembered again. Save itself is unchanged:
+  it still warns first and then writes the clean file, which is what it is for.
 - **The pre-release sandbox check no longer stops before it presses a key** (#191): the
   throwaway-VM verification could install Thoughtborne, start it and watch all twelve
   hotkeys register, but the last step — pressing the self-test hotkey from inside the

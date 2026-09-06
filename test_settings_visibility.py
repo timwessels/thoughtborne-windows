@@ -57,10 +57,22 @@ fault. A dead guard on the cost side confirms a genuine width change still re-wr
 per settled width. All thresholds are relative (ratios and comparisons between two
 measurements), never pixel constants.
 
+A fourth, `test_language_toggle_gate_with_display`, drives the header radios' command path
+-- the `lang_var` set plus `_on_lang`, what a click does -- over a CORRUPT
+personal_settings.json and asserts the #239 gate end to end: the toggle leaves the
+file byte-identical (the silent D-014 persist must not skeleton over hand-written blocks),
+and after the file is repaired WHILE THE WINDOW IS OPEN the next toggle persists again --
+which is both the dead guard against an over-broad gate and the proof that the corruption
+is probed fresh per write rather than latched at load. It runs against a tempdir-patched
+`config.SCRIPT_DIR`; unlike the read-only display checks above, this one WRITES.
+
     python3 test_settings_visibility.py          # verify, exit non-zero on any violation
     python3 test_settings_visibility.py --show   # also print sample visible: lines
 """
+import json
 import sys
+import tempfile
+from pathlib import Path
 
 import settings_visibility as sv
 
@@ -560,6 +572,106 @@ def test_verdict_wrap_with_display():
             pass
 
 
+def test_language_toggle_gate_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. The #239 gate end to end, through the REAL radios: test_settings_io.py
+    # proves settings_io.write_ui_language protects a corrupt file and that
+    # _persist_language calls it, but only the built app proves the two meet -- that a
+    # click on the header radio really ends in the gated write, through _on_lang and
+    # render_all, in the mode the user is actually in.
+    #
+    # This check WRITES, unlike every read-only display check above, so it must run
+    # against a tempdir: config.SCRIPT_DIR is patched BEFORE the app is built and
+    # restored in finally. Without that patch the app would load -- and this test would
+    # overwrite -- the checkout's own personal_settings.json, which is the maintainer's
+    # live file. thoughtborne_settings reads `config.SCRIPT_DIR` at call time (never
+    # `from config import SCRIPT_DIR`), so patching the module attribute reaches both
+    # the load in __init__ and the write in _persist_language.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped language-toggle-gate check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped language-toggle-gate check: no display)")
+        return
+
+    try:
+        import config
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped language-toggle-gate check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _script_dir = config.SCRIPT_DIR
+    try:
+        # A modal showerror from __init__ would hang a headless run with nobody to
+        # dismiss it (the load-error path; the corrupt fixture below takes the strip
+        # path, but the idiom costs nothing and keeps the test robust).
+        ts.messagebox.showerror = lambda *a, **k: None
+
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            config.SCRIPT_DIR = tmp
+            ps = tmp / "personal_settings.json"
+            # Truncated but UTF-8-valid, carrying the two hand-written blocks that have
+            # no GUI and exist only because someone typed them.
+            ps.write_text('{\n  "vocabulary": {"terms": ["Grüße"]},\n'
+                          '  "soniox_endpointing": {\n', encoding="utf-8")
+            before = ps.read_bytes()
+
+            root.geometry("900x860")
+            app = ts.SettingsApp(root, first_run=False)
+            root.update()
+            check(app.lang == "en", f"the app should load English (D-015), got {app.lang}")
+            check(app.warn_strip.winfo_manager() == "pack",
+                  "a corrupt personal_settings.json did not raise the warning strip -- "
+                  "the user gets no hint that the language will not be remembered")
+
+            # The real toggle: what the header radio's command does.
+            app.lang_var.set("de")
+            app._on_lang()
+            root.update()
+            check(app.lang == "de", "the toggle did not switch the display language")
+            check(ps.read_bytes() == before,
+                  "a DE/EN toggle over a CORRUPT personal_settings.json rewrote the file "
+                  "-- the silent D-014 persist skeletoned it and destroyed the "
+                  "hand-written vocabulary / soniox_endpointing (#239)")
+            check(sorted(p.name for p in tmp.iterdir()) == ["personal_settings.json"],
+                  f"the gated toggle left files behind: "
+                  f"{sorted(p.name for p in tmp.iterdir())}")
+
+            # Repair the file WHILE THE WINDOW IS OPEN. The next toggle must persist
+            # again: the dead guard against a gate that just blocks everything, and the
+            # point of probing per write instead of latching a load-time flag.
+            ps.write_text(json.dumps({"vocabulary": {"terms": ["keepme"]}},
+                                     indent=2, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+            app.lang_var.set("en")
+            app._on_lang()
+            root.update()
+            data = json.loads(ps.read_text(encoding="utf-8"))
+            check(data.get("ui", {}).get("language") == "en",
+                  f"after the file was repaired the toggle did not persist the language "
+                  f"({data.get('ui')}) -- the gate must re-probe per write, not latch")
+            check(data.get("vocabulary", {}).get("terms") == ["keepme"],
+                  "the persisting toggle clobbered the repaired file's vocabulary")
+    finally:
+        config.SCRIPT_DIR = _script_dir
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _show():
     print(sv.format_visible_line(
         "2026-08-16 12:00:00", 0.05, 0.42, 1, "Y", "800x860+100+50", "settings"), end="")
@@ -576,6 +688,7 @@ def main():
     test_storm_guards_with_display()
     test_maximize_restore_with_display()
     test_verdict_wrap_with_display()
+    test_language_toggle_gate_with_display()
 
     if SHOW:
         _show()
@@ -588,7 +701,8 @@ def main():
     print("OK: wrap_length formula, scrollbar auto-hide decision, the visible: line "
           "formatter (full / fail-open / partial), and (with a display) the auto-hide "
           "grid idempotency, wrap-deferral invariant, the #216 maximize->restore "
-          "content-vanish guard, and the #231 verdict-line wrap all pass")
+          "content-vanish guard, the #231 verdict-line wrap, and the #239 "
+          "language-toggle gate all pass")
     return 0
 
 

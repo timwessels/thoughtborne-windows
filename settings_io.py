@@ -408,7 +408,8 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
     and its vocabulary is never destroyed (B1). A corrupt-JSON target (bytes read
     fine, invalid JSON) stays the deliberate warn-then-overwrite case:
     read_personal_settings already handed the GUI the warning, and a save replaces
-    it with a clean managed skeleton."""
+    it with a clean managed skeleton -- which is the explicit Save's branch alone, and
+    why the SILENT language toggle goes through write_ui_language below (#239)."""
     path = Path(path)
     existing, _warning = read_personal_settings(path)
     data = existing if existing else _managed_skeleton(example_path)
@@ -496,6 +497,38 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
 
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     _atomic_write(path, content)
+
+
+def write_ui_language(path, language, example_path=None) -> bool:
+    """The D-014 language-toggle persist: the ui.language-only surgical write above,
+    gated so the SILENT lane can never take the warn-then-overwrite branch (#239).
+    That branch belongs to the explicit Save alone (D-002): over a corrupt-but-
+    decodable target (the bytes read fine, the JSON is invalid) write_personal_settings
+    starts from a bare managed skeleton, which would destroy hand-written blocks --
+    vocabulary, soniox_endpointing -- for a click the user does not read as saving. So
+    a warning means: return False, file byte-untouched.
+
+    The corruption is probed FRESH on every call rather than carried from load time:
+    a file that breaks while the window is open is protected too, and one that is
+    FIXED while it is open starts persisting again (which is what makes the warn
+    strip's "until the file is fixed" sentence literally true). The cost is one extra
+    read of a tiny file per toggle, and a millisecond-wide TOCTOU window between probe
+    and write -- irrelevant against today's unconditional clobber.
+
+    A MISSING file is not a warning and stays the normal first-run lane (managed
+    skeleton + ui.language), so a wizard toggle still persists. A present-but-
+    unreadable/undecodable one raises out of the probe, exactly as the write itself
+    would: swallowing that belongs to the caller's best-effort lane (D-014), not here.
+
+    The signature is deliberately narrow -- no hotkeys, no engine pin, no push-to-talk:
+    the silent lane structurally cannot write anything but ui.language. Returns True
+    iff the language was written."""
+    _, warning = read_personal_settings(path)
+    if warning is not None:
+        return False
+    write_personal_settings(path, hotkeys_effective=None, default_api=None,
+                            ui_language=language, example_path=example_path)
+    return True
 
 
 def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_loaded,

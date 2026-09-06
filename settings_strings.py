@@ -351,7 +351,8 @@ _EN = {
     "warn.corrupt": (
         "personal_settings.json exists but could not be parsed — saving from here "
         "will replace it with a clean file. To rescue hand-edited content (e.g. "
-        "vocabulary), fix the file in a text editor first."),
+        "vocabulary), fix the file in a text editor first. Until then, the language "
+        "chosen here is not remembered."),
 }
 
 _DE = {
@@ -699,7 +700,8 @@ _DE = {
     "warn.corrupt": (
         "personal_settings.json existiert, ließ sich aber nicht parsen — Speichern "
         "ersetzt sie durch eine saubere Datei. Um handgepflegte Inhalte (z. B. "
-        "Vokabular) zu retten, die Datei vorher in einem Texteditor reparieren."),
+        "Vokabular) zu retten, die Datei vorher in einem Texteditor reparieren. "
+        "Bis dahin wird die hier gewählte Sprache nicht gemerkt."),
 }
 
 _TABLES = {"en": _EN, "de": _DE}

@@ -1050,6 +1050,21 @@ the trade-off explicitly -- the worst case is retyping an API key.
 Absorbs #215 -- removing the dialog machinery removes the false-"dirty" symptom that
 issue reported, wholesale.
 
+**2026-09-06 addendum (#239).** The ui.language-only write above now goes through the
+gated `settings_io.write_ui_language` instead of calling `write_personal_settings`
+directly. Over a healthy file nothing changes -- the same surgical merge, hotkeys and
+`defaults.api` left exactly as found. What is new is that the silent lane probes the
+target for corruption FRESH on every toggle: over a corrupt-but-decodable
+`personal_settings.json` (the bytes read fine, the JSON is invalid) the write would
+start from a bare managed skeleton and destroy hand-written blocks like `vocabulary`,
+so the toggle now returns without writing and leaves the file byte-identical.
+Warn-then-overwrite stays what it always was -- the explicit Save's branch alone
+(D-002), because only Save is a write the user asked for. The cost is the one this
+entry already accepts: the persist is best-effort, so a gated toggle costs nothing but
+the remembered display language (the window says so until the file is fixed). Not a
+supersede -- the mechanism is refined, the decision and its promises stand.
+Settled via issue #239.
+
 Do not reintroduce: an unsaved-changes flag; a discard / "are you sure" prompt on close;
 a close handler that does anything but destroy the window; a pass-through `_on_close`
 wrapper that only forwards to `destroy`; or a language toggle that is persisted only at

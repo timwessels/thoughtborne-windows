@@ -39,10 +39,20 @@ What is covered:
     save carrying all three managed keys at once lands each of them. Plus
     read_ptt_enabled (what the toggle SHOWS: config.py's JSON-boolean-only rule, so
     it can never show ON for a file the tool reads as OFF) and the pure
-    resolve_ptt_save_signal table behind the byte-identity guarantee. And the two
-    write call sites the whole guarantee hangs on, pinned statically on
+    resolve_ptt_save_signal table behind the byte-identity guarantee. And the save
+    call site the whole guarantee hangs on, pinned statically on
     thoughtborne_settings.py's syntax tree (the GUI is hands-on only): _save must
-    pass the RESOLVED signal, and _persist_language must pass no ptt_enabled at all.
+    pass the RESOLVED signal.
+  - settings_io.write_ui_language (#239, D-002/D-014): the SILENT language-toggle
+    persist, gated. A corrupt-but-decodable target -- the bytes read fine, the JSON is
+    invalid -- is left BYTE-identical and unwritten, so a language click can no longer
+    skeleton over hand-written vocabulary / soniox_endpointing; warn-then-overwrite
+    stays the explicit Save's branch alone. A healthy target still takes the surgical
+    ui.language write with every other block as found, a missing one still takes the
+    first-run skeleton lane (the gate keys on the warning, not on empty state), and an
+    undecodable one still raises for the caller's best-effort lane. Plus the wiring:
+    _persist_language calls only the gated writer, never write_personal_settings, and
+    that writer's signature stays too narrow to write anything but ui.language.
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -888,6 +898,92 @@ def check_ui_language(tmp):
           "UI-wizard-absent: absent-file write seeded a placeholder vocabulary block")
 
 
+# ---- the gated language-toggle persist (#239, D-002/D-014) -------------------
+def check_ui_language_gate(tmp):
+    """write_ui_language: the silent D-014 toggle write, gated (#239). Everything
+    above proves the merge is surgical *when there is something to be surgical about*;
+    a corrupt-but-decodable target has nothing, so write_personal_settings starts from
+    a bare skeleton and a language click -- which no user reads as saving -- destroys
+    hand-written vocabulary / soniox_endpointing. Warn-then-overwrite is the explicit
+    Save's branch alone (D-002), so the gated write must leave such a file BYTE-
+    identical, while healthy and missing targets keep persisting exactly as before."""
+    # (1) The acceptance case: a truncated-but-UTF-8-valid file carrying exactly the
+    # hand-written blocks the issue names. Byte-identical, and the caller is told.
+    p = tmp / "ps_gate_corrupt.json"
+    corrupt = ('{\n  "vocabulary": {"terms": ["Grüße", "Präfix"]},\n'
+               '  "soniox_endpointing": {\n')
+    p.write_text(corrupt, encoding="utf-8")
+    before = p.read_bytes()
+    ok = sio.write_ui_language(p, "de", example_path=EXAMPLE_PS)
+    check(ok is False, "GATE-corrupt: write_ui_language must report False, not write")
+    check(p.read_bytes() == before,
+          "GATE-corrupt: a language toggle skeletoned over a corrupt file and destroyed "
+          "its hand-written vocabulary / soniox_endpointing (#239)")
+
+    # (2) The second warning lane (a valid-JSON non-object top level) gates the same way.
+    p = tmp / "ps_gate_nonobject.json"
+    p.write_text("[1, 2, 3]\n", encoding="utf-8")
+    before = p.read_bytes()
+    check(sio.write_ui_language(p, "de", example_path=EXAMPLE_PS) is False,
+          "GATE-nonobject: a non-object top level must gate like corrupt JSON")
+    check(p.read_bytes() == before, "GATE-nonobject: the file was overwritten")
+
+    # (3) A HEALTHY file still takes the surgical write, unchanged (the D-002/#221
+    # guarantee this fix must not cost): only ui.language moves, every other block --
+    # a non-canonical hotkey value verbatim, the pin, the vocabulary, a hand-tuned
+    # push_to_talk block with its _comment -- comes back exactly as loaded.
+    p = tmp / "ps_gate_healthy.json"
+    loaded = {"hotkeys": {"start_recording": "Ctrl+Alt+W"},
+              "defaults": {"api": "groq"},
+              "vocabulary": {"terms": ["keepme"]},
+              "push_to_talk": {"_comment": "hand-tuned", "trigger": "ctrl",
+                               "hold_ms": 250, "enabled": True}}
+    p.write_text(json.dumps(loaded, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    check(sio.write_ui_language(p, "de", example_path=EXAMPLE_PS) is True,
+          "GATE-healthy: a healthy file must still persist the language")
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "GATE-healthy: file did not reload as valid JSON")
+    check(data.get("ui", {}).get("language") == "de",
+          f"GATE-healthy: ui.language not written: {data.get('ui')}")
+    check(data.get("hotkeys") == {"start_recording": "Ctrl+Alt+W"},
+          f"GATE-healthy: the non-canonical hotkey did not survive verbatim -- this is "
+          f"a leave-as-found write, not a re-diff: {data.get('hotkeys')}")
+    rest = {k: v for k, v in data.items() if k != "ui"}
+    check(rest == loaded,
+          f"GATE-healthy: a block other than ui changed: {rest} != {loaded}")
+
+    # (4) A MISSING file is not a warning: the first-run wizard toggle must keep
+    # writing (managed skeleton + ui.language, never the example's placeholder
+    # vocabulary). The gate keys on the warning, not on "existing came back empty" --
+    # which is the whole reason it can tell this case from (1).
+    p = tmp / "ps_gate_missing.json"
+    check(sio.write_ui_language(p, "de", example_path=EXAMPLE_PS) is True,
+          "GATE-missing: an absent file must still be created (the first-run lane)")
+    check(p.exists(), "GATE-missing: file not created")
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "GATE-missing: created file is not valid JSON")
+    check(data.get("ui", {}).get("language") == "de",
+          f"GATE-missing: ui.language not written: {data.get('ui')}")
+    check("vocabulary" not in data,
+          "GATE-missing: the skeleton seeded a placeholder vocabulary block")
+
+    # (5) An UNDECODABLE file (ANSI/cp1252, its German vocabulary intact) raises out
+    # of the probe rather than being swallowed here: the abort is B1/D-002's, and
+    # swallowing belongs to the caller's best-effort lane (D-014). Bytes untouched.
+    p = tmp / "ps_gate_ansi.json"
+    ansi_bytes = '{\n  "vocabulary": {"terms": ["Grüße", "Präfix"]}\n}\n'.encode("cp1252")
+    p.write_bytes(ansi_bytes)
+    raised = False
+    try:
+        sio.write_ui_language(p, "de", example_path=EXAMPLE_PS)
+    except (UnicodeError, OSError):
+        raised = True
+    check(raised, "GATE-undecodable: write_ui_language swallowed the read error instead "
+                  "of propagating it to the caller's best-effort lane")
+    check(p.read_bytes() == ansi_bytes,
+          "GATE-undecodable: the ANSI file was clobbered (vocabulary destroyed)")
+
+
 # ---- startup-engine preselection (#178) --------------------------------------
 def check_preselect():
     P = sio.preselect_startup_api
@@ -1342,37 +1438,49 @@ def check_ptt_save_signal():
           "ptt-signal: switching it off must write False")
 
 
-def check_ptt_wiring():
-    """The two write call sites in thoughtborne_settings.py, pinned statically (#233).
-    Everything above proves the MERGE keeps its promises; what nothing else can catch
-    is the writer being fed the wrong thing. Both byte-identity guarantees live in the
-    call sites alone: _save must hand `ptt_enabled=` the RESOLVED signal (the raw
-    toggle state would rewrite the block on every save -- D-002), and
-    _persist_language's ui.language-only write must carry no `ptt_enabled` at all (a
-    language toggle would otherwise write the push_to_talk block, D-014). The settings
-    app imports tkinter at module level and cannot be imported from this ladder, so
-    the wiring is checked on the source -- as a syntax tree rather than as text, so
-    renaming the local or reflowing the call proves nothing while a real regression
-    still goes red (the idiom of the thoughtborne.py guards in test_restart_signal.py,
-    one step more precise)."""
+def _settings_app_methods(prefix):
+    """The SettingsApp methods of thoughtborne_settings.py as a {name: FunctionDef}
+    map, or {} after recording a failure. The settings app imports tkinter at module
+    level and cannot be imported from this ladder, so its call sites are checked on
+    the source -- as a syntax tree rather than as text, so renaming a local or
+    reflowing a call proves nothing while a real regression still goes red (the idiom
+    of the thoughtborne.py guards in test_restart_signal.py, one step more precise)."""
     src_path = config.SCRIPT_DIR / "thoughtborne_settings.py"
     try:
         tree = ast.parse(src_path.read_text(encoding="utf-8"))
     except Exception as e:
-        failures.append(f"ptt-wiring: could not parse thoughtborne_settings.py: "
+        failures.append(f"{prefix}: could not parse thoughtborne_settings.py: "
                         f"{type(e).__name__}: {e}")
-        return
-
-    methods = {}
+        return {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "SettingsApp":
-            methods = {n.name: n for n in node.body if isinstance(n, ast.FunctionDef)}
-            break
+            return {n.name: n for n in node.body if isinstance(n, ast.FunctionDef)}
+    failures.append(f"{prefix}: class SettingsApp not found in thoughtborne_settings.py")
+    return {}
+
+
+def _calls_to(method, name):
+    """Every `<something>.name(...)` call inside one method's syntax tree."""
+    return [c for c in ast.walk(method) if isinstance(c, ast.Call)
+            and getattr(c.func, "attr", None) == name]
+
+
+def check_ptt_wiring():
+    """The save write call site in thoughtborne_settings.py, pinned statically (#233).
+    Everything above proves the MERGE keeps its promises; what nothing else can catch
+    is the writer being fed the wrong thing. The push-to-talk byte-identity guarantee
+    lives in the call site alone: _save must hand `ptt_enabled=` the RESOLVED signal --
+    the raw toggle state would rewrite the block on every save (D-002). (The language
+    toggle's own wiring moved to check_lang_gate_wiring with the #239 gate: since it no
+    longer calls write_personal_settings at all, "passes no ptt_enabled" is now a
+    property of write_ui_language's signature, asserted there.)"""
+    methods = _settings_app_methods("ptt-wiring")
+    if not methods:
+        return
 
     def writes_in(method):
         """Every write_personal_settings call inside one method."""
-        return [c for c in ast.walk(method) if isinstance(c, ast.Call)
-                and getattr(c.func, "attr", None) == "write_personal_settings"]
+        return _calls_to(method, "write_personal_settings")
 
     # ---- _save: ptt_enabled= gets the resolver's result, never the raw toggle ----
     save = methods.get("_save")
@@ -1405,23 +1513,66 @@ def check_ptt_wiring():
               f"resolve_ptt_save_signal result ({' / '.join(sorted(resolved)) or 'none'}) -- "
               "an untouched toggle would then rewrite the block on every save (D-002)")
 
-    # ---- _persist_language: the ui.language-only write stays ui.language-only ----
+
+# ---- the gated language persist's wiring (#239) ------------------------------
+def check_lang_gate_wiring():
+    """That _persist_language really goes through the GATED writer (#239), pinned
+    statically for the same reason as check_ptt_wiring: check_ui_language_gate proves
+    write_ui_language protects a corrupt file, but the protection is worth nothing if
+    the silent lane reaches write_personal_settings directly -- which is exactly the
+    pre-#239 code and the one regression a refactor would reintroduce. Also pins the
+    narrow signature the guarantee now rests on: with no hotkeys / engine / push-to-talk
+    parameter to pass, the D-014 lane structurally cannot write anything but
+    ui.language (the property the retired ptt half of check_ptt_wiring used to assert
+    call site by call site)."""
+    code = sio.write_ui_language.__code__
+    params = list(code.co_varnames[:code.co_argcount])
+    check(params == ["path", "language", "example_path"],
+          f"lang-wiring: settings_io.write_ui_language takes {params} -- the silent "
+          "D-014 lane's writer must stay narrow (path, language, example_path); a "
+          "parameter that writes another block would put the push_to_talk / hotkeys / "
+          "engine-pin risk back into a toggle (D-002)")
+    # co_varnames[:co_argcount] above sees the POSITIONAL parameters only, so the
+    # narrowness check would miss a keyword-only or catch-all one (0x04 CO_VARARGS,
+    # 0x08 CO_VARKEYWORDS).
+    extras = list(code.co_varnames[code.co_argcount:
+                                   code.co_argcount + code.co_kwonlyargcount])
+    if code.co_flags & 0x04:
+        extras.append("*args")
+    if code.co_flags & 0x08:
+        extras.append("**kwargs")
+    check(not extras,
+          f"lang-wiring: settings_io.write_ui_language also takes {extras} -- a "
+          "keyword-only or catch-all parameter widens the silent lane's writer just as "
+          "a positional one does (D-002)")
+
+    methods = _settings_app_methods("lang-wiring")
+    if not methods:
+        return
     persist = methods.get("_persist_language")
     if persist is None:
-        failures.append("ptt-wiring: SettingsApp._persist_language not found -- the "
+        failures.append("lang-wiring: SettingsApp._persist_language not found -- the "
                         "D-014 language self-persist was renamed and this guard no "
                         "longer guards anything")
         return
-    persist_writes = writes_in(persist)
-    check(len(persist_writes) == 1,
-          f"ptt-wiring: expected exactly one write_personal_settings call in "
-          f"_persist_language, found {len(persist_writes)}")
-    for call in persist_writes:
-        check(not any(k.arg == "ptt_enabled" for k in call.keywords),
-              "ptt-wiring: _persist_language passes ptt_enabled -- a language toggle "
-              "would then write the push_to_talk block, so a session that only ever "
-              "switched the display language would not leave the file byte-identical "
-              "(D-002/D-014)")
+
+    direct = _calls_to(persist, "write_personal_settings")
+    check(not direct,
+          f"lang-wiring: _persist_language calls write_personal_settings directly "
+          f"({len(direct)}x) -- that bypasses the #239 gate, so a language toggle over "
+          "a corrupt personal_settings.json skeletons it again and destroys the user's "
+          "hand-written vocabulary / soniox_endpointing (D-002)")
+    gated = _calls_to(persist, "write_ui_language")
+    check(len(gated) == 1,
+          f"lang-wiring: expected exactly one write_ui_language call in "
+          f"_persist_language, found {len(gated)}")
+    for call in gated:
+        extra = sorted({k.arg for k in call.keywords if k.arg} - {"path", "language",
+                                                                 "example_path"})
+        check(not extra,
+              f"lang-wiring: _persist_language passes {extra} to write_ui_language -- "
+              "the silent toggle lane may carry nothing beyond the target path, the "
+              "language and the example path")
 
 
 # ---- save-action decision (#202) ---------------------------------------------
@@ -1523,6 +1674,7 @@ def main():
         check_env(tmp)
         check_personal_settings(tmp)
         check_ui_language(tmp)
+        check_ui_language_gate(tmp)
         check_engine_pin(tmp)
         check_ptt_toggle(tmp)
         check_first_run_decision(tmp)
@@ -1543,6 +1695,7 @@ def main():
     check_ptt_read()
     check_ptt_save_signal()
     check_ptt_wiring()
+    check_lang_gate_wiring()
     check_save_action()
 
     if SHOW:

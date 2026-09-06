@@ -1545,17 +1545,19 @@ class SettingsApp:
         # A language toggle self-persists immediately (D-014): with no unsaved-changes
         # guard, Cancel/[X] just close, so a toggle not written now would be lost. A
         # narrow ui.language-only surgical write -- hotkeys/defaults/unmanaged blocks
-        # stay exactly as found (hotkeys_effective=None, default_api=None), so a session
-        # that only ever toggles the language leaves every other block byte-identical.
-        # One rule for both modes: the language radios live in the shared header, so this
-        # fires in the wizard and the everyday dialog alike. Best-effort -- a failed write
-        # costs only the remembered display language, never the settings, so it stays
-        # silent rather than raising an error dialog on every failed toggle (mirrors
-        # engine_memory.write_last_engine's stance).
+        # stay exactly as found, so a session that only ever toggles the language leaves
+        # every other block byte-identical. Gated since #239: over a corrupt-but-decodable
+        # file write_ui_language is a byte-identical no-op instead of skeletoning over
+        # hand-written blocks -- warn-then-overwrite is the explicit Save's branch alone
+        # (D-002), and the warn strip already on screen says the language is not
+        # remembered until the file is fixed. One rule for both modes: the language radios
+        # live in the shared header, so this fires in the wizard and the everyday dialog
+        # alike. Best-effort -- a gated or failed write costs only the remembered display
+        # language, never the settings, so it stays silent rather than raising an error
+        # dialog on every toggle (mirrors engine_memory.write_last_engine's stance).
         try:
-            settings_io.write_personal_settings(
-                config.SCRIPT_DIR / "personal_settings.json",
-                hotkeys_effective=None, default_api=None, ui_language=self.lang,
+            settings_io.write_ui_language(
+                config.SCRIPT_DIR / "personal_settings.json", self.lang,
                 example_path=config.SCRIPT_DIR / "personal_settings.example.json")
         except Exception:
             pass
