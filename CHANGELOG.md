@@ -61,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window already wrote now go through one shared, guarded helper, unchanged in wording
   (`settings_visibility.py`, covered by `test_settings_visibility.py` down to a deliberate
   crash in the real window). Respects **D-009**.
+- **The test ladder now covers its last four blind spots** (#242): the push-to-talk gesture
+  rules (#66), the transcript cleanup that rewrites your words before they are inserted
+  (#31/#97/#101), the one-time migration of years of recordings into the `history/` layout
+  (#50), and — cited by **D-003** — proof that the typed-insert length cap is really wired
+  into both typed routes, not merely correct in isolation. All four had shipped for months
+  with no automated check at all, and the gaps were the kind that stay quiet: replacing both
+  cap call sites with the raw text, or deleting a cleanup call outright, used to pass the
+  entire ladder. Every driver also gained a `test_all()` entry point, so a plain
+  `python -m pytest` run collects the ladder as one test per driver instead of a set of files
+  that could look green while checking nothing; `run_tests.py` and CI are unchanged as the
+  gate.
 
 ### Changed
 
@@ -231,6 +242,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what the tool reported on. It happened twice in normal use on 2026-08-31. That
   emergency stop is now switched off — Thoughtborne runs no mouse automation for it to
   interrupt — so the corner is just a corner again.
+- **Removing a spoken filler no longer eats the sentence's punctuation** (#242): dictating
+  "Das ist gut, ähm. Und dann kam er." used to insert "Das ist gut, Und dann kam er." — two
+  sentences welded into one, the period gone and a comma left standing in front of a capital.
+  The mark now takes the place of that comma whenever the text really does start a new
+  sentence there or ends, and a trailing "ähm!" or "ähm?" no longer leaves its mark orphaned
+  behind a comma. Where the sentence did not end at the filler — a lowercase word follows, or
+  the kept text already carries its own mark — nothing changes, so a filler in mid-clause
+  still disappears as quietly as before. On the Groq path, an invented closing courtesy
+  ("Vielen Dank") is now caught even when a dangling word fragment hides it: the phrase list
+  is consulted once more after the fragment is stripped, which it never was before. Both
+  functions are pinned by the new `test_text_cleanup.py`, its baseline cases recorded before
+  the fixes; the filler and hallucination pattern lists are untouched data.
 
 ## [1.1.0-rc2] - 2026-08-23
 

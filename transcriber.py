@@ -290,9 +290,14 @@ class AbstractTranscriber(ABC):
         Removal drops the filler plus its immediately following delimiter and
         spacing, re-capitalizes the next word when a sentence-initial
         capitalized filler preceded a lowercase one, and trims a comma left
-        dangling at the very end. The capital is moved only at a genuine
-        sentence start (see _at_sentence_start), so a filler capitalized
-        mid-clause can never push a wrong capital onto the following word.
+        dangling at the very end. Where that delimiter was the sentence's own
+        terminal mark and the text really continues with a new sentence (or
+        ends), the mark is put back in place of the comma that preceded the
+        filler, so 'Das ist gut, ähm. Und dann kam er.' keeps its two
+        sentences instead of welding them into one (#242). The capital is
+        moved only at a genuine sentence start (see _at_sentence_start), so a
+        filler capitalized mid-clause can never push a wrong capital onto the
+        following word.
         Fillers the user deliberately quotes are exempt: a filler whose match
         falls inside a balanced pair of straight double quotes ("...") is left
         verbatim (#101), so 'Er sagte "ähm".' keeps its quoted word instead of
@@ -313,7 +318,10 @@ class AbstractTranscriber(ABC):
         filler_re = re.compile(r"\b(?:ähm|äh)\b", re.IGNORECASE)
         # Delimiter the model attaches to the filler itself (corpus-exact:
         # comma, three-dot ellipsis, or period) plus the gluing whitespace.
-        trail_re = re.compile(r"(?:\.{3}|[.,])?[ \t]*")
+        # "!" and "?" are consumed as well (#242): they are not corpus forms of
+        # their own but sentence enders the re-emit below puts back -- left
+        # unconsumed they stayed behind orphaned ("Das ist gut, ! Und dann.").
+        trail_re = re.compile(r"(?:\.{3}|[.!?,])?[ \t]*")
         quoted_spans = self._quoted_spans(transcript)
 
         out = []
@@ -335,6 +343,34 @@ class AbstractTranscriber(ABC):
             out.append(transcript[pos:m.start()])
             removed += 1
             logger.debug(f"Removed spoken filler: '{transcript[m.start():end]}' at {m.start()}")
+            trail = transcript[m.end():end]
+            ender = ("..." if trail.startswith("...")
+                     else trail[:1] if trail[:1] in (".", "!", "?") else "")
+            if ender:
+                kept = "".join(out).rstrip(" \t")
+                if kept[-1:] in (",", ";"):
+                    # That mark delimited the filler, not the sentence -- keeping
+                    # it would put the re-emitted ender behind it ("gut,.").
+                    kept = kept[:-1].rstrip(" \t")
+                after = transcript[end:].lstrip()
+                # An uppercase next word, or nothing at all, is what makes this a
+                # sentence boundary; a lowercase one means the mark was mid-clause
+                # noise, and then the pre-#242 path runs unchanged. A digit stays
+                # with that old path on purpose: "3 Punkte folgen" is not
+                # distinguishable from a mid-sentence "3 Euro".
+                boundary = not after or after[0].isupper()
+                # Never re-emit behind a mark that already ends the sentence
+                # ("?.", ":."). Asking the helper about the end of the kept text
+                # finds that mark through the closing quotes/brackets that may
+                # follow it ('SATZ."'). And never against whitespace, where the
+                # ender would dangle in front of a line break instead of closing
+                # a word.
+                attachable = (bool(kept) and not kept[-1].isspace()
+                              and not self._at_sentence_start(kept, len(kept)))
+                if boundary and attachable:
+                    out = [kept, ender]
+                    if end < len(transcript) and not transcript[end].isspace():
+                        out.append(" ")
             cap_pending = cap_pending or (
                 m.group(0)[0].isupper()
                 and self._at_sentence_start(transcript, m.start())
@@ -430,15 +466,25 @@ class GroqTranscriber(AbstractTranscriber):
             "Ich danke Ihnen",
         ]
 
+        def phrase_pass(text: str) -> Optional[str]:
+            """One sweep over the phrase list; the cleaned text, or None when no
+            phrase applies. A helper so the sweep can run a second time after a
+            fragment strip (#242) -- the fragment hides the phrase from the
+            first sweep, and before this the list was never consulted again."""
+            for pattern in phrase_patterns:
+                if text.rstrip().endswith(pattern):
+                    cleaned = text.rstrip()[:-len(pattern)].rstrip()
+                    if cleaned and len(cleaned) > 10:
+                        logger.debug(f"Removed Groq hallucination: '{pattern}' at end")
+                        logger.debug(f"Original ending: ...'{original[-50:] if len(original) > 50 else original}'")
+                        logger.debug(f"Cleaned to: ...'{cleaned[-50:] if len(cleaned) > 50 else cleaned}'")
+                        return cleaned
+            return None
+
         # Check phrase patterns
-        for pattern in phrase_patterns:
-            if transcript.rstrip().endswith(pattern):
-                cleaned = transcript.rstrip()[:-len(pattern)].rstrip()
-                if cleaned and len(cleaned) > 10:
-                    logger.debug(f"Removed Groq hallucination: '{pattern}' at end")
-                    logger.debug(f"Original ending: ...'{original[-50:] if len(original) > 50 else original}'")
-                    logger.debug(f"Cleaned to: ...'{cleaned[-50:] if len(cleaned) > 50 else cleaned}'")
-                    return cleaned
+        phrase_cleaned = phrase_pass(transcript)
+        if phrase_cleaned is not None:
+            return phrase_cleaned
 
         # Word fragment hallucinations (with leading space)
         fragment_patterns = [
@@ -458,6 +504,12 @@ class GroqTranscriber(AbstractTranscriber):
                 break
 
         if transcript != original:
+            # A fragment was stripped -- consult the phrase list once more, since
+            # the fragment is exactly what defeated the match above. Once, not to
+            # a fixed point: one fragment can uncover at most one phrase.
+            phrase_cleaned = phrase_pass(transcript)
+            if phrase_cleaned is not None:
+                return phrase_cleaned
             logger.debug(f"Original ending: ...'{original[-30:]}'")
             logger.debug(f"Cleaned to: ...'{transcript[-30:]}'")
 

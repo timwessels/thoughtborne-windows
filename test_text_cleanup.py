@@ -14,11 +14,15 @@ the word-boundary protection that keeps "Lähmung"/"ähnlich" intact, and the
 Groq phrase/fragment strip with its length gate. Several cases are guards
 rather than features -- they record where the removal deliberately does NOT
 put punctuation back; a fix that "keeps the punctuation always" breaks exactly
-those.
+those. On top of that baseline sit the two #242 fixes (a sentence's terminal
+mark survives a filler at its boundary; the phrase list is re-checked once a
+trailing fragment is gone) and two pins that a neutralized *call* would slip
+past the cases above.
 
     python3 test_text_cleanup.py          # verify, exit non-zero on any violation
     python3 test_text_cleanup.py --show   # print every case as input -> output
 """
+import inspect
 import logging
 import sys
 import types
@@ -56,7 +60,9 @@ sys.modules.setdefault("groq", _fake_groq)
 
 logging.getLogger("Thoughtborne").setLevel(logging.CRITICAL)
 
-from transcriber import GroqTranscriber  # noqa: E402
+from transcriber import (  # noqa: E402
+    AbstractTranscriber, GroqTranscriber, SonioxAsyncTranscriber, SonioxLiveTranscriber,
+)
 
 SHOW = "--show" in sys.argv
 
@@ -145,16 +151,79 @@ def check_groq_baseline():
     ])
 
 
+def check_filler_sentence_end_fix():
+    """#242 fix 1: a filler at a sentence boundary no longer takes the
+    sentence's terminal mark with it (and no longer leaves "!"/"?" orphaned).
+    The welded form -- two sentences joined by a comma and a capital -- was the
+    damaging one."""
+    run_table("filler sentence end", fillers, [
+        # At the end of the transcript the mark replaces the dangling comma.
+        ("Das ist ein Test, ähm.", "Das ist ein Test."),
+        ("Das ist ein Test, ähm!", "Das ist ein Test!"),
+        # Mid-transcript: the two sentences stay two sentences.
+        ("Das ist gut, ähm. Und dann kam er.", "Das ist gut. Und dann kam er."),
+        ("Das ist gut, ähm? Oder nicht.", "Das ist gut? Oder nicht."),
+        ("Das ist gut, ähm... Und dann.", "Das ist gut... Und dann."),
+        ("Das ist gut; ähm. Und dann.", "Das ist gut. Und dann."),
+        ("Das ist gut ähm. Und dann.", "Das ist gut. Und dann."),
+        # A filler chain ("äh, ähm.") ends on the same boundary.
+        ("Das ist gut, äh, ähm. Und dann.", "Das ist gut. Und dann."),
+        ("Test ähm! Und dann.", "Test! Und dann."),
+        # "!" and "?" now travel with the filler like "." always did: where the
+        # gates do not fire they are dropped instead of left standing alone.
+        ("Wirklich? Ähm! Also gut.", "Wirklich? Also gut."),
+        ("Das ist gut, ähm! und weiter", "Das ist gut, und weiter"),
+        ("Ähm!", ""),
+    ])
+
+
+def check_groq_phrase_after_fragment_fix():
+    """#242 fix 2: with the trailing fragment gone, the phrase list is
+    consulted once more -- it was the fragment that hid the phrase."""
+    run_table("groq phrase after fragment", groq_clean, [
+        ("Das ist der Inhalt. Vielen Dank und", "Das ist der Inhalt."),
+        ("Das ist der Inhalt. Vielen Dank. Und", "Das ist der Inhalt."),
+        ("Inhalt hier. Vielen Dank Das", "Inhalt hier."),
+        # The length gate applies to the second sweep exactly as to the first:
+        # what would be left is too short to be sure, so nothing more goes.
+        ("Kurz und Danke und", "Kurz und Danke"),
+    ])
+
+
+def check_shared_method_identity():
+    """Every engine runs the same filler removal (#97): one inherited method,
+    no silent per-engine fork."""
+    for cls in (GroqTranscriber, SonioxAsyncTranscriber, SonioxLiveTranscriber):
+        check(cls._remove_spoken_fillers is AbstractTranscriber._remove_spoken_fillers,
+              f"{cls.__name__} overrides _remove_spoken_fillers")
+
+
+def check_callers_wired():
+    """Source guard: neutralizing the functions is not the only way to lose
+    them -- deleting the call has the same effect and no case above sees it."""
+    for cls in (GroqTranscriber, SonioxAsyncTranscriber, SonioxLiveTranscriber):
+        src = inspect.getsource(cls.transcribe)
+        check("_remove_spoken_fillers(" in src,
+              f"{cls.__name__}.transcribe no longer calls _remove_spoken_fillers")
+    check("_clean_groq_hallucinations(" in inspect.getsource(GroqTranscriber.transcribe),
+          "GroqTranscriber.transcribe no longer calls _clean_groq_hallucinations")
+
+
 def main():
     check_filler_baseline()
     check_groq_baseline()
+    check_filler_sentence_end_fix()
+    check_groq_phrase_after_fragment_fix()
+    check_shared_method_identity()
+    check_callers_wired()
 
     if failures:
         print(f"FAIL: {len(failures)} violation(s)")
         for f in failures:
             print("  " + f)
         return 1
-    print("OK: filler removal and Groq artifact stripping behave as documented")
+    print("OK: filler removal, sentence-end punctuation, Groq artifact stripping "
+          "and the wiring all behave as documented")
     return 0
 
 
