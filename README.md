@@ -34,7 +34,7 @@ Engines, for the curious: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox �
 
 ## Requirements
 
-- **Windows.** The tool is Windows-only by design (global hotkeys, audio capture, and text insertion are Win32); a macOS sister port exists (see [Project & links](#project--links)).
+- **Windows.** The tool is Windows-only by design (global hotkeys, audio capture, and text insertion are Win32); an earlier macOS variant exists, but it is archived and unmaintained (see [Project & links](#project--links)).
 - **A microphone**, with Windows microphone access allowed (Settings > Privacy & security > Microphone).
 - **At least one API key** — Groq (free) or Soniox (prepaid); see [API keys](#api-keys).
 - **Internet.** Transcription runs through the APIs; the first start also downloads Python and the dependencies once.
@@ -286,6 +286,6 @@ Thoughtborne has been its maintainer's daily dictation tool since 2023, and it i
 - [CHANGELOG.md](CHANGELOG.md) — what changed, release by release.
 - [LICENSE](LICENSE) — MIT.
 - For AI coding agents: [AGENTS.md](AGENTS.md) (working in this repo) · [llms-install.md](llms-install.md) (guided setup).
-- **macOS:** a sister port exists — [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos): three transcription APIs instead of four, otherwise analogous; available as-is.
+- **macOS:** [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos) — an earlier macOS variant, archived and unmaintained. For a current Thoughtborne on macOS, the sensible route is to port today's Windows version rather than extend that code — the macOS repo already solves the macOS-specific layer (global hotkeys, audio capture, insertion at the cursor). Forks are welcome.
 
 Issues and contributions are welcome — [`CONTRIBUTING.md`](CONTRIBUTING.md) says what helps, and anything security-relevant goes through [`SECURITY.md`](SECURITY.md) rather than the public tracker. Thoughtborne has been the maintainer's daily tool since 2023 and is actively maintained.

@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The imprint's address block sets itself off from the paragraphs around it again, and the
   link-underline colour clears the 3:1 non-text contrast floor (WCAG 1.4.11) on the light page. DE
   and EN twins in lockstep.
+- **The macOS variant is described as archived.** The READMEs, `AGENTS.md` and `VISION.md` now
+  describe the macOS sibling as an archived, much earlier variant instead of an analogous sister
+  port — matching that repository's new status. The link stays as a starting point for porting
+  today's Windows version onto macOS.
 
 ## [1.1.0] - 2026-09-06
 

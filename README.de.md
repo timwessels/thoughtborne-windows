@@ -34,7 +34,7 @@ Engines, für Neugierige: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox �
 
 ## Voraussetzungen
 
-- **Windows.** Das Tool ist bewusst Windows-only (globale Hotkeys, Audio-Aufnahme und Text-Einfügung sind Win32); für macOS gibt es einen Schwester-Port (siehe [Projekt & Links](#projekt--links)).
+- **Windows.** Das Tool ist bewusst Windows-only (globale Hotkeys, Audio-Aufnahme und Text-Einfügung sind Win32); für macOS gibt es einen früheren Ableger, der aber archiviert und nicht mehr betreut wird (siehe [Projekt & Links](#projekt--links)).
 - **Ein Mikrofon**, mit erlaubtem Mikrofonzugriff in Windows (Einstellungen > Datenschutz und Sicherheit > Mikrofon).
 - **Mindestens ein API-Key** — Groq (kostenlos) oder Soniox (Prepaid); siehe [API-Keys](#api-keys).
 - **Internet.** Die Transkription läuft über die APIs; der erste Start lädt außerdem einmalig Python und die Dependencies.
@@ -286,6 +286,6 @@ Thoughtborne ist seit 2023 das tägliche Diktierwerkzeug seines Maintainers und 
 - [CHANGELOG.md](CHANGELOG.md) — was sich geändert hat, Release für Release.
 - [LICENSE](LICENSE) — MIT.
 - Für KI-Coding-Agenten: [AGENTS.md](AGENTS.md) (Arbeiten in diesem Repo) · [llms-install.md](llms-install.md) (geführtes Setup).
-- **macOS:** Es gibt einen Schwester-Port — [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos): drei Transkriptions-APIs statt vier, sonst analog; as-is verfügbar.
+- **macOS:** [thoughtborne-macos](https://github.com/timwessels/thoughtborne-macos) — ein früherer macOS-Ableger, archiviert und nicht mehr betreut. Wer heute ein aktuelles Thoughtborne auf macOS will, portiert sinnvollerweise die heutige Windows-Version, statt diesen Code weiterzuentwickeln — das macOS-Repo löst die macOS-spezifische Schicht bereits (globale Hotkeys, Audio-Aufnahme, Einfügen an der Cursor-Position). Forks sind willkommen.
 
 Issues und Contributions sind willkommen — [`CONTRIBUTING.md`](CONTRIBUTING.md) sagt, was dabei hilft, und alles Sicherheitsrelevante läuft über [`SECURITY.md`](SECURITY.md) statt über den öffentlichen Tracker. Thoughtborne ist seit 2023 das tägliche Arbeitswerkzeug des Maintainers und wird aktiv gepflegt.

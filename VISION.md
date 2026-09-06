@@ -242,13 +242,17 @@ would start bending the tool away from how I actually use it.
 - **No training of own models.**
 - **No cross-platform codebase.** Audio devices, global hotkeys, and text
   insertion are deeply OS-specific. The Windows repo stays Windows-only;
-  the macOS port lives in its own repo.
+  the archived macOS variant lives in its own repo.
 
-## The macOS port
+## The macOS variant
 
 [`thoughtborne-macos`](https://github.com/timwessels/thoughtborne-macos) is
-a working port — three transcription backends instead of four, otherwise
-analogous. I no longer use a Mac and don't plan to actively maintain the
-port; it stays available as-is, and anyone from the community who wants to
-carry it forward is welcome to. The Windows repo is the actively maintained
-main line.
+an earlier macOS variant, now archived — three transcription backends
+instead of four, and frozen well before the settings and onboarding window
+and the months of polish since. It served my own daily dictation well, but
+I no longer use a Mac and won't maintain it. If you want a current
+Thoughtborne on macOS, the sensible route is not to extend that code but to
+port today's Windows version onto macOS: the macOS repo already solves the
+platform-specific layer — global hotkeys, audio capture, insertion at the
+cursor — while this repo carries the mature feature set. Forks are welcome.
+The Windows repo is the actively maintained main line.
