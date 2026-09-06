@@ -225,7 +225,11 @@ function Write-UninstallRegistryEntry {
         return
     }
 
-    New-Item -Path $regPath -Force | Out-Null
+    # -ErrorAction Stop on every registry write (#244): provider errors are
+    # non-terminating by default (they write a red record and carry on), so without
+    # it the caller's catch would never fire and a failed registration would end in
+    # a clean "Setup done."
+    New-Item -Path $regPath -Force -ErrorAction Stop | Out-Null
     # Use 'DisplayName' here, never a bare 'Name' key (that would trip the shortcut count).
     $values = @{
         DisplayName          = 'Thoughtborne'
@@ -240,12 +244,12 @@ function Write-UninstallRegistryEntry {
     }
     if ($ver) { $values['DisplayVersion'] = $ver }
     foreach ($k in $values.Keys) {
-        New-ItemProperty -Path $regPath -Name $k -Value $values[$k] -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $regPath -Name $k -Value $values[$k] -PropertyType String -Force -ErrorAction Stop | Out-Null
     }
-    New-ItemProperty -Path $regPath -Name 'NoModify' -Value 1 -PropertyType DWord -Force | Out-Null
-    New-ItemProperty -Path $regPath -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $regPath -Name 'NoModify' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+    New-ItemProperty -Path $regPath -Name 'NoRepair' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
     if ($sizeKiB) {
-        New-ItemProperty -Path $regPath -Name 'EstimatedSize' -Value $sizeKiB -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $regPath -Name 'EstimatedSize' -Value $sizeKiB -PropertyType DWord -Force -ErrorAction Stop | Out-Null
     }
 }
 
@@ -488,8 +492,17 @@ function Install-Thoughtborne {
         }
     }
 
-    # 7) Start-menu shortcuts.
-    New-ThoughtborneShortcuts -InstallDir $installDir -DryRun:$DryRun
+    # 7) Start-menu shortcuts. Wrapped (#244): a COM failure here -- a blocked script
+    #    host, a redirected or offline Start-menu folder -- must not abort an otherwise
+    #    complete install, so warn and carry on. Kept separate from the 7b wrapper: a
+    #    failed shortcut must not skip the Apps-list registration.
+    $shortcutFailed = $false
+    try {
+        New-ThoughtborneShortcuts -InstallDir $installDir -DryRun:$DryRun
+    } catch {
+        $shortcutFailed = $true
+        Write-Host ("WARNING: Start-menu shortcut could not be created: {0}" -f $_.Exception.Message)
+    }
 
     # 7b) Per-user Apps-list (Add/Remove Programs) registration, so Thoughtborne
     #     shows under Settings > Installed apps with a working Uninstall. Runs after
@@ -497,8 +510,15 @@ function Install-Thoughtborne {
     #     the copied favicon.ico) and on every run (fresh install and in-place
     #     update). Install metadata only, registry cmdlets only -- no secrets, no
     #     config file (D-002); the uninstall is uninstall.ps1, whose quiet lane
-    #     never deletes user data (D-011).
-    Write-UninstallRegistryEntry -InstallDir $installDir -DryRun:$DryRun
+    #     never deletes user data (D-011). Wrapped (#244): a failed registration used
+    #     to pass unnoticed, leaving no Uninstall entry behind a clean "Setup done."
+    $registryFailed = $false
+    try {
+        Write-UninstallRegistryEntry -InstallDir $installDir -DryRun:$DryRun
+    } catch {
+        $registryFailed = $true
+        Write-Host ("WARNING: could not register Thoughtborne under Installed apps: {0}" -f $_.Exception.Message)
+    }
 
     # 8) Hand off by starting the tool itself (#223, D-014): the standalone settings
     #    lane is gone. A keyless install opens as the #200 shop window and auto-launches
@@ -522,7 +542,20 @@ function Install-Thoughtborne {
     }
 
     Write-Host ""
-    Write-Host "Setup done."
+    # The closing line names what did not happen (#244) instead of a flat success.
+    # "may not appear": an in-place update can leave an older or half-written entry
+    # behind, so "is not listed" would not be true in every failure state.
+    if ($shortcutFailed -or $registryFailed) {
+        Write-Host "Setup done, with warnings:"
+        if ($shortcutFailed) {
+            Write-Host "  - no Start-menu shortcut was created; start the tool via Thoughtborne.bat in the install folder."
+        }
+        if ($registryFailed) {
+            Write-Host "  - Thoughtborne may not appear under Settings > Installed apps; to uninstall later, run uninstall.ps1 from the install folder."
+        }
+    } else {
+        Write-Host "Setup done."
+    }
     if (Test-Path -LiteralPath $toolBat) {
         Write-Host "Starting Thoughtborne (on a keyless install it opens the setup wizard so you can pick a provider and paste your API key)."
         try {

@@ -220,10 +220,30 @@ function Remove-InstallTree {
 }
 
 function Show-DoneNotice {
-    param([string]$Dir, [switch]$DataKept)
+    param([string]$Dir, [switch]$DataKept, [switch]$Remnants)
     try {
         Add-Type -AssemblyName System.Windows.Forms
-        if ($DataKept) {
+        $icon = [System.Windows.Forms.MessageBoxIcon]::Information
+        if ($Remnants) {
+            # Partial removal (#244): a locked file (an AV handle, an open DLL) survived
+            # the SilentlyContinue removals, so the Apps-list entry was kept by the
+            # registry-last gate. Say so, and advise the hand-fix -- deliberately not a
+            # second run, which the phase-2 fingerprint guard can refuse once the
+            # fingerprint files are gone. The Warning icon: a notice that looks like a
+            # success would be the same dishonesty in another form.
+            $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
+            $msg = ("Thoughtborne was only partly removed." + [Environment]::NewLine + [Environment]::NewLine +
+                    "Some files could not be removed -- another program (often an antivirus) may still hold them:" + [Environment]::NewLine +
+                    $Dir + [Environment]::NewLine + [Environment]::NewLine +
+                    "The entry under Installed apps was kept on purpose, so the leftover stays visible." + [Environment]::NewLine +
+                    "Close whatever holds the files -- a reboot usually does it -- then delete the leftover files by hand.")
+            if ($DataKept) {
+                # Without this, "delete the leftover files" reads as "delete the folder"
+                # -- and the folder still holds the recordings and the key.
+                $msg += ([Environment]::NewLine + [Environment]::NewLine +
+                         "Your recordings, transcripts and API key are still in that folder too. To keep them, delete only the leftover app files, not the whole folder.")
+            }
+        } elseif ($DataKept) {
             $msg = ("Thoughtborne was removed." + [Environment]::NewLine + [Environment]::NewLine +
                     "Your recordings, transcripts and API key are kept at:" + [Environment]::NewLine +
                     $Dir + [Environment]::NewLine + [Environment]::NewLine +
@@ -234,7 +254,7 @@ function Show-DoneNotice {
         [System.Windows.Forms.MessageBox]::Show(
             $msg, "Thoughtborne uninstaller",
             [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+            $icon) | Out-Null
     } catch { }
 }
 
@@ -353,7 +373,9 @@ if (-not $appRemnants) {
 }
 
 # 4) Closing notice (skipped on -Silent), naming where kept user data still lives.
-if (-not $Silent) { Show-DoneNotice -Dir $InstallDir -DataKept:(-not $deleteUserData) }
+#    The SAME $appRemnants that kept the registry key above drives the notice (#244),
+#    so the kept entry and what the dialog says can never disagree.
+if (-not $Silent) { Show-DoneNotice -Dir $InstallDir -DataKept:(-not $deleteUserData) -Remnants:$appRemnants }
 
 # 5) Clean up our temp copy.
 Remove-TempCopy

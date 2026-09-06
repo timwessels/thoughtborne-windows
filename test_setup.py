@@ -698,6 +698,58 @@ def test_registry_write_dryrun_gated():
     assert gates >= 4, f"expected several $DryRun-gated side effects, found {gates}"
 
 
+def test_setup_shortcut_and_registry_failures_wrapped():
+    # #244: steps 7 and 7b are wrapped at their call sites -- a COM failure while
+    # creating the shortcuts or an (escalated) registry failure while registering the
+    # Apps-list entry must WARN and carry on, never reach the outer catch that prints
+    # ERROR and sets exit 1. Two SEPARATE try/catch blocks, so a failed shortcut
+    # cannot take the registration down with it. Comment lines are dropped first, so a
+    # comment naming try/catch can never satisfy this.
+    code = "\n".join(ps_code_lines("setup.ps1"))
+    flags = {
+        "New-ThoughtborneShortcuts": "$shortcutFailed",
+        "Write-UninstallRegistryEntry": "$registryFailed",
+    }
+    for call, flag in flags.items():
+        m = re.search(
+            r"try\s*\{\s*" + call
+            + r"\s+-InstallDir\s+\$installDir\s+-DryRun:\$DryRun"
+            + r"\s*\}\s*catch\s*\{((?:[^{}]|\{\d+\})*)\}",
+            code)
+        assert m, f"the {call} call is not wrapped in its own try/catch (#244)"
+        body = m.group(1)
+        assert "WARNING" in body, f"the {call} catch prints no WARNING"
+        assert flag + " = $true" in body, \
+            f"the {call} catch does not set {flag} for the closing lines"
+        assert not re.search(r"\breturn\b|\bexit\b|\bthrow\b", body), \
+            f"the {call} catch does not carry on -- it returns/exits/throws"
+        assert "LASTEXITCODE" not in body, \
+            f"the {call} catch sets an exit code -- a warning must not fail the install"
+    # ...and the closing text is driven by those flags instead of a flat success.
+    assert re.search(r"if\s*\(\s*\$shortcutFailed\s+-or\s+\$registryFailed\s*\)", code), \
+        "the closing text does not branch on the failure flags (#244)"
+    for needle in ("no Start-menu shortcut", "Installed apps"):
+        assert needle in code, f"the closing warnings do not name {needle!r}"
+
+
+def test_setup_registry_cmdlets_error_action_stop():
+    # #244: registry-provider errors are NON-terminating by default (they write a red
+    # record and execution continues), so without -ErrorAction Stop the step-7b catch
+    # would never fire and a failed registration would still end in a clean closing
+    # line. Scoping on $regPath keeps step 5's New-Item -ItemType Directory calls out.
+    reg_lines = [ln for ln in ps_code_lines("setup.ps1")
+                 if re.search(r"New-Item(?:Property)?\s+-Path\s+\$regPath\b", ln)]
+    assert len(reg_lines) >= 4, \
+        f"expected the key creation plus the property writes aimed at $regPath, found {len(reg_lines)}"
+    assert any(re.search(r"New-Item\s+-Path", ln) for ln in reg_lines), \
+        "the registry key creation (New-Item -Path $regPath) is missing"
+    assert any("New-ItemProperty" in ln for ln in reg_lines), \
+        "the registry property writes (New-ItemProperty) are missing"
+    for ln in reg_lines:
+        assert "-ErrorAction Stop" in ln, \
+            f"registry cmdlet without -ErrorAction Stop (the catch would never fire): {ln.strip()}"
+
+
 def test_displayversion_from_pyproject():
     # DisplayVersion reflects the INSTALLED pyproject.toml, not a hardcoded literal:
     # it is assigned the parsed $ver, and a  version = "..."  regex parse is present.
@@ -928,6 +980,48 @@ def test_uninstall_registry_key_gated_on_remnants():
         "the remnant scan does not reuse Test-KeepMatch -- kept user data could wrongly count as a remnant"
     assert re.search(r"\(\s*-not\s+\$Silent\s*\)\s*-and\s+\$deleteUserData", remnant_region), \
         "the remnant scan's delete-mode is not the effective (-not $Silent)-and-checkbox decision"
+    # #244: the SAME $appRemnants that gates the key removal reaches the closing
+    # dialog, so the kept entry and what the notice says can never disagree.
+    call_lns = [ln for ln in ps_code_lines(UNINSTALL) if "Show-DoneNotice -Dir" in ln]
+    assert len(call_lns) == 1, \
+        f"expected exactly one Show-DoneNotice call, found {len(call_lns)}"
+    assert "-Remnants:$appRemnants" in call_lns[0], \
+        "Show-DoneNotice is not fed the remnants verdict (-Remnants:$appRemnants)"
+    assert "-DataKept:" in call_lns[0], \
+        "Show-DoneNotice lost its -DataKept argument on the same call"
+
+
+def test_uninstall_done_notice_reports_remnants():
+    # #244: the closing dialog is honest about a partial removal. Show-DoneNotice takes
+    # -Remnants, its remnants branch comes FIRST (the bad news wins over the data-kept
+    # message), names the folder, says the Apps-list entry was kept on purpose, and
+    # advises the hand-fix -- never a second run, which the phase-2 fingerprint guard
+    # can refuse. The DataKept+Remnants overlap warns against deleting the whole
+    # folder, where the kept recordings and key live. Read off the comment-stripped
+    # code, so the prose of the branch's own comments can neither satisfy nor break it.
+    code = "\n".join(ps_code_lines(UNINSTALL))
+    start = code.index("function Show-DoneNotice")
+    end = code.index("function ", start + 1)
+    fn = code[start:end]
+    m = re.search(r"param\(([^)]*)\)", fn)
+    assert m, "Show-DoneNotice has no param block"
+    for p in (r"\[string\]\s*\$Dir", r"\[switch\]\s*\$DataKept", r"\[switch\]\s*\$Remnants"):
+        assert re.search(p, m.group(1)), f"Show-DoneNotice param block lacks {p}"
+    assert re.search(r"if\s*\(\s*\$Remnants\s*\)", fn), "no remnants branch"
+    assert re.search(r"elseif\s*\(\s*\$DataKept\s*\)", fn), "no data-kept branch"
+    assert re.search(r"\}\s*else\s*\{", fn), "no plain-success branch"
+    rm = re.search(r"if\s*\(\s*\$Remnants\s*\)\s*\{(.*?)\n\s*\}\s*elseif", fn, re.S)
+    assert rm, "cannot isolate the remnants branch (it must come before the elseif)"
+    rbody = rm.group(1)
+    assert "$Dir" in rbody, "the remnants branch does not name the folder"
+    assert "could not be removed" in rbody, "the branch does not say files survived"
+    assert "Installed apps" in rbody and "kept" in rbody, \
+        "the branch does not say the Apps-list entry was kept on purpose"
+    assert "by hand" in rbody, "the branch gives no hand-fix advice"
+    assert not re.search(r"\buninstall\b[^.]*\bagain\b", rbody, re.I), \
+        "the remnants branch advises a re-run -- the fingerprint guard can refuse one"
+    assert re.search(r"if\s*\(\s*\$DataKept\s*\)", rbody), \
+        "the remnants branch does not handle kept data (whole-folder deletion would eat it)"
 
 
 def test_uninstall_final_removedir_not_recursive():
@@ -1037,6 +1131,8 @@ CASES = [
     test_registry_write_present,
     test_registry_quiet_lane_silent,
     test_registry_write_dryrun_gated,
+    test_setup_shortcut_and_registry_failures_wrapped,
+    test_setup_registry_cmdlets_error_action_stop,
     test_displayversion_from_pyproject,
     test_displayicon_real_path,
     test_uninstall_keeplist_covers_user_data_excludes_venv,
@@ -1053,6 +1149,7 @@ CASES = [
     test_uninstall_confirm_dialog_single_guarded_call,
     test_uninstall_fingerprint_guard,
     test_uninstall_registry_key_gated_on_remnants,
+    test_uninstall_done_notice_reports_remnants,
     test_uninstall_final_removedir_not_recursive,
     test_reinstall_accepts_denylist_residue,
     test_reinstall_residue_keeps_installwasfresh_false,

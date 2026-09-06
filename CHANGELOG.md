@@ -264,6 +264,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is consulted once more after the fragment is stripped, which it never was before. Both
   functions are pinned by the new `test_text_cleanup.py`, its baseline cases recorded before
   the fixes; the filler and hallucination pattern lists are untouched data.
+- **The installer no longer aborts over a shortcut, nor hides a missing Uninstall entry —
+  and the uninstaller no longer reports a removal it did not finish** (#244): the last two
+  steps of an install used to fail in opposite directions. A Start-menu shortcut that could
+  not be written — a locked-down script host, a redirected or offline Start menu — ended a
+  fully installed, working tool with an error message, while a failed **Installed apps**
+  registration printed a clean "Setup done." with no entry to uninstall from. Both now warn
+  and carry on, and the closing lines name what did not happen and the way around it: start
+  the tool from `Thoughtborne.bat` in the install folder, uninstall it by running
+  `uninstall.ps1` from there. The uninstaller had the mirror problem: when a locked file
+  kept parts of the install folder alive, its closing dialog still announced a clean
+  removal. It now says the removal was partial, names the folder, explains that the
+  **Installed apps** entry was kept on purpose so the leftover stays visible, and advises
+  closing whatever holds the files — a reboot usually does it — before deleting them by
+  hand. Kept recordings, transcripts and keys are called out where they live in that same
+  folder, so they are not swept away with the leftovers.
 
 ## [1.1.0-rc2] - 2026-08-23
 
