@@ -217,7 +217,7 @@ class HotkeyManager:
     """
 
     def __init__(self):
-        self._registrations = []  # List of (hotkey_str, callback, name)
+        self._registrations = []  # List of (hotkey_id, hotkey_str, callback, name)
         self._hotkey_map = {}     # hotkey_id -> (callback, name)
         self._thread = None
         self._thread_id = None    # Win32 thread ID for PostThreadMessageW

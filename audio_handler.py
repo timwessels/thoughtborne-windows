@@ -1157,7 +1157,6 @@ class AudioRecorder:
                     logger.error(f"Error reading audio stream: {e}")
 
                     # Check for specific stream errors that indicate device disconnection
-                    # Note: Error codes may vary between Windows and Mac
                     # -9999 and -9988 are common PortAudio error codes
                     if "-9999" in error_str or "-9988" in error_str or "Input overflowed" in error_str:
                         self.stream_error_count += 1

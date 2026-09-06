@@ -282,8 +282,9 @@ class AbstractTranscriber(ABC):
 
         Additions-only counterpart to the Groq end-artifact filters (which
         stay untouched). Origin: the #31 quality gate
-        (_research/2026-06_soniox-v2async-vs-v4-quality/) found 172 inline
-        fillers on the Soniox V4 async path, exclusively the forms "ähm"/"äh".
+        (a maintainer-local 13-sample comparison, 2026-06; summary in the #31
+        CHANGELOG entry) found 172 inline fillers on the Soniox V4 async path,
+        exclusively the forms "ähm"/"äh".
         A larger Soniox Live sample (#97) confirmed the same two forms and
         nothing else, delimited almost always by a following comma, rarely a
         period (the older V4 corpus also showed the three-dot ellipsis).
@@ -1249,7 +1250,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
 
         if not self._session_active or self._ws is None or self._send_queue is None:
             logger.warning("No active Soniox Live session to finalize")
-            # Block-1-Lücke fix: ensure stats are logged and threads cleaned
+            # Early-return gap: ensure stats are logged and threads cleaned
             # up even when finalize hits the early-return path (e.g. when the
             # 20-s Soniox idle timeout killed the session during recording).
             # _close_session_internal is idempotent and tolerates a dead session.

@@ -163,11 +163,11 @@ RETRY = _fmt(HOTKEYS["retry_last_failed"])
 FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
 FFOOTER = [("W", "record"), ("R", "retry"), ("L", "model"), ("4", "quit")]
 
-PATHS = [  # the four real checkout depths (Finalisierung 1.10)
+PATHS = [  # four checkout depths, shallow to deep (console width stress)
     r"C:\thoughtborne",
-    r"D:\Daten\_Code\thoughtborne",
-    r"C:\Users\Tim Wessels\Documents\thoughtborne",
-    r"C:\Users\Maximilian\Downloads\thoughtborne-windows-main",
+    r"D:\Drive\_Code\thoughtborne",
+    r"C:\Users\Sample User\Documents\thoughtborne",
+    r"C:\Users\SecondUser\Downloads\thoughtborne-windows-main",
 ]
 # #200 keyless shop-window guidance line under the lineup (the app composes it
 # from the live open-settings combo; here the shipped Ctrl+Alt+G).

@@ -1,17 +1,17 @@
 """
 ttk theme + design tokens for the settings/onboarding app (#155, D-010).
 
-TERMINAL-STYLE EXPERIMENT (branch settings-terminal-style): the palette flips
-from the light website look to the tool's own console face -- a dark blue-black
-page, monospace type, the console's light-blue brand accent (`console_ui.ACCENT`,
-#59C2FF) and the classic bright terminal status colours. The *mechanics* of
-D-010 are untouched: `clam` stays pinned (it is what makes a fully custom look
-possible at all -- vista's OS-drawn chrome ignores ttk colours), this module
-stays the single source of both surfaces, and every text/background pair is
-still WCAG-checked in `test_settings_theme.py`. What this branch deliberately
-revisits is D-010's light-over-dark call; the OS-drawn seams it warned about
-(title bar, messagebox) are answered by the DWM dark-title-bar attribute in
-`thoughtborne_settings` and an accepted light messagebox rarity.
+Terminal-style palette (shipped since 2026-08-22, #228, the D-010 addendum): the
+palette is the tool's own console face -- a dark blue-black page, monospace type,
+the console's light-blue brand accent (`console_ui.ACCENT`, #59C2FF) and the
+classic bright terminal status colours. The *mechanics* of D-010 are untouched:
+`clam` stays pinned (it is what makes a fully custom look possible at all --
+vista's OS-drawn chrome ignores ttk colours), this module stays the single source
+of both surfaces, and every text/background pair is still WCAG-checked in
+`test_settings_theme.py`. What #228 deliberately revisited is D-010's
+light-over-dark call; the OS-drawn seams it warned about (title bar, messagebox)
+are answered by the DWM dark-title-bar attribute in `thoughtborne_settings` and
+an accepted light messagebox rarity.
 
 Pure stdlib (tkinter/ttk/font only), so it imports off-Windows -- the tests load it
 directly, and the settings app the tool spawns runs on the tool's own venv

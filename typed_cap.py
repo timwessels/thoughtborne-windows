@@ -3,7 +3,7 @@
 keyboard.write() injects each character via Win32 SendInput without pausing; past
 an app-dependent break point the target's input queue overflows and silently drops
 ~80% of the remaining characters, in order, while reporting full success (spike
-#161, _research/2026-07_typed-insert-drops/). We do not repair this (no pacing --
+#161; the decision is D-003). We do not repair this (no pacing --
 the app drain rate is unknown and per-app); we cap the typed text below the
 observed break point and append an honest notice. Nothing is lost: the full
 transcript stays in history/ and is re-insertable via the clipboard hotkey.

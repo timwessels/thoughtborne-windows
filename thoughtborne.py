@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """
-Thoughtborne Main Application (Windows version)
+Thoughtborne -- hotkey-driven voice-to-text for Windows.
 
-This is the main entry point for the voice-to-text application.
-It orchestrates the audio recording, transcription, and text output
-using hotkey controls.
+Entry point of the tool. It wires together:
+- the global Win32 hotkeys (RegisterHotKey, event-driven, so they survive
+  sleep/wake) and the optional push-to-talk gesture (ptt_detector), polled
+  from the recording loop;
+- audio capture with its stall guards and crash-safety sidecar (audio_handler);
+- the four transcription engines (transcriber): Soniox Live, streamed while
+  you speak; the Soniox upload model; Groq Whisper Large V3 Turbo and V3;
+- parallel transcription workers feeding a sequential output queue, so
+  inserts land in dictation order (output_handler): typed, clipboard, or
+  clipboard plus Enter;
+- the retry slot for a failed recording, the startup recovery of unfinished
+  recordings, the console renderer (console_ui) and the settings app spawn
+  (thoughtborne_settings, from Ctrl+Alt+G or on first run).
 
-The application uses:
-- Multiple transcription APIs (Soniox async/Live, Groq)
-- Soniox Live (WebSocket real-time streaming) as default API at startup
-- Soniox for high-quality transcription
-- Groq Whisper Large V3 Turbo (fast) and Large V3 (higher accuracy) transcription
-- Parallel processing for multiple recordings
-- Sequential output queue for maintaining order
-- Clipboard or keyboard insertion options
-
-Windows Adaptations:
-- Uses Win32 RegisterHotKey API for event-driven hotkeys (survives sleep/wake)
-- Hotkeys use Ctrl+Alt (instead of Cmd+Control on Mac)
-- Separate recording loop thread for audio capture
+The engine at startup is the remembered last choice unless a `defaults.api`
+pin outranks it (engine_memory, D-008); the shipped default is Soniox Live.
+Windows-only by design: hotkeys, capture and insertion are Win32-bound
+(VISION.md, "Non-goals").
 """
 
 import os
@@ -553,14 +554,14 @@ def _restore_capture_thread_priority(token):
 
 
 class ThoughtborneApp:
-    """Main application class for Thoughtborne (Windows version)"""
+    """Main application class for Thoughtborne"""
 
     def __init__(self):
         """Initialize the application"""
         # Startup wall is file-only (#61/#109); only the one "starting" line
         # stays as a dim console breadcrumb ahead of the masthead.
         logger.info("=" * 60, extra=FILE_ONLY)
-        logger.info("Thoughtborne application starting (Windows version)...")
+        logger.info("Thoughtborne application starting...")
         logger.info(f"Python Version: {sys.version}", extra=FILE_ONLY)
         logger.info(f"Working directory: {os.getcwd()}", extra=FILE_ONLY)
         logger.info(f"Script directory: {SCRIPT_DIR}", extra=FILE_ONLY)
@@ -1460,12 +1461,9 @@ class ThoughtborneApp:
         if not self.audio_recorder.is_recording:
             hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
             logger.info(f"Recording started ({hotkey_display})", extra=FILE_ONLY)
-            logger.debug("on_start_recording: marker A - after info log line")
-            logger.debug("on_start_recording: marker B - before loop-alive check")
 
-            # DEBUG: Check if recording loop thread is alive
+            # Refuse to start when the recording loop is gone: nothing would consume the frames.
             if self.recording_thread and self.recording_thread.is_alive():
-                logger.debug("Recording loop thread is ALIVE")
                 # Alive is not enough: a native audio call (e.g. get_read_available)
                 # can wedge inside record_chunk() and pin the recording loop there
                 # forever, holding _stream_lock, while Layer 2 keeps the hotkeys
@@ -1482,11 +1480,10 @@ class ThoughtborneApp:
                     logger.error("The recording loop is not responding (wedged audio driver) -- please restart Thoughtborne.")
                     return
             else:
-                logger.error("Recording loop thread is DEAD!")
+                logger.error("Recording loop thread is not running -- cannot start a recording")
                 logger.error("Recording loop thread has died. Please restart the application.")
                 return
 
-            logger.debug("on_start_recording: marker C - before audio_recorder.start_recording()")
             # Start recording (this also opens the audio stream)
             if not self.audio_recorder.start_recording():
                 # The audio stream could not be opened (no device, or Windows denied
@@ -1504,7 +1501,6 @@ class ThoughtborneApp:
                         self._footer_keys(), self._prefix_for(self._footer_actions()),
                         ansi=ansi, compact=compact))
                 return
-            logger.debug("on_start_recording: marker D - audio_recorder.start_recording() returned OK")
 
             # REC strip once the mic is actually open (#109): shows the stop
             # options the user needs right now. Only the W-flow gets it -- PTT
@@ -1529,7 +1525,6 @@ class ThoughtborneApp:
                     logger.error("Failed to start live streaming session")
                     logger.warning("Live session failed to start")
                     self._active_live_transcriber = None
-            logger.debug("on_start_recording: marker E - callback complete, returning to listener message pump")
         else:
             # Already recording - check if this is a mis-trigger (keyboard library bug)
             # where a stop hotkey was pressed but start_recording was triggered instead

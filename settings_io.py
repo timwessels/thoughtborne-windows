@@ -7,7 +7,7 @@ nothing Windows-bound: it reuses the ctypes-free `hotkey_parse` layer and
 `config`'s pure constants, so `test_settings_io.py` runs on plain Python (the
 `console_ui.py` + `test_console_ui.py` house style).
 
-Write policy (the coming DECISIONS.md D-002): surgical merge, never a full
+Write policy (DECISIONS.md D-002): surgical merge, never a full
 rewrite.
   - `.env` is edited line-wise -- only the two managed keys, every other line /
     comment / blank / order preserved; an empty value is omitted so a blank field
@@ -58,8 +58,7 @@ from hotkey_parse import (
 # X11 Mod1 (0x0008) -- Windows Tk reports Alt high (0x20000 is the commonly-cited
 # value). They are module-level (not function-local) so the off-Windows test can
 # drive decode_key_event with the exact same constants the widget will, avoiding
-# drift. VERIFY HANDS-ON on Windows (#144 test issue): confirm the Alt bit, and
-# that AltGr on QWERTZ reports Control+Alt.
+# drift. (Not independently confirmed here.)
 TK_STATE_SHIFT   = 0x0001
 TK_STATE_CONTROL = 0x0004
 TK_STATE_ALT     = 0x20000
@@ -769,7 +768,7 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
     testable off-Windows with synthetic inputs -- the capture widget (Checkpoint
     2) just feeds it real `event.state` / `event.keysym` / `event.char`.
 
-    Modifiers come from the TK_STATE_* bits (verify hands-on). AltGr on QWERTZ
+    Modifiers come from the TK_STATE_* bits. AltGr on QWERTZ
     (reported as Control+Alt from the right-Alt key) types symbols like @ \\ { }
     [ ] | euro ~ -- whose keysyms are non-bindable names ('at', 'EuroSign', ...)
     that _keysym_to_token maps to None, so those presses decode to None. This is
@@ -797,10 +796,10 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
 # =============================================================================
 # presets
 # =============================================================================
-# The final researched F-key preset (Fork 2, #144). Source: the maintainer's
-# 2026-07-21 study (_temp-claudecode/tageslauf-2026-07-21/fpreset-recherche.md),
-# verified zero-warning through apply_hotkey_overrides. Schema in one line: three
-# F-keys, three families -- F8 = engine, F9 = record, F10 = deliver; a BARE key is
+# The final researched F-key preset (Fork 2, #144). From the maintainer's
+# 2026-07-21 study (local, not in the repo), verified zero-warning through
+# apply_hotkey_overrides. Schema in one line: three F-keys, three families --
+# F8 = engine, F9 = record, F10 = deliver; a BARE key is
 # the daily op (F9 records, F10 delivers), CTRL is the important sibling case
 # (cancel / send / switch engine), CTRL+ALT the rare/technical one (deliver without
 # insert / via typing). Housekeeping (open_history / open_settings /

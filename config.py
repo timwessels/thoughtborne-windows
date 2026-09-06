@@ -349,7 +349,7 @@ SONIOX_LANGUAGE_HINTS = ["de"]
 # (never sent) so an invalid value can never reach -- and be rejected by --
 # Soniox mid-session. enable_endpoint_detection stays True unconditionally
 # (already sent, transcriber.py); these only tune the detector it turns on.
-# Ranges/defaults per Soniox docs (2026-07, _research/2026-07_soniox-v5-endpointing/):
+# Ranges/defaults per the Soniox docs as of 2026-07 (dictation tuning: #122):
 #   endpoint_sensitivity              number  -1.0..1.0  default 0.0  (v5-only; lower waits longer -> dictation-friendly)
 #   endpoint_latency_adjustment_level integer 0..3       default 0    (v5-only; higher ends sentences sooner)
 #   max_endpoint_delay_ms             number  500..3000  default 2000 (v4+;   hard cap on wait after speech ends)
@@ -737,7 +737,6 @@ CLIPBOARD_RESTORE_DELAY = 0.1  # seconds
 KEY_RELEASE_DELAY = 0.05  # seconds
 
 # ===== HOTKEYS =====
-# Windows uses Ctrl+Alt instead of Cmd+Control (Mac)
 # German QWERTZ keyboard layout consideration:
 # - 'y' key is where 'z' is on US keyboards
 # Note: Avoid special characters like '#' and non-ASCII letters like 'ä' or 'ü' in

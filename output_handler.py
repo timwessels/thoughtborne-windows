@@ -1,22 +1,16 @@
 """
-Output Handler Module (Windows version)
+Output Handler Module
 
 This module manages text output and clipboard operations including:
 - Sequential text output queue management
 - Keyboard and clipboard text insertion
 - Thread-safe output coordination
-- Transcript history management
 - Send-after-insert functionality (press Enter to send messages)
 - Auto-insert toggle (process only, insert later)
 
 Windows Adaptations:
 - Uses keyboard module for keyboard.write() and keyboard.send() (text output)
-- Ctrl+V instead of Cmd+V for clipboard insertion
 - Active modifier key polling with GetAsyncKeyState via is_key_pressed() (hook-free)
-
-Classes:
-    TranscriptionTask: Data class for transcription tasks
-    OutputManager: Manages the output queue and text insertion
 """
 
 import time
@@ -281,7 +275,8 @@ def _window_class(hwnd) -> str:
 # (internal copy/cut only, v8.8); the external-clipboard case is #18118, fixed
 # upstream by a clipboard listener in 331ace4f (not yet released) — this nudge
 # stays until that ships and propagates (removal tracked in thoughtborne #71).
-# Full analysis with sources: _research/2026-06_npp-paste-gate-clipboard/.
+# The full analysis is maintainer-local; the CHANGELOG entry for #29 carries
+# the summary and the upstream reference.
 #
 # The cure N++ itself uses on window activation: SCI_SETXOFFSET triggers an
 # unconditional SCN_UPDATEUI, whose handler re-runs checkClipboard(). Setting
@@ -358,7 +353,7 @@ class _InsertOutcome:
 
 
 class OutputManager:
-    """Manages sequential text output and clipboard operations (Windows version)"""
+    """Manages sequential text output and clipboard operations"""
 
     def __init__(self, on_task_complete_callback=None):
         """
@@ -421,7 +416,7 @@ class OutputManager:
             name="OutputManager"
         )
         self.output_thread.start()
-        logger.info("Output manager initialized and started (Windows version)", extra=FILE_ONLY)
+        logger.info("Output manager initialized and started", extra=FILE_ONLY)
 
     def get_next_sequence_number(self) -> int:
         """Get the next sequence number (thread-safe)"""
@@ -495,7 +490,7 @@ class OutputManager:
 
     def _ensure_no_modifiers_pressed(self, max_wait=2.0):
         """
-        Wait until no modifier keys are pressed (Windows version)
+        Wait until no modifier keys are pressed
 
         Does NOT send any key events - only waits for the user to release naturally.
         Uses GetAsyncKeyState via is_key_pressed() to poll modifier state (hook-free).
@@ -558,7 +553,7 @@ class OutputManager:
 
     def _insert_text_via_clipboard(self, text: str) -> "_InsertOutcome":
         """
-        Insert text via clipboard with original content restoration (Windows version)
+        Insert text via clipboard with original content restoration
 
         Args:
             text: Text to insert

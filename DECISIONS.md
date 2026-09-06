@@ -808,9 +808,9 @@ on Windows builds without it), and the **combobox popdown** (a plain tk `Listbox
 dark-styled through the tk option database; only the **messagebox**, OS-drawn and
 rarely surfaced, stays light — an **accepted residual seam**, the trade the bullet
 said would need paying and that the maintainer now accepts. Maintainer-approved in the
-design session of 2026-08-22 (branch `settings-terminal-style`, #228). This reverses
-one sub-call of D-010; it is an in-entry addendum, **not** a new-D-number supersede —
-the clam / single-source / WCAG mechanics all stand.
+design session of 2026-08-22 (branch `settings-terminal-style`, commit 62c5154, #228).
+This reverses one sub-call of D-010; it is an in-entry addendum, **not** a
+new-D-number supersede — the clam / single-source / WCAG mechanics all stand.
 
 Do not reintroduce: pinning `vista` (or any native theme) for the settings app;
 styling only frames/labels while leaving OS-drawn chrome (the half-restyled
