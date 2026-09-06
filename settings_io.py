@@ -571,6 +571,44 @@ def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_load
     return None, None
 
 
+def resolve_fixed_entry_engine(*, mode_now, mode_loaded, shown_api,
+                               live_fields, stored_env):
+    """Where the fixed-mode engine selection lands when the user clicks a mode radio
+    (#207): an engine id to move the selection to, or None to leave it where it is.
+
+    A move happens only when entering fixed mode from a LOADED remember state while
+    the shown engine has no usable key. That selection is then a seed nobody
+    key-checked (the remembered engine or the built-in default), and the save right
+    after the flip pins it unconditionally, so without the move "always start with"
+    can store an engine that cannot start. The landing spot is the first keyed engine
+    in config.AVAILABLE_APIS order -- the order the #200 startup fall-through walks
+    and the #178 preselect picks from -- so the written pin names the engine the tool
+    would have started anyway.
+
+    Everything else returns None. `mode_loaded` is the file's state at load, never the
+    click path: a pin loaded from the file is the user's own deliberate state, so
+    re-entering fixed mode over it shows it unmoved, keyless or not (D-002 -- its
+    flip-away-and-back has to leave defaults.api byte-identical). A keyed shown engine
+    stays put; an all-keyless environment has nowhere to land (the save's own "no key"
+    dialog owns that case); flipping to remember never moves anything. Key-awareness
+    delegates to engine_keyed, so the move can never disagree with the radios' greying
+    (#201).
+
+    By construction a non-None return implies (mode_now, mode_loaded) ==
+    ("fixed", "remember") -- the one cell where resolve_engine_save_signal writes the
+    pin unconditionally -- so the move only ever changes WHICH engine an inevitable
+    write records, never whether an untouched save writes (D-002). Pure ->
+    off-Windows testable."""
+    if mode_now != "fixed" or mode_loaded == "fixed":
+        return None
+    if engine_keyed(shown_api, live_fields, stored_env):
+        return None
+    for api in config.AVAILABLE_APIS:
+        if engine_keyed(api, live_fields, stored_env):
+            return api
+    return None
+
+
 def resolve_ptt_save_signal(*, enabled_now, enabled_loaded):
     """The on-save push-to-talk signal for write_personal_settings' `ptt_enabled`
     (#233). `None` when the toggle still sits where it was loaded: the file's

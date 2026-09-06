@@ -155,6 +155,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ("Until then, the language chosen here is not remembered"). Repair the file while the
   window is open and the very next switch is remembered again. Save itself is unchanged:
   it still warns first and then writes the clean file, which is what it is for.
+- **"Always start with" can no longer quietly pin an engine you have no key for**
+  (#207): the startup-engine choice in the settings window opens on the engine the tool
+  would start on — which, on an install that has a key for only one of the two
+  providers, can be an engine whose key is missing. Switching from "start with the
+  engine I last switched to" over to "always start with" and saving without clicking an
+  engine then stored exactly that engine as your startup pin. Dictation kept working
+  (the tool quietly starts the first usable engine instead), but the stored pin named an
+  engine that cannot start — and since an explicit pin outranks the remembered engine,
+  `Ctrl+Alt+L` switching was no longer remembered across restarts from then on.
+  Switching to "always start with" now lands the selection on the first engine that
+  actually has a key, shown selected exactly as it will be saved. A pin that came from
+  your file is never moved: switching away and back still shows your own choice, key or
+  no key, and a save that did not touch it still leaves it byte-identical (**D-002**).
 - **The pre-release sandbox check no longer stops before it presses a key** (#191): the
   throwaway-VM verification could install Thoughtborne, start it and watch all twelve
   hotkeys register, but the last step — pressing the self-test hotkey from inside the

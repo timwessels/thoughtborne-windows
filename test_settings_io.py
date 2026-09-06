@@ -30,6 +30,12 @@ What is covered:
   - settings_io.engine_keyed (#201): the per-engine "has a usable key" predicate the
     key-aware engine control greys off -- stored vs live field per provider, a blank
     field falling back to the stored key, all-keyless, and an unknown engine id.
+  - settings_io.resolve_fixed_entry_engine (#207): the landing table for the mode
+    flip -- a remember->fixed click over a keyless seed moves the selection to the
+    first keyed engine in carousel order, while a loaded pin (whose flip-away-and-back
+    must stay byte-identical, D-002), a keyed seed and an all-keyless environment
+    never move -- plus the AST guard that _on_mode applies it with mode_loaded from
+    the frozen load state, and that _render_engine_control stays move-free.
   - the push-to-talk toggle's persistence (#233, D-002 addendum): the three-valued
     `ptt_enabled` merge -- an untouched toggle leaves the file byte-identical (a
     hand-typed invalid `enabled` included), a bool writes ONLY `enabled` so a
@@ -1223,6 +1229,101 @@ def check_engine_save_signal():
           "signal: REMOVE must never coincide with a memory write")
 
 
+# ---- fixed-mode entry move (#207) --------------------------------------------
+def check_fixed_entry_engine():
+    """resolve_fixed_entry_engine: where the fixed-mode selection lands when the user
+    clicks a mode radio (#207). It moves only when entering fixed mode from a LOADED
+    remember state over a keyless shown engine, and then onto the first keyed engine
+    in AVAILABLE_APIS order; a loaded pin never moves (its flip-away-and-back
+    round-trip has to stay byte-identical, D-002), a keyed seed stays put, and an
+    all-keyless environment has nowhere to land. The sweep at the end pins the
+    property the D-002 argument rests on: a move can only fire in the one
+    (mode_now, mode_loaded) cell whose save writes the pin unconditionally anyway,
+    and it lands on a selectable, keyed engine that is exactly what that save writes.
+    """
+    F = sio.resolve_fixed_entry_engine
+    SON, GRQ = "SONIOX_API_KEY", "GROQ_API_KEY"
+    empty = {SON: "", GRQ: ""}
+    grq_stored = {SON: "", GRQ: "g_stored"}
+
+    # The #207 gap: Groq-only, no pin loaded, the seed sitting on the keyless built-in
+    # default -> land on groq-large, the FIRST keyed engine in carousel order (the one
+    # the #200 fall-through starts and #178 preselects), never groq.
+    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
+            live_fields=empty, stored_env=grq_stored) == "groq-large",
+          "entry: a Groq-only remember->fixed flip must land on groq-large (the first "
+          "keyed engine in carousel order), not stay on the keyless seed")
+
+    # A LOADED pin is the user's own state: re-entering fixed mode over it shows it
+    # unmoved, keyless or not, so the round-trip save stays (None, None) (D-002).
+    check(F(mode_now="fixed", mode_loaded="fixed", shown_api="soniox-live",
+            live_fields=empty, stored_env=grq_stored) is None,
+          "entry: a loaded (now-keyless) pin must never be moved off -- its "
+          "flip-away-and-back round-trip has to stay byte-identical (D-002)")
+
+    # A keyed shown engine stays -- the flip inherits a working selection.
+    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
+            live_fields=empty, stored_env={SON: "s_stored", GRQ: ""}) is None,
+          "entry: a keyed shown engine must be left where it is")
+
+    # All-keyless: nowhere to land -> None, never an invented target (and never an
+    # AVAILABLE_APIS.index(None) crash in the caller).
+    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
+            live_fields=empty, stored_env=empty) is None,
+          "entry: an all-keyless environment must return None, not a bogus target")
+
+    # Flipping TO remember never moves, whatever the key state.
+    check(F(mode_now="remember", mode_loaded="remember", shown_api="soniox-live",
+            live_fields=empty, stored_env=grq_stored) is None,
+          "entry: entering remember mode must never move the selection")
+
+    # A key typed this session counts like a stored one (engine_keyed's live lane), so
+    # the flip right after entering the first key lands correctly.
+    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
+            live_fields={SON: "", GRQ: "g_typed"}, stored_env=empty) == "groq-large",
+          "entry: a Groq key typed this session must key the landing spot")
+
+    # Blank-over-stored stays keyed (mirrors engine_keyed), so a blanked Soniox field
+    # over a stored Soniox key leaves the shown engine keyed -> no move.
+    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
+            live_fields={SON: "   ", GRQ: "g"},
+            stored_env={SON: "s_stored", GRQ: ""}) is None,
+          "entry: a blanked field over a stored key keeps the shown engine keyed "
+          "(a blank never clobbers) -> no move")
+
+    # The invariant sweep: across every flip state, seed and key layout, a move can
+    # only fire in the remember->fixed cell -- the one whose save writes the pin
+    # unconditionally -- so it can change WHICH engine an inevitable write records,
+    # never whether an untouched save writes at all (D-002). And whatever it returns
+    # must be selectable, keyed, and exactly what that save then writes.
+    envs = (empty, grq_stored, {SON: "s", GRQ: ""}, {SON: "s", GRQ: "g"})
+    for mn in ("fixed", "remember"):
+        for ml in ("fixed", "remember"):
+            for shown in config.AVAILABLE_APIS:
+                for stored in envs:
+                    got = F(mode_now=mn, mode_loaded=ml, shown_api=shown,
+                            live_fields=empty, stored_env=stored)
+                    if got is None:
+                        continue
+                    check((mn, ml) == ("fixed", "remember"),
+                          f"entry: a move fired outside the remember->fixed flip: "
+                          f"{(mn, ml)} -- only that cell's save writes the pin anyway")
+                    check(got in config.AVAILABLE_APIS,
+                          f"entry: {got!r} is not a selectable engine id -- the app "
+                          "indexes AVAILABLE_APIS with it")
+                    check(sio.engine_keyed(got, empty, stored),
+                          f"entry: landed on {got!r}, which has no key -- pinning "
+                          "exactly that is what #207 is about")
+                    check(sio.resolve_engine_save_signal(
+                              mode_now=mn, mode_loaded=ml, engine_now=got,
+                              engine_loaded=shown,
+                              remember_display_now=config.BUILTIN_DEFAULT_API,
+                              remember_display_loaded=config.BUILTIN_DEFAULT_API)
+                          == (got, None),
+                          f"entry: the moved engine {got!r} is not what the flip's save "
+                          "writes -- the shown selection and the written pin must agree")
+
+
 # ---- settings_io push_to_talk.enabled merge (#233, D-002) --------------------
 def check_ptt_toggle(tmp):
     """The three-valued `ptt_enabled` contract (#233, D-002 addendum). `None` means
@@ -1575,6 +1676,133 @@ def check_lang_gate_wiring():
               "language and the example path")
 
 
+# ---- the fixed-mode entry move's wiring (#207) -------------------------------
+def check_mode_flip_wiring():
+    """That _on_mode really applies resolve_fixed_entry_engine's verdict to
+    engine_index, pinned statically for the same reason as check_ptt_wiring: the table
+    above is decoration unless the mode click uses it, and feeding the resolver
+    `mode_var` instead of `_mode_loaded` -- the click path instead of the loaded state
+    -- would move a loaded pin on flip-away-and-back and rewrite it on save (D-002).
+    Plus the other half of that guarantee: _render_engine_control must stay MOVE-free.
+    "A programmatic set is not a pick" is what keeps an untouched save byte-identical,
+    which is exactly why #207 puts the move in the click handler alone. And one crash
+    lane rather than a D-002 one: the move has to stay behind a test on the resolver's
+    verdict, since all-keyless -- the first-run wizard's normal state -- resolves to
+    None."""
+    methods = _settings_app_methods("mode-flip-wiring")
+    if not methods:
+        return
+    on_mode = methods.get("_on_mode")
+    if on_mode is None:
+        failures.append("mode-flip-wiring: SettingsApp._on_mode not found -- the mode "
+                        "handler was renamed and this guard no longer guards anything")
+        return
+
+    calls = _calls_to(on_mode, "resolve_fixed_entry_engine")
+    check(len(calls) == 1,
+          f"mode-flip-wiring: expected exactly one resolve_fixed_entry_engine call in "
+          f"_on_mode, found {len(calls)} -- without it a remember->fixed flip pins "
+          "whatever keyless engine the seed happened to show (#207)")
+    for call in calls:
+        passed = {k.arg: k.value for k in call.keywords if k.arg}
+        ml = passed.get("mode_loaded")
+        check(isinstance(ml, ast.Attribute) and ml.attr == "_mode_loaded"
+              and isinstance(ml.value, ast.Name) and ml.value.id == "self",
+              "mode-flip-wiring: the resolver must be fed mode_loaded=self._mode_loaded, "
+              f"not {ast.unparse(ml) if ml is not None else '<missing>'} -- the CLICK "
+              "path (mode_var) would move a loaded pin on flip-away-and-back and let "
+              "the save rewrite it (D-002)")
+        # The mirror image, and the one the checks below cannot notice: mode_now is the
+        # live click path. Hand it anything else -- most plausibly self._mode_loaded,
+        # once someone "unifies" the two arguments -- and the resolver's first clause
+        # answers None to every click (either mode_now is not "fixed", or mode_loaded
+        # is), so the move never fires again while everything else here stays green:
+        # the call is present, its result is assigned, engine_index is set.
+        mn = passed.get("mode_now")
+        check(isinstance(mn, ast.Call) and getattr(mn.func, "attr", None) == "get"
+              and isinstance(mn.func.value, ast.Attribute)
+              and mn.func.value.attr == "mode_var"
+              and isinstance(mn.func.value.value, ast.Name)
+              and mn.func.value.value.id == "self",
+              "mode-flip-wiring: the resolver must be fed mode_now=self.mode_var.get(), "
+              f"not {ast.unparse(mn) if mn is not None else '<missing>'} -- only the "
+              "live click path can tell the resolver the user is ENTERING fixed mode; "
+              "fed the loaded state instead it returns None on every click and #207's "
+              "move dies in silence (#207)")
+
+    resolved = set()
+    for node in ast.walk(on_mode):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and getattr(node.value.func, "attr", None) == "resolve_fixed_entry_engine"):
+            resolved |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+    check(resolved,
+          "mode-flip-wiring: _on_mode never assigns resolve_fixed_entry_engine(...) to a "
+          "local -- its None case (all-keyless) has to be handled before the result can "
+          "index AVAILABLE_APIS (#207)")
+    moves = []
+    for node in ast.walk(on_mode):
+        if not isinstance(node, ast.Assign):
+            continue
+        for t in node.targets:
+            if (isinstance(t, ast.Attribute) and t.attr == "engine_index"
+                    and isinstance(t.value, ast.Name) and t.value.id == "self"
+                    and {n.id for n in ast.walk(node.value)
+                         if isinstance(n, ast.Name)} & resolved):
+                moves.append(node)
+    check(moves,
+          "mode-flip-wiring: _on_mode never assigns self.engine_index from the "
+          "resolver's result -- the decision table above then guards nothing (#207)")
+
+    # ...and that move stays behind a decision on the resolver's local. The verdict is
+    # None whenever there is nothing keyed to land on -- the all-keyless environment a
+    # first-run wizard normally starts in -- so an unguarded
+    # AVAILABLE_APIS.index(target) raises ValueError on the very first fixed click,
+    # with every check above still green. Both guard shapes count (the assignment
+    # nested under an `if <local>...`, and the `if <local> is None: return` clause a
+    # refactor might prefer); what may not vanish is the decision itself.
+    parents = {}
+    for node in ast.walk(on_mode):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    def _reads_local(node):
+        return bool({n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & resolved)
+
+    def _guarded(assign):
+        node = parents.get(assign)
+        while node is not None:          # nested under a test on the local
+            if isinstance(node, ast.If) and _reads_local(node.test):
+                return True
+            node = parents.get(node)
+        return any(isinstance(n, ast.If) and _reads_local(n.test)   # or a guard clause
+                   and any(isinstance(s, (ast.Return, ast.Raise)) for s in n.body)
+                   and (n.end_lineno or n.lineno) <= assign.lineno
+                   for n in ast.walk(on_mode))
+
+    check(all(_guarded(m) for m in moves),
+          "mode-flip-wiring: _on_mode assigns self.engine_index from the resolver's "
+          "result without ever testing that result -- an all-keyless environment "
+          "(the first-run wizard's normal state) resolves to None, and "
+          "AVAILABLE_APIS.index(None) then raises ValueError on the first click into "
+          "fixed mode (#207)")
+
+    render = methods.get("_render_engine_control")
+    if render is None:
+        failures.append("mode-flip-wiring: SettingsApp._render_engine_control not found "
+                        "-- the engine renderer was renamed and the move-free half of "
+                        "this guard no longer guards anything")
+        return
+    dirty = sorted({t.attr for node in ast.walk(render) if isinstance(node, ast.Assign)
+                    for t in node.targets
+                    if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+                    and t.value.id == "self"
+                    and t.attr in ("engine_index", "_engine_user_chose")})
+    check(not dirty and not _calls_to(render, "resolve_fixed_entry_engine"),
+          f"mode-flip-wiring: _render_engine_control gained a selection side effect "
+          f"({dirty or 'a resolve_fixed_entry_engine call'}) -- the renderer must stay "
+          "move-free so a programmatic set never counts as a pick (D-002)")
+
+
 # ---- save-action decision (#202) ---------------------------------------------
 def check_save_action():
     """resolve_save_action across the 4 combinations of (first_run, has_key). Each
@@ -1692,10 +1920,12 @@ def main():
     check_preselect()
     check_engine_keyed()
     check_engine_save_signal()
+    check_fixed_entry_engine()
     check_ptt_read()
     check_ptt_save_signal()
     check_ptt_wiring()
     check_lang_gate_wiring()
+    check_mode_flip_wiring()
     check_save_action()
 
     if SHOW:

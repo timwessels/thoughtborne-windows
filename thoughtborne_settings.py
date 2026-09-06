@@ -1504,6 +1504,18 @@ class SettingsApp:
         # preselect from moving the remembered engine under the user, then re-render
         # so the dropdown enables/disables and the remember label reflects the mode.
         self._engine_user_chose = True
+        # Entering fixed mode with no pin loaded must not inherit a keyless seed as the
+        # pin-to-be (#207): land on the first keyed engine instead and let that count as
+        # the pick it is. Only here, on the explicit mode click -- the renderer stays
+        # free of selection side effects (D-002) -- and the resolver gets _mode_loaded
+        # (the file's state, never the click path), which is what keeps a loaded pin
+        # unmoved when the user flips away and back.
+        target = settings_io.resolve_fixed_entry_engine(
+            mode_now=self.mode_var.get(), mode_loaded=self._mode_loaded,
+            shown_api=config.AVAILABLE_APIS[self.engine_index],
+            live_fields=self._live_env(), stored_env=self._stored_env)
+        if target is not None:
+            self.engine_index = config.AVAILABLE_APIS.index(target)
         self._render_engine_control()
 
     def _maybe_preselect_engine(self):
