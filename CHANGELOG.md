@@ -75,6 +75,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The three documents a reader meets first are now shaped to be read** (#243). `AGENTS.md`'s
+  verification ladder was a single 24,000-character line — over half the file, and tens of kilobytes of diff
+  for a one-word edit; it is now a short paragraph plus a table with one row per test driver (file,
+  what it covers, its flags), leaving the detail where it is already maintained, in the drivers' own
+  docstrings. Both released blocks of this changelog now open with a short **Highlights** list, so
+  "what changed for me" is answerable without reading 114 detailed entries — purely additive, no
+  existing entry touched. And `DECISIONS.md` gains an index table of all fifteen decisions with a
+  status column, which is where a later amendment — a retired entry, one partly reversed by an
+  addendum — becomes visible at a glance instead of only inside the entry; its how-to-use note now
+  says what the file is for: only genuinely contestable calls belong in it.
 - **The README now shows the tool and says how it is built.** The empty screenshot slot under
   the intro holds the terminal picture from the website — the same file, referenced across, so
   repo and site cannot drift apart — and the settings section shows the Provider & API key tab.
@@ -257,6 +267,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0-rc2] - 2026-08-23
 
+Release candidate for 1.1.0 and the recommended release — it supersedes 1.0.0 in every respect.
+
+Highlights:
+
+- A guided one-line installer: a per-user install, an entry under **Installed apps**, and a GUI
+  uninstaller that keeps recordings, transcripts and your key by default (#76, #209).
+- A settings & onboarding window in the console's terminal-dark look, opened with `Ctrl+Alt+G`,
+  with a first-run wizard for the provider and the API key (#144, #228).
+- The engine you last switched to with `Ctrl+Alt+L` is remembered and reopened on the next start (#193).
+- A key-aware console lineup — engines without a key render dim — and a keyless start that stays
+  open as a shop window instead of exiting (#200).
+- The self-test moves to `Ctrl+Alt+T` and ships a license-free, AI-generated voice clip (#211, D-012).
+- Audio stall and deadlock guards, a verified paste retry, and failure panels that name the cause
+  (#128, #225, #159).
+- The `soniox` upload slot is async-v5 only; the legacy V2 gRPC path is gone (#212).
+
 ### Added
 
 - **The installer is now documented where users look for it** (#76): both READMEs open their Installation section with the guided setup — the PowerShell one-liner, the cmd form for anyone unsure which console is open, and the download-and-double-click `thoughtborne.zip` route — with the manual uv, agent, and pip routes kept below as the alternatives for a git clone. The notes that a first-time installer actually needs ride along: the ZIP security dialog whose highlighted default button is **Cancel**, the ZIP lane needing internet because it fetches the release itself, the warning not to double-click `Thoughtborne.bat` out of the download folder, the managed-device group-policy case, Smart App Control blocking unsigned scripts (with the honest catch that switching it back on requires an up-to-date Windows 11 and optional diagnostic data), updating by re-running the one-liner, and moving over from an existing git clone. Uninstalling is documented for the first time — **Settings > Installed apps > Thoughtborne > Uninstall**, keeping recordings, transcripts and the key unless the opt-in box is ticked (#209, D-011). `llms-install.md` gains a "where this fits" frame naming itself the clone-path guide, so an agent on a fresh machine sends the user down the one-liner instead. These texts ship in this release commit deliberately: the `releases/latest/download/…` URLs they name resolve only once a non-prerelease with both assets exists (D-006).
@@ -387,6 +413,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-06-12
 
 First public release.
+
+Highlights:
+
+- Four switchable transcription engines on `Ctrl+Alt+L` — Soniox Live, the hybrid Soniox upload
+  slot, Groq and Groq Large — down from six (#3, #31, #36).
+- A uv-first install: `Thoughtborne.bat` runs `uv run thoughtborne.py`, a committed lockfile pins the
+  dependencies, and a compatible Python is fetched when none is installed (#45).
+- `Ctrl+Alt+R` re-transcribes the last failed recording from the archive instead of losing it (#24).
+- Clipboard insertion survives a non-text clipboard and Notepad++'s stale paste gate — the two ways
+  a dictation used to vanish on its way to the cursor (#23, #29).
+- A rejected API key now says so in one plain line, and the engine carousel skips past engines whose
+  key is missing instead of sticking on them (#10, #32, #40).
+- Selecting text in the console window no longer freezes the hotkey listener (#11).
+- Spoken fillers ("ähm"/"äh") are filtered on the Soniox upload path, so a transcript reads as
+  written rather than as spoken (#31).
+- Live capture drops to 16 kHz mono — the same recognition quality at roughly a third of the upload
+  bandwidth (#2).
 
 ### Removed
 

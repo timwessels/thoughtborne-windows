@@ -9,8 +9,29 @@ instead of re-deriving it.
 issue text included. An issue that touches a recorded decision cites it
 ("respects D-001" or "proposes superseding D-001"). Superseding an entry needs
 the maintainer's okay; when it happens, mark the old entry "Superseded by D-NNN"
-rather than deleting it. Keep this file small — only genuinely contestable calls
-belong here, not every design detail.
+rather than deleting it. Only genuinely contestable calls belong here, not every
+design detail.
+
+**Index.** The status column carries the amendment state — what a later addendum
+extended, narrowed, reversed or retired. The entries themselves stay the detail.
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| D-001 | Untranscribed-recording recovery: remind once, keep it retryable | Active; extended 2026-07-22 (#138/#159) and 2026-08-15 (#179) |
+| D-002 | Settings app: how it writes config, and when the tool sees changes | Active; the 2026-08-16 addenda drop the `defaults.api` diff for this surface (#198) and narrow the no-coordination clause (#202); extended 2026-08-25 (#233) |
+| D-003 | Typed inserts are capped at 4,000 characters, not repaired | Active |
+| D-004 | A second instance refuses rather than running deaf | Active |
+| D-005 | Settings-app launcher: venv-first (probed), system Python is the rescue lane | Retired 2026-08-21 by D-014 (#223) with the standalone lane; the stdlib-only constraint on the settings-app import chain still holds |
+| D-006 | Release assets: two fixed-name files, the ZIP is `git archive` of the tag | Active |
+| D-007 | In-place update never overwrites the running `setup.bat` | Active |
+| D-008 | Startup engine: an explicit `defaults.api` outranks the remembered one | Active; extended 2026-08-16 (#198); the built-in-default `(default)` marker and the fallback note retired by #200, a distinct active-pin tag added 2026-08-21 (#219); precedence untouched |
+| D-009 | Settings app: one window, focus don't refuse; ignore extends to pending inserts | Active; focus remedy strengthened 2026-08-16 (#203); narrowed 2026-08-21 (#217) — the recording-active ignore is gone |
+| D-010 | Settings app leaves the native ttk theme for `clam` + an explicit style module | Active, partly reversed — the light-over-dark call reversed by the 2026-08-22 addendum (#228); the clam / single-source / WCAG mechanics stand |
+| D-011 | Uninstaller keeps user data by default; the silent lane can never delete it | Active |
+| D-012 | The self-test default is `Ctrl+Alt+T`; the umlaut lane stays for overrides | Active |
+| D-013 | In-place updates are replace-only; orphaned files from an older release survive | Active |
+| D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated. Retires D-005 |
+| D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
 
 ---
 
