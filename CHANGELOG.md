@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stored, the save restarts the tool so the change takes effect at once. The merge, the
   boolean-only read the toggle displays from, and the pure save-signal table are covered
   in `test_settings_io.py`.
+- **The settings window can no longer fail without a trace** (#240): it runs with every
+  console stream discarded — that is what keeps it windowless — so until now an error
+  inside the window left a half-updated dialog and no record, and an error before the
+  window appeared meant `Ctrl+Alt+G` visibly did nothing while `thoughtborne.log` said the
+  app had opened. Every unhandled error now lands in that log as a `[SETTINGS] error:`
+  line with its full traceback: inside a running window the error is recorded and the
+  window stays usable, and before the window appears it is recorded instead of vanishing
+  as a silent no-op. Import-time configuration warnings — a damaged `.env` or
+  `personal_settings.json` — are written there too when the window opens, so the log of
+  the surface that repairs them names what needs repairing. The three log lines the
+  window already wrote now go through one shared, guarded helper, unchanged in wording
+  (`settings_visibility.py`, covered by `test_settings_visibility.py` down to a deliberate
+  crash in the real window). Respects **D-009**.
 
 ### Changed
 

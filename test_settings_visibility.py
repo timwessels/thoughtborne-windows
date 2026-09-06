@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Off-Windows verification of the pure settings-visibility helpers (#203).
+"""Off-Windows verification of the settings-visibility helpers (#203) and, since #240,
+of the settings app's `[SETTINGS]` log lane.
 
-`settings_visibility` holds the two tkinter-free cores the #203 fix extracted from
-`thoughtborne_settings.py` so they can be checked on plain Python, without a display
-or Windows:
+`settings_visibility` holds the six tkinter-free helpers pulled out of
+`thoughtborne_settings.py` so they can be checked on plain Python, without a display or
+Windows: three #203 cores -- the `wrap_length` formula and the two below -- plus, since
+#240, three log-lane helpers described further down, one of which does IO. The two this
+driver leads with:
 
   - `scrollbar_should_show(lo, hi)`: the #180 scroll-canvas auto-hide decision. The
     bar shows exactly when the body overflows -- i.e. NOT when the whole content fits
@@ -66,15 +69,32 @@ which is both the dead guard against an over-broad gate and the proof that the c
 is probed fresh per write rather than latched at load. It runs against a tempdir-patched
 `config.SCRIPT_DIR`; unlike the read-only display checks above, this one WRITES.
 
+Since #240 the same module also owns the settings app's whole `[SETTINGS]` log lane, and
+this driver owns its checks: `format_settings_line` (asserted BYTE-IDENTICAL to the
+literal f-strings the startup and focus-existing lines used to be, so no consumer -- the
+sandbox needle, a human grep -- sees a changed line), `format_error_block` (lead line
+plus indented traceback, with a never-raise sweep, since it runs inside the crash path)
+and the guarded `append_log_line` sink. Three AST guards on `thoughtborne_settings.py`
+pin what those helpers are worth in the app: no `open(config.LOG_FILE ...)` literal is
+left, `__init__` still hangs the handler on the root, and `main()`'s body is still one
+`try` that logs and re-raises. Two more display-gated lanes drive the real thing: a
+deliberate exception in an `after_idle` callback and one before `mainloop()`. Like the
+#239 lane they WRITE, so both patch `config.LOG_FILE` to a tempdir and assert the
+checkout's own `thoughtborne.log` came out byte-identical.
+
     python3 test_settings_visibility.py          # verify, exit non-zero on any violation
     python3 test_settings_visibility.py --show   # also print sample visible: lines
 """
+import ast
+import io
 import json
 import sys
 import tempfile
 from pathlib import Path
 
 import settings_visibility as sv
+
+APP_SRC = Path(__file__).resolve().parent / "thoughtborne_settings.py"
 
 SHOW = "--show" in sys.argv
 
@@ -157,6 +177,282 @@ def test_format_visible_line_partial():
     check("viewable=0" in body, f"viewable=0 must render as 0, not '?': {body!r}")
     check("foreground=N" in body, f"foreground=N must render: {body!r}")
     check("rect=?" in body, f"missing rect should render '?': {body!r}")
+
+
+def test_format_settings_line_parity():
+    # The #240 helper must render the two lines it replaced BYTE-IDENTICALLY: the
+    # sandbox harness greps for `[SETTINGS] visible:`, the maintainer greps for the
+    # others, and a silently reshaped line would break both without failing anything.
+    # So build each line twice -- once through the helper, once through the literal
+    # f-string that stood at the call site before #240 -- and compare.
+    stamp = "2026-09-06 12:00:00"
+    parts = ["spawn->entry=0.31s", "import=0.12s", "tk.Tk=0.05s", "size=0.01s",
+             "construct=0.44s", "first-map=0.02s", "total=0.95s"]
+    mode = "settings"
+    legacy_startup = f"{stamp} [SETTINGS] startup: {' '.join(parts)} mode={mode}\n"
+    helper_startup = sv.format_settings_line(stamp, "startup",
+                                             f"{' '.join(parts)} mode={mode}")
+    check(helper_startup == legacy_startup,
+          f"the startup line changed shape: helper gave {helper_startup!r}, "
+          f"the pre-#240 literal gave {legacy_startup!r}")
+
+    outcome = "focused"
+    legacy_focus = f"{stamp} [SETTINGS] focus-existing: {outcome}\n"
+    check(sv.format_settings_line(stamp, "focus-existing", outcome) == legacy_focus,
+          "the focus-existing line changed shape: helper gave "
+          f"{sv.format_settings_line(stamp, 'focus-existing', outcome)!r}, the pre-#240 "
+          f"literal gave {legacy_focus!r}")
+
+    # A record is ONE greppable line: a body carrying newlines (an exception message,
+    # an import warning quoting one) must not continue below as timestamp-less text
+    # that reads like a record of its own.
+    multi = sv.format_settings_line(stamp, "import-warning",
+                                    "broken .env\nsecond line\r\nthird")
+    check(multi.count("\n") == 1 and multi.endswith("\n"),
+          f"a multi-line body was not flattened to one record: {multi!r}")
+    check("\r" not in multi, f"a carriage return survived into the log line: {multi!r}")
+    for token in ("broken", ".env", "second", "third"):
+        check(token in multi, f"flattening dropped {token!r}: {multi!r}")
+
+
+def test_format_error_block():
+    # The crash record itself (#240): a lead line in the existing [SETTINGS] shape that
+    # stands alone even if log rotation tears the block apart, then the traceback with
+    # every continuation line indented -- so no continuation can be mistaken for a
+    # record of its own, and a timestamp grep stays clean.
+    def _raiser():
+        raise ValueError("Grüße from the callback\nwith a second line")
+
+    try:
+        _raiser()
+    except ValueError:
+        block = sv.format_error_block("2026-09-06 12:00:00", "callback", *sys.exc_info())
+
+    lines = block.split("\n")[:-1]          # the block ends with exactly one newline
+    check(block.endswith("\n") and not block.endswith("\n\n"),
+          f"the block must end with exactly one newline: {block[-40:]!r}")
+    check("\r" not in block, "no carriage returns in the log block")
+    check(lines[0].startswith("2026-09-06 12:00:00 [SETTINGS] error: callback: "
+                              "ValueError: "),
+          f"lead line has the wrong shape: {lines[0]!r}")
+    check("Grüße" in lines[0], f"the message must survive into the lead: {lines[0]!r}")
+    check(len(lines) > 1, "no traceback lines were rendered")
+    for ln in lines[1:]:
+        check(ln.startswith("    "),
+              f"a traceback continuation line is not indented: {ln!r}")
+    check(any("_raiser" in ln for ln in lines[1:]),
+          f"the raising function is missing from the traceback: {block!r}")
+    check(any("Traceback (most recent call last)" in ln for ln in lines[1:]),
+          f"no traceback header in the block: {block!r}")
+    # The full multi-line message is still there, in the traceback -- the lead only
+    # flattens its copy of it.
+    check("with a second line" in block,
+          f"the message's second line is missing from the block: {block!r}")
+
+
+def test_format_error_block_never_raises():
+    # It runs inside the crash path, where a second exception would be the end of the
+    # story -- so it must return a string for anything at all, the fallback branch
+    # included.
+    class Unprintable(Exception):
+        def __str__(self):
+            raise RuntimeError("__str__ refuses")
+
+    cases = [
+        ("no exception at all", (None, None, None)),
+        ("not an exception", ("boom", object(), 42)),
+        ("type without traceback", (ValueError, ValueError("plain"), None)),
+    ]
+    try:
+        raise Unprintable()
+    except Unprintable:
+        cases.append(("__str__ raises", sys.exc_info()))
+
+    for label, (exc, val, tb) in cases:
+        try:
+            out = sv.format_error_block("2026-09-06 12:00:00", "callback", exc, val, tb)
+        except Exception as e:
+            failures.append(f"format_error_block raised on {label}: "
+                            f"{type(e).__name__}: {e}")
+            continue
+        check(isinstance(out, str) and out.endswith("\n"),
+              f"{label}: expected a newline-terminated string, got {out!r}")
+        check(out.startswith("2026-09-06 12:00:00 [SETTINGS] error: callback: "),
+              f"{label}: the lead must keep its shape: {out.splitlines()[:1]}")
+    # The fallback branch really is reachable and really is taken (the tb=42 case).
+    fallback = sv.format_error_block("2026-09-06 12:00:00", "main", "boom", object(), 42)
+    check("unformattable exception" in fallback,
+          f"a hopeless input should render the fallback line, got {fallback!r}")
+
+
+def test_append_log_line():
+    # The one sink every settings-side log write goes through: it appends, and it
+    # NEVER raises -- instrumentation must not cost the app, least of all in the crash
+    # lane. It takes the path as a parameter (no config import), which is what lets
+    # this run against a tempdir.
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        log = tmp / "thoughtborne.log"
+        check(sv.append_log_line(log, "first\n") is True, "a fresh file should be written")
+        check(sv.append_log_line(log, "zweite Grüße\n") is True, "a second write appends")
+        check(log.read_text(encoding="utf-8") == "first\nzweite Grüße\n",
+              f"appends must accumulate utf-8-correctly: "
+              f"{log.read_text(encoding='utf-8')!r}")
+
+        # A lone surrogate (what a mangled Tcl message can carry) costs a character,
+        # never the line -- that is what errors='backslashreplace' buys.
+        check(sv.append_log_line(log, "surrogate \ud800 here\n") is True,
+              "an unencodable character must not cost the line")
+        check("surrogate" in log.read_text(encoding="utf-8"),
+              "the surrogate line is missing from the log")
+
+        # Every plausible fault returns False instead of raising.
+        for label, path in (("missing parent directory", tmp / "nope" / "t.log"),
+                            ("parent is a file", log / "t.log"),
+                            ("path is a directory", tmp)):
+            try:
+                got = sv.append_log_line(path, "x\n")
+            except Exception as e:
+                failures.append(f"append_log_line raised on {label}: "
+                                f"{type(e).__name__}: {e}")
+                continue
+            check(got is False, f"{label}: expected False, got {got!r}")
+
+
+def _app_tree(prefix):
+    """thoughtborne_settings.py as a syntax tree, or None after recording a failure.
+    The app imports tkinter at module level and cannot be imported from this ladder, so
+    its call sites are checked on the source -- as a tree rather than as text, the idiom
+    of test_settings_io.py's guards, so reflowing a call proves nothing while a real
+    regression still goes red."""
+    try:
+        return ast.parse(APP_SRC.read_text(encoding="utf-8"))
+    except Exception as e:
+        failures.append(f"{prefix}: could not parse thoughtborne_settings.py: "
+                        f"{type(e).__name__}: {e}")
+        return None
+
+
+def _method(tree, class_name, method_name, prefix):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for n in node.body:
+                if isinstance(n, ast.FunctionDef) and n.name == method_name:
+                    return n
+    failures.append(f"{prefix}: {class_name}.{method_name} not found -- it was renamed "
+                    f"and this guard no longer guards anything")
+    return None
+
+
+def _function(tree, name, prefix):
+    for n in tree.body:
+        if isinstance(n, ast.FunctionDef) and n.name == name:
+            return n
+    failures.append(f"{prefix}: module-level {name}() not found -- this guard no longer "
+                    f"guards anything")
+    return None
+
+
+def _calls_to(node, name):
+    """Every `<something>.name(...)` call inside one syntax tree."""
+    return [c for c in ast.walk(node) if isinstance(c, ast.Call)
+            and getattr(c.func, "attr", None) == name]
+
+
+def test_log_sink_source_guards():
+    # What the helpers are worth depends on the app actually using them, and the GUI is
+    # hands-on only -- so these three properties are pinned statically (#240).
+    tree = _app_tree("log-sink guards")
+    if tree is None:
+        return
+
+    # (1) Not a fourth open(config.LOG_FILE ...) literal -- none at all. Every
+    # settings-side write goes through the guarded sink, which is also the only reason
+    # the ladder can point the writes at a tempdir.
+    stray = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "open"):
+            for arg in node.args:
+                if any(isinstance(s, ast.Attribute) and s.attr == "LOG_FILE"
+                       for s in ast.walk(arg)):
+                    stray.append(getattr(node, "lineno", "?"))
+    check(not stray,
+          f"thoughtborne_settings.py still opens config.LOG_FILE directly (line(s) "
+          f"{stray}) -- every settings-side log write must go through "
+          "settings_visibility.append_log_line (#240)")
+
+    # (2) The handler is hung on the Tk root in __init__, and the counter it reads is
+    # initialized BEFORE that -- wiring first would leave a window in which the very
+    # first callback exception dies on an AttributeError inside the crash handler.
+    init = _method(tree, "SettingsApp", "__init__", "log-sink guards")
+    if init is not None:
+        wiring = [n for n in ast.walk(init) if isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Attribute)
+                          and t.attr == "report_callback_exception"
+                          for t in n.targets)]
+        check(wiring,
+              "SettingsApp.__init__ no longer assigns root.report_callback_exception -- "
+              "callback exceptions go back to Tk's stderr default, i.e. DEVNULL (#240)")
+        counter = [n for n in ast.walk(init) if isinstance(n, ast.Assign)
+                   and any(isinstance(t, ast.Attribute) and t.attr == "_error_log_count"
+                           for t in n.targets)]
+        check(counter, "SettingsApp.__init__ never initializes _error_log_count -- the "
+                       "flood cap the handler reads would raise inside the crash path")
+        if wiring and counter:
+            check(min(n.lineno for n in counter) < min(n.lineno for n in wiring),
+                  "_error_log_count is initialized AFTER the handler is wired up -- a "
+                  "callback exception in between would fault inside the handler (#240)")
+    handler = _method(tree, "SettingsApp", "_report_callback_exception",
+                      "log-sink guards")
+    if handler is not None:
+        check(_calls_to(handler, "format_error_block")
+              and _calls_to(handler, "append_log_line"),
+              "SettingsApp._report_callback_exception no longer writes a block through "
+              "the sink -- the callback lane is silent again (#240)")
+
+    # (3) main() is ONE try that logs and re-raises. A statement drifting out of the
+    # wrap is a hole in exactly the lane #240 closed, so the guard pins the shape, not
+    # just the presence of a try.
+    fn = _function(tree, "main", "log-sink guards")
+    if fn is None:
+        return
+    body = list(fn.body)
+    if (body and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)):
+        body = body[1:]                       # a docstring may lead, nothing else
+    check(len(body) == 1 and isinstance(body[0], ast.Try),
+          f"main()'s body is not a single try/except ({len(body)} top-level "
+          "statement(s)) -- whatever sits outside the wrap fails silently again (#240)")
+    if not (len(body) == 1 and isinstance(body[0], ast.Try)):
+        return
+    wrap = body[0]
+    broad = [h for h in wrap.handlers
+             if isinstance(h.type, ast.Name) and h.type.id == "Exception"]
+    check(broad, "main()'s wrap does not catch Exception -- and it must stay Exception, "
+                 "not BaseException: the focus-existing sys.exit(0) is a SystemExit and "
+                 "must pass through without an error: line (#240)")
+    for h in broad:
+        check(_calls_to(h, "format_error_block") and _calls_to(h, "append_log_line"),
+              "main()'s except handler does not write the error block through the sink "
+              "-- a failure before mainloop() is a silent no-op again (#240)")
+        check(any(isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(h)),
+              "main()'s except handler does not end in a bare `raise` -- re-raising is "
+              "what keeps the console start's stderr traceback and non-zero exit (#240)")
+
+    # (4) The import-warning replay: config collects those instead of logging them
+    # (#206/#238), and its logger-based replay would land on stderr in this process.
+    replays = [n for n in ast.walk(fn) if isinstance(n, ast.For)
+               and isinstance(n.iter, ast.Attribute) and n.iter.attr == "IMPORT_WARNINGS"]
+    check(replays,
+          "main() no longer replays config.IMPORT_WARNINGS -- a broken .env or "
+          "personal_settings.json leaves no trace in the log of the very window that "
+          "repairs it (#240)")
+    for loop in replays:
+        check(_calls_to(loop, "append_log_line"),
+              "the IMPORT_WARNINGS replay does not go through append_log_line -- "
+              "config.replay_import_warnings() would end on stderr here, i.e. DEVNULL")
 
 
 def test_storm_guards_with_display():
@@ -672,6 +968,250 @@ def test_language_toggle_gate_with_display():
             pass
 
 
+def test_callback_error_log_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. Acceptance bullet 1 of #240, against the REAL wiring: an exception raised
+    # inside a widget callback must land in thoughtborne.log with its traceback, and the
+    # window must stay usable afterwards. Nothing about that can be proven from the
+    # helpers alone -- it hangs on __init__ pointing Tk's report_callback_exception at
+    # the handler, and on Tk's own callback boundary swallowing the exception.
+    #
+    # This check WRITES: config.LOG_FILE is patched to a tempdir before the app is
+    # built and restored in finally, and the checkout's own log is compared byte for
+    # byte at the end. (config.LOG_FILE is computed from SCRIPT_DIR at import, so
+    # patching SCRIPT_DIR -- the #239 lane's idiom -- would NOT move the log.)
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped callback-error-log check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped callback-error-log check: no display)")
+        return
+
+    try:
+        import config
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped callback-error-log check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _log_file = config.LOG_FILE
+    _stderr = sys.stderr
+    checkout_log = Path(_log_file)
+    checkout_before = checkout_log.read_bytes() if checkout_log.exists() else None
+    try:
+        # A modal showerror from __init__ (unreadable personal_settings.json) would hang
+        # a headless run with nobody to dismiss it; neutralized for the build.
+        ts.messagebox.showerror = lambda *a, **k: None
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "thoughtborne.log"
+            config.LOG_FILE = log
+
+            root.geometry("800x860")
+            ts.SettingsApp(root, first_run=False)
+            root.update()
+
+            state = {"benign": False}
+
+            def boom():
+                raise ValueError("deliberate-240-callback")
+
+            def benign():
+                state["benign"] = True
+
+            # The stock handler the app delegates to prints to stderr; captured here so
+            # a passing run stays quiet AND the delegation itself becomes checkable.
+            captured = io.StringIO()
+            escaped = None
+            sys.stderr = captured
+            try:
+                root.after_idle(boom)
+                root.update()
+            except BaseException as e:     # the point of the check: none should escape
+                escaped = e
+            finally:
+                sys.stderr = _stderr
+
+            check(escaped is None,
+                  f"the callback exception escaped update() as "
+                  f"{type(escaped).__name__ if escaped else None} -- the handler must "
+                  "consume it, not re-raise into the mainloop (#240)")
+            text = log.read_text(encoding="utf-8") if log.exists() else ""
+            lines = text.splitlines()
+            leads = [ln for ln in lines
+                     if "[SETTINGS] error: callback: ValueError: "
+                        "deliberate-240-callback" in ln]
+            check(leads,
+                  f"no [SETTINGS] error: callback: block reached the log -- the "
+                  f"exception was discarded exactly as before #240. Log said: {text!r}")
+            check(any(ln.startswith("    ") and "Traceback (most recent call last)" in ln
+                      for ln in lines),
+                  f"the block carries no indented traceback: {text!r}")
+            check(any(ln.startswith("    ") and "boom" in ln for ln in lines),
+                  f"the raising callback is not named in the traceback: {text!r}")
+            check("ValueError" in captured.getvalue()
+                  and "deliberate-240-callback" in captured.getvalue(),
+                  "the handler did not delegate to Tk's stock handler -- a console or "
+                  f"Xvfb start loses the stderr traceback it prints today (#240). "
+                  f"stderr held: {captured.getvalue()!r}")
+
+            # The window stays usable: Tk consumed the exception at the callback
+            # boundary and keeps dispatching. A second, benign callback proves it.
+            root.after_idle(benign)
+            root.update()
+            check(state["benign"],
+                  "a later callback no longer runs -- the window died with the "
+                  "exception instead of staying usable (#240)")
+            check(bool(root.winfo_exists()),
+                  "the window no longer exists after a callback exception (#240)")
+
+            # The flood cap: a callback that throws once usually throws every tick, and
+            # these appends bypass the tool's log rotation. After the cap one
+            # suppression line closes the lane.
+            cap = ts._ERROR_LOG_CAP
+            sys.stderr = io.StringIO()
+            try:
+                for _ in range(cap + 2):
+                    root.after_idle(boom)
+                    root.update()
+            finally:
+                sys.stderr = _stderr
+            text = log.read_text(encoding="utf-8") if log.exists() else ""
+            blocks = text.count("[SETTINGS] error: callback: ValueError: "
+                                "deliberate-240-callback")
+            check(blocks == cap,
+                  f"{blocks} callback blocks were written for {cap + 3} exceptions -- "
+                  f"the cap of {cap} did not hold (#240)")
+            check(text.count(f"further callback errors suppressed after {cap}") == 1,
+                  f"expected exactly one suppression notice after the cap: {text!r}")
+    finally:
+        sys.stderr = _stderr
+        config.LOG_FILE = _log_file
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+    after = checkout_log.read_bytes() if checkout_log.exists() else None
+    check(after == checkout_before,
+          "this check wrote to the checkout's own thoughtborne.log -- the "
+          "config.LOG_FILE patch did not hold, and a test must never touch the "
+          "maintainer's log")
+
+
+def test_main_error_log_with_display():
+    # Only runs where a display exists; skips cleanly otherwise. Acceptance bullet 2 of
+    # #240 and the only automated proof of it: a failure BEFORE mainloop() must be
+    # recorded rather than vanishing. _size_window is replaced by a throwing marker (it
+    # sits after tk.Tk() and before the app is constructed, so the real startup path
+    # runs up to it), and main() is called for real. Off-Windows
+    # settings_instance.create_instance_mutex() fails open to (None, False), so the
+    # focus-existing branch cannot fire; on a box where it can, the lane skips.
+    #
+    # Writes, like the lane above: config.LOG_FILE goes to a tempdir, restored in
+    # finally, and the checkout's log is compared byte for byte afterwards.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped main-error-log check: tkinter unavailable)")
+        return
+    try:
+        probe = tk.Tk()
+    except tk.TclError:
+        print("  (skipped main-error-log check: no display)")
+        return
+    probe.destroy()                 # main() builds its own root
+
+    try:
+        import config
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped main-error-log check: cannot import the app: {e})")
+        return
+
+    _size_window = ts._size_window
+    _log_file = config.LOG_FILE
+    _warnings = config.IMPORT_WARNINGS
+    _argv = sys.argv
+    checkout_log = Path(_log_file)
+    checkout_before = checkout_log.read_bytes() if checkout_log.exists() else None
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "thoughtborne.log"
+            config.LOG_FILE = log
+            # The import-warning replay rides the same sink (#240): a broken .env or
+            # personal_settings.json must leave its trace in the log of the window that
+            # repairs it, ABOVE any error block from the same start.
+            config.IMPORT_WARNINGS = ["deliberate-240 broken .env"]
+
+            def boom(root):
+                raise RuntimeError("deliberate-240-main")
+
+            ts._size_window = boom
+            sys.argv = ["thoughtborne_settings.py"]
+
+            escaped = None
+            try:
+                ts.main()
+            except BaseException as e:     # classified below (SystemExit -> skip)
+                escaped = e
+
+            if isinstance(escaped, SystemExit):
+                print("  (skipped main-error-log check: main() took the "
+                      "focus-existing exit -- a settings window is already running)")
+                return
+            check(isinstance(escaped, RuntimeError)
+                  and "deliberate-240-main" in str(escaped),
+                  f"main() did not re-raise the failure ({escaped!r}) -- re-raising is "
+                  "what keeps a console start's stderr traceback and non-zero exit "
+                  "(#240)")
+            text = log.read_text(encoding="utf-8") if log.exists() else ""
+            lines = text.splitlines()
+            check(any("[SETTINGS] error: main: RuntimeError: deliberate-240-main" in ln
+                      for ln in lines),
+                  f"a failure before mainloop() left no [SETTINGS] error: main: line -- "
+                  f"it is a silent no-op again, right after the tool logged 'Opened the "
+                  f"settings app' (#240). Log said: {text!r}")
+            check(any(ln.startswith("    ") and "boom" in ln for ln in lines),
+                  f"the block carries no indented traceback naming the failure: {text!r}")
+            warn = [i for i, ln in enumerate(lines)
+                    if "[SETTINGS] import-warning: deliberate-240 broken .env" in ln]
+            err = [i for i, ln in enumerate(lines) if "[SETTINGS] error: main:" in ln]
+            check(warn,
+                  f"config.IMPORT_WARNINGS was not replayed into the log -- the repair "
+                  f"surface's own trail does not name what needs repairing: {text!r}")
+            check(warn and err and warn[0] < err[0],
+                  "the import warning must stand ABOVE the error block of the same "
+                  f"start -- that is the reading order the replay is placed for: {text!r}")
+    finally:
+        sys.argv = _argv
+        config.IMPORT_WARNINGS = _warnings
+        config.LOG_FILE = _log_file
+        ts._size_window = _size_window
+        # main() failed with its root already built; leaving it behind would upset any
+        # later check that expects a clean interpreter.
+        try:
+            import tkinter
+            if tkinter._default_root is not None:
+                tkinter._default_root.destroy()
+        except Exception:
+            pass
+    after = checkout_log.read_bytes() if checkout_log.exists() else None
+    check(after == checkout_before,
+          "this check wrote to the checkout's own thoughtborne.log -- the "
+          "config.LOG_FILE patch did not hold, and a test must never touch the "
+          "maintainer's log")
+
+
 def _show():
     print(sv.format_visible_line(
         "2026-08-16 12:00:00", 0.05, 0.42, 1, "Y", "800x860+100+50", "settings"), end="")
@@ -685,10 +1225,17 @@ def main():
     test_format_visible_line_full()
     test_format_visible_line_failopen()
     test_format_visible_line_partial()
+    test_format_settings_line_parity()
+    test_format_error_block()
+    test_format_error_block_never_raises()
+    test_append_log_line()
+    test_log_sink_source_guards()
     test_storm_guards_with_display()
     test_maximize_restore_with_display()
     test_verdict_wrap_with_display()
     test_language_toggle_gate_with_display()
+    test_callback_error_log_with_display()
+    test_main_error_log_with_display()
 
     if SHOW:
         _show()
@@ -699,10 +1246,12 @@ def main():
             print("  " + f)
         return 1
     print("OK: wrap_length formula, scrollbar auto-hide decision, the visible: line "
-          "formatter (full / fail-open / partial), and (with a display) the auto-hide "
-          "grid idempotency, wrap-deferral invariant, the #216 maximize->restore "
-          "content-vanish guard, the #231 verdict-line wrap, and the #239 "
-          "language-toggle gate all pass")
+          "formatter (full / fail-open / partial), the #240 log sink (line parity with "
+          "the pre-#240 literals, error block, never-raise sweep, guarded append) with "
+          "its source guards, and (with a display) the auto-hide grid idempotency, "
+          "wrap-deferral invariant, the #216 maximize->restore content-vanish guard, "
+          "the #231 verdict-line wrap, the #239 language-toggle gate, and the #240 "
+          "callback / pre-mainloop crash logging all pass")
     return 0
 
 

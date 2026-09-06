@@ -1,4 +1,5 @@
-"""Pure, stdlib-only helpers behind the settings app's visibility fix (#203).
+"""Stdlib-only helpers behind the settings app's visibility fix (#203) and, since #240,
+its whole `[SETTINGS]` log lane.
 
 Tkinter-free cores extracted from `thoughtborne_settings.py` so the core test ladder
 can check them on plain Python off-Windows (that module imports tkinter at its top, so
@@ -18,10 +19,18 @@ nothing testable off-Windows may live there):
     tkinter/ctypes and of the probing itself, so the format is checkable off-Windows;
     the caller gathers the Windows-only probes and passes `None` for any it could not
     read, which renders as `?` here.
+  - `format_settings_line(stamp, tag, body)` and `format_error_block(...)` -- the shared
+    shape of every other `[SETTINGS]` record and, for an unhandled exception, its lead
+    line plus indented traceback (#240).
+  - `append_log_line(log_path, text)` -- the one guarded sink every settings-side log
+    write goes through. "Pure" stops here: this one does IO. It takes the log path as a
+    parameter rather than importing `config`, which is what lets the ladder point it at
+    a tempdir; it stays tkinter-free like everything else here.
 
-These are why the #203 wrap fix and its instrumentation are testable without a display
--- see `test_settings_visibility.py`.
+These are why the #203 wrap fix, its instrumentation and the #240 crash lane are
+testable without a display -- see `test_settings_visibility.py`.
 """
+import traceback
 
 
 def wrap_length(width, margin=8, floor=120) -> int:
@@ -69,3 +78,76 @@ def format_visible_line(stamp, map_to_expose, total, viewable, foreground, rect,
     parts.append(f"rect={rect if rect is not None else '?'}")
     parts.append(f"mode={mode}")
     return f"{stamp} [SETTINGS] visible: {' '.join(parts)}\n"
+
+
+def format_settings_line(stamp, tag, body) -> str:
+    """One `[SETTINGS]` record: `{stamp} [SETTINGS] {tag}: {body}` plus a newline (#240).
+
+    The shape the startup, focus-existing and import-warning lines share, and the lead
+    line of an error block; `format_visible_line` builds its own body layout above and
+    bypasses this.
+
+    The body's whitespace is collapsed to single spaces, because a record is one
+    greppable line: an exception message or an import warning carrying a newline would
+    otherwise continue below as text that reads like an independent, timestamp-less
+    record. The bodies that existed before #240 are single-spaced already, so their
+    lines stay byte-identical -- `test_settings_visibility.py` pins that against the
+    literal f-strings they used to be.
+    """
+    return f"{stamp} [SETTINGS] {tag}: {' '.join(str(body).split())}\n"
+
+
+def format_error_block(stamp, context, exc, val, tb) -> str:
+    """An unhandled exception as an `[SETTINGS] error:` lead line plus its traceback,
+    every continuation line indented four spaces (#240).
+
+    `context` names the lane ("callback" or "main") and the lead carries type and
+    message, so that one line still stands alone if the tool's log rotation tears the
+    block apart. The indentation is what keeps a timestamp grep and the eye honest: a
+    continuation can never be mistaken for a record of its own.
+
+    Never raises -- it runs inside the crash path itself, where a second exception
+    would be the end of the story -- and captures no locals: `traceback.format_exception`
+    prints source lines and messages only, never values, which is what keeps API keys
+    out of the log (never hand it `capture_locals`).
+    """
+    try:
+        name = getattr(exc, "__name__", None) or type(val).__name__
+        try:
+            message = str(val)
+        except Exception:
+            # A __str__ that itself raises: format_exception below survives it (it
+            # renders "<unprintable ...>"), only this lead needs its own guard.
+            message = "(unprintable exception message)"
+        lines = []
+        for chunk in traceback.format_exception(exc, val, tb):
+            lines.extend(chunk.splitlines())
+        return (format_settings_line(stamp, "error", f"{context}: {name}: {message}")
+                + "".join(f"    {ln}\n" for ln in lines))
+    except Exception:
+        return format_settings_line(stamp, "error",
+                                    f"{context}: (unformattable exception)")
+
+
+def append_log_line(log_path, text) -> bool:
+    """Append one already-formatted record to the tool's log; return False on any
+    fault instead of raising (#240).
+
+    The single sink every settings-side log write goes through -- the startup and
+    `visible:` timing lines, the focus-existing outcome, replayed import warnings and
+    the crash blocks. Same mechanics as the three plain appends it replaces: a single
+    open-append at a rare event, no RotatingFileHandler (this is a second process
+    writing the tool's log, and a two-process rotation would race, D-009), so a line
+    lost to the tool's own rotation mid-append stays the documented, harmless
+    trade-off. `backslashreplace` so an exotic message -- a lone surrogate out of a
+    Tcl error -- costs a character rather than the whole line.
+
+    Never raising is the point: instrumentation must never break the app, and the
+    crash lane cannot afford a second exception.
+    """
+    try:
+        with open(log_path, "a", encoding="utf-8", errors="backslashreplace") as fh:
+            fh.write(text)
+        return True
+    except Exception:
+        return False
