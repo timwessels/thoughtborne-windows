@@ -36,8 +36,9 @@
 # ASCII-only by house style (matches the rest of the harness).
 
 param(
-    # 'local'    -> the sandbox runs the setup.ps1 copied into this folder (offline
-    #               WIP-script testing; needs sandbox\setup.ps1 present).
+    # 'local'    -> the sandbox runs the setup.ps1 copied into this folder (WIP-script
+    #               testing; needs sandbox\setup.ps1 present -- the code ZIP still
+    #               comes from the published release).
     # 'oneliner' -> the sandbox fetches and runs the published setup.ps1 (the real
     #               end-user path; needs a published release carrying the assets).
     [ValidateSet('local', 'oneliner')]

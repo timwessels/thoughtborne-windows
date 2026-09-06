@@ -223,16 +223,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback, reports which of the two carried the run, and says so plainly when neither
   is available. Notepad is now what it always should have been — a nicety that makes the
   inserted text visible in the screenshot, and never a reason for the check to fail.
-  What that does *not* settle, stated plainly because it is the whole point of the
-  check: whether the injected keypress really reaches the running tool inside the VM
-  has still never been seen happen — the known reason it never got that far is gone,
-  and the next real run is what proves the rest. A run where it does not stays
-  "partial" with the cause named, never a failed install. The launcher also notices
-  within minutes when nothing came up at all, instead of waiting out the full fifteen,
-  while a sandbox that is alive but slow is waited out rather than stopped mid-run; and
-  it stops the sandbox it started when it is done, so an unattended run leaves no orphan
-  VM behind. Clipboard sharing between host and sandbox is switched off, so a
-  verification run can no longer interfere with dictation on the host (#225).
+  With that gone the check runs through: the injected key combination trips the hotkey
+  inside the running tool, the self-test transcribes, and a release-gate run ends in a
+  real pass instead of an unproven "partial". A run where injection does not reach the
+  tool still stays "partial" with the cause named, never a failed install. The launcher
+  also notices within minutes when nothing came up at all, instead of waiting out the
+  full fifteen, while a sandbox that is alive but slow is waited out rather than stopped
+  mid-run; and it stops the sandbox it started when it is done, so an unattended run
+  leaves no orphan VM behind. Clipboard sharing between host and sandbox is switched
+  off, so a verification run can no longer interfere with dictation on the host (#225).
 - **The key test tells the truth again — and its verdict is readable** (#205, #231):
   testing a Groq key reported "couldn't reach the server — check your internet
   connection" for a key that dictates perfectly well, and a new user met that false

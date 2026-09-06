@@ -22,17 +22,16 @@
 # the run, or 'none') and settings= (the #191 settings-window lane, whose
 # screenshot is graded host-side against sandbox/settings-shot-checklist.md).
 #
-# It cannot be exercised off-Windows. What only a real sandbox pass can settle is
-# called out inline: the injected-input -> RegisterHotKey path itself, and the
-# exact launch/poll timing under a first-run uv sync.
+# It cannot be exercised off-Windows: the injected-input -> RegisterHotKey path and
+# the launch/poll timing under a first-run uv sync only ever happen in a real run.
 #
 # ASCII-only by house style (dropped in via the mapped folder, not fetched as a
 # release asset, so the setup.ps1 BOM/charset constraint does not strictly apply
 # -- but ASCII keeps it consistent with the rest of the harness).
 
 param(
-    # 'local'    -> install from the setup.ps1 in the mapped folder (works offline;
-    #               use before the first release exists, or to test a WIP script).
+    # 'local'    -> install from the setup.ps1 in the mapped folder (to test a WIP
+    #               script; its ZIP fetch still needs the published release).
     # 'oneliner' -> fetch and run the published setup.ps1 from the release URL
     #               (the real user path; needs a published release with the two
     #               assets -- #145 -- otherwise the fetch 404s).
@@ -385,12 +384,9 @@ Save-EnvFingerprint $Injector
 # EXACT modifier+VK the tool logged it registered (see the Get-HotkeyChord /
 # Send-Chord pair above).
 #
-# ONLY-REAL-BOX CAVEAT: the injected-input -> RegisterHotKey path itself is still
-# reasoned from the code, not run -- the two #181 E2E attempts never got that far,
-# both dying in the injection MECHANISM instead (an unguarded Start-Process
-# notepad.exe, #191). If injection ever fails to trip the hotkey, this stays
-# PARTIAL (not FAIL -- install is fine), the cause is named, injection-route= says
-# which mechanism was in play, and a hands-on keypress is the documented backstop.
+# If injection ever fails to trip the hotkey, this stays PARTIAL (not FAIL --
+# install is fine), the cause is named, injection-route= says which mechanism was
+# in play, and a hands-on keypress is the documented backstop.
 $selfTest = 'unknown'
 $selfDetail = ''
 if (-not $Injector.Route) {

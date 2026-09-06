@@ -13,8 +13,8 @@ one script, it starts a disposable sandbox, the sandbox installs and launches
 Thoughtborne on its own, and a verdict file comes back. The committed
 `thoughtborne-install-test.wsb` is a **portable template** -- do not hand-edit it;
 the launcher fills the real host path into a `%TEMP%` copy at run time (see
-*Files*). The harness structure is drift-guarded by `test_setup.py` (#181); the two
-things only a real Windows box can settle are listed under *What it does not cover*.
+*Files*). The harness structure is drift-guarded by `test_setup.py` (#181); the
+limits of a green run are listed under *What it does not cover*.
 
 ## Requirements
 
@@ -22,9 +22,9 @@ things only a real Windows box can settle are listed under *What it does not cov
 - Enable the feature once (admin, one reboot): turn on *Windows Sandbox* in
   *Turn Windows features on or off*, or from an elevated PowerShell enable the
   `Containers-DisposableClientVM` optional feature, then reboot.
-- A **published release carrying the two assets** (`setup.ps1` + `thoughtborne.zip`)
-  for the full one-liner path. Until that exists (#145 / WP6), `setup.ps1`'s code
-  fetch 404s -- see *Modes* below.
+- A **published release carrying the two assets** (`setup.ps1` + `thoughtborne.zip`,
+  D-006). Both modes need one: even a `local` run has `setup.ps1` fetch the code ZIP
+  from the release URL -- see *Modes* below.
 
 ## Files
 
@@ -54,9 +54,10 @@ things only a real Windows box can settle are listed under *What it does not cov
   for a transcription -> open the settings window with `Ctrl+Alt+G` and photograph it
   (see *Settings-window lane*) -> copy logs + screenshots out -> write a `RESULT.txt`
   verdict. The chords are synthesized from the exact modifier+VK the tool logged, so
-  they are layout-independent, and the binding is built in memory (no on-disk C#
-  compiler); the detail line names which route carried the run as
-  `injection-route=`, or `none` when the image supports neither.
+  they are layout-independent, and the preferred binding is built in memory (no
+  on-disk C# compiler), with the classic compiler route kept as a fallback; the
+  detail line names which of the two carried the run as `injection-route=`, or
+  `none` when the image supports neither.
 - `settings-shot-checklist.md` -- what the settings-window screenshot is graded
   against, and the exact `SETTINGS-SHOT.txt` answer format. See *Settings-window lane*.
 
@@ -64,9 +65,10 @@ things only a real Windows box can settle are listed under *What it does not cov
 
 Drop a file named **`temp.env`** in this folder before running, holding one
 working key line, e.g. `SONIOX_API_KEY=...` or `GROQ_API_KEY=...`. Without it the
-harness reports `SKIP`: a keyless start stays open as the #200 shop window and
-*does* register its hotkeys, but it has no engine -- so the self-test lane, the
-part that separates `PASS` from `PARTIAL`, could never be exercised.
+launcher's preflight refuses to start the run (exit 1), and the driver reports
+`SKIP` if it ever runs keyless anyway: a keyless start stays open as the #200 shop
+window and *does* register its hotkeys, but it has no engine -- so the self-test
+lane, the part that separates `PASS` from `PARTIAL`, could never be exercised.
 **Never commit `temp.env`** -- it is a real key. The repo `.gitignore` excludes it
 (and the per-run `out-<timestamp>/` folders, the throwaway `setup.ps1` / `setup.bat`
 copies below, and any `*.local.wsb`); keep it out of any commit regardless.
@@ -76,10 +78,11 @@ copies below, and any `*.local.wsb`); keep it out of any commit regardless.
 1. Put a `temp.env` here (see above).
 2. For a `local` run, copy the installer into this folder first: `setup.ps1` from
    the repo root is **required** -- the mapped folder is all the sandbox sees, and
-   the driver runs the `setup.ps1` it finds here (copy `setup.bat` too if you want
-   to exercise the double-click wrapper). Both are gitignored here as throwaway
-   copies; the canonical ones live in the repo root. An `oneliner` run skips this
-   step -- it fetches the published `setup.ps1` from the release URL.
+   the driver runs the `setup.ps1` it finds here. (A `setup.bat` copy only makes the
+   double-click wrapper available for a hands-on try inside the sandbox -- no lane of
+   the harness runs it.) Both are gitignored here as throwaway copies; the canonical
+   ones live in the repo root. A `oneliner` run skips this step -- it fetches the
+   published `setup.ps1` from the release URL.
 3. Run `run-sandbox.ps1` -- from the host, or from WSL via `powershell.exe ... -File`:
 
    ```
@@ -92,9 +95,11 @@ copies below, and any `*.local.wsb`); keep it out of any commit regardless.
    screenshots, `ENV.txt` (what the sandbox image offered -- PowerShell version and
    language mode, whether it carries Notepad and the C# compiler, which injection
    route bound) and `HOST.txt` (the host-side run record). `-Mode local` (the
-   default) tests the copied-in `setup.ps1`; `-Version` is optional (empty => the
-   release `latest` alias). The verdict is a file, so an agent driving this from WSL
-   never blocks on the sandbox-desktop GUI.
+   default) tests the copied-in `setup.ps1`; `-Version` names the release the code
+   ZIP -- and in `oneliner` mode the installer script -- is fetched from, empty
+   meaning the `latest` alias, which GitHub resolves to the newest non-prerelease
+   (a tag that is not Latest has to be named). The verdict is a file, so an agent
+   driving this from WSL never blocks on the sandbox-desktop GUI.
 
 Expected during a successful run: after `uv sync`, `setup.ps1` creates **one**
 Start-menu shortcut and **starts the tool itself** (its #223/D-014 hand-off). Because
@@ -107,11 +112,11 @@ console on screen.
 
 `run-sandbox.ps1 -Mode` (threaded through to `verify-in-sandbox.ps1`):
 
-- `local` (default) -- runs the `setup.ps1` copied in via the mapped folder. Good
-  for testing a work-in-progress script offline. **Caveat:** `setup.ps1` still
-  fetches the code ZIP from the release URL, so even `local` mode needs the
-  published `thoughtborne.zip` to finish the copy step; before then it exercises
-  the preamble, guards, and uv bootstrap only.
+- `local` (default) -- runs the `setup.ps1` copied in via the mapped folder, so a
+  work-in-progress installer can be tested before it is published. **Caveat:** that
+  script still fetches the code ZIP from the release URL, so a `local` run needs the
+  published `thoughtborne.zip`, and the code it installs is the released one, not
+  this checkout.
 - `oneliner` -- fetches and runs the *published* `setup.ps1` from the release
   `latest/download` URL (or the `-Version` tag's URL): the real end-user path.
   Needs a published release.
@@ -121,15 +126,20 @@ console on screen.
 `RESULT.txt`'s first line is the verdict; the launcher prints it and maps it to
 its own exit code:
 
-- **`PASS`** (exit 0) -- install + hotkeys registered + self-test transcribed.
+- **`PASS`** (exit 0) -- install + hotkeys registered + self-test transcribed: the
+  synthesized chord really tripped `RegisterHotKey` in the running tool, and the
+  bundled `test_audio.mp3` came back transcribed.
 - **`PARTIAL`** (exit 2) -- install and hotkeys OK, but the self-test could not be
   confirmed transcribing (injection unconfirmed, or fired but no transcription).
-  The `RESULT.txt` detail line names the cause. Non-zero on purpose, so a bare
-  exit-code check never waves a run through whose self-test did not confirm.
+  The `RESULT.txt` detail line names the cause and the run's `ENV.txt` says what
+  the image offered; a hands-on keypress on a real box is the backstop. Non-zero on
+  purpose, so a bare exit-code check never waves a run through whose self-test did
+  not confirm.
 - **`FAIL`** (exit 1) -- install, boot, or hotkey registration is broken
   (release-blocking).
 - **`SKIP`** (exit 3) -- no `temp.env`, so the tool has no engine and the self-test
-  lane cannot run.
+  lane cannot run. The launcher's preflight normally refuses before the sandbox even
+  starts, so this verdict means the driver itself found no key.
 
 The detail line also carries two **reported-only** items that never change the
 verdict: `injection-route=` (which key-injection mechanism carried the run, or
@@ -152,6 +162,10 @@ Three host-side exit codes are not verdicts:
 - **5** -- no usable verdict: `RESULT.txt`'s first line is not one of the four
   above, or the launcher itself errored out (it says `LAUNCHER ERROR:` and records
   `verdict=LAUNCHER-ERROR` in `HOST.txt`, so the run record and the exit code agree).
+
+A preflight refusal -- no Windows Sandbox, no `temp.env`, `-Mode local` without a
+`setup.ps1` copy -- also exits 1, but before anything starts: it prints an `ERROR:`
+line and produces no sandbox, no `out-*` folder and no `RESULT.txt`.
 
 On every path after the launch the launcher **stops the sandbox it started** and
 leaves a `HOST.txt` run record beside the verdict. Pass `-KeepSandbox` to keep the
@@ -177,24 +191,28 @@ means install + hotkeys + transcribed self-test.
 
 ## What it does not cover
 
-Two things only a real machine or full VM can settle -- the sandbox cannot:
+A `PASS` is one clean first install into a throwaway image, driven as far as a
+transcribing self-test. What that leaves open:
 
 - **Defender / AMSI and Edge SmartScreen fidelity.** Windows Sandbox does not
-  reproduce the host's Defender real-time scanning or Edge's "not commonly
-  downloaded" gating, and the one-liner's `WebClient` fetch bypasses Edge /
-  SmartScreen entirely. Whether the install path stays clean under real Defender /
-  AMSI and SmartScreen is a real-box / VM check.
-- **First confirmation of the self-test path.** The `Ctrl+Alt+T` self-test injects
-  the registered chord as synthetic input and expects `RegisterHotKey` to fire.
-  Two real runs (2026-08-15, 2026-08-23) never got that far: both died in the
-  injection *mechanism* -- an unguarded `Start-Process notepad.exe` on an image
-  without Notepad -- which #191 removed. Be precise about what that buys: the known
-  failure mode is gone, and the preferred route (Reflection.Emit) does bind
-  `user32!keybd_event` on Windows PowerShell 5.1 -- checked on the maintainer's host,
-  binding only, no keypress. Neither the route nor the step behind it has ever run
-  inside a sandbox, so the injected-input -> `RegisterHotKey` step remains reasoned
-  from the code, not run, and the next real run is what settles both. A run where
-  injection does not trip the hotkey stays `PARTIAL` (install is fine), not `FAIL`;
-  the cause is named in `RESULT.txt`, `injection-route=` says which mechanism was in
-  play, and the run's `ENV.txt` records what the image offered. A hands-on keypress
-  remains the documented backstop.
+  reproduce the host's Defender real-time scanning, and nothing here meets Edge's
+  "not commonly downloaded" gating: the installer arrives through `irm` or the
+  mapped folder and the code ZIP through a `WebClient` download, so no browser is
+  ever in the path. Whether the install path stays clean under real Defender / AMSI
+  and SmartScreen is a real-box / VM check.
+- **Every install lane but the first one.** Each run installs once into a fresh
+  image, over a directory holding nothing but the pre-placed key -- so installing
+  *over* an existing Thoughtborne never happens (neither the in-place update, D-007,
+  nor a reinstall), the running-instance guard passes silently because nothing is
+  running yet, nothing reads back the Apps-list entry the install writes, and
+  `uninstall.ps1` never runs at all. The only automated cover those have is
+  `test_setup.py`, which reads the scripts as text.
+- **Dictation itself.** The self-test transcribes the bundled `test_audio.mp3`, so
+  nothing here records from a microphone, and no part of the verdict depends on
+  where the inserted transcript landed -- the Notepad target is a nicety for the
+  screenshot.
+- **The fallback key-injection route.** A stock sandbox image binds the preferred
+  in-memory route, so runs report `injection-route=reflection-emit`; the
+  `add-type-csc` fallback and the routeless `none` outcome are reasoned from the
+  code, not run. Neither route survives Constrained Language Mode, which is why
+  `ENV.txt` records the image's language mode beside the route.
