@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describe the macOS sibling as an archived, much earlier variant instead of an analogous sister
   port — matching that repository's new status. The link stays as a starting point for porting
   today's Windows version onto macOS.
+- **Pillow 12.3.0 in `uv.lock`.** Upgraded from 12.2.0, closing the 13 open Dependabot alerts.
+  Pillow arrives transitively (pyautogui → pyscreeze) and only on Windows below Python 3.12; the
+  tool never feeds it untrusted images, so this is dependency hygiene with no reachable exposure.
+  Lock-only — no other file changed.
 
 ## [1.1.0] - 2026-09-06
 
