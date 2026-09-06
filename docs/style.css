@@ -20,7 +20,7 @@ a { color: inherit; }
 
   /* the light page */
   --navy:      #0E202E;
-  --e-gray:    #8A939C;
+  --e-gray:    #828B94;
   --paper:     #F7F9FB;
   --ink:       #0E202E;
   --ink-soft:  rgba(14, 32, 46, .72);
@@ -427,4 +427,4 @@ code {
   letter-spacing: -0.01em; color: var(--ink);
   margin-top: 1.75rem; margin-bottom: 0.4rem;
 }
-.legal address { font-style: normal; line-height: 1.7; }
+.legal address { font-style: normal; line-height: 1.7; margin-block: 1rem; }

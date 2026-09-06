@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The website's share card and touch icon.** The 1280×640 social-preview image is new: the
+  console pixel mark, the terminal wordmark and the line *voice-to-text for Windows*, so a shared
+  link says what the tool is instead of showing only the logo (the `og:image` URL carries a
+  cache-buster so scrapers refetch it). The `apple-touch-icon` — the large icon Firefox prefers
+  for bookmarks and iOS for the home screen — is now that same 7×6 pixel mark, rendered at
+  180×180 on the light page ground, instead of the round logomark, which stays the brand and
+  repo avatar; the site now shows one icon everywhere. Both landing pages also declare
+  `og:site_name` and the image's dimensions, so a scraper renders the card at the right aspect
+  ratio without fetching the file first.
+- **Website copy and typography.** Prices read in dollars throughout on both pages — the card
+  heading said "~3 €/Monat" / "~€3/month" while the evidence line right under it counted in dollars,
+  and the free-tier figure in the cost list still said "0 €" / "€0". The German pages now close
+  their quotation marks with „…“ instead of the straight ASCII `"`, and the English pages use
+  typographic apostrophes and quotes (the install one-liners are untouched — those quotes are
+  PowerShell syntax). The project's age is dated instead of counted in years — "seit 2023" / "since 2023" in
+  the hallucination-filter point, the reliability intro and the footer note — so no sentence can age. The macOS sibling is named for what it has become now
+  that its repository is archived: an earlier variant on a much older state, no longer maintained.
+  The imprint's address block sets itself off from the paragraphs around it again, and the
+  link-underline colour clears the 3:1 non-text contrast floor (WCAG 1.4.11) on the light page. DE
+  and EN twins in lockstep.
+
 ## [1.1.0] - 2026-09-06
 
 The recommended release — it supersedes 1.0.0 in every respect. This block folds in the 1.1.0-rc2 candidate

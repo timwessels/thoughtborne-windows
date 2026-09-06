@@ -11,7 +11,7 @@
 <link rel="alternate" hreflang="x-default" href="https://thoughtborne.app/">
 <link rel="icon" href="favicon.ico?v=2" sizes="48x48">
 <link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="assets/thoughtborne-avatar-512.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
 <meta name="theme-color" content="#0C1218">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="de_DE">
@@ -19,11 +19,14 @@
 <meta property="og:title" content="Thoughtborne – Diktieren per Hotkey für Windows">
 <meta property="og:description" content="Hotkey drücken, reden, zweiten Hotkey drücken – der Text landet an der Cursor-Position. Für Deutsch gebaut, fürs Reden mit KI. Open Source, MIT.">
 <meta property="og:url" content="https://thoughtborne.app/">
-<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
+<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png?v=2">
+<meta property="og:site_name" content="Thoughtborne">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -145,7 +148,7 @@
       <div class="intro">
         <p class="eyebrow" aria-hidden="true">Funktionsumfang</p>
         <h2>Was drin ist</h2>
-        <p>Thoughtborne ist seit Jahren im täglichen Einsatz. Über die Zeit sind die Dinge dazugekommen, die man beim Dauerbetrieb wirklich braucht:</p>
+        <p>Thoughtborne ist seit 2023 im täglichen Einsatz. Über die Zeit sind die Dinge dazugekommen, die man beim Dauerbetrieb wirklich braucht:</p>
       </div>
 
       <div class="feat-group">
@@ -154,7 +157,7 @@
           <li><b>Vier Engines, zur Laufzeit umschaltbar</b> – <span>Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> durchgeschaltet, kein Neustart.</span></li>
           <li><b>Echtzeit-Live-Transkription</b> – <span>Soniox Live streamt schon beim Sprechen; Text liegt ~0,5 s nach dem Loslassen bereit.</span></li>
           <li><b>Deutsche Halluzinationsfilter</b> – <span>modellspezifisch gegen bekannte Speech-Artefakte, gezielt auf Deutsch getrimmt.</span></li>
-          <li><b>Füllwortfilter</b> – <span>„ähm"/„äh" wortgrenzen-sicher raus (schont „ähnlich"), bedeutungstragendes „naja"/„mhm" bleibt.</span></li>
+          <li><b>Füllwortfilter</b> – <span>„ähm“/„äh“ wortgrenzen-sicher raus (schont „ähnlich“), bedeutungstragendes „naja“/„mhm“ bleibt.</span></li>
           <li><b>Erkennungs-Vokabular</b> – <span>eigene Namen und Fachbegriffe gehen als Kontext an die Engine und kommen richtig zurück.</span></li>
           <li><b>Automatischer Engine-Fallback</b> – <span>fällt eine Soniox-Variante aus, springt die REST-Variante ein – transparent.</span></li>
         </ul>
@@ -186,7 +189,7 @@
           <li><b>uv-Setup ohne Python-Vorinstallation</b> – <span><code>uv run</code> zieht Python und Dependencies selbst, re-synct auch nach <code>git pull</code>.</span></li>
           <li><b>Freier Einstiegspfad</b> – <span>startet mit nur einem Key, überspringt fehlende APIs sauber statt abzustürzen.</span></li>
           <li><b>Per KI-Agent anpassbar</b> – <span>lesbarer Code statt Settings-Wüste; <code>AGENTS.md</code> liegt bei, damit dein Coding-Agent direkt loslegt.</span></li>
-          <li><b>macOS-Schwesterport</b> – <span>drei statt vier APIs, sonst analog aufgebaut.</span></li>
+          <li><b>Früherer macOS-Ableger</b> – <span>deutlich älterer Stand, archiviert und nicht mehr gepflegt.</span></li>
         </ul>
       </div>
     </div>
@@ -203,18 +206,18 @@
       <div class="arg-list">
         <article class="arg">
           <span class="arg-num">01</span>
-          <h3>Für Deutsch gebaut – nicht nur „unterstützt auch Deutsch".</h3>
+          <h3>Für Deutsch gebaut – nicht nur „unterstützt auch Deutsch“.</h3>
           <p class="arg-lead">Fast alle Konkurrenten sind Englisch-first. Hier ist Deutsch der Ausgangspunkt jeder Entscheidung.</p>
           <ul class="arg-evidence">
             <li>Die <strong>Engine-Auswahl folgt dem deutschen Diktat-Alltag</strong> – anbieterunabhängig kuratiert und laufend aktuell gehalten: Ziel ist das jeweils beste verfügbare Cloud-Modell für Deutsch; taucht etwas Besseres auf, wird es übernommen.</li>
-            <li><strong>Halluzinationsfilter</strong> aus drei Jahren annotierter deutscher Transkripte, modellspezifisch.</li>
+            <li><strong>Halluzinationsfilter</strong> aus den eigenen deutschen Transkripten des Maintainers, seit 2023 annotiert – modellspezifisch.</li>
             <li>Füllwortfilter und Vokabular-Handling für deutsche Begriffe und Eigennamen.</li>
           </ul>
         </article>
 
         <article class="arg">
           <span class="arg-num">02</span>
-          <h3>Kein Abo. Gratis-Pfad oder ~3 €/Monat bei Vielnutzung.</h3>
+          <h3>Kein Abo. Gratis-Pfad oder ~3 $/Monat bei Vielnutzung.</h3>
           <p class="arg-lead">Du bringst eigene API-Keys mit und zahlst nur, was du verbrauchst – ein Bruchteil der 12–15 $/Monat der Abo-Tools.</p>
           <ul class="arg-evidence">
             <li><strong>Groq-Free-Tier als echter Dauerbetriebsweg</strong>, kein Trial: bis zu ~8 Stunden Audio am Tag.</li>
@@ -250,7 +253,7 @@
           <p class="arg-lead">Nicht Diktat allgemein, sondern der Weg in eine laufende KI-Konversation – ohne die Tastatur anzufassen.</p>
           <ul class="arg-evidence">
             <li>Ein eigener Hotkey <strong>fügt ein und drückt Enter</strong> – ganze KI-Gespräche per Sprache.</li>
-            <li>Qualitätsmaßstab hinter jeder Modellwahl: <strong>„gut genug, um ungelesen abzuschicken".</strong></li>
+            <li>Qualitätsmaßstab hinter jeder Modellwahl: <strong>„gut genug, um ungelesen abzuschicken“.</strong></li>
           </ul>
         </article>
 
@@ -260,7 +263,7 @@
           <p class="arg-lead">Das Werkzeug fügt sich deinem Workflow, nicht umgekehrt. Kein Einstellungs-Dschungel, sondern lesbarer Code.</p>
           <ul class="arg-evidence">
             <li><strong>Lesbares Python</strong>, <code>config.py</code> mit Klartext-Konstanten und Erkennungs-Vokabular.</li>
-            <li>„Sag deinem Coding-Agent, was es können soll" – <strong>AGENTS.md liegt bei.</strong></li>
+            <li>„Sag deinem Coding-Agent, was es können soll“ – <strong>AGENTS.md liegt bei.</strong></li>
           </ul>
         </article>
       </div>
@@ -312,7 +315,7 @@
       <p>Nirgends in diesem Stack ein <strong>Abo</strong>. Du bringst eigene API-Keys mit und zahlst die Nutzungspreise der Anbieter – ein Bruchteil der 12–15 $/Monat, die Abo-Diktiertools verlangen.</p>
       <dl class="figures">
         <div>
-          <dt><span class="fig-num">0 €</span> <span class="fig-unit">der Groq-Pfad</span></dt>
+          <dt><span class="fig-num">0 $</span> <span class="fig-unit">der Groq-Pfad</span></dt>
           <dd><strong>Ein echter Free-Tier, kein Trial.</strong> Beide Groq-Engines laufen auf Groqs großzügigem Free-Tier – bis zu ~8 Stunden Audio am Tag, genug für den täglichen Einsatz.</dd>
         </div>
         <div>
@@ -396,11 +399,11 @@
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT-Lizenz</a>
-      <a href="https://github.com/timwessels/thoughtborne-macos">macOS-Port</a>
+      <a href="https://github.com/timwessels/thoughtborne-macos">macOS (archiviert)</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.md" hreflang="en">English documentation</a>
       <a href="/legal.html">Impressum &amp; Datenschutz</a>
     </nav>
-    <p class="footer-note">Thoughtborne ist seit Jahren das tägliche Werkzeug des Maintainers und wird aktiv gepflegt.</p>
+    <p class="footer-note">Thoughtborne ist seit 2023 das tägliche Werkzeug des Maintainers und wird aktiv gepflegt.</p>
     <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. -->
     <svg class="mark mark-footer" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
   </div>

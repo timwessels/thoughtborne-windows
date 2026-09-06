@@ -11,7 +11,7 @@
 <link rel="alternate" hreflang="x-default" href="https://thoughtborne.app/">
 <link rel="icon" href="../favicon.ico?v=2" sizes="48x48">
 <link rel="icon" href="../favicon.svg?v=2" type="image/svg+xml">
-<link rel="apple-touch-icon" href="../assets/thoughtborne-avatar-512.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png" sizes="180x180">
 <meta name="theme-color" content="#0C1218">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="en_US">
@@ -19,11 +19,14 @@
 <meta property="og:title" content="Thoughtborne — Hotkey dictation for Windows">
 <meta property="og:description" content="Press a hotkey, talk, press a second hotkey — the text lands at the cursor position. Built for German, built for talking to AI. Open source, MIT.">
 <meta property="og:url" content="https://thoughtborne.app/en/">
-<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png">
+<meta property="og:image" content="https://thoughtborne.app/assets/thoughtborne-social-preview.png?v=2">
+<meta property="og:site_name" content="Thoughtborne">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="../style.css?v=10">
+<link rel="stylesheet" href="../style.css?v=11">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -144,8 +147,8 @@
     <div class="wrap">
       <div class="intro">
         <p class="eyebrow" aria-hidden="true">Feature set</p>
-        <h2>What's inside</h2>
-        <p>Thoughtborne has been in daily use for years. Over that time it has gained the things you actually need in continuous operation:</p>
+        <h2>What’s inside</h2>
+        <p>Thoughtborne has been in daily use since 2023. Over that time it has gained the things you actually need in continuous operation:</p>
       </div>
 
       <div class="feat-group">
@@ -154,7 +157,7 @@
           <li><b>Four engines, switchable at runtime</b> — <span>Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, cycled with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, no restart.</span></li>
           <li><b>Real-time live transcription</b> — <span>Soniox Live streams while you speak; the text is ready ~0.5 s after you let go.</span></li>
           <li><b>German hallucination filters</b> — <span>model-specific, against known speech artifacts, tuned deliberately for German.</span></li>
-          <li><b>Filler-word filter</b> — <span>„ähm"/„äh" removed safely at word boundaries (spares „ähnlich"), meaning-bearing „naja"/„mhm" stays.</span></li>
+          <li><b>Filler-word filter</b> — <span>“ähm”/“äh” removed safely at word boundaries (spares “ähnlich”), meaning-bearing “naja”/“mhm” stays.</span></li>
           <li><b>Recognition vocabulary</b> — <span>your own names and technical terms go to the engine as context and come back spelled right.</span></li>
           <li><b>Automatic engine fallback</b> — <span>if one Soniox variant fails, the REST variant steps in — transparently.</span></li>
         </ul>
@@ -186,7 +189,7 @@
           <li><b>uv setup with no pre-installed Python</b> — <span><code>uv run</code> pulls Python and dependencies itself, and re-syncs after a <code>git pull</code> too.</span></li>
           <li><b>Free entry path</b> — <span>starts with just one key, skips missing APIs cleanly instead of crashing.</span></li>
           <li><b>Adaptable by AI agent</b> — <span>readable code instead of a settings maze; <code>AGENTS.md</code> ships with it so your coding agent can get going right away.</span></li>
-          <li><b>macOS sister port</b> — <span>three APIs instead of four, otherwise built the same way.</span></li>
+          <li><b>Earlier macOS variant</b> — <span>a much earlier state, archived and no longer maintained.</span></li>
         </ul>
       </div>
     </div>
@@ -203,21 +206,21 @@
       <div class="arg-list">
         <article class="arg">
           <span class="arg-num">01</span>
-          <h3>Built for German — not merely "also supports German".</h3>
+          <h3>Built for German — not merely “also supports German”.</h3>
           <p class="arg-lead">Almost all competitors are English-first. Here German is the starting point of every decision.</p>
           <ul class="arg-evidence">
             <li>The <strong>engine choice follows real German dictation use</strong> — curated provider-independently and kept continuously up to date: the aim is the best available cloud model for German at any given time; if something better appears, it gets adopted.</li>
-            <li><strong>Hallucination filters</strong> from three years of annotated German transcripts, model-specific.</li>
+            <li><strong>Hallucination filters</strong> from the maintainer’s own German transcripts, annotated since 2023 — model-specific.</li>
             <li>Filler-word filtering and vocabulary handling for German terms and proper nouns.</li>
           </ul>
         </article>
 
         <article class="arg">
           <span class="arg-num">02</span>
-          <h3>No subscription. A free path, or ~€3/month for heavy use.</h3>
+          <h3>No subscription. A free path, or ~$3/month for heavy use.</h3>
           <p class="arg-lead">You bring your own API keys and pay only for what you use — a fraction of the $12–15/month of the subscription tools.</p>
           <ul class="arg-evidence">
-            <li><strong>Groq's free tier as a genuine everyday path</strong>, not a trial: up to ~8 hours of audio a day.</li>
+            <li><strong>Groq’s free tier as a genuine everyday path</strong>, not a trial: up to ~8 hours of audio a day.</li>
             <li>Soniox: $0.12 per hour of audio, prepaid.</li>
             <li><strong>~$3/month, measured, not estimated</strong> — the maintainer at ~25 h of audio a month.</li>
           </ul>
@@ -250,7 +253,7 @@
           <p class="arg-lead">Not dictation in general, but the way into an ongoing AI conversation — without touching the keyboard.</p>
           <ul class="arg-evidence">
             <li>A dedicated hotkey <strong>inserts and presses Enter</strong> — whole AI conversations by voice.</li>
-            <li>The quality bar behind every model choice: <strong>"good enough to send unread".</strong></li>
+            <li>The quality bar behind every model choice: <strong>“good enough to send unread”.</strong></li>
           </ul>
         </article>
 
@@ -260,7 +263,7 @@
           <p class="arg-lead">The tool bends to your workflow, not the other way around. No settings jungle, just readable code.</p>
           <ul class="arg-evidence">
             <li><strong>Readable Python</strong>, <code>config.py</code> with plain-text constants and the recognition vocabulary.</li>
-            <li>"Tell your coding agent what it should be able to do" — <strong>AGENTS.md ships with it.</strong></li>
+            <li>“Tell your coding agent what it should be able to do” — <strong>AGENTS.md ships with it.</strong></li>
           </ul>
         </article>
       </div>
@@ -309,11 +312,11 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Cost</p>
       <h2>What it costs</h2>
-      <p>Nowhere in this stack a <strong>subscription</strong>. You bring your own API keys and pay the providers' usage prices — a fraction of the $12–15/month that subscription dictation tools charge.</p>
+      <p>Nowhere in this stack a <strong>subscription</strong>. You bring your own API keys and pay the providers’ usage prices — a fraction of the $12–15/month that subscription dictation tools charge.</p>
       <dl class="figures">
         <div>
-          <dt><span class="fig-num">€0</span> <span class="fig-unit">the Groq path</span></dt>
-          <dd><strong>A genuine free tier, not a trial.</strong> Both Groq engines run on Groq's generous free tier — up to ~8 hours of audio a day, enough for daily use.</dd>
+          <dt><span class="fig-num">$0</span> <span class="fig-unit">the Groq path</span></dt>
+          <dd><strong>A genuine free tier, not a trial.</strong> Both Groq engines run on Groq’s generous free tier — up to ~8 hours of audio a day, enough for daily use.</dd>
         </div>
         <div>
           <dt><span class="fig-num">$0.12</span> <span class="fig-unit">per hour of audio</span></dt>
@@ -331,12 +334,12 @@
   <section class="audience-box">
     <div class="wrap">
       <p class="eyebrow" aria-hidden="true">For whom</p>
-      <h2>Who it's built for — and who it isn't</h2>
+      <h2>Who it’s built for — and who it isn’t</h2>
       <div class="aud-cols">
         <div class="aud-for">
           <h3>A fit if you …</h3>
           <ul>
-            <li>think technically — a terminal and a <code>.env</code> file don't scare you.</li>
+            <li>think technically — a terminal and a <code>.env</code> file don’t scare you.</li>
             <li>want no subscription, want to stay independent and be able to switch providers.</li>
             <li>want to know where your data goes — and to be able to verify it.</li>
             <li>talk to AI a lot in German and want to adapt the tool to yourself.</li>
@@ -358,7 +361,7 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Get started</h2>
-      <p>Windows, a microphone, and at least one API key — Groq's free tier is enough. The fastest path is the installer: open a terminal — PowerShell or cmd — paste the command, press Enter.</p>
+      <p>Windows, a microphone, and at least one API key — Groq’s free tier is enough. The fastest path is the installer: open a terminal — PowerShell or cmd — paste the command, press Enter.</p>
 
       <!-- Same canonical one-liner as the hero install box — keep the two in sync. -->
       <div class="install">
@@ -374,7 +377,7 @@
         <li>Dictate: press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> and talk — in any app.</li>
       </ol>
 
-      <p>An API key is a kind of personal password that lets Thoughtborne sign in to a transcription service — you create it at the provider and paste it into the wizard. Groq's is free: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
+      <p>An API key is a kind of personal password that lets Thoughtborne sign in to a transcription service — you create it at the provider and paste it into the wizard. Groq’s is free: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
       <p class="actions">
         <!-- thoughtborne.zip is the snapshot the release ritual builds (D-006);
              releases/latest keeps the URL current with zero page edits. -->
@@ -396,11 +399,11 @@
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT License</a>
-      <a href="https://github.com/timwessels/thoughtborne-macos">macOS port</a>
+      <a href="https://github.com/timwessels/thoughtborne-macos">macOS (archived)</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.de.md" hreflang="de">Deutsche Dokumentation</a>
       <a href="/en/legal.html">Imprint &amp; Privacy</a>
     </nav>
-    <p class="footer-note">Thoughtborne has been the maintainer's daily tool for years and is actively maintained.</p>
+    <p class="footer-note">Thoughtborne has been the maintainer’s daily tool since 2023 and is actively maintained.</p>
     <!-- path data from assets/logo/thoughtborne-mark.svg — keep in sync. -->
     <svg class="mark mark-footer" viewBox="0 0 512 512" aria-hidden="true"><path d="M 69.57 89.44 C 70.92 90.26 80.55 94.04 91.91 98.66 C 103.26 103.28 115.37 108.20 118.80 109.60 C 149.01 121.85 172.26 131.55 176.22 133.55 C 181.20 136.07 187.72 140.63 191.59 144.31 C 200.33 152.64 205.14 164.00 205.19 176.41 C 205.22 184.14 204.19 189.89 200.05 205.09 C 193.51 229.12 191.95 239.31 193.13 250.31 C 194.75 265.49 200.47 278.71 210.38 290.15 C 222.87 304.60 232.56 312.03 270.23 336.00 C 310.93 361.90 331.92 378.17 354.42 401.21 C 365.24 412.30 373.89 422.38 383.45 435.05 C 390.08 443.85 400.24 458.95 400.32 460.14 A 250.00 250.00 0 0 1 69.57 89.44 Z M 461.13 398.90 C 461.25 398.98 456.27 393.85 450.21 387.62 C 421.66 358.22 391.54 336.94 341.33 310.71 C 311.21 294.98 305.14 291.72 297.83 287.38 C 278.90 276.16 266.13 263.50 258.15 248.06 C 253.46 239.00 251.24 232.87 249.27 223.61 C 247.78 216.57 247.69 215.33 247.90 203.90 C 248.42 174.95 248.23 167.69 246.84 162.07 C 242.17 143.26 230.35 129.52 210.86 120.29 C 205.03 117.53 198.29 115.26 167.59 105.71 C 157.94 102.71 144.68 98.57 138.14 96.50 C 131.59 94.44 117.00 89.90 105.71 86.41 C 94.42 82.93 84.31 79.80 83.25 79.47 C 82.19 79.13 81.32 78.65 80.69 77.77 A 250.00 250.00 0 0 1 461.13 398.90 Z"/></svg>
   </div>
