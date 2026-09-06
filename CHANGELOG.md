@@ -129,6 +129,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not read, keeps the rest of your settings, and starts. And every such warning finally
   arrives in `thoughtborne.log` instead of scrolling past in a console window — the tool
   collects them while it loads and writes them once the log is open.
+- **A broken `.env` no longer stops the tool from starting — and a byte-order mark can
+  no longer hide a key you entered** (#238): `.env` is where your API keys live, and it
+  is the one file a first setup writes by hand or by script, on a Windows whose
+  PowerShell saves text as ANSI or UTF-16 unless told otherwise and puts a byte-order
+  mark in front of it when told to use UTF-8. All three of those saves used to go badly.
+  The first two ended the start with a raw error message before the log was even open —
+  and took the settings window that would have repaired the file down with it. The third
+  silently renamed the first key in the file, so the console reported "no key" while the
+  settings window showed that very key. A keyless install sitting inside some larger
+  folder of code could also inherit an unrelated `.env` from a folder above it, which no
+  repair surface would ever show you. Thoughtborne now reads `.env` from its own install
+  folder and nowhere else, tolerates a byte-order mark (noting once in the log that the
+  file has one), and turns an unreadable file into a logged warning and a normal start on
+  whatever keys the system environment holds. `.env.example` is plain ASCII now, so
+  re-saving a copy of it as ANSI — PowerShell's default — still leaves a readable file.
 - **The pre-release sandbox check no longer stops before it presses a key** (#191): the
   throwaway-VM verification could install Thoughtborne, start it and watch all twelve
   hotkeys register, but the last step — pressing the self-test hotkey from inside the

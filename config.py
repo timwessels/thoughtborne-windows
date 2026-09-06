@@ -29,14 +29,6 @@ from hotkey_parse import (
 # migrate_legacy_archives() uses.
 IMPORT_WARNINGS = []
 
-# Try to load dotenv, but don't fail if not available
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    # If python-dotenv is not installed, we can still use environment variables
-    pass
-
 _config_logger = logging.getLogger('Thoughtborne.Config')
 
 
@@ -52,6 +44,40 @@ def replay_import_warnings() -> list:
 
 # ===== PATHS =====
 SCRIPT_DIR = Path(__file__).parent.absolute()
+
+# The .env holding the API keys, read from the install directory (#238) like every
+# other file here. A bare load_dotenv() searched UPWARD from this file instead (from
+# the cwd under a debugger, a REPL or a `-c` start), so a keyless install nested in
+# another code tree could inherit an ancestor's .env that no repair surface shows.
+# utf-8-sig keeps this reader in step with settings_io.read_env on the same bytes
+# (D-002): read as plain utf-8, a BOM-written .env -- PowerShell 5.1 writes one with
+# `-Encoding UTF8` -- hands its FIRST key over with the BOM still glued to the name,
+# so the console reports "no key" while the settings window shows the key the user
+# just entered there. An absent file stays silent (keyless is a supported state);
+# every other failure degrades to a warning plus whatever the process environment
+# already holds, never a traceback before logging exists.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    # If python-dotenv is not installed, we can still use environment variables
+    pass
+else:
+    _env_path = SCRIPT_DIR / ".env"
+    try:
+        if _env_path.is_file() and _env_path.read_bytes()[:3] == b"\xef\xbb\xbf":
+            # Tolerated, but said out loud -- the sibling reader's BOM line below.
+            IMPORT_WARNINGS.append(
+                f"{_env_path} starts with a UTF-8 byte-order mark (BOM); tolerated")
+        load_dotenv(_env_path, encoding="utf-8-sig")
+    except Exception as _e:
+        # Broad on purpose: load_dotenv reads the file itself, so an ANSI/UTF-16 save
+        # raises UnicodeDecodeError (a ValueError, not an OSError) and a locked file
+        # raises OSError -- both used to abort the import, taking the settings app
+        # that would repair the file down with it.
+        IMPORT_WARNINGS.append(
+            f"Could not load {_env_path} ({type(_e).__name__}: {_e}); continuing "
+            f"with process environment variables only")
+
 LOG_FILE = SCRIPT_DIR / "thoughtborne.log"
 # Unified history layout (#50): one folder to open, audio and transcripts as
 # timestamp-paired siblings. Pre-#50 layouts (voice_archive/ + text_archive/)
