@@ -45,12 +45,17 @@ finalized CHANGELOG — otherwise the shipped ZIP lags behind its own tag.
 
 - `pyproject.toml`: set `version = "X.Y.Z"` (the single version string in the
   repo — there is no `__version__` in any `.py`).
+- `uv.lock`: the lockfile carries the project's own version too (the
+  `[[package]] name = "thoughtborne"` entry). `uv lock` updates it — that works
+  off-Windows and offline, since the lockfile is already complete — or edit the
+  one `version = ...` line by hand (PEP 440 spelling: `1.1.0rc2`, `1.1.0`). A
+  forgotten self-pin ships a ZIP whose lockfile still names the previous version.
 - `CHANGELOG.md`: insert a `## [X.Y.Z] - YYYY-MM-DD` heading above the current
   entries, moving everything under `## [Unreleased]` beneath it and leaving
   `## [Unreleased]` empty above it (Keep a Changelog).
 
 ```bash
-git add pyproject.toml CHANGELOG.md
+git add pyproject.toml uv.lock CHANGELOG.md
 git commit -m "Release vX.Y.Z (#145)"
 git push
 ```
@@ -114,7 +119,8 @@ gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
   curl -sIL https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip
   ```
 
-  expect a `200` and a size near the built ZIP (~650 KB). A `404` means the
+  expect a `200` and a size near the built ZIP (about 1.1 MB as of v1.1.0). A
+  `404` means the
   release was published as a pre-release (see step 4) or the asset name drifted.
   The full end-to-end install on a fresh machine is #76's acceptance, not this
   checklist's.
@@ -126,12 +132,9 @@ gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
   the stable alias resolves for the installer. The v1.1.0 final follows the same
   ritual and supersedes it as Latest. (v1.0.0 predates the ritual and has no such
   assets.)
-- **Site Download-ZIP button (#103).** The landing page's button currently points
-  at the `main` auto-archive, which unzips as `thoughtborne-windows-main` — the
-  folder the README setup step names. Whether to switch it to the release asset is
-  a *linked* decision: the release ZIP is the installer payload (flat layout),
-  while that button serves humans who unzip and follow the README. Revisit once
-  v1.1.0 ships, and change it together with the README's unzip step if at all.
+- **Site Download-ZIP button (#103)** — settled with site stage 2 (b77004b,
+  2026-08-23): the button points at the `thoughtborne.zip` release asset, and the
+  README's ZIP step is the matching one (extract, double-click `setup.bat`).
 - **Scoop fast-follow (#51)** consumes the same `thoughtborne.zip` asset
   downstream.
 
