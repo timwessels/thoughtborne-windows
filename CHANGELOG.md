@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Windows app icon is the pixel mark (D-016).** The Start-menu shortcut, the taskbar
+  and *Settings > Installed apps* showed the round navy brand mark, all but invisible on a
+  dark desktop, and the settings window showed tkinter's default feather. All of them now
+  carry one file, `assets/logo/thoughtborne.ico`: the console masthead's 7×6 pixel mark in
+  the console accent on a hard-cornered tile of neutral dark grey (`#242424`) — the mark plus
+  exactly one ring of ground pixels, no rounding, no anti-aliasing, ten integer-scaled frames
+  from 16 to 256 px. On Windows' dark surfaces the tile melts into the ground and only the
+  mark stands, as in the terminal; on light or coloured grounds it reads as a tile.
+  `favicon.ico` is gone from `assets/logo/` (the website keeps its own); `setup.ps1` points
+  the shortcut and `DisplayIcon` at the new file, an in-place update re-registers both, and
+  `make_app_icon.py` rebuilds the icon from `console_ui.LOGO_MARK_A5` whenever the mark
+  changes. The round flow mark stays the umbrella brand (GitHub avatar, lockup).
 - **External links on the website open in a new tab.** Everything that leaves the site —
   GitHub, the Groq and Soniox consoles — now opens in its own tab with `rel="noopener"`, while
   the language switch, the imprint and the in-page jumps stay put. The release ZIP is the

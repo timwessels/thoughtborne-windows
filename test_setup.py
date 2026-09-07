@@ -170,7 +170,7 @@ def test_shortcuts():
     retired_launcher = "Thoughtborne-Settings" + ".bat"
     assert retired_launcher not in text, f"setup.ps1 must not reference the retired {retired_launcher} (#223)"
     assert "cmd.exe" in text, "shortcut target is not cmd.exe"
-    assert "favicon.ico" in text, "shortcut carries no favicon.ico icon"
+    assert "thoughtborne.ico" in text, "shortcut carries no thoughtborne.ico icon (D-016)"
     assert "'/c \"'" in text, "shortcut does not use the cmd /c \"...\" form (#140)"
     # In-place updates strip a stale standalone-settings shortcut from older installs
     # (#223, D-014); the dry-run plan announces it. Positive assertion on the removal.
@@ -762,13 +762,17 @@ def test_displayversion_from_pyproject():
 
 
 def test_displayicon_real_path():
-    # DisplayIcon points at the real shipped icon, and that asset exists in the tree.
+    # DisplayIcon points at the real shipped icon, that asset exists in the tree, and
+    # the settings window loads the same file (D-016: one icon file, every surface).
     text = read_text("setup.ps1")
     assert "DisplayIcon" in text, "registry entry sets no DisplayIcon"
-    assert r"assets\logo\favicon.ico" in text, \
-        "DisplayIcon does not reference the real assets\\logo\\favicon.ico"
-    assert (REPO / "assets" / "logo" / "favicon.ico").exists(), \
-        "assets/logo/favicon.ico is missing from the tree"
+    assert r"assets\logo\thoughtborne.ico" in text, \
+        "DisplayIcon does not reference the real assets\\logo\\thoughtborne.ico"
+    assert (REPO / "assets" / "logo" / "thoughtborne.ico").exists(), \
+        "assets/logo/thoughtborne.ico is missing from the tree"
+    settings_src = (REPO / "thoughtborne_settings.py").read_text(encoding="utf-8")
+    assert "thoughtborne.ico" in settings_src, \
+        "the settings window does not load assets/logo/thoughtborne.ico (D-016)"
 
 
 def test_uninstall_keeplist_covers_user_data_excludes_venv():

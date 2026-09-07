@@ -61,7 +61,7 @@ fi
 # Must-have files -- the payload the tool and installer depend on.
 must_have=(
     test_audio.mp3
-    assets/logo/favicon.ico
+    assets/logo/thoughtborne.ico
     Thoughtborne.bat
     setup.bat
     setup.ps1

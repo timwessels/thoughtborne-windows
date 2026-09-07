@@ -107,7 +107,7 @@ function New-ThoughtborneShortcuts {
     param([string]$InstallDir, [switch]$DryRun)
     $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
     $cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
-    $icon = Join-Path $InstallDir 'assets\logo\favicon.ico'
+    $icon = Join-Path $InstallDir 'assets\logo\thoughtborne.ico'
 
     # One Start-menu entry (#223, D-014: the standalone settings lane is retired, so
     # there is no separate settings shortcut). Target cmd.exe with  /c "<bat>"  rather
@@ -212,7 +212,7 @@ function Write-UninstallRegistryEntry {
     # EstimatedSize refresh every time.
     $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Thoughtborne'
     $uninst  = Join-Path $InstallDir 'uninstall.ps1'
-    $icon    = Join-Path $InstallDir 'assets\logo\favicon.ico'
+    $icon    = Join-Path $InstallDir 'assets\logo\thoughtborne.ico'
     $common  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File'
     $uStr    = 'powershell.exe {0} "{1}"' -f $common, $uninst
     $qStr    = '{0} -Silent' -f $uStr
@@ -507,7 +507,7 @@ function Install-Thoughtborne {
     # 7b) Per-user Apps-list (Add/Remove Programs) registration, so Thoughtborne
     #     shows under Settings > Installed apps with a working Uninstall. Runs after
     #     the copy (it reads the installed pyproject.toml and points DisplayIcon at
-    #     the copied favicon.ico) and on every run (fresh install and in-place
+    #     the copied thoughtborne.ico) and on every run (fresh install and in-place
     #     update). Install metadata only, registry cmdlets only -- no secrets, no
     #     config file (D-002); the uninstall is uninstall.ps1, whose quiet lane
     #     never deletes user data (D-011). Wrapped (#244): a failed registration used

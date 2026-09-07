@@ -32,6 +32,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-013 | In-place updates are replace-only; orphaned files from an older release survive | Active |
 | D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated. Retires D-005 |
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
+| D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
 
 ---
 
@@ -873,7 +874,8 @@ entry. The user-data safety stance is the contestable call:
   still collects no secrets and the settings app remains the only config writer
   (respects D-002). `DisplayVersion` is read from the installed `pyproject.toml`
   (omitted, never faked, if unparseable); `DisplayIcon` points at the real shipped
-  `assets\logo\favicon.ico`.
+  app icon (`assets\logo\favicon.ico` then; `assets\logo\thoughtborne.ico` since
+  D-016).
 - **The running tool is never killed.** A log-heartbeat guard (the AGENTS.md
   reliable signal, mirroring `setup.ps1`) refuses to uninstall a running tool and
   asks the user to close it with `Ctrl+Alt+4` — it reads the log, never the process
@@ -1132,3 +1134,56 @@ override.
 
 Respects D-014 (the toggle + self-persist mechanics are untouched) and D-002
 (no new writer; the stored choice still comes from the same surgical merge).
+
+---
+
+## D-016 — The Windows app icon is the pixel mark on a hard-cornered dark-grey tile
+
+Decided 2026-09-07 (maintainer call in session; no issue).
+
+Thoughtborne has two marks. The round navy *flow mark* (#48) is the umbrella
+brand — GitHub avatar, the lockup, anything that speaks for the project as a
+whole. The *pixel mark* — `console_ui.LOGO_MARK_A5`, the 7×6 half-block glyph in
+the console masthead — is the app: the website favicon since v1.1.0, and now
+every Windows surface. `assets/logo/thoughtborne.ico` is the one app-icon file:
+`setup.ps1` points the Start-menu shortcut and the Installed-apps `DisplayIcon`
+at it, and the settings window loads it through `iconbitmap(default=...)`, so its
+title bar, taskbar button and Alt+Tab entry stop showing Tk's feather.
+
+- **Why the pixel mark.** The program *is* the console; its masthead is what the
+  user looks at every day. An icon that shows something else is a second identity
+  to learn. Since v1.1.0 the site favicon already made that call for the browser
+  tab; the desktop had simply been left behind (the shortcut still carried the
+  v1 flow mark, all but invisible on a dark desktop).
+- **Why a tile, and why hard corners.** An icon has to survive black, white, the
+  accent blue of a pinned tile and a photo wallpaper. No single mark colour does:
+  the console accent vanishes on white, navy vanished on black. So the tile brings
+  its own ground — but it is not a container with a logo in it. It is part of the
+  pixel picture: the mark plus exactly one ring of ground pixels, a 9×8 grid, no
+  rounding, no anti-aliasing. The terminal look is adopted on purpose and worn
+  with confidence, the way Claude Code wears it, not a legacy look apologised for
+  with soft corners. Windows never rounds icons itself; the corners are ours.
+- **Why neutral grey, not black or the console ground.** `#242424`, equal RGB —
+  a modern terminal's dark grey rather than 1990s pure black, and no blue cast:
+  the console/settings ground `#0C1117` and the brand navy both tint blue next to
+  Windows' own dark surfaces. On those surfaces (taskbar, Start, Installed apps)
+  the tile melts into the ground and only the mark stands, exactly as in the
+  masthead; on light and coloured grounds it reads as a tile.
+- **Sizes.** Ten frames, 16–256 px, each an integer scale of the grid so pixel
+  edges stay hard. At 16 and 24 px the full grid would fill under 80 % of the
+  canvas, so there the ring narrows to one device pixel and the mark takes the
+  next scale (a strict 9×8 at 16 px is a 9-pixel-wide icon next to full-size
+  neighbours); every other frame is the true grid. `assets/logo/make_app_icon.py`
+  is the source of truth — rebuild the .ico when the mark or the accent changes;
+  never hand-edit it or scale it with a smoothing resampler.
+
+Do not reintroduce: the flow mark on any app surface, a second icon file for a
+second surface (one file, every surface), rounded corners, a tinted or
+pure-black ground, or a hand-touched .ico. The website favicon is not part of
+this decision — it stays the bare mark, navy or accent by colour scheme.
+
+Respects D-006 (the icon rides the whole-tree `git archive` ZIP;
+`build-release-zip.sh` lists it as a must-have file) and D-013 (an in-place
+update re-copies the file and re-registers shortcut and `DisplayIcon`; the
+retired `favicon.ico` stays orphaned in older installs, which is that rule's
+stance).

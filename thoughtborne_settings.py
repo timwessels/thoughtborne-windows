@@ -146,6 +146,21 @@ def _enable_high_dpi() -> None:
         pass
 
 
+_APP_ICON = config.SCRIPT_DIR / "assets" / "logo" / "thoughtborne.ico"
+
+
+def _set_window_icon(root) -> None:
+    """Give the window the app icon (D-016): title bar, taskbar button, Alt+Tab.
+
+    `default=` sets it for every toplevel this process opens; without it Tk shows its
+    own feather. `.ico` is a Windows format -- off-Windows Tk rejects it and the window
+    keeps the default, a silent no-op that never costs a launch."""
+    try:
+        root.iconbitmap(default=str(_APP_ICON))
+    except Exception:
+        pass
+
+
 def _enable_dark_title_bar(root) -> None:
     """Ask DWM to draw this window's title bar dark (#228).
 
@@ -2127,6 +2142,7 @@ def main():
         _enable_high_dpi()
         root = tk.Tk()
         t_tk = time.perf_counter()
+        _set_window_icon(root)
         try:
             root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
         except Exception:
