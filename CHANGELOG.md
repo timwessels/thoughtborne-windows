@@ -70,6 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Pillow arrives transitively (pyautogui → pyscreeze) and only on Windows below Python 3.12; the
   tool never feeds it untrusted images, so this is dependency hygiene with no reachable exposure.
   Lock-only — no other file changed.
+- **The website's "Who it's built for" section only says who it is for.** The heading has lost
+  its "and who it isn't", and with it the "probably not" column: the setup excludes nobody the
+  maintainer could name, and that column's point about a terminal window staying open was
+  simply wrong — the window can be hidden into the notification area. Six points now stand
+  where four did, side by side in two columns: a tool you control (open source, no
+  subscription), free even with regular use, reliable and in daily use since 2023, transcripts
+  you can send unread in German too, a lot of time spent with chatbots and coding agents, and
+  long texts one would rather just say. DE and EN twins in lockstep.
 
 ## [1.1.0] - 2026-09-06
 

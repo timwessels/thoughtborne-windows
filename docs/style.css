@@ -352,12 +352,15 @@ code {
 
 .audience-box { background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .audience-box .wrap { max-width: var(--measure-wide); padding-block: clamp(2.75rem, 6vw, 4rem); }
-.aud-cols { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); margin-top: 1.75rem; }
-.aud-cols h3 { font-size: 1.02rem; font-weight: 600; color: var(--ink); margin-bottom: 0.75rem; }
-.aud-cols ul { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
-.aud-cols li { padding-left: 1.3rem; position: relative; color: var(--ink-soft); font-size: 0.94rem; line-height: 1.5; }
+.aud-for { margin-top: 1.75rem; }
+.aud-for h3 { font-size: 1.02rem; font-weight: 600; color: var(--ink); margin-bottom: 0.75rem; }
+.aud-for ul { list-style: none; padding: 0; columns: 2; column-gap: clamp(1.5rem, 4vw, 3rem); }
+.aud-for li { padding-left: 1.3rem; position: relative; color: var(--ink-soft); font-size: 0.94rem; line-height: 1.5; break-inside: avoid; text-wrap: pretty; }
+.aud-for li + li { margin-top: 0.5rem; }
+/* Six items, split 3+3: the fourth opens column two, so it starts flush — both
+   rules are undone below where the list falls back to one column. */
+.aud-for li:nth-child(4) { break-before: column; margin-top: 0; }
 .aud-for li::before { content: "✓"; position: absolute; left: 0; color: var(--accent-deep); font-weight: 700; }
-.aud-not li::before { content: "—"; position: absolute; left: 0; color: var(--e-gray); }
 
 .audience { font-size: 0.92rem; margin-top: 1.6rem; }
 
@@ -372,7 +375,8 @@ code {
 @media (max-width: 640px) {
   .steps { grid-template-columns: 1fr; }
   .reliab-grid { grid-template-columns: 1fr; }
-  .aud-cols { grid-template-columns: 1fr; }
+  .aud-for ul { columns: auto; }
+  .aud-for li:nth-child(4) { margin-top: 0.5rem; }
   .feat-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
