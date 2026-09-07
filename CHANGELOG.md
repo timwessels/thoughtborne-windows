@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **External links on the website open in a new tab.** Everything that leaves the site —
+  GitHub, the Groq and Soniox consoles — now opens in its own tab with `rel="noopener"`, while
+  the language switch, the imprint and the in-page jumps stay put. The release ZIP is the
+  exception: GitHub sends it as a download, so a new tab would only stay empty.
 - **The website's "Get started" section is a call to action, and macOS is off the site.** The
   install one-liner stood on the page twice — in the hero's three-step box and again at the
   bottom, under a first/second/third list that repeated what the box already says. The bottom

@@ -92,7 +92,7 @@
           <code class="install-cmd">powershell -c "irm https://github.com/timwessels/<wbr>thoughtborne-windows/<wbr>releases/latest/download/setup.ps1 | iex"</code>
           <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
         </div>
-        <p class="ip-more"><a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1">Installationsskript lesen</a></p>
+        <p class="ip-more"><a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1" target="_blank" rel="noopener">Installationsskript lesen</a></p>
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
@@ -130,7 +130,7 @@
     </div>
 
     <p class="actions">
-      <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows">Auf GitHub ansehen</a>
+      <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows" target="_blank" rel="noopener">Auf GitHub ansehen</a>
       <a class="btn btn-ghost" href="#los-gehts">Mehr zum Setup</a>
     </p>
   </div>
@@ -365,13 +365,15 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Loslegen</h2>
-      <p>Du brauchst Windows, ein Mikrofon und einen API-Key – bei Groq ist er kostenlos. Ein Befehl im Terminal installiert alles, ohne Adminrechte und in deinem Benutzerprofil – das <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1">Skript kannst du vorher lesen</a>. Danach fragt der Einrichtungs-Assistent nach dem Key, und mit <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> diktierst du los.</p>
+      <p>Du brauchst Windows, ein Mikrofon und einen API-Key – bei Groq ist er kostenlos. Ein Befehl im Terminal installiert alles, ohne Adminrechte und in deinem Benutzerprofil – das <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1" target="_blank" rel="noopener">Skript kannst du vorher lesen</a>. Danach fragt der Einrichtungs-Assistent nach dem Key, und mit <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> diktierst du los.</p>
       <p class="actions">
         <a class="btn btn-primary" href="#installation">Installation per Befehl</a>
         <!-- thoughtborne.zip is the snapshot the release ritual builds (D-006);
-             releases/latest keeps the URL current with zero page edits. -->
+             releases/latest keeps the URL current with zero page edits. This one
+             link stays in the same tab on purpose: GitHub serves the ZIP as an
+             attachment, so target="_blank" would leave an empty tab behind. -->
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip">ZIP herunterladen</a>
-        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Installation (README)</a>
+        <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation" target="_blank" rel="noopener">Installation (README)</a>
       </p>
       <p class="audience">Lieber ohne Kommandozeile? Das ZIP entpacken und <code>setup.bat</code> doppelklicken – dasselbe Setup. Wer alles selbst in der Hand haben will, folgt dem README.</p>
     </div>
@@ -382,12 +384,12 @@
 <footer class="site-footer">
   <div class="footer-inner">
     <nav class="footer-links" aria-label="Projekt-Links">
-      <a href="https://github.com/timwessels/thoughtborne-windows">GitHub</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/issues">Issues</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT-Lizenz</a>
-      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.md" hreflang="en">English documentation</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md" target="_blank" rel="noopener">VISION</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE" target="_blank" rel="noopener">MIT-Lizenz</a>
+      <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.md" hreflang="en" target="_blank" rel="noopener">English documentation</a>
       <a href="/legal.html">Impressum &amp; Datenschutz</a>
     </nav>
     <p class="footer-note">Thoughtborne ist seit 2023 das tägliche Werkzeug des Maintainers und wird aktiv gepflegt.</p>
