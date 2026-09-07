@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The website's "Get started" section is a call to action, and macOS is off the site.** The
+  install one-liner stood on the page twice — in the hero's three-step box and again at the
+  bottom, under a first/second/third list that repeated what the box already says. The bottom
+  section is now three plain sentences (what you need, what the installer does, how you
+  dictate) and a primary button that jumps back up to the box and opens its install tab, with
+  the ZIP and README routes beside it; the command exists exactly once on the page. Under that
+  command the hero box gained a one-line trust note — no admin rights, inside your user
+  profile, and the script linked for reading first, as GitHub's readable view rather than the
+  download asset. Switching tabs no longer resizes the box: on desktop widths the three panels
+  are measured once and the box is held at the tallest, so the page cannot jump under the
+  reader's cursor — narrower than 1024 px the box simply fits its panel, where nothing sits
+  under a cursor anyway, and the tallest panel gave back a few pixels of spacing so the install
+  tab reads less empty. In-page jumps scroll smoothly now (every anchor on the site, off under
+  `prefers-reduced-motion: reduce`), so a jump from the page's foot to the hero box is
+  followable instead of a teleport. The command wraps to two lines instead of three, from
+  `<wbr>` break hints at the URL's path segments (Chrome breaks no URL at `/` by itself) and a
+  strip that reaches a little past the hero's prose measure. The archived macOS variant is gone
+  from the site — a feature bullet and a footer link on all four pages, neither of which told a
+  visitor anything about the Windows tool; the READMEs and `VISION.md` still name it. DE and EN
+  twins in lockstep.
 - **The website's share card and touch icon.** The 1280×640 social-preview image is new: the
   console pixel mark, the terminal wordmark and the line *voice-to-text for Windows*, so a shared
   link says what the tool is instead of showing only the logo (the `og:image` URL carries a
@@ -24,8 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their quotation marks with „…“ instead of the straight ASCII `"`, and the English pages use
   typographic apostrophes and quotes (the install one-liners are untouched — those quotes are
   PowerShell syntax). The project's age is dated instead of counted in years — "seit 2023" / "since 2023" in
-  the hallucination-filter point, the reliability intro and the footer note — so no sentence can age. The macOS sibling is named for what it has become now
-  that its repository is archived: an earlier variant on a much older state, no longer maintained.
+  the hallucination-filter point, the reliability intro and the footer note — so no sentence can age.
   The imprint's address block sets itself off from the paragraphs around it again, and the
   link-underline colour clears the 3:1 non-text contrast floor (WCAG 1.4.11) on the light page. DE
   and EN twins in lockstep.

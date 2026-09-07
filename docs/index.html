@@ -26,7 +26,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -69,7 +69,7 @@
 
     <!-- The canonical release lane — releases/latest/download always resolves
          to the newest published release, so this URL never needs a version bump. -->
-    <div class="install install-tabs">
+    <div class="install install-tabs" id="installation">
       <!-- Three-step strip. Panels 2/3 ship `hidden` so nothing flashes before the
            script at the end of the body wires the tabs; the head's noscript rule
            stacks all three without JS. -->
@@ -82,12 +82,17 @@
       <div class="ip-panel" role="tabpanel" id="ip-panel-1" aria-labelledby="ip-tab-1">
         <p class="ip-title">Installation – ein Befehl im Terminal</p>
         <div class="install-panel">
-          <!-- The powershell -c wrapper is deliberate: content blockers (uBlock's
-               ClickFix guard) swallow a bare `irm | iex` clipboard write; the flag-free
-               wrapped form is the tolerated shape — and runs from cmd and Win+R too. -->
-          <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
+          <!-- The page's only install command — keep it word-for-word identical to the
+               one-liners in README.md and README.de.md. The powershell -c wrapper is
+               deliberate: content blockers (uBlock's ClickFix guard) swallow a bare
+               `irm | iex` clipboard write; the flag-free wrapped form is the tolerated
+               shape — and runs from cmd and Win+R too. The <wbr>s are break hints with
+               no text of their own (Chrome does not break URLs at `/` by itself), so
+               the copy button still yields the exact command. -->
+          <code class="install-cmd">powershell -c "irm https://github.com/timwessels/<wbr>thoughtborne-windows/<wbr>releases/latest/download/setup.ps1 | iex"</code>
           <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
         </div>
+        <p class="ip-note">Ohne Adminrechte, in deinem Benutzerprofil – und das <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1">Skript kannst du vorher lesen</a>.</p>
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
@@ -189,7 +194,6 @@
           <li><b>uv-Setup ohne Python-Vorinstallation</b> – <span><code>uv run</code> zieht Python und Dependencies selbst, re-synct auch nach <code>git pull</code>.</span></li>
           <li><b>Freier Einstiegspfad</b> – <span>startet mit nur einem Key, überspringt fehlende APIs sauber statt abzustürzen.</span></li>
           <li><b>Per KI-Agent anpassbar</b> – <span>lesbarer Code statt Settings-Wüste; <code>AGENTS.md</code> liegt bei, damit dein Coding-Agent direkt loslegt.</span></li>
-          <li><b>Früherer macOS-Ableger</b> – <span>deutlich älterer Stand, archiviert und nicht mehr gepflegt.</span></li>
         </ul>
       </div>
     </div>
@@ -361,31 +365,15 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Setup</p>
       <h2>Loslegen</h2>
-      <p>Windows, ein Mikrofon und mindestens ein API-Key – Groqs Free-Tier reicht. Der schnellste Weg ist der Installer: ein Terminal öffnen – PowerShell oder cmd –, den Befehl einfügen, Enter drücken.</p>
-
-      <!-- Same canonical one-liner as the hero install box — keep the two in sync. -->
-      <div class="install">
-        <div class="install-panel">
-          <code class="install-cmd">powershell -c "irm https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1 | iex"</code>
-          <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
-        </div>
-      </div>
-
-      <ol class="setup-steps">
-        <li>Der Installer richtet alles ein – ohne Adminrechte, in deinem Benutzerprofil. Das Skript ist offen, du kannst es <a href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/setup.ps1">vorher lesen</a>.</li>
-        <li>Der Einrichtungs-Assistent öffnet sich: Anbieter wählen und API-Key einfügen – bei Groq kostenlos, echter Free-Tier.</li>
-        <li>Diktieren: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> drücken und reden – in jeder App.</li>
-      </ol>
-
-      <p>Ein API-Key ist eine Art persönliches Passwort, mit dem sich Thoughtborne bei einem Transkriptionsdienst anmeldet – du erstellst ihn dir beim Anbieter und fügst ihn im Assistenten ein. Bei Groq ist das kostenlos: <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
+      <p>Du brauchst Windows, ein Mikrofon und einen API-Key – bei Groq ist er kostenlos. Ein Befehl im Terminal installiert alles, ohne Adminrechte und in deinem Benutzerprofil – das <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1">Skript kannst du vorher lesen</a>. Danach fragt der Einrichtungs-Assistent nach dem Key, und mit <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>W</kbd> diktierst du los.</p>
       <p class="actions">
+        <a class="btn btn-primary" href="#installation">Installation per Befehl</a>
         <!-- thoughtborne.zip is the snapshot the release ritual builds (D-006);
              releases/latest keeps the URL current with zero page edits. -->
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip">ZIP herunterladen</a>
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation">Installation (README)</a>
       </p>
-      <p class="audience">Lieber ohne Kommandozeile? Das ZIP entpacken und <code>setup.bat</code> doppelklicken – dasselbe Setup. Wer alles selbst in der Hand haben will, folgt Schritt für Schritt dem README.</p>
-      <p>Der Code ist schlank und von vorne bis hinten lesbar – leicht anzupassen, wenn du das möchtest.</p>
+      <p class="audience">Lieber ohne Kommandozeile? Das ZIP entpacken und <code>setup.bat</code> doppelklicken – dasselbe Setup. Wer alles selbst in der Hand haben will, folgt dem README.</p>
     </div>
   </section>
 
@@ -399,7 +387,6 @@
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/VISION.md">VISION</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE">MIT-Lizenz</a>
-      <a href="https://github.com/timwessels/thoughtborne-macos">macOS (archiviert)</a>
       <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.md" hreflang="en">English documentation</a>
       <a href="/legal.html">Impressum &amp; Datenschutz</a>
     </nav>
@@ -480,6 +467,41 @@ document.querySelectorAll('.install-tabs').forEach(function (box) {
       e.preventDefault();
       show((n + tabs.length) % tabs.length, true);
     });
+  });
+
+  /* One height for all three panels, so switching tabs never moves the page:
+     measure the box once per panel and hold the tallest. Desktop only — on a
+     narrow screen the tabs sit at the top of the view with nothing below them
+     to displace, so the tallest panel would only add empty space. Width-only
+     resizes re-measure; mobile browsers fire resize on scroll, which must not. */
+  var roomy = window.matchMedia('(min-width: 64rem)');
+  var lock = function () {
+    box.style.minHeight = '';
+    if (!roomy.matches) { return; }
+    var open = 0, i;
+    for (i = 0; i < tabs.length; i++) { if (tabs[i].getAttribute('aria-selected') === 'true') { open = i; } }
+    var tallest = 0;
+    for (i = 0; i < tabs.length; i++) { show(i, false); tallest = Math.max(tallest, box.offsetHeight); }
+    show(open, false);
+    box.style.minHeight = tallest + 'px';
+  };
+  lock();
+  var wide = window.innerWidth, settle;
+  window.addEventListener('resize', function () {
+    if (window.innerWidth === wide) { return; }
+    wide = window.innerWidth;
+    clearTimeout(settle);
+    settle = setTimeout(lock, 150);
+  });
+
+  /* The get-started button jumps back up to this box — it has to land on the
+     command, whichever tab the reader left open. */
+  var toCommand = function () { show(0, false); };
+  window.addEventListener('hashchange', function () {
+    if (location.hash === '#' + box.id) { toCommand(); }
+  });
+  document.querySelectorAll('a[href="#' + box.id + '"]').forEach(function (a) {
+    a.addEventListener('click', toCommand);
   });
 });
 </script>
