@@ -452,6 +452,7 @@ document.querySelectorAll('.copy-btn').forEach(function (btn) {
 document.querySelectorAll('.install-tabs').forEach(function (box) {
   var tabs = Array.prototype.slice.call(box.querySelectorAll('[role="tab"]'));
   var panels = tabs.map(function (tab) { return document.getElementById(tab.getAttribute('aria-controls')); });
+  var floor = 0;
   var show = function (n, focus) {
     tabs.forEach(function (tab, i) {
       var on = i === n;
@@ -459,6 +460,7 @@ document.querySelectorAll('.install-tabs').forEach(function (box) {
       tab.tabIndex = on ? 0 : -1;
       panels[i].hidden = !on;
     });
+    box.style.minHeight = floor && n > 0 ? floor + 'px' : '';
     if (focus) { tabs[n].focus(); }
   };
   tabs.forEach(function (tab, i) {
@@ -471,21 +473,21 @@ document.querySelectorAll('.install-tabs').forEach(function (box) {
     });
   });
 
-  /* One height for all three panels, so switching tabs never moves the page:
-     measure the box once per panel and hold the tallest. Desktop only — on a
-     narrow screen the tabs sit at the top of the view with nothing below them
-     to displace, so the tallest panel would only add empty space. Width-only
+  /* One height for the two explaining panels, so switching between them never
+     moves the page; the install panel sits tight on its command, the page's
+     first impression. Desktop only — on a narrow screen the tabs sit at the top
+     of the view with nothing below them to displace. The floor is cleared before
+     measuring so a held height cannot feed the next measurement. Width-only
      resizes re-measure; mobile browsers fire resize on scroll, which must not. */
   var roomy = window.matchMedia('(min-width: 64rem)');
   var lock = function () {
-    box.style.minHeight = '';
-    if (!roomy.matches) { return; }
     var open = 0, i;
     for (i = 0; i < tabs.length; i++) { if (tabs[i].getAttribute('aria-selected') === 'true') { open = i; } }
-    var tallest = 0;
-    for (i = 0; i < tabs.length; i++) { show(i, false); tallest = Math.max(tallest, box.offsetHeight); }
+    floor = 0;
+    if (roomy.matches) {
+      for (i = 1; i < tabs.length; i++) { show(i, false); floor = Math.max(floor, box.offsetHeight); }
+    }
     show(open, false);
-    box.style.minHeight = tallest + 'px';
   };
   lock();
   var wide = window.innerWidth, settle;

@@ -29,18 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the ZIP and README routes beside it; the command exists exactly once on the page. Under that
   command the install panel now ends on a single link — *Read the install script*, pointing at
   GitHub's readable view rather than the download asset — set flush right, where the provider
-  panel's *More info* link sits too, so both panels close on the same line. Switching tabs no
-  longer resizes the box: on desktop widths the three panels are measured once and the box is
-  held at the tallest, so the page cannot jump under the reader's cursor — narrower than 1024
-  px the box simply fits its panel, where nothing sits under a cursor anyway, and the tallest
-  panel gave back a few pixels of spacing so the install tab reads less empty. In-page jumps
-  scroll smoothly now (every anchor on the site, off under `prefers-reduced-motion: reduce`),
-  so a jump from the page's foot to the hero box is followable instead of a teleport. The
-  command wraps to two lines instead of three, from `<wbr>` break hints at the URL's path
-  segments (Chrome breaks no URL at `/` by itself) and a strip that reaches a little past the
-  hero's prose measure. The archived macOS variant is gone from the site — a feature bullet and
-  a footer link on all four pages, neither of which told a visitor anything about the Windows
-  tool; the READMEs and `VISION.md` still name it. DE and EN twins in lockstep.
+  panel's *More info* link sits too, so both panels close on the same line. The install tab
+  holds no more height than its command needs — it opens the page, and empty ground under one
+  line of terminal text is a poor first impression — while the two explaining tabs share one
+  height on desktop widths, measured once, so switching between them moves nothing under the
+  reader's cursor; stepping on from the install tab does resize the box, but that is a click
+  the reader just made, and narrower than 1024 px every panel simply fits its content, where
+  nothing sits under a cursor anyway. In-page jumps scroll smoothly now (every anchor on the
+  site, off under `prefers-reduced-motion: reduce`), so a jump from the page's foot to the hero
+  box is followable instead of a teleport. The command wraps to two lines instead of three,
+  from `<wbr>` break hints at the URL's path segments (Chrome breaks no URL at `/` by itself)
+  and a strip that reaches a little past the hero's prose measure. The archived macOS variant
+  is gone from the site — a feature bullet and a footer link on all four pages, neither of
+  which told a visitor anything about the Windows tool; the READMEs and `VISION.md` still name
+  it. DE and EN twins in lockstep.
 - **The website's share card and touch icon.** The 1280×640 social-preview image is new: the
   console pixel mark, the terminal wordmark and the line *voice-to-text for Windows*, so a shared
   link says what the tool is instead of showing only the logo (the `og:image` URL carries a
