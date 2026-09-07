@@ -1173,9 +1173,14 @@ title bar, taskbar button and Alt+Tab entry stop showing Tk's feather.
   edges stay hard. At 16 and 24 px the full grid would fill under 80 % of the
   canvas, so there the ring narrows to one device pixel and the mark takes the
   next scale (a strict 9×8 at 16 px is a 9-pixel-wide icon next to full-size
-  neighbours); every other frame is the true grid. `assets/logo/make_app_icon.py`
-  is the source of truth — rebuild the .ico when the mark or the accent changes;
-  never hand-edit it or scale it with a smoothing resampler.
+  neighbours); every other frame is the true grid. Frames up to 64 px are stored
+  as plain bitmaps, the larger ones as PNG — not taste but necessity: Tk's own
+  ICO reader takes a frame's size from its bitmap header, so an all-PNG file
+  reads as garbage and the settings window ends up with a blurred scale-down
+  (verified on Tk 8.6.12). `assets/logo/make_app_icon.py` is the source of
+  truth and `test_app_icon.py` holds the .ico to it — rebuild the .ico when the
+  mark or the accent changes; never hand-edit it or scale it with a smoothing
+  resampler.
 
 Do not reintroduce: the flow mark on any app surface, a second icon file for a
 second surface (one file, every surface), rounded corners, a tinted or
@@ -1184,6 +1189,10 @@ this decision — it stays the bare mark, navy or accent by colour scheme.
 
 Respects D-006 (the icon rides the whole-tree `git archive` ZIP;
 `build-release-zip.sh` lists it as a must-have file) and D-013 (an in-place
-update re-copies the file and re-registers shortcut and `DisplayIcon`; the
-retired `favicon.ico` stays orphaned in older installs, which is that rule's
-stance).
+update re-copies the file and re-registers `DisplayIcon`; the retired
+`favicon.ico` stays orphaned in older installs, which is that rule's stance).
+One deliberate exception to the installer's leave-a-matching-shortcut-alone
+rule: a Start-menu shortcut whose icon still points at the retired
+`favicon.ico` gets exactly that property moved, in place — otherwise every
+pre-D-016 install would keep the old icon forever, while any other icon a user
+chose stays theirs.

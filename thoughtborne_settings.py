@@ -153,8 +153,12 @@ def _set_window_icon(root) -> None:
     """Give the window the app icon (D-016): title bar, taskbar button, Alt+Tab.
 
     `default=` sets it for every toplevel this process opens; without it Tk shows its
-    own feather. `.ico` is a Windows format -- off-Windows Tk rejects it and the window
-    keeps the default, a silent no-op that never costs a launch."""
+    own feather. Call it only once the window is realized (after an update_idletasks):
+    applied to an unrealized window, Tk hands Windows just the 32 px frame and the
+    title bar gets a blurred scale-down instead of the crisp 16 px frame (verified on
+    Tk 8.6.12, 2026-09-07). Off-Windows this is a silent no-op that never costs a
+    launch: X11 Tk knows neither the `default=` form nor the .ico format, and the
+    try/except swallows the TclError."""
     try:
         root.iconbitmap(default=str(_APP_ICON))
     except Exception:
@@ -242,6 +246,7 @@ class SettingsApp:
         self.theme = settings_theme.apply_theme(root)
         self._column_px = self.theme.column_px()
         _enable_dark_title_bar(root)   # OS-drawn bar joins the dark page (no-op off-Windows)
+        _set_window_icon(root)         # realized by the line above, so both icon sizes land (D-016)
 
         # Re-render registries: simple text-bearing widgets and link widgets.
         self._text_widgets = []     # (widget, string-key)
@@ -2142,7 +2147,6 @@ def main():
         _enable_high_dpi()
         root = tk.Tk()
         t_tk = time.perf_counter()
-        _set_window_icon(root)
         try:
             root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
         except Exception:

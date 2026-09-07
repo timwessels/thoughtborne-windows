@@ -148,6 +148,15 @@ function New-ThoughtborneShortcuts {
         if (Test-Path -LiteralPath $lnk) {
             $existing = $shell.CreateShortcut($lnk)
             if (($existing.TargetPath -eq $cmdExe) -and ($existing.Arguments -eq $argLine)) {
+                # One exception (D-016): a shortcut from before the pixel icon still
+                # points at the retired assets\logo\favicon.ico. Move exactly that,
+                # in place, keeping every other property; any other icon is the
+                # user's own choice and stays. This one-time save pays the #140
+                # price once, only on such installs.
+                if ($existing.IconLocation -like '*\assets\logo\favicon.ico*') {
+                    $existing.IconLocation = $icon + ',0'
+                    $existing.Save()
+                }
                 continue
             }
         }

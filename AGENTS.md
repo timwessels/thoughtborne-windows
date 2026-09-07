@@ -19,6 +19,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 
 | Driver | What it covers | Flags |
 | --- | --- | --- |
+| `test_app_icon.py` | The shipped `assets/logo/thoughtborne.ico` against `console_ui.LOGO_MARK_A5` and `ACCENT` (D-016): every frame decoded and compared pixel for pixel, plus the two consumers (`setup.ps1`, the settings window) naming that file. | `--show` |
 | `test_archive_migration.py` | `config.migrate_legacy_archives` against tempdir layouts, asserted on the files on disk; an escaping exception is itself a failure. | `--show` |
 | `test_audio_stall.py` | The audio stall/deadlock guards in `audio_handler`, against a fault-injecting fake stream. | — |
 | `test_config_loading.py` | The hardened `personal_settings.json` and `.env` readers against tempdir fixtures, each re-checked by a real `import config` in a subprocess. | `--show`; skips its `groq` / `python-dotenv` lanes when those are absent |

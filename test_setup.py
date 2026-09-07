@@ -762,17 +762,25 @@ def test_displayversion_from_pyproject():
 
 
 def test_displayicon_real_path():
-    # DisplayIcon points at the real shipped icon, that asset exists in the tree, and
-    # the settings window loads the same file (D-016: one icon file, every surface).
+    # DisplayIcon points at the real shipped icon, and that asset exists in the tree
+    # (test_app_icon.py checks what the file contains and who else loads it).
     text = read_text("setup.ps1")
     assert "DisplayIcon" in text, "registry entry sets no DisplayIcon"
     assert r"assets\logo\thoughtborne.ico" in text, \
         "DisplayIcon does not reference the real assets\\logo\\thoughtborne.ico"
     assert (REPO / "assets" / "logo" / "thoughtborne.ico").exists(), \
         "assets/logo/thoughtborne.ico is missing from the tree"
-    settings_src = (REPO / "thoughtborne_settings.py").read_text(encoding="utf-8")
-    assert "thoughtborne.ico" in settings_src, \
-        "the settings window does not load assets/logo/thoughtborne.ico (D-016)"
+
+
+def test_shortcut_icon_migration():
+    # An in-place update skips a shortcut whose target and arguments already match --
+    # so an install from before D-016 would keep the retired favicon.ico forever.
+    # The one sanctioned exception: that icon, and only that icon, is moved in place.
+    text = read_text("setup.ps1")
+    assert "IconLocation -like '*\\assets\\logo\\favicon.ico*'" in text, \
+        "setup.ps1 does not migrate a shortcut still pointing at the retired favicon.ico (D-016)"
+    assert "$existing.IconLocation = $icon + ',0'" in text and "$existing.Save()" in text, \
+        "the favicon.ico migration does not rewrite the existing shortcut's icon in place"
 
 
 def test_uninstall_keeplist_covers_user_data_excludes_venv():

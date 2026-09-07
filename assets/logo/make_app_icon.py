@@ -13,8 +13,18 @@ whenever the mark or the accent changes -- never hand-edit or resample the .ico:
 Frames: 16 20 24 32 40 48 64 96 128 256. At 16 and 24 px the full grid would fill
 under 80 % of the canvas, so there the ring is one device pixel wide and the mark
 takes the next integer scale (16x14, 23x20); every other frame is the true 9x8 grid.
+
+Frames up to 64 px are stored as plain 32-bit bitmaps, the larger ones as PNG (the
+classic Windows layout). The bitmap frames are not a nicety: Tk's own ICO reader
+(tkWinWm.c, still in 8.6.16) takes each frame's size from its bitmap header, so a
+PNG frame reads as garbage, no frame ever matches 16 or 32, and the settings window
+ends up with a smoothly scaled first frame instead of the crisp pixel art (verified
+on Tk 8.6.12, 2026-09-07). Pillow's ICO writer is all-PNG or all-BMP, hence the
+small writer below.
 """
+import io
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -27,7 +37,13 @@ import console_ui  # noqa: E402  -- the mark and the accent come from the consol
 OUT = HERE / "thoughtborne.ico"
 SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 GROUND = (0x24, 0x24, 0x24)          # neutral dark grey, equal RGB: no blue cast, not pure black
-ACCENT = tuple(int(c) for c in re.fullmatch(r"38;2;(\d+);(\d+);(\d+)", console_ui.ACCENT).groups())
+PNG_FROM = 96                        # frames this size and up are PNG-compressed, smaller ones bitmaps
+
+_rgb = re.fullmatch(r"38;2;(\d+);(\d+);(\d+)", console_ui.ACCENT)
+if not _rgb:
+    sys.exit(f"console_ui.ACCENT is {console_ui.ACCENT!r}, not a 24-bit SGR colour -- "
+             "the icon needs an RGB accent; pass one explicitly here if the console falls back to CYAN")
+ACCENT = tuple(int(c) for c in _rgb.groups())
 
 
 def decode_mark(rows):
@@ -63,14 +79,52 @@ def frame(n):
     return img, (tw, th)
 
 
+def bmp_entry(img):
+    """A frame as the ICO's classic payload: BITMAPINFOHEADER (height doubled, as the
+    format demands), bottom-up 32-bit BGRA rows, then the 1-bit AND mask (1 = see-through)."""
+    w, h = img.size
+    px = img.load()
+    xor = bytearray()
+    mask = bytearray()
+    mask_row = ((w + 31) // 32) * 4
+    for y in range(h - 1, -1, -1):
+        row = bytearray(mask_row)
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            xor += bytes((b, g, r, a))
+            if a == 0:
+                row[x // 8] |= 0x80 >> (x % 8)
+        mask += row
+    header = struct.pack("<IiiHHIIiiII", 40, w, h * 2, 1, 32, 0, len(xor) + len(mask), 0, 0, 0, 0)
+    return header + xor + mask
+
+
+def png_entry(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def write_ico(path, frames):
+    entries = [(img, png_entry(img) if img.width >= PNG_FROM else bmp_entry(img)) for img in frames]
+    out = bytearray(struct.pack("<HHH", 0, 1, len(entries)))
+    offset = 6 + 16 * len(entries)
+    for img, data in entries:           # directory: 256 is written as 0, as the format demands
+        out += struct.pack("<BBBBHHII", img.width % 256, img.height % 256, 0, 0, 1, 32, len(data), offset)
+        offset += len(data)
+    for _, data in entries:
+        out += data
+    path.write_bytes(out)
+
+
 def main():
     frames = []
-    for n in sorted(SIZES, reverse=True):     # Pillow drops sizes larger than the base image
+    for n in SIZES:
         img, (tw, th) = frame(n)
         frames.append(img)
-        print(f"{n:>4} px  tile {tw}x{th}")
-    frames[0].save(OUT, format="ICO", sizes=[(f.width, f.height) for f in frames], append_images=frames[1:])
-    print("wrote", OUT.relative_to(HERE.parent.parent))
+        print(f"{n:>4} px  tile {tw}x{th}  {'png' if n >= PNG_FROM else 'bmp'}")
+    write_ico(OUT, frames)
+    print(f"wrote {OUT.relative_to(HERE.parent.parent)} ({OUT.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ the taskbar, *Settings > Installed apps* and the settings window.
 | `thoughtborne-wordmark-mono-solid.svg` | Strictly one color (engraving, 1-bit contexts) |
 | `thoughtborne-pixel-lockup.svg` / `-dark.svg` | The console masthead's half-block lockup as crisp pixel rects (mark in the console accent, wordmark in navy / off-white), light/dark — README header since 2026-09; generated from `console_ui.LOGO_MARK_A5` + the wordmark art, keep in sync with `console_ui.py` and the site hero |
 | `thoughtborne-lockup.svg` / `-dark.svg` | Mark + wordmark (Inter), light/dark — the former README header |
-| `thoughtborne.ico` | The Windows app icon (D-016): the pixel mark in the console accent on a hard-cornered `#242424` tile — the mark plus one ring of ground pixels (9×8), ten integer-scaled frames 16–256 px, no anti-aliasing. Generated, never hand-edited |
+| `thoughtborne.ico` | The Windows app icon (D-016): the pixel mark in the console accent on a hard-cornered `#242424` tile — the mark plus one ring of ground pixels (9×8), ten integer-scaled frames 16–256 px (bitmaps up to 64 px, PNG above — Tk's ICO reader needs the bitmap headers), no anti-aliasing. Generated, never hand-edited; `test_app_icon.py` holds it to the mark |
 | `make_app_icon.py` | Rebuilds `thoughtborne.ico` from `console_ui.LOGO_MARK_A5` and `console_ui.ACCENT` (needs Pillow; build-time only) — run it when the mark or the accent changes |
 | `png/` | Raster exports of the masters (mark 16–512, wordmark/lockup 1024) |
 | `thoughtborne-avatar-512.png` | GitHub avatar upload — flattened on white so the channel reads in every theme |
