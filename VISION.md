@@ -182,6 +182,12 @@ rule in (5): no amount of benefit elsewhere outranks a gate.
    archived locally, nowhere else. Every integrated API must offer at
    least an opt-out from training on user data; APIs that can't are not
    integrated.
+6. **Lean by default.** Not every situation that could be made a little
+   more convenient deserves a feature, and certainly not one that means
+   a lot of new code. Convenience for an edge case is weighed against
+   what it costs in code to carry forever; when in doubt, the tool stays
+   small and maintainable. Removing something nobody needs is as much
+   maintenance as adding something people do.
 
 ## Where it's heading (as of mid-2026)
 

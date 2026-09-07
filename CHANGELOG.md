@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A sixth guiding principle in `VISION.md`: lean by default.** The five principles said
+  how what gets built should look; none said whether a thing gets built at all. The new
+  one does: convenience for an edge case is weighed against the code it costs to carry
+  forever, and in doubt the tool stays small — removing something nobody needs counts as
+  maintenance too. Decisions and issues can now cite it.
+
 ### Changed
 
 - **External links on the website open in a new tab.** Everything that leaves the site —
