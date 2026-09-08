@@ -314,6 +314,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `.env` the app cannot read no longer makes it deny that your key exists (#294).** Saving with
+  both key fields empty asks first, and that question said *no API key is entered, and none was
+  found on this PC*. It said so just as confidently when there **is** a `.env` sitting right next to
+  Thoughtborne that the app merely could not read — held open by another program, or written in an
+  encoding other than UTF-8, the way `"SONIOX_API_KEY=..." > .env` writes UTF-16 under Windows
+  PowerShell, a file every editor still shows correctly. Such a file reads as no keys at all, byte
+  for byte like a missing one, so the dialog stated as a fact something that was false, about a file
+  that may hold the only copy of a key. A wrong sentence weighs more than a missing one in a tool
+  whose first principle is reliability, so that case now has a text of its own: it names `.env` in
+  the Thoughtborne folder, says that a key stored in there cannot be used, that saving will not
+  touch the file (an unreadable file is never overwritten, D-002), and — where the old text warned
+  that the setup window keeps coming back as long as no key is entered — that it keeps coming back
+  as long as the file cannot be read, so the returning window reads as the consequence it is rather
+  than as a failed save. It offers the same two causes and remedies #291 introduced: close the other
+  program, or re-save the file as UTF-8. Nothing about the save itself changes, and a machine with
+  no `.env` at all keeps the original text, which is the true one there. Whether the window should
+  still open as first-time setup over an unreadable `.env` is a decision of its own (#285); what
+  changes here is that it no longer tells you something untrue while it does.
+
 - **The test ladder no longer pins a microphone-failure screen the app never shows (#295).** When
   the audio stream will not open, that FAILED panel's footer offers `history`, not `retry`: nothing
   was recorded, so a retry has nothing to act on — and in the worst case it would reach for an

@@ -375,6 +375,16 @@ _EN = {
         "Thoughtborne restarts so they take effect — as long as no key is entered, "
         "this setup window opens again afterwards. You can add a key any time — reopen "
         "settings from the running tool with Ctrl+Alt+G. Save and restart now?"),
+    "dlg.nokey.title_unreadable": "Key file couldn't be read",
+    "dlg.nokey.body_unreadable": (
+        "No API key is entered, and the .env file in the Thoughtborne folder could "
+        "not be read — a key stored in it cannot be used. Saving does not touch that "
+        "file: an unreadable file is never overwritten. It may be open in another "
+        "program that holds it locked, or saved in an encoding other than UTF-8 (ANSI "
+        "or UTF-16, for instance) — close the other program, or re-save the file as "
+        "UTF-8. Your hotkeys and preferences will still be saved, and Thoughtborne "
+        "restarts so they take effect — as long as the file cannot be read, this "
+        "setup window opens again afterwards. Save and restart now?"),
     "dlg.hotkeywarn.title": "Hotkey problems",
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
@@ -806,6 +816,18 @@ _DE = {
         "— solange kein Key eingetragen ist, öffnet sich diese Einrichtung danach "
         "wieder. Einen Key kannst du jederzeit ergänzen — öffne die Einstellungen "
         "aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und neu starten?"),
+    "dlg.nokey.title_unreadable": "Key-Datei nicht lesbar",
+    "dlg.nokey.body_unreadable": (
+        "Es ist kein API-Key eingetragen, und die Datei .env im Thoughtborne-Ordner "
+        "konnte nicht gelesen werden — steht ein Key darin, kann Thoughtborne ihn "
+        "nicht nutzen. Das Speichern fasst die Datei nicht an: Eine nicht lesbare "
+        "Datei wird nie überschrieben. Möglicherweise ist sie in einem anderen "
+        "Programm geöffnet, das sie sperrt, oder nicht als UTF-8 gespeichert (etwa "
+        "ANSI oder UTF-16) — schließe das andere Programm oder speichere die Datei "
+        "erneut als UTF-8. Deine Hotkeys und Einstellungen werden trotzdem "
+        "gespeichert, und Thoughtborne startet neu, damit sie greifen — solange die "
+        "Datei nicht lesbar ist, öffnet sich diese Einrichtung danach wieder. Jetzt "
+        "speichern und neu starten?"),
     "dlg.hotkeywarn.title": "Hotkey-Probleme",
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "

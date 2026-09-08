@@ -551,7 +551,7 @@ def write_ui_language(path, language, example_path=None) -> bool:
 
 
 # =============================================================================
-# save pre-flight (#291)
+# read-failure probes: the save pre-flight (#291), the no-key claim (#294)
 # =============================================================================
 def _probe_env_readable(path) -> None:
     """Raise what write_env's own guard read raises for an unreadable `.env` -- an
@@ -603,6 +603,30 @@ def unreadable_save_target(*, env_path, env_updates, ps_path):
         read_personal_settings(ps_path)
     except Exception as e:
         return Path(ps_path), e
+    return None
+
+
+def env_read_failure(path):
+    """Return the error a present-but-unreadable `.env` at `path` fails on, else
+    `None` -- the question the no-key confirmation has to ask before it speaks (#294).
+
+    `read_env` degrades a locked or non-UTF-8 `.env` to `{}`, exactly like a missing
+    one. That is right for a pre-fill helper (the GUI simply shows empty fields), but
+    it leaves the save's no-key dialog claiming "no key is entered, and none was
+    found" over a file that may hold the user's only key -- a statement that is
+    not merely incomplete but false, which weighs heavier in a tool whose first
+    principle is reliability. A caller that gets an error here says instead that the
+    file could not be read. A MISSING `.env` is deliberately not a failure: that is
+    the genuine "none was found".
+
+    Predicts the same read as the #291 pre-flight (`_probe_env_readable`, itself
+    write_env's guard read byte for byte) rather than opening a second one, so the
+    two branches of one save can never disagree about whether that file is readable.
+    Never raises: an unreadable file is this function's answer, not its accident."""
+    try:
+        _probe_env_readable(path)
+    except Exception as e:
+        return e
     return None
 
 

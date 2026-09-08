@@ -125,6 +125,14 @@ What is covered:
     key fields blank) does not block it. Plus both call sites, statically -- the save
     probes before its first write and with the update set it writes, the reset's read
     branch names the read failure, and both write branches keep dlg.savefail.
+  - the no-key confirmation's second text (#294): settings_io.env_read_failure tells
+    a present-but-unreadable .env (ANSI, UTF-16, locked) from a missing one, which
+    read_env alone cannot -- it degrades both to {} -- so the keyless save stops
+    claiming that no key was found anywhere over a file that may hold one. Asserted
+    against read_env on every fixture, with the two controls that must keep the
+    original text (no file, and a readable keyless file) and the complementarity with
+    the #291 pre-flight on one and the same broken .env. Plus the call site: _save
+    asks about the .env and still names both bodies.
   - the "every save restarts" invariant (#271, D-014): the retired save-action
     resolver and its btn.save / btn.save_close strings stay gone, and the two places
     the invariant lives are pinned on thoughtborne_settings.py's syntax tree -- _save
@@ -676,6 +684,156 @@ def check_save_preflight(tmp):
               and isinstance(got[1], OSError),
               f"pre-flight: a locked personal_settings.json was not reported as an "
               f"unreadable target: {got!r}")
+
+
+# ---- the no-key claim over an unreadable .env (#294) --------------------------
+def check_nokey_unreadable(tmp):
+    """settings_io.env_read_failure: the question the save's no-key confirmation has
+    to ask before it speaks (#294).
+
+    read_env answers a locked or non-UTF-8 `.env` with {} -- the very same answer it
+    gives for a missing one -- so a keyless save over such a file told the user "no
+    key is entered, and none was found on this PC" while their only key sat in that
+    file, in that folder. Every fixture below is therefore asserted twice: that
+    read_env really cannot tell the two states apart (the reason this helper exists at
+    all) and that env_read_failure can, reporting the failure the remedy hangs on -- a
+    decoding failure is repaired by re-saving as UTF-8, a lock by closing the other
+    program, and the dialog names both.
+
+    The controls weigh as much as the failures. A MISSING `.env` and a readable one
+    holding no key are the genuine "none was found" and must keep the original text; a
+    false read failure would be the mirror image of the bug. And the complementarity
+    with #291 is pinned directly: for one and the same broken file, the save pre-flight
+    reports it when a key is typed and passes it over when both fields are blank --
+    that pass-over is exactly the gap this helper covers, so the two can never both go
+    silent."""
+    F = sio.env_read_failure
+
+    # 1 -- CONTROL: no file at all. The genuine "none was found on this PC".
+    missing = tmp / "nokey_missing.env"
+    check(sio.read_env(missing) == {}, "nokey fixture: a missing .env should read as {}")
+    check(F(missing) is None,
+          "nokey: a missing .env was reported as a read failure -- that is the one "
+          "case where 'none was found' is the true sentence")
+
+    # 2 -- CONTROL: readable, but genuinely keyless (comments and a blank value only).
+    keyless = tmp / "nokey_keyless.env"
+    keyless.write_text("# no key yet\nGROQ_API_KEY=\n", encoding="utf-8")
+    check(sio.read_env(keyless) == {}, "nokey fixture: a blank value is no key")
+    check(F(keyless) is None,
+          "nokey: a readable keyless .env was reported as a read failure -- nothing is "
+          "wrong with that file, the user simply has no key yet")
+
+    # 3 -- CONTROL: readable and keyed. The dialog never fires here, but a false
+    # failure would mean the probe fires on healthy files.
+    keyed = tmp / "nokey_keyed.env"
+    keyed.write_text("GROQ_API_KEY=gsk_real\n", encoding="utf-8")
+    check(F(keyed) is None, "nokey: a healthy keyed .env was reported as a read failure")
+
+    # 4 -- an ANSI/cp1252 .env: a German comment above a perfectly good key. read_env
+    # sees nothing, so without this helper the dialog denies the key exists.
+    ansi = tmp / "nokey_ansi.env"
+    ansi.write_bytes("# Umlaut-Kommentar: Präfix\nSONIOX_API_KEY=secret\n".encode("cp1252"))
+    check(sio.read_env(ansi) == {},
+          "nokey fixture: an ANSI .env should degrade to {} -- if it no longer does, "
+          "the false claim this helper repairs cannot arise the way it did")
+    check(isinstance(F(ansi), UnicodeDecodeError),
+          f"nokey: an ANSI .env holding a key must be reported as a DECODING failure "
+          f"(re-save as UTF-8 is the remedy the dialog offers): {F(ansi)!r}")
+
+    # 5 -- a UTF-16 .env: what `"KEY=..." > .env` writes under Windows PowerShell 5.1,
+    # the likeliest real route into this state -- every editor shows it fine.
+    utf16 = tmp / "nokey_utf16.env"
+    utf16.write_bytes("SONIOX_API_KEY=secret\n".encode("utf-16"))
+    check(sio.read_env(utf16) == {}, "nokey fixture: a UTF-16 .env should degrade to {}")
+    check(isinstance(F(utf16), UnicodeDecodeError),
+          f"nokey: a UTF-16 .env holding a key must be reported as a decoding failure: "
+          f"{F(utf16)!r}")
+
+    # 6 -- the complementarity with the #291 pre-flight, on one file: with a key typed
+    # the pre-flight names it and this branch is never reached; with both fields blank
+    # the pre-flight deliberately passes it over -- and that is the save this helper
+    # has to speak for.
+    ps_ok = tmp / "nokey_ps.json"
+    ps_ok.write_text('{\n  "vocabulary": {"terms": ["keepme"]}\n}\n', encoding="utf-8")
+    typed = sio.unreadable_save_target(env_path=ansi, env_updates={"GROQ_API_KEY": "k"},
+                                       ps_path=ps_ok)
+    check(isinstance(typed, tuple) and Path(typed[0]) == ansi,
+          f"nokey fixture: with a key typed the #291 pre-flight must still name the "
+          f"broken .env -- that path is what makes this one the leftover: {typed!r}")
+    blank = sio.unreadable_save_target(env_path=ansi,
+                                       env_updates={"GROQ_API_KEY": "", "SONIOX_API_KEY": ""},
+                                       ps_path=ps_ok)
+    check(blank is None and F(ansi) is not None,
+          "nokey: with both key fields blank the pre-flight passes the broken .env over "
+          "(write_env would not touch it) -- if env_read_failure went silent there too, "
+          "nothing in the app would say the file exists")
+
+    # 7 -- the locked lane, the Windows case the dialog's other remedy is written for.
+    # chmod(0) is a no-op as root / on filesystems that ignore it, so skip loudly
+    # rather than pass falsely (the idiom of the B1 and #291 lanes above).
+    locked = tmp / "nokey_locked.env"
+    locked.write_bytes(b"SONIOX_API_KEY=secret\n")
+    os.chmod(locked, 0)
+    if not _still_unreadable(locked):
+        os.chmod(locked, stat.S_IRUSR | stat.S_IWUSR)
+        print("  (skipped #294 locked .env no-key test: fs doesn't enforce chmod)")
+    else:
+        got, empty = F(locked), sio.read_env(locked)
+        os.chmod(locked, stat.S_IRUSR | stat.S_IWUSR)
+        check(empty == {}, "nokey fixture: a locked .env should degrade to {}")
+        check(isinstance(got, OSError),
+              f"nokey: a locked .env must be reported as an OSError -- 'close the other "
+              f"program' is the remedy for that half of the dialog: {got!r}")
+
+
+# ---- the no-key dialog's fork (#294) ------------------------------------------
+def check_nokey_wiring():
+    """The #294 fork, pinned on thoughtborne_settings.py's syntax tree -- the same
+    idiom as check_readfail_wiring, and the only coverage the GUI half can have
+    without a display.
+
+    Pinned: both texts exist in both languages, _save asks env_read_failure about the
+    `.env` (asking about any other file would make the new sentence as false as the
+    old one), and it still names BOTH bodies -- dropping the plain one would tell a
+    user on a fresh machine, who has no `.env` at all, that a file could not be
+    read."""
+    for key in ("dlg.nokey.title", "dlg.nokey.body",
+                "dlg.nokey.title_unreadable", "dlg.nokey.body_unreadable"):
+        check(key in sstr._EN and key in sstr._DE,
+              f"nokey-wiring: {key} is missing a string in EN or DE")
+    for lang in ("en", "de"):
+        check(".env" in sstr.t("dlg.nokey.body_unreadable", lang),
+              f"nokey-wiring: dlg.nokey.body_unreadable ({lang}) does not name .env -- "
+              "the user has to know WHICH file to repair, and it is the one file the "
+              "app's keys may ever come from (D-017)")
+
+    methods = _settings_app_methods("nokey-wiring")
+    if not methods:
+        return
+    save = methods.get("_save")
+    if save is None:
+        failures.append("nokey-wiring: SettingsApp._save not found -- the path was "
+                        "renamed and this guard no longer guards it")
+        return
+
+    probes = _calls_to(save, "env_read_failure")
+    check(len(probes) == 1,
+          f"nokey-wiring: expected exactly one env_read_failure call in _save, found "
+          f"{len(probes)} -- without it the keyless save is back to claiming that no "
+          f"key was found anywhere, over a .env that may hold one (#294)")
+    if len(probes) == 1:
+        arg = ast.unparse(probes[0].args[0]) if probes[0].args else ""
+        check(".env" in arg,
+              f"nokey-wiring: _save asks env_read_failure about {arg!r}, not about the "
+              ".env -- the dialog would then blame the wrong file")
+    consts = {n.value for n in ast.walk(save)
+              if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    for key in ("dlg.nokey.body", "dlg.nokey.body_unreadable"):
+        check(key in consts,
+              f"nokey-wiring: _save never names {key} -- the fork between 'no key "
+              "anywhere' and 'the key file cannot be read' is gone, and one of the two "
+              "situations is now described by the other's text (#294)")
 
 
 # ---- pure hotkey helpers -----------------------------------------------------
@@ -2523,6 +2681,7 @@ def main():
         check_ptt_toggle(tmp)
         check_reset_defaults(tmp)
         check_save_preflight(tmp)
+        check_nokey_unreadable(tmp)
         check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
@@ -2547,6 +2706,7 @@ def main():
     check_save_always_restarts()
     check_reset_wiring()
     check_readfail_wiring()
+    check_nokey_wiring()
 
     if SHOW:
         _show()

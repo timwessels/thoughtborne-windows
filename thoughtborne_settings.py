@@ -405,7 +405,8 @@ class SettingsApp:
         # blank field never clobbers a stored key (settings_io), so an empty field on top
         # of a stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
         # that rarer case is caught before the first write since #291 -- _save's
-        # pre-flight aborts such a save and names the file.)
+        # pre-flight aborts such a save and names the file -- and since #294 a keyless
+        # save over one says so too, rather than claiming no key was found anywhere.)
         self._had_stored_key = settings_io.env_has_key(env)
         # Per-provider stored-key snapshot for the key-aware engine control (#201).
         # The console-side predicate is per-engine (config.engine_has_key), so the
@@ -1935,8 +1936,22 @@ class SettingsApp:
                 + "\n\n" + str(err))
             return
         if not self._has_any_key():
-            if not messagebox.askyesno(strings.t("dlg.nokey.title", self.lang),
-                                       strings.t("dlg.nokey.body", self.lang)):
+            # #294: "and none was found on this PC" is a claim about the .env, and it
+            # is false when there IS one that merely cannot be read -- read_env
+            # degrades a locked or non-UTF-8 file to {} exactly like a missing one, so
+            # this branch cannot tell the two apart on its own. Ask the file HERE, at
+            # the moment of the claim and with the pre-flight's own probe, so the two
+            # can never disagree about the same save: the pre-flight passed .env over
+            # precisely because two blank fields write nothing to it.
+            env_err = settings_io.env_read_failure(config.SCRIPT_DIR / ".env")
+            if env_err is not None:
+                title_key = "dlg.nokey.title_unreadable"
+                body_key = "dlg.nokey.body_unreadable"
+            else:
+                title_key = "dlg.nokey.title"
+                body_key = "dlg.nokey.body"
+            if not messagebox.askyesno(strings.t(title_key, self.lang),
+                                       strings.t(body_key, self.lang)):
                 return
         if self._hotkey_warnings():
             if not messagebox.askyesno(strings.t("dlg.hotkeywarn.title", self.lang),
