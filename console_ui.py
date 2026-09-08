@@ -804,7 +804,8 @@ def render_mic_failed(model_label, footer, *, ansi):
     lines with a panel (#179). Red like render_device_loss (an audio FAILED where
     the hotkeys still work, so the footer is honest), but non-retry -- nothing was
     captured; the fix is external, then record again -- the footer's `record`
-    entry names the key."""
+    entry names the key. G3b in test_console_ui.py pins that the app hands this
+    one the plain footer (#295)."""
     return [
         dtop(ansi),
         _failed_top("FAILED", "the microphone could not be opened", ansi),

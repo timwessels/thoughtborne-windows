@@ -314,6 +314,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The test ladder no longer pins a microphone-failure screen the app never shows (#295).** When
+  the audio stream will not open, that FAILED panel's footer offers `history`, not `retry`: nothing
+  was recorded, so a retry has nothing to act on — and in the worst case it would reach for an
+  unrelated earlier take. The app has rendered it that way since the panel arrived (#179), but the
+  ladder's fixtures pinned the retry footer, checking a screen no user has ever seen; they now
+  render what the app renders. Nothing changes on screen. The source guard from #290 — which pins
+  that the two panels whose prose reads the retry key out of the footer really are handed it — now
+  reads the other direction too, so no other surface can quietly acquire that offer.
+
 - **A settings file that cannot be *read* now says so, instead of "Saving failed" (#291).** A
   `personal_settings.json` or `.env` that another program holds locked, or that was saved in an
   encoding other than UTF-8 — ANSI, say, after an edit in an older editor — is deliberately never

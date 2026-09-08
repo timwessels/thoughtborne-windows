@@ -194,7 +194,9 @@ FFOOTER = footer_for(DEFAULT_HOTKEYS, retry=True)
 # The two panels whose retry prose comes out of the footer (#290): the plain
 # footer carries open_history in that slot, so they must be rendered with the
 # retry one -- the ladder renders what the app renders, and G3b below pins that
-# the app really hands it to them.
+# the app really hands it to them. Exactly two: every other surface takes the
+# plain footer, mic_failed included -- nothing was recorded there, so its `R`
+# would reach for an unrelated earlier take (#295).
 _RETRY_FOOTER = {"render_transcription_failed", "render_device_loss"}
 
 PATHS = [  # four checkout depths, shallow to deep (console width stress)
@@ -308,7 +310,7 @@ def check_accent_state():
         u.render_transcription_failed(12, model, FFOOTER,   # #179 credits block
                                       reason="no-credit", provider="Soniox",
                                       ansi=True),
-        u.render_mic_failed(model, FFOOTER, ansi=True),   # #179
+        u.render_mic_failed(model, FOOTER, ansi=True),   # #179
         u.render_device_loss(12.0, model, FFOOTER, ansi=True),
         u.render_switched_panel(model, lu, SWITCH, ansi=True),
     ]
@@ -415,7 +417,7 @@ def check_ctrl_alt_counts():
         ("device_loss", u.render_device_loss(   # WHAT-NOW prose + the footer's lead
             12.0, model, FFOOTER, ansi=True), 2),
         ("mic_failed", u.render_mic_failed(   # #179: footer carries the sole Ctrl+Alt
-            model, FFOOTER, ansi=True), 1),
+            model, FOOTER, ansi=True), 1),
         ("selftest_failed", u.render_selftest_failed(
             "self-test failed -- no transcription received",
             ("check your API key in Settings,", f"then see {LOG_FILE.name} for details"),
@@ -894,7 +896,7 @@ def check_footer_schemes():
              dict(cap=4000, original_chars=30818, paste_key=pa, model_label=model,
                   footer=f), [f]),
             ("mic_failed", "mic_failed", u.render_mic_failed,
-             dict(model_label=model, footer=ff), [ff]),
+             dict(model_label=model, footer=f), [f]),
             ("insert_failed", "insert_failed", u.render_insert_failed,
              dict(seq=12, stops=stops, model_label=model, footer=f), [stops, f]),
             ("device_loss", "device_loss", u.render_device_loss,
@@ -1096,12 +1098,14 @@ def check_app_derives_no_key():
             for pname, arg in bound.items():
                 if not (pname.endswith("_key") or pname in ("keys", "stops", "footer")):
                     continue
-                # G3b (#290): the two panels that read their retry combo out of
-                # the footer must be handed the RETRY one -- with the plain
-                # footer their core sentence would name no key at all. G4 moved
-                # the order out of the app; this reads the app for the one thing
-                # the move leaves it responsible for.
-                if pname == "footer" and node.func.attr in _RETRY_FOOTER:
+                # G3b (#290, #295): the two panels that read their retry combo
+                # out of the footer must be handed the RETRY one -- with the
+                # plain footer their core sentence would name no key at all --
+                # and no other surface may take it, since its prose has nothing
+                # the offered retry could act on. G4 moved the order out of the
+                # app; this reads the app for the one thing the move leaves it
+                # responsible for, in both directions.
+                if pname == "footer":
                     call = arg
                     if isinstance(arg, ast.Name):
                         values = assigned.get(arg.id, [])
@@ -1109,11 +1113,17 @@ def check_app_derives_no_key():
                     passed = [*getattr(call, "args", []),
                               *(k.value for k in getattr(call, "keywords", [])
                                 if k.arg == "retry")]
-                    if not any(isinstance(v, ast.Constant) and v.value is True
-                               for v in passed):
+                    retry = any(isinstance(v, ast.Constant) and v.value is True
+                                for v in passed)
+                    if node.func.attr in _RETRY_FOOTER and not retry:
                         _record(f"thoughtborne.py:{node.lineno}: {node.func.attr} is "
                                 f"not handed _footer_keys(retry=True) -- its retry "
                                 f"sentence would name no key (#290)")
+                    elif retry and node.func.attr not in _RETRY_FOOTER:
+                        _record(f"thoughtborne.py:{node.lineno}: {node.func.attr} is "
+                                f"handed _footer_keys(retry=True) -- only a panel whose "
+                                f"prose reads the retry combo out of the footer may "
+                                f"offer one (#295)")
                 if _is_handover(arg):
                     continue
                 if isinstance(arg, ast.Name):
@@ -1517,7 +1527,7 @@ def main():
         run("device_loss", u.render_device_loss,
             dict(duration=12.0, model_label=model, footer=FFOOTER))
         run("mic_failed", u.render_mic_failed,   # #179: audio stream would not open
-            dict(model_label=model, footer=FFOOTER))
+            dict(model_label=model, footer=FOOTER))
         run("selftest_failed", u.render_selftest_failed, dict(   # mirrors the app copy (thoughtborne.py)
             reason="self-test failed -- no transcription received",
             action_lines=("check your API key in Settings,", f"then see {LOG_FILE.name} for details")))
@@ -1619,7 +1629,7 @@ def main():
          model_label="Soniox Live", footer=FFOOTER,
          reason="no-credit", provider="Soniox")
     twin("mic_failed", u.render_mic_failed, model_label="Soniox Live",
-         footer=FFOOTER)
+         footer=FOOTER)
     twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("no_speech", u.render_no_speech, open_key=OPEN)
