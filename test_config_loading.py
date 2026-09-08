@@ -36,8 +36,9 @@ asserted anyway), that an inherited variable never wins, that the D-004 opt-out
 follows the file, and that the import creates no environment variable at all. Static
 guards back them up: the reader's call shape in `config.py`, no `dotenv` import left
 in any driver or module, no process-environment read of the three `.env`-borne names
-in either half, and `.env.example` staying plain ASCII so a copy of it cannot become
-the undecodable file.
+in either half, the single-instance guard in `thoughtborne.py` still consulting the
+opt-out it is the consumption side of (#289), and `.env.example` staying plain ASCII
+so a copy of it cannot become the undecodable file.
 
 Since #281 the driver also covers the one file here that users do NOT edit:
 `pyproject.toml`, the repo's single version string, which `config.read_version`
@@ -779,8 +780,9 @@ def test_source_guards():
     modules): main() must call the replay, config.py must keep logging nothing at
     import time -- an import-time log call has no handler yet and would fall to
     stderr, which is exactly the lane #206 closed (and the one #238 inherits) -- and
-    the three guards below keep the .env reader anchored (G1), python-dotenv out of
-    the tree (G2) and the process environment out of the key path (G3, D-017)."""
+    the four guards below keep the .env reader anchored (G1), python-dotenv out of
+    the tree (G2), the process environment out of the key path (G3, D-017) and the
+    D-004 opt-out consulted where it is consumed (G4)."""
     root = Path(__file__).resolve().parent
     try:
         src = (root / "thoughtborne.py").read_text(encoding="utf-8")
@@ -890,6 +892,7 @@ def test_source_guards():
             return ("os.environ[...]", node.slice.value)
         return None
 
+    trees = {}   # kept for G4 below, which reads one of these files again
     for name in ("config.py", "transcriber.py", "thoughtborne.py", "settings_io.py",
                  "thoughtborne_settings.py"):
         try:
@@ -897,6 +900,7 @@ def test_source_guards():
         except Exception as e:
             failures.append(f"could not parse {name}: {type(e).__name__}: {e}")
             continue
+        trees[name] = t
         for n in ast.walk(t):
             hit = _reads_os_environ(n)
             if hit and hit[1] in _ENV_BORNE:
@@ -905,6 +909,39 @@ def test_source_guards():
                     f"install directory's .env and from nowhere else (D-017); an "
                     f"inherited value silently defeating a key rotation is the failure "
                     f"#269 closed")
+
+    # G4 -- the consumption side of the D-004 opt-out (#269, #289). The production side
+    # is checked above (config.ALLOW_SECOND_INSTANCE follows the .env); nothing said
+    # thoughtborne.py still CONSULTS it, and a bypass removed wholesale would stay
+    # silent off Windows -- the function is Win32/ctypes and cannot be imported here.
+    # Static, and honest about it: it says the wiring exists and that the guard still
+    # fails open, not that the mutex behaves. That stays hands-on Windows work.
+    t_tree = trees.get("thoughtborne.py")
+    if t_tree is None:
+        return   # the loop above already parsed it, and already reported the failure
+    fn = next((n for n in ast.walk(t_tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "_second_instance_running"), None)
+    check(fn is not None,
+          "thoughtborne.py no longer defines _second_instance_running -- the D-004 guard "
+          "is the one thing keeping a second, hotkey-deaf instance from starting")
+    if fn is None:
+        return
+    # Load context, so the check says what its message says: a leftover assignment or
+    # a name in dead code would satisfy a bare "the name appears here".
+    check(any(isinstance(n, ast.Name) and n.id == "ALLOW_SECOND_INSTANCE"
+              and isinstance(n.ctx, ast.Load)
+              for n in ast.walk(fn)),
+          "_second_instance_running no longer reads ALLOW_SECOND_INSTANCE -- the documented "
+          "developer opt-out (D-004, routed through .env since D-017) would be gone with "
+          "nothing on any surface saying so")
+    # The function's OWN try/except, not any nested one: an inner handler returning
+    # False says nothing about whether the function as a whole still fails open.
+    handlers = [h for n in fn.body if isinstance(n, ast.Try) for h in n.handlers]
+    check(any(isinstance(s, ast.Return) and isinstance(s.value, ast.Constant)
+              and s.value.value is False
+              for h in handlers for s in ast.walk(h)),
+          "_second_instance_running's except handler no longer returns False -- D-004 "
+          "requires the guard to fail open, so a fault in it can never block a legitimate start")
 
 
 def test_env_example_ascii():

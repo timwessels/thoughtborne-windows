@@ -82,6 +82,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forever, and in doubt the tool stays small — removing something nobody needs counts as
   maintenance too. Decisions and issues can now cite it.
 
+- **The test ladder gains an undefined-name check (#289).** `py_compile`, the ladder's bottom
+  rung, parses a file without ever resolving a name in it — and `thoughtborne.py`, the largest
+  module and the one holding the Win32 startup paths, is imported by no driver, because
+  importing it would pull in the whole Windows stack. Between those two facts sat a blind spot
+  the size of the program: a `NameError` waiting on a Windows-only branch was invisible to every
+  automated check the project has. It was not hypothetical — while #269 was being built, a local
+  `optout` assignment was replaced and two of its uses were left standing inside the
+  single-instance guard, where on Windows they would have thrown into that function's fail-open
+  `except` and quietly switched off the guard D-004 exists for; a human reader caught it.
+  `test_undefined_names.py` now walks every Python file in the checkout through pyflakes and
+  fails on a deliberately short, closed list of messages that mean the code is broken rather
+  than untidy — an undefined name, a local read before assignment, an `__all__` entry that does
+  not exist, a star-import, a duplicated argument, a `raise NotImplemented`. That is not every
+  message that could be argued into the list, and it is not meant to grow into one: a short list
+  someone widens on purpose beats a long one an upgrade widens by itself. Everything else
+  pyflakes has an opinion about is counted and named but never gates: this is a guard against
+  bugs, not a linter, and a check that goes red on untidiness goes red on an upgrade too. A file
+  that does not parse counts as a failure, for the whole tree rather than for the files someone
+  remembered to name. The lane proves its own detection power on every single run, pushing exactly
+  the #269 mutation, a clean twin and a file that does not parse through the same code path as the
+  sweep, so it can never quietly become a check that finds nothing. It runs in CI on both Python
+  legs because CI runs the ladder; locally it skips with a visible note when pyflakes is not
+  installed. Alongside it, the seventeen leftovers pyflakes had been reporting all along are gone
+  — unused imports in `transcriber.py`, `output_handler.py`, `audio_handler.py` and one test
+  driver, two f-strings with nothing to interpolate, one dead constant in `restart_signal.py`
+  whose meaning the comment beside it already carried — and `hotkey_manager.py`'s deliberate
+  re-exports from `hotkey_parse` now say so in an `__all__` instead of reading as oversights. The
+  consumption side of the D-004 developer opt-out gained a static guard of its own in
+  `test_config_loading.py`: the production side was already checked, but nothing said
+  `thoughtborne.py` still consults the value — and a bypass removed wholesale would have stayed
+  silent off Windows.
+
 ### Changed
 
 - **Both published screenshots retaken on the current build (#288).** The terminal shot (READMEs
