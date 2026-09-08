@@ -400,6 +400,14 @@ _EN = {
         "The settings could not be saved. Each file is written atomically — swapped "
         "in only once complete — so none is left half-written or corrupted; a file "
         "may be locked or unreadable. The technical detail:"),
+    "dlg.readfail.title": "File couldn't be read",
+    "dlg.readfail.body": (
+        "The file {file} could not be read, so nothing was changed — a file that "
+        "cannot be read is never overwritten, and everything in it is still there. "
+        "It may be open in another program that holds it locked, or saved in an "
+        "encoding other than UTF-8 (ANSI, for instance, after an edit in an older "
+        "editor). Close the other program, or re-save the file as UTF-8, then try "
+        "again. The technical detail:"),
     "dlg.loadfail.title": "Settings couldn't be read",
     "dlg.loadfail.body": (
         "Your saved settings could not be read — Thoughtborne opened with the "
@@ -827,6 +835,15 @@ _DE = {
         "geschrieben — erst im Ganzen ersetzt —, sodass keine halb geschrieben oder "
         "beschädigt zurückbleibt; möglicherweise ist eine Datei gesperrt oder nicht "
         "lesbar. Das technische Detail:"),
+    "dlg.readfail.title": "Datei nicht lesbar",
+    "dlg.readfail.body": (
+        "Die Datei {file} konnte nicht gelesen werden, deshalb wurde nichts "
+        "geändert — eine nicht lesbare Datei wird nie überschrieben, alles darin ist "
+        "also noch da. Möglicherweise ist sie in einem anderen Programm geöffnet, das "
+        "sie sperrt, oder in einer anderen Kodierung als UTF-8 gespeichert (etwa ANSI, "
+        "nach einer Bearbeitung in einem älteren Editor). Schließe das andere Programm "
+        "oder speichere die Datei erneut als UTF-8, dann versuch es noch einmal. Das "
+        "technische Detail:"),
     "dlg.loadfail.title": "Einstellungen nicht lesbar",
     "dlg.loadfail.body": (
         "Die gespeicherten Einstellungen konnten nicht gelesen werden — "

@@ -115,6 +115,16 @@ What is covered:
     resolver, no write_env, no engine-memory write, a confirmation that warns and
     preselects the preserving answer, the restart as the tail, and reset_btn in the
     restart freeze.
+  - the save pre-flight and its dialog (#291): settings_io.unreadable_save_target
+    fires exactly where a writer would abort on a target whose bytes cannot be read
+    or UTF-8-decoded and stays silent exactly where a write goes through -- each case
+    asserted against the real writers on the same fixture, so the .env probe cannot
+    drift from write_env's own guard read. With the two controls that a naive fix
+    breaks: a corrupt-but-decodable personal_settings.json stays on D-002's warn-then-
+    overwrite branch, and an unreadable .env this save would not write at all (both
+    key fields blank) does not block it. Plus both call sites, statically -- the save
+    probes before its first write and with the update set it writes, the reset's read
+    branch names the read failure, and both write branches keep dlg.savefail.
   - the "every save restarts" invariant (#271, D-014): the retired save-action
     resolver and its btn.save / btn.save_close strings stay gone, and the two places
     the invariant lives are pinned on thoughtborne_settings.py's syntax tree -- _save
@@ -490,6 +500,182 @@ def check_regressions(tmp):
     except UnicodeError:
         raised_r = True
     check(raised_r, "B3: read_personal_settings on an ANSI file did not raise")
+
+
+# ---- the save pre-flight (#291) ----------------------------------------------
+def check_save_preflight(tmp):
+    """settings_io.unreadable_save_target: the pre-flight an explicit save runs BEFORE
+    it writes anything (#291), so a target whose bytes cannot be read is named as the
+    read failure it is -- and named while `.env` is still untouched, which is what lets
+    the dialog say that nothing was changed.
+
+    Every fixture is asserted against what the real writers do with it: the pre-flight
+    has to fire exactly where a write aborts and stay silent exactly where one goes
+    through, which is what keeps the `.env` probe from drifting away from write_env's
+    own guard read. The cp1252 lane carries the proof -- a Windows "another program
+    holds it locked" has no equivalent here, so the chmod(0) lane is guarded by
+    _still_unreadable (it is a no-op as root) exactly like the B1 lane above.
+
+    Two control cases matter as much as the failures. A corrupt-but-decodable
+    personal_settings.json reads fine at the byte level and must stay on D-002's
+    warn-then-overwrite branch rather than be diverted into a read failure. And an
+    unreadable `.env` that this save would not write at all (both key fields blank)
+    must not block it: write_env is a no-op there, so a pure hotkey save over a cp1252
+    `.env` works today and has to keep working."""
+    P = sio.unreadable_save_target
+    A_KEY = {"GROQ_API_KEY": "gsk_new"}
+    BLANK = {"GROQ_API_KEY": "  ", "SONIOX_API_KEY": ""}
+    GOOD_JSON = '{\n  "vocabulary": {"terms": ["keepme"]}\n}\n'
+    ANSI_JSON = '{\n  "vocabulary": {"terms": ["Grüße", "Präfix"]}\n}\n'.encode("cp1252")
+    ANSI_ENV = "# Umlaut-Kommentar: Präfix\nGROQ_API_KEY=secret\n".encode("cp1252")
+
+    # 1 -- both readable, a key to write: nothing to report, and both writers then
+    # really go through (the dead guard against a pre-flight that blocks everything).
+    env_ok = tmp / "pf_ok.env"
+    env_ok.write_text("GROQ_API_KEY=gsk_old\n", encoding="utf-8")
+    ps_ok = tmp / "pf_ok.json"
+    ps_ok.write_text(GOOD_JSON, encoding="utf-8")
+    check(P(env_path=env_ok, env_updates=A_KEY, ps_path=ps_ok) is None,
+          "pre-flight: a readable pair was reported as a read failure")
+    sio.write_env(env_ok, A_KEY)
+    sio.write_personal_settings(ps_ok, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS)
+    check(sio.read_env(env_ok) == {"GROQ_API_KEY": "gsk_new"},
+          "pre-flight: the healthy save it cleared did not write the key")
+
+    # 2 -- a first run: neither file exists. A MISSING target is the writers' normal
+    # seed case, not a failure, so the wizard's first save must pass.
+    env_new = tmp / "pf_new.env"
+    ps_new = tmp / "pf_new.json"
+    check(P(env_path=env_new, env_updates=A_KEY, ps_path=ps_new) is None,
+          "pre-flight: a first run (neither file present) was reported as a failure")
+    sio.write_env(env_new, A_KEY, example_path=EXAMPLE_ENV)
+    sio.write_personal_settings(ps_new, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS)
+    check(env_new.exists() and ps_new.exists(),
+          "pre-flight: the first-run save it cleared wrote nothing")
+
+    # 3 -- an ANSI/cp1252 personal_settings.json: its German vocabulary is intact, just
+    # in the wrong encoding (B3), so the write aborts. The pre-flight names it, names
+    # it as a decoding failure, and writes nothing while doing so.
+    env_3 = tmp / "pf_ansips.env"
+    env_3.write_text("GROQ_API_KEY=gsk_old\n", encoding="utf-8")
+    ps_3 = tmp / "pf_ansi.json"
+    ps_3.write_bytes(ANSI_JSON)
+    env_before, ps_before = env_3.read_bytes(), ps_3.read_bytes()
+    got = P(env_path=env_3, env_updates=A_KEY, ps_path=ps_3)
+    check(isinstance(got, tuple) and len(got) == 2 and Path(got[0]) == ps_3,
+          f"pre-flight: an ANSI personal_settings.json was not reported as the failing "
+          f"file: {got!r}")
+    check(got is not None and isinstance(got[1], UnicodeDecodeError),
+          f"pre-flight: the reported error is not the decoding failure the user has to "
+          f"read about: {(got[1] if got else got)!r}")
+    check(env_3.read_bytes() == env_before and ps_3.read_bytes() == ps_before,
+          "pre-flight: the probe itself wrote something -- it exists precisely so that "
+          "the abort happens before the first write")
+    raised = False
+    try:
+        sio.write_personal_settings(ps_3, hotkeys_effective=sio.preset_ctrl_alt(),
+                                    default_api=None, example_path=EXAMPLE_PS)
+    except (UnicodeError, OSError):
+        raised = True
+    check(raised and ps_3.read_bytes() == ps_before,
+          "pre-flight fixture: write_personal_settings no longer aborts on an ANSI "
+          "file, so the pre-flight would now be predicting a failure that never comes")
+
+    # 4 -- CONTROL: corrupt but decodable. The bytes read fine; this is D-002's
+    # warn-then-overwrite branch, which the explicit save takes after the app has
+    # warned -- diverting it into a read failure would take the way out away.
+    ps_4 = tmp / "pf_corrupt.json"
+    ps_4.write_text('{\n  "vocabulary": {"terms": ["keepme"]},\n', encoding="utf-8")
+    _data, warn = sio.read_personal_settings(ps_4)
+    check(isinstance(warn, str) and warn,
+          "pre-flight fixture: the corrupt-but-decodable file should warn, not raise")
+    check(P(env_path=env_ok, env_updates=A_KEY, ps_path=ps_4) is None,
+          "pre-flight: a corrupt-but-decodable personal_settings.json was reported as "
+          "unreadable -- its bytes read fine, and it belongs on D-002's warn-then-"
+          "overwrite branch that the explicit save is allowed to take")
+    sio.write_personal_settings(ps_4, hotkeys_effective=sio.preset_ctrl_alt(),
+                                default_api=None, example_path=EXAMPLE_PS)
+    _d2, warn2 = sio.read_personal_settings(ps_4)
+    check(warn2 is None,
+          "pre-flight: the save it cleared did not overwrite the corrupt file")
+
+    # 5 -- an ANSI/cp1252 .env with a key to write: the same abort at the other file.
+    env_5 = tmp / "pf_ansi.env"
+    env_5.write_bytes(ANSI_ENV)
+    ps_5 = tmp / "pf_ansienv.json"
+    ps_5.write_text(GOOD_JSON, encoding="utf-8")
+    got = P(env_path=env_5, env_updates=A_KEY, ps_path=ps_5)
+    check(isinstance(got, tuple) and Path(got[0]) == env_5,
+          f"pre-flight: an ANSI .env was not reported as the failing file: {got!r}")
+    check(got is not None and isinstance(got[1], UnicodeDecodeError),
+          f"pre-flight: the reported .env error is not the decoding failure: "
+          f"{(got[1] if got else got)!r}")
+    check(env_5.read_bytes() == ANSI_ENV, "pre-flight: the .env probe wrote something")
+    raised = False
+    try:
+        sio.write_env(env_5, A_KEY)
+    except (UnicodeError, OSError):
+        raised = True
+    check(raised and env_5.read_bytes() == ANSI_ENV,
+          "pre-flight fixture: write_env no longer aborts on an ANSI .env, so the "
+          "probe would now be predicting a failure that never comes")
+
+    # 6 -- CONTROL: the same broken .env, but nothing to write to it. write_env is a
+    # no-op for two blank fields, so this save never touches the file and must not be
+    # blocked over it -- today a pure hotkey save over a cp1252 .env goes through.
+    check(P(env_path=env_5, env_updates=BLANK, ps_path=ps_5) is None,
+          "pre-flight: an unreadable .env this save would not write at all blocked the "
+          "save -- a hotkey-only save over a cp1252 .env has to stay possible")
+    sio.write_env(env_5, BLANK)
+    check(env_5.read_bytes() == ANSI_ENV,
+          "pre-flight fixture: write_env is no longer a no-op for a blank update set, "
+          "so the rule the probe skips the file on has changed under it")
+
+    # 7 -- both unreadable: the file named is the one written first, so repairing it
+    # is what the next click needs. With nothing to write to .env, the other one.
+    ps_7 = tmp / "pf_both.json"
+    ps_7.write_bytes(ANSI_JSON)
+    got = P(env_path=env_5, env_updates=A_KEY, ps_path=ps_7)
+    check(isinstance(got, tuple) and Path(got[0]) == env_5,
+          f"pre-flight: with both files unreadable it must name .env, the one written "
+          f"first and therefore the one this save fails on: {got!r}")
+    got = P(env_path=env_5, env_updates=BLANK, ps_path=ps_7)
+    check(isinstance(got, tuple) and Path(got[0]) == ps_7,
+          f"pre-flight: with .env out of the picture the unreadable "
+          f"personal_settings.json must be the one named: {got!r}")
+
+    # 8 -- the locked lane. chmod(0) only enforces this where the filesystem and the
+    # user honor it (never as root), so guard it and skip loudly rather than pass
+    # falsely -- the same shape the B1 lane above uses.
+    env_8 = tmp / "pf_locked.env"
+    env_8.write_bytes(b"GROQ_API_KEY=secret\n")
+    os.chmod(env_8, 0)
+    if not _still_unreadable(env_8):
+        os.chmod(env_8, stat.S_IRUSR | stat.S_IWUSR)
+        print("  (skipped #291 locked .env pre-flight test: fs doesn't enforce chmod)")
+    else:
+        got = P(env_path=env_8, env_updates=A_KEY, ps_path=ps_ok)
+        os.chmod(env_8, stat.S_IRUSR | stat.S_IWUSR)
+        check(isinstance(got, tuple) and Path(got[0]) == env_8
+              and isinstance(got[1], OSError),
+              f"pre-flight: a locked .env was not reported as an unreadable target "
+              f"(the Windows case this dialog exists for): {got!r}")
+    ps_8 = tmp / "pf_locked.json"
+    ps_8.write_text(GOOD_JSON, encoding="utf-8")
+    os.chmod(ps_8, 0)
+    if not _still_unreadable(ps_8):
+        os.chmod(ps_8, stat.S_IRUSR | stat.S_IWUSR)
+        print("  (skipped #291 locked personal_settings pre-flight test: fs doesn't "
+              "enforce chmod)")
+    else:
+        got = P(env_path=env_ok, env_updates=BLANK, ps_path=ps_8)
+        os.chmod(ps_8, stat.S_IRUSR | stat.S_IWUSR)
+        check(isinstance(got, tuple) and Path(got[0]) == ps_8
+              and isinstance(got[1], OSError),
+              f"pre-flight: a locked personal_settings.json was not reported as an "
+              f"unreadable target: {got!r}")
 
 
 # ---- pure hotkey helpers -----------------------------------------------------
@@ -1802,6 +1988,79 @@ def check_reset_wiring():
           "restart wait would start a second handshake")
 
 
+# ---- the read-failure dialog's two call sites (#291) --------------------------
+def check_readfail_wiring():
+    """The two #291 call sites, pinned statically on thoughtborne_settings.py's syntax
+    tree -- the idiom of check_reset_wiring / check_ptt_wiring, and the only coverage
+    the GUI half can have without a display (test_settings_visibility.py drives the
+    real window where one exists).
+
+    BOTH entry points are pinned, because fixing one alone is exactly what #282
+    declined to ship: the everyday save and the Machine Room reset share the dialog, so
+    half a fix leaves the app less consistent rather than more. Pinned with them: that
+    the pre-flight runs BEFORE the first write (otherwise "nothing was changed" is
+    untrue for a .env that has already been rewritten), that it probes with the same
+    update set the write uses, and that both write-failure branches keep dlg.savefail,
+    where that title is the correct one and must not be renamed along."""
+    for key in ("dlg.readfail.title", "dlg.readfail.body"):
+        check(key in sstr._EN and key in sstr._DE,
+              f"readfail-wiring: {key} is missing a string in EN or DE")
+    for lang in ("en", "de"):
+        check("{file}" in sstr.t("dlg.readfail.body", lang),
+              f"readfail-wiring: dlg.readfail.body ({lang}) carries no {{file}} "
+              "placeholder -- the two files have different remedies (close the other "
+              "program vs. re-save as UTF-8) and sit in the same folder, so the dialog "
+              "has to name which one it is about")
+
+    methods = _settings_app_methods("readfail-wiring")
+    if not methods:
+        return
+    for name in ("_save", "_reset_to_defaults"):
+        if methods.get(name) is None:
+            failures.append(f"readfail-wiring: SettingsApp.{name} not found -- the "
+                            "path was renamed and this guard no longer guards it")
+            return
+    save, reset = methods["_save"], methods["_reset_to_defaults"]
+
+    probes = _calls_to(save, "unreadable_save_target")
+    check(len(probes) == 1,
+          f"readfail-wiring: expected exactly one unreadable_save_target call in _save, "
+          f"found {len(probes)} -- without it an unreadable target reaches the user as "
+          f"a write failure, and only once .env has been rewritten (#291)")
+    writes = _calls_to(save, "write_env")
+    check(len(writes) == 1,
+          f"readfail-wiring: expected exactly one write_env call in _save, found "
+          f"{len(writes)} -- this guard assumes the single .env write")
+    if len(probes) == 1 and len(writes) == 1:
+        check(probes[0].lineno < writes[0].lineno,
+              "readfail-wiring: _save probes AFTER it writes .env -- the dialog would "
+              "then tell the user nothing was changed over a .env that already carries "
+              "the new key (#291)")
+        probed = {k.arg: k.value for k in probes[0].keywords if k.arg}
+        updates = probed.get("env_updates")
+        written = writes[0].args[1] if len(writes[0].args) > 1 else None
+        check(updates is not None and written is not None
+              and ast.unparse(updates) == ast.unparse(written),
+              "readfail-wiring: _save probes with "
+              f"{ast.unparse(updates) if updates is not None else '<missing>'} but "
+              f"writes {ast.unparse(written) if written is not None else '<missing>'} "
+              "-- the probe would decide about a different update set than the write, "
+              "so the .env no-op rule it leans on could be answered for the wrong one")
+
+    for name, method in (("_save", save), ("_reset_to_defaults", reset)):
+        consts = {n.value for n in ast.walk(method)
+                  if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        check("dlg.readfail.title" in consts,
+              f"readfail-wiring: {name} never names dlg.readfail.title -- its read "
+              "failure is back under 'Saving failed', which names neither what went "
+              "wrong nor a way out, and after a reset click not even the right verb "
+              "(#291)")
+        check("dlg.savefail.title" in consts,
+              f"readfail-wiring: {name} no longer names dlg.savefail.title -- the "
+              "WRITE-failure branch was renamed along with the read one, and there the "
+              "old title is the correct one")
+
+
 def check_ptt_read():
     """read_ptt_enabled: what the settings toggle SHOWS for a given file, by exactly
     the rule config.py applies -- a real JSON boolean or nothing. The point is that the
@@ -2263,6 +2522,7 @@ def main():
         check_engine_pin(tmp)
         check_ptt_toggle(tmp)
         check_reset_defaults(tmp)
+        check_save_preflight(tmp)
         check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
@@ -2286,6 +2546,7 @@ def main():
     check_mode_flip_wiring()
     check_save_always_restarts()
     check_reset_wiring()
+    check_readfail_wiring()
 
     if SHOW:
         _show()

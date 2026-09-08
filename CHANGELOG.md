@@ -281,6 +281,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A settings file that cannot be *read* now says so, instead of "Saving failed" (#291).** A
+  `personal_settings.json` or `.env` that another program holds locked, or that was saved in an
+  encoding other than UTF-8 — ANSI, say, after an edit in an older editor — is deliberately never
+  overwritten: the app aborts rather than clobber a file whose hand-written vocabulary is still in
+  there (D-002). That abort reached you as *Saving failed*, followed by the raw technical detail and
+  nothing else — no word about what actually went wrong, no way out, and after a click on *Reset &
+  restart* not even the right verb, since nothing was being saved. Both entry points, the everyday
+  save and the *Machine room* reset, now name the real failure, say which of the two files it is
+  about, say that nothing was changed and that everything in the file is still there, and name the
+  two things that cause this along with what to do about each. The save also asks before it writes
+  anything at all: an unreadable `personal_settings.json` no longer leaves a freshly typed API key
+  already written into `.env` behind a dialog saying the save failed, and the question is no longer
+  put to you at all before a save that cannot happen. A `.env` this save would not touch anyway —
+  both key fields blank, as in a save that only changes hotkeys — is not probed and cannot block it.
+
 - **Rebound hotkeys are now shown correctly on every console surface (#274, #276, #277,
   D-019).** Under a scheme that is not the shipped `Ctrl+Alt` one — the settings app's own
   one-click F-keys preset included — the console showed plainly wrong keys, because it

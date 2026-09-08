@@ -404,7 +404,8 @@ class SettingsApp:
         # no save label rides on it since #271, where every save restarts regardless: a
         # blank field never clobbers a stored key (settings_io), so an empty field on top
         # of a stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
-        # that rarer case is caught downstream -- write_env aborts such a save.)
+        # that rarer case is caught before the first write since #291 -- _save's
+        # pre-flight aborts such a save and names the file.)
         self._had_stored_key = settings_io.env_has_key(env)
         # Per-provider stored-key snapshot for the key-aware engine control (#201).
         # The console-side predicate is per-engine (config.engine_has_key), so the
@@ -1760,7 +1761,14 @@ class SettingsApp:
         """The two managed key fields as an {ENV_VAR: value} dict, for the per-engine
         keyed test (config.API_KEY_ENV names those vars). Fed to
         settings_io.engine_keyed alongside the load-time _stored_env snapshot, so a
-        key typed this session greys/un-greys the matching engines live (#201)."""
+        key typed this session greys/un-greys the matching engines live (#201).
+
+        Since #291 it is also _save's .env write payload AND the update set the save
+        pre-flight probes with -- the pre-flight only probes .env when this save would
+        actually write it, so the two have to be the same expression or the probe
+        decides about a different save than the write performs.
+        test_settings_io.check_readfail_wiring pins that both call sites still name
+        this method, so a change here that leaves one behind fails the ladder."""
         return {"GROQ_API_KEY": self.groq_var.get(),
                 "SONIOX_API_KEY": self.soniox_var.get()}
 
@@ -1905,10 +1913,27 @@ class SettingsApp:
 
     # ------------------------------------------------------------- save / restart
     def _save(self):
-        # Pre-save checks (order matters): no key at all, then hotkey warnings. A key
-        # is present if one is entered OR one is already stored (_has_any_key -- a
-        # blank field never clobbers a stored key, so an empty field on top of a stored
-        # key is NOT keyless, and the "no key" warning must not fire there).
+        # Pre-save checks (order matters): the file pre-flight first, then no key at
+        # all, then hotkey warnings. A key is present if one is entered OR one is
+        # already stored (_has_any_key -- a blank field never clobbers a stored key, so
+        # an empty field on top of a stored key is NOT keyless, and the "no key"
+        # warning must not fire there).
+        #
+        # #291: settings_io.unreadable_save_target -- its docstring carries the why.
+        # It runs HERE, ahead of both confirmations, because there is nothing to ask
+        # about a save that cannot happen: the user would confirm and then be told it
+        # did not take place.
+        unreadable = settings_io.unreadable_save_target(
+            env_path=config.SCRIPT_DIR / ".env",
+            env_updates=self._live_env(),
+            ps_path=config.SCRIPT_DIR / "personal_settings.json")
+        if unreadable is not None:
+            path, err = unreadable
+            messagebox.showerror(
+                strings.t("dlg.readfail.title", self.lang),
+                strings.t("dlg.readfail.body", self.lang).format(file=path.name)
+                + "\n\n" + str(err))
+            return
         if not self._has_any_key():
             if not messagebox.askyesno(strings.t("dlg.nokey.title", self.lang),
                                        strings.t("dlg.nokey.body", self.lang)):
@@ -1941,10 +1966,10 @@ class SettingsApp:
             enabled_now=(self.ptt_var.get() == "on"),
             enabled_loaded=self._ptt_enabled_loaded)
         try:
+            # _live_env() is the same expression the pre-flight above probed with, so
+            # the two can never speak about different update sets (#291).
             settings_io.write_env(
-                config.SCRIPT_DIR / ".env",
-                {"GROQ_API_KEY": self.groq_var.get(),
-                 "SONIOX_API_KEY": self.soniox_var.get()},
+                config.SCRIPT_DIR / ".env", self._live_env(),
                 example_path=config.SCRIPT_DIR / ".env.example")
             settings_io.write_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json",
@@ -1956,10 +1981,14 @@ class SettingsApp:
                 ui_language=None,
                 ptt_enabled=ptt_signal)
         except Exception as e:
-            # Atomic writes + abort-on-unreadable (CP1) mean no file is left half-
-            # written or corrupted. .env is written before personal_settings.json, so
-            # a failure of the second still leaves the first's (valid) update on disk --
-            # hence the message speaks of atomicity, not "nothing was overwritten".
+            # A write failure: the pre-flight above already caught the unreadable
+            # target and named it (#291), so what is left here is the write itself --
+            # or a target that turned unreadable in between, the one race a probe
+            # cannot close. Atomic writes + abort-on-unreadable (CP1) mean no file is
+            # left half-written or corrupted. .env is written before
+            # personal_settings.json, so a failure of the second still leaves the
+            # first's (valid) update on disk -- hence the message speaks of atomicity,
+            # not "nothing was overwritten".
             messagebox.showerror(
                 strings.t("dlg.savefail.title", self.lang),
                 strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
@@ -2011,10 +2040,15 @@ class SettingsApp:
             _data, corrupt = settings_io.read_personal_settings(ps_path)
         except Exception as e:
             # Unreadable or undecodable bytes: the write below aborts on the same read
-            # (B1), so say so now instead of after a confirmation.
+            # (B1), so say so now instead of after a confirmation -- and say it as what
+            # it is, a read that failed, with a way out (#291). This read IS this
+            # path's pre-flight (it has to happen anyway, to choose the confirmation
+            # body); _save runs settings_io.unreadable_save_target because it has no
+            # read of its own, and both land in the same strings.
             messagebox.showerror(
-                strings.t("dlg.savefail.title", self.lang),
-                strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
+                strings.t("dlg.readfail.title", self.lang),
+                strings.t("dlg.readfail.body", self.lang).format(file=ps_path.name)
+                + "\n\n" + str(e))
             return
         # Corrupt-but-decodable: the reset takes D-002's warn-then-overwrite branch
         # like any explicit save, so the hand-written blocks really are lost here. The

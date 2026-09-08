@@ -78,11 +78,25 @@ instead of promising they survive. A confirmed one puts the four managed keys ba
 leaves the vocabulary and the .env alone and reaches the restart handshake (stubbed --
 unstubbed it would write a real restart signal and destroy the root mid-test). Over
 bytes it cannot decode at all -- an ANSI/cp1252 file, B1's case -- it stops before the
-confirmation: nothing asked, nothing written, no restart. And the restart freeze
-disables the button, which the rail freeze alone does not reach. Like the #239 lane it
-WRITES and runs against a tempdir-patched `config.SCRIPT_DIR`.
+confirmation: nothing asked, nothing written, no restart, and (#291) the one error it
+raises names the file and the failed READ rather than announcing a failure to save
+something the user never asked it to save. And the restart freeze disables the button,
+which the rail freeze alone does not reach. Like the #239 lane it WRITES and runs
+against a tempdir-patched `config.SCRIPT_DIR`.
 
-A sixth, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
+A sixth, `test_save_readfail_with_display`, drives the everyday Save through the real
+window over files whose bytes cannot be read -- an ANSI/cp1252 `personal_settings.json`,
+then an ANSI `.env` -- and asserts the other half of #291: the dialog names the read
+failure and which of the two files it is about, no restart follows, and `.env` comes out
+byte-identical although it is the file written FIRST (before the fix the freshly typed
+key was already on disk while the dialog claimed the save had failed). Two controls
+carry as much weight as the failures: the same broken `.env` with both key fields blank
+-- a hotkey-only save, which `write_env` never touches the file for -- still goes
+through and reaches the restart, and over an unreadable file the keyless confirmation is
+not asked first and disappointed afterwards. Like the #239 lane it WRITES and runs
+against a tempdir-patched `config.SCRIPT_DIR`.
+
+A seventh, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
 (#281). Three of its four checks are one-liners against couplings the code can only
 state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has entries
 (they are `zip`ped, and `zip` drops a surplus on either side silently -- a page or a
@@ -1127,7 +1141,10 @@ def test_reset_with_display():
     root2 = None
     try:
         # Both are modal and would hang a headless run with nobody to dismiss them.
-        ts.messagebox.showerror = lambda *a, **k: None
+        # showerror is recorded rather than dropped: the undecodable lane below has to
+        # read the title it comes up under (#291).
+        errors = []     # (title, body) of every error dialog raised in this lane
+        ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
         shown = []      # the body text each confirmation was asked with
 
         with tempfile.TemporaryDirectory() as d:
@@ -1230,7 +1247,7 @@ def test_reset_with_display():
             # (stubbed out above, like every modal in this lane).
             ps.write_bytes('{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252"))
             undecodable = ps.read_bytes()
-            asked, restarts = len(shown), len(calls)
+            asked, restarts, dialogs = len(shown), len(calls), len(errors)
             app._reset_to_defaults()
             check(ps.read_bytes() == undecodable,
                   "a reset over an undecodable personal_settings.json rewrote it -- "
@@ -1242,6 +1259,19 @@ def test_reset_with_display():
             check(len(calls) == restarts,
                   "the reset restarted Thoughtborne after failing to read the file -- "
                   "nothing was written, so there is nothing for a start to pick up")
+            # ... and what it says is the #291 half of this issue: the failure is a
+            # READ that failed, named as one and naming the file, not "Saving failed"
+            # over an action the user never asked to save.
+            check(len(errors) == dialogs + 1,
+                  f"the reset over an unreadable file raised {len(errors) - dialogs} "
+                  f"error dialogs, expected exactly one")
+            check(errors[-1:] and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
+                  f"the reset reported a file it cannot READ under the wrong title -- "
+                  f"after a click on Reset, 'Saving failed' names neither the failure "
+                  f"nor the action (#291): {errors[-1:]!r}")
+            check(errors[-1:] and "personal_settings.json" in errors[-1][1],
+                  f"the dialog does not name the file that could not be read: "
+                  f"{errors[-1:]!r}")
 
             # The restart freeze reaches the button. It sits on a tab, so the rail
             # freeze does not cover it, and a second click during the responsive wait
@@ -1272,6 +1302,162 @@ def test_reset_with_display():
                     r.destroy()
             except Exception:
                 pass
+
+
+def test_save_readfail_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. The save half of #291 through the REAL app: test_settings_io.py proves
+    # what the pre-flight decides and pins its call site on the syntax tree, but only
+    # the built window shows that the two meet -- that a click on Save over bytes the
+    # app cannot read really ends in the read-failure dialog, naming the file, and that
+    # .env is still untouched when it does. That last part is the substance of the fix:
+    # .env is written FIRST, so before #291 an unreadable personal_settings.json left
+    # the newly typed key on disk behind a dialog claiming the save had failed.
+    #
+    # WRITES, like the #239 and #282 lanes above, so config.SCRIPT_DIR is patched to a
+    # tempdir BEFORE the app is built and restored in finally; otherwise this check
+    # would save over the maintainer's own files.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped save-readfail check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped save-readfail check: no display)")
+        return
+    try:
+        import config
+        import settings_strings as sstr
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped save-readfail check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _askyesno = ts.messagebox.askyesno
+    _script_dir = config.SCRIPT_DIR
+    try:
+        # Both are modal and would hang a headless run; both are also evidence here,
+        # so they record instead of vanishing. Every confirmation is answered yes --
+        # what must not happen is being ASKED about a save that cannot happen at all.
+        errors = []     # (title, body) of every error dialog
+        asked = []      # the body of every confirmation
+        ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
+        ts.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
+
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            config.SCRIPT_DIR = tmp
+            ps = tmp / "personal_settings.json"
+            healthy = json.dumps({"vocabulary": {"terms": ["Grüße"]}},
+                                 indent=2, ensure_ascii=False) + "\n"
+            ps.write_text(healthy, encoding="utf-8")
+            # No key stored yet, so the keyless confirmation is live -- which is what
+            # makes case D's "nothing was asked" mean something.
+            env = tmp / ".env"
+            env.write_text("# no key yet\n", encoding="utf-8")
+            env_before = env.read_bytes()
+
+            root.geometry("900x860")
+            app = ts.SettingsApp(root, first_run=False)
+            root.update()
+            restarts = []
+            # Unstubbed the handshake writes a real restart signal and destroys the
+            # root mid-test (the #282 lane's reason too).
+            app._restart_and_relaunch = lambda: restarts.append(True)
+
+            # A -- personal_settings.json in bytes the app cannot decode (an ANSI file
+            # whose German vocabulary is intact, B1's case), with a key freshly typed
+            # into the field. The save has to stop at the pre-flight.
+            ps.write_bytes('{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252"))
+            undecodable = ps.read_bytes()
+            app.groq_var.set("gsk_typed_now")
+            app._save()
+            check(ps.read_bytes() == undecodable,
+                  "the save rewrote an undecodable personal_settings.json -- the "
+                  "vocabulary in there is still rescuable (B1, D-002)")
+            check(env.read_bytes() == env_before,
+                  "the save wrote the typed key into .env and only THEN found out that "
+                  "personal_settings.json cannot be read -- the dialog would be saying "
+                  "nothing was changed over a file that already changed (#291)")
+            check(not restarts, "the save restarted Thoughtborne after aborting")
+            check(errors[-1:] and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
+                  f"the read failure came up under the wrong title: {errors[-1:]!r}")
+            check(errors[-1:] and "personal_settings.json" in errors[-1][1],
+                  f"the dialog does not name the file that could not be read, so the "
+                  f"user cannot tell which of the two to repair: {errors[-1:]!r}")
+
+            # B -- the other file: a readable personal_settings.json, an ANSI .env, and
+            # a key to write into it. Same dialog, the other name.
+            ps.write_text(healthy, encoding="utf-8")
+            env.write_bytes("# Umlaut-Kommentar: Präfix\n".encode("cp1252"))
+            env_ansi = env.read_bytes()
+            dialogs = len(errors)
+            app._save()
+            check(len(errors) == dialogs + 1,
+                  f"the save over an unreadable .env raised {len(errors) - dialogs} "
+                  f"error dialogs, expected exactly one")
+            check(errors[-1:] and errors[-1][0] == sstr.t("dlg.readfail.title", "en")
+                  and ".env" in errors[-1][1],
+                  f"an unreadable .env was not reported as itself: {errors[-1:]!r}")
+            check(env.read_bytes() == env_ansi and ps.read_bytes() == healthy.encode("utf-8"),
+                  "the aborted save touched a file anyway")
+            check(not restarts, "the save restarted Thoughtborne after aborting")
+
+            # C -- CONTROL: the same broken .env, but both key fields blank, which is
+            # what a hotkey-only save looks like. write_env is a no-op there, so this
+            # save never touches the file and must go through -- a pre-flight that
+            # blocks it would break a save that works today.
+            app.groq_var.set("")
+            app.soniox_var.set("")
+            dialogs, questions = len(errors), len(asked)
+            app._save()
+            check(len(errors) == dialogs,
+                  f"a save that does not write .env at all was blocked over it: "
+                  f"{errors[dialogs:]!r}")
+            check(len(asked) == questions + 1,
+                  "the keyless confirmation did not fire on the save that went "
+                  "through -- this lane no longer proves the pre-flight let it past")
+            check(restarts == [True],
+                  "the save that went through did not reach the restart handshake")
+            check(env.read_bytes() == env_ansi,
+                  "the save rewrote the .env it had nothing to write to")
+            check(json.loads(ps.read_text(encoding="utf-8"))
+                  .get("vocabulary", {}).get("terms") == ["Grüße"],
+                  "the save that went through did not keep the hand-written vocabulary")
+
+            # D -- the order: over a file that cannot be read, the user is not asked
+            # first and told afterwards. Both fields are still blank and no key is
+            # stored, so the keyless confirmation WOULD fire -- it fired in C -- and
+            # here it must not, because there is nothing to ask about a save that
+            # cannot happen.
+            ps.write_bytes(undecodable)
+            dialogs, questions = len(errors), len(asked)
+            app._save()
+            check(len(asked) == questions,
+                  "the save asked its keyless confirmation before finding out that it "
+                  "cannot write at all -- the user confirms, and is then told it did "
+                  "not happen (#291)")
+            check(len(errors) == dialogs + 1
+                  and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
+                  f"the save over an unreadable file did not report the read failure: "
+                  f"{errors[dialogs:]!r}")
+            check(ps.read_bytes() == undecodable,
+                  "the save rewrote the undecodable file")
+    finally:
+        config.SCRIPT_DIR = _script_dir
+        ts.messagebox.showerror = _showerror
+        ts.messagebox.askyesno = _askyesno
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
 
 def test_callback_error_log_with_display():
@@ -1542,6 +1728,7 @@ def main():
     test_verdict_wrap_with_display()
     test_language_toggle_gate_with_display()
     test_reset_with_display()
+    test_save_readfail_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
 
@@ -1560,8 +1747,9 @@ def main():
           "wrap-deferral invariant, the #281 six-tab layout with its version line and "
           "strip width, the #216 maximize->restore content-vanish guard, the #231 "
           "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
-          "with its confirmation gate, and the #240 callback / pre-mainloop crash "
-          "logging all pass")
+          "with its confirmation gate, the #291 read-failure dialog on both save "
+          "paths with .env left untouched, and the #240 callback / pre-mainloop "
+          "crash logging all pass")
     return 0
 
 

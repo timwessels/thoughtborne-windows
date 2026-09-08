@@ -94,6 +94,28 @@ def read_env(path) -> dict:
     return {k: v for k, v in values.items() if k in ENV_KEYS}
 
 
+def _clean_env_updates(updates: dict) -> dict:
+    """The part of `updates` write_env would actually write: unmanaged keys dropped,
+    every value stripped of surrounding whitespace and of any embedded newline (a
+    value must be a single .env line, and a pasted key is trimmed before it could
+    reach an Authorization header, S4), and an empty result dropped -- a blank field
+    must never clobber a stored key.
+
+    An empty return therefore means "this save does not touch .env at all". Both
+    write_env's no-op and unreadable_save_target's decision not to probe the file rest
+    on that answer, which is why the rule lives here rather than inline in the writer:
+    a pre-flight that answered it differently would block saves the writer never
+    touches .env for."""
+    cleaned = {}
+    for k, v in updates.items():
+        if k not in ENV_KEYS:
+            continue
+        value = str(v).replace("\r", "").replace("\n", "").strip()
+        if value:
+            cleaned[k] = value
+    return cleaned
+
+
 def write_env(path, updates: dict, *, example_path=None) -> None:
     """Set each managed KEY in `updates` in the `.env` at `path`, preserving every
     other line / comment / blank / key order and the file's existing line endings.
@@ -113,18 +135,10 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
     target is tolerated on read and dropped on write (the file heals). Atomic (temp
     file + os.replace); never logs or echoes a value."""
     path = Path(path)
-    # Managed keys only; strip surrounding whitespace and any embedded newline (a
-    # value must be a single .env line). Drop an empty result so a blank field never
-    # clobbers a stored key, and so a pasted key is trimmed before it could reach an
-    # Authorization header (S4).
-    cleaned = {}
-    for k, v in updates.items():
-        if k not in ENV_KEYS:
-            continue
-        value = str(v).replace("\r", "").replace("\n", "").strip()
-        if value:
-            cleaned[k] = value
-    updates = cleaned
+    # Managed keys only, cleaned by the one shared rule -- the #291 pre-flight asks the
+    # same question with it, and two copies of "does this save touch .env at all" could
+    # drift apart. An empty effective set means this call must not even READ the file.
+    updates = _clean_env_updates(updates)
     if not updates:
         return
 
@@ -534,6 +548,62 @@ def write_ui_language(path, language, example_path=None) -> bool:
     write_personal_settings(path, hotkeys_effective=None, default_api=None,
                             ui_language=language, example_path=example_path)
     return True
+
+
+# =============================================================================
+# save pre-flight (#291)
+# =============================================================================
+def _probe_env_readable(path) -> None:
+    """Raise what write_env's own guard read raises for an unreadable `.env` -- an
+    OSError (locked / permission-denied) or a UnicodeDecodeError (an ANSI/cp1252 file)
+    -- and return quietly for a MISSING one, which is that writer's normal seed case.
+    The open() is deliberately write_env's open(), byte for byte (utf-8-sig,
+    newline=""): this exists to PREDICT that read, so a change to one is a change to
+    both, and test_settings_io.py pins that they still agree."""
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            f.read()
+    except FileNotFoundError:
+        return
+
+
+def unreadable_save_target(*, env_path, env_updates, ps_path):
+    """The pre-flight an explicit save runs BEFORE it writes anything (#291): return
+    `(path, error)` for the first file this save would abort on because its bytes
+    cannot be read or UTF-8-decoded, else `None`. Nothing is written either way.
+
+    Both writers already abort on such a target rather than clobber it (B1, D-002) --
+    write_env by letting every read error but FileNotFoundError propagate,
+    write_personal_settings through read_personal_settings, which this function calls
+    itself so the two can never drift. What that abort cannot do is tell the CALLER
+    apart from a write failure (`_atomic_write` raises OSError too) or name the file,
+    and it fires only once `.env` has already been rewritten. Asking first buys both
+    and keeps the save all-or-nothing, which is what lets the dialog say that nothing
+    was changed.
+
+    `.env` is probed ONLY when this save would actually write it: write_env is a no-op
+    for an empty effective update set, so two blank key fields must not let an
+    unreadable `.env` block a save that never touches it -- a pure hotkey save over a
+    cp1252 `.env` works today and keeps working. `_clean_env_updates`, write_env's own
+    rule rather than a second copy, answers that. `.env` comes first because it is
+    written first, so the file named is the one that would have failed. A
+    corrupt-but-decodable personal_settings.json is NOT a failure here: its bytes read
+    fine, and it stays on D-002's warn-then-overwrite branch.
+
+    This is not a lock: a file that turns unreadable between the probe and the write
+    falls back to the writers' own abort and the caller's write-failure message --
+    exactly what happens today. The example files the writers may seed from are
+    deliberately out of scope; they are shipped docs, not the user's data."""
+    if _clean_env_updates(env_updates):
+        try:
+            _probe_env_readable(env_path)
+        except Exception as e:
+            return Path(env_path), e
+    try:
+        read_personal_settings(ps_path)
+    except Exception as e:
+        return Path(ps_path), e
+    return None
 
 
 def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_loaded,
