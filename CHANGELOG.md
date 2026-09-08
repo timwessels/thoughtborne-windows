@@ -45,8 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the renderer `(action, combo)` pairs and the renderer decides what to show: with
   rebound keys the grid and both strips render aligned two-column cells carrying full,
   correct combos — a combo wider than the derived 13-cell key column shows as
-  `[...]+<key>`. Footers and panels still show today's letters until the next step of
-  the package (#272).
+  `[...]+<key>`. Footers and panels followed in #277, the next step of the package
+  (#272).
 - **The Windows app icon is the pixel mark (D-016).** The Start-menu shortcut (and the
   console window it opens under the classic console host) and *Settings > Installed apps*
   showed the round navy brand mark, all but invisible on a dark desktop, and the settings
@@ -161,6 +161,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every layout rule had to be thought through twice for.
 
 ### Fixed
+
+- **Footers and panels now show the keys you actually pressed, whatever they are bound
+  to (#277).** With a rebound scheme — the settings app's own one-click F-keys preset
+  included — every footer and every panel showed plain wrong keys: the app handed the
+  renderer the letter behind each combo's last `+`, so `Shift+F8` and `Ctrl+F8` both
+  arrived as `F8`, one key standing for two actions, and the guidance lines read `press F8
+  to retry` for a key that does nothing. Footers and panels now take the same `(action,
+  combo)` pairs the grid and the strips took in #274, and the renderer decides what to
+  show: bare keys under a shared lead while that line fits the frame, two aligned lines of
+  full combos otherwise. Sentences always name the whole combination now — `press
+  Ctrl+Alt+R to retry this recording`, never `press R`, because in a console a bare `R`
+  reads as "type R" — and the shipped footer line is unchanged. Two framed lines could
+  also break the 70-column frame with perfectly legal rebindings (the recovery panel from
+  a 16-character combination, the SAVED strip from 23); every line carrying a combination
+  is now width-guarded, and a stress check in the test ladder feeds every key-bearing view
+  combinations up to the longest one a configuration can hold. Three hints were tightened
+  so they still fit once they spell the combination out, and the console lines for
+  a deferred retry and for the settings window name the configured hotkey instead of a
+  hardcoded one.
 
 - **A key entered in the settings app now takes effect on the app's own restart, and a
   Windows environment variable can no longer steer the tool (#269, D-017).** Two faults

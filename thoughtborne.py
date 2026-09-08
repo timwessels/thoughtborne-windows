@@ -54,7 +54,7 @@ from config import (
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
-from hotkey_parse import common_prefix, first_combo, format_combo
+from hotkey_parse import first_combo, format_combo
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
@@ -1377,7 +1377,7 @@ class ThoughtborneApp:
                 new_label = self.transcriber.get_name()
                 logger.info(f"Successfully switched to {new_label}", extra=FILE_ONLY)
                 self._ticker(f"switch: {old_label} -> {new_label}")
-                switch_key = self._format_hotkey(HOTKEYS['switch_api'])
+                switch_key = self._show('switch_api')
                 self._emit_block(
                     'switched',
                     lambda ansi: console_ui.render_switched_panel(
@@ -1402,7 +1402,7 @@ class ThoughtborneApp:
             if missing:
                 logger.error(f"Missing API key(s): {', '.join(missing)} -- add them to "
                              f".env (see README), then restart Thoughtborne.", extra=FILE_ONLY)
-            switch_key = self._format_hotkey(HOTKEYS['switch_api'])
+            switch_key = self._show('switch_api')
             self._emit_block(
                 'switch-failed',
                 lambda ansi: console_ui.render_switch_failed(
@@ -1413,11 +1413,6 @@ class ThoughtborneApp:
             logger.error(f"Error in API switch: {e}", exc_info=True)
 
     # ===== HOTKEY CALLBACKS =====
-
-    def _format_hotkey(self, hotkey_str):
-        """Format a combo for display ('ctrl+alt+w' -> 'Ctrl+Alt+W'), through the
-        one formatter in hotkey_parse (#275)."""
-        return format_combo(hotkey_str)
 
     def _handle_mistrigger_during_recording(self) -> bool:
         """
@@ -1456,7 +1451,7 @@ class ThoughtborneApp:
             self._notify_keyless()
             return
         if not self.audio_recorder.is_recording:
-            hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
+            hotkey_display = self._show('start_recording')
             logger.info(f"Recording started ({hotkey_display})", extra=FILE_ONLY)
 
             # Refuse to start when the recording loop is gone: nothing would consume the frames.
@@ -1494,9 +1489,7 @@ class ThoughtborneApp:
                 self._emit_block(
                     'mic-failed',
                     lambda ansi: console_ui.render_mic_failed(
-                        self.transcriber.get_name(),
-                        self._footer_keys(), self._prefix_for(self._footer_actions()),
-                        ansi=ansi))
+                        self.transcriber.get_name(), self._footer_keys(), ansi=ansi))
                 return
 
             # REC strip once the mic is actually open (#109): shows the stop
@@ -1529,8 +1522,8 @@ class ThoughtborneApp:
 
     def on_stop_recording_keyboard(self):
         """Callback for stop recording / insert last text (keyboard mode)"""
-        hotkey_display = self._format_hotkey(HOTKEYS['stop_recording_keyboard'])
-        start_hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
+        hotkey_display = self._show('stop_recording_keyboard')
+        start_hotkey_display = self._show('start_recording')
 
         if self.audio_recorder.is_recording:
             # Stop recording
@@ -1561,8 +1554,8 @@ class ThoughtborneApp:
 
     def on_stop_recording_clipboard(self):
         """Callback for stop recording / insert last text (clipboard mode)"""
-        hotkey_display = self._format_hotkey(HOTKEYS['stop_recording_clipboard'])
-        start_hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
+        hotkey_display = self._show('stop_recording_clipboard')
+        start_hotkey_display = self._show('start_recording')
 
         if self.audio_recorder.is_recording:
             # Stop recording (clipboard mode)
@@ -1597,8 +1590,8 @@ class ThoughtborneApp:
 
         Uses Ctrl+Alt+D by default. Perfect for sending messages to chatbots/Claude Code.
         """
-        hotkey_display = self._format_hotkey(HOTKEYS['stop_recording_send'])
-        start_hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
+        hotkey_display = self._show('stop_recording_send')
+        start_hotkey_display = self._show('start_recording')
 
         if self.audio_recorder.is_recording:
             # Stop recording
@@ -1635,8 +1628,8 @@ class ThoughtborneApp:
 
         Note: Uses Y key on German QWERTZ keyboards.
         """
-        hotkey_display = self._format_hotkey(HOTKEYS['stop_recording_no_insert'])
-        start_hotkey_display = self._format_hotkey(HOTKEYS['start_recording'])
+        hotkey_display = self._show('stop_recording_no_insert')
+        start_hotkey_display = self._show('start_recording')
 
         if self.audio_recorder.is_recording:
             # Stop recording
@@ -1662,7 +1655,7 @@ class ThoughtborneApp:
     def on_cancel_recording(self):
         """Callback for cancel recording"""
         if self.audio_recorder.is_recording:
-            hotkey_display = self._format_hotkey(HOTKEYS['cancel_recording'][0])
+            hotkey_display = self._show('cancel_recording')
             logger.info(f"Recording cancelled ({hotkey_display})", extra=FILE_ONLY)
             self._emit_block(
                 'cancelled',
@@ -1812,7 +1805,7 @@ class ThoughtborneApp:
             # worker.
             self._notify_keyless()
             return
-        hotkey_display = self._format_hotkey(HOTKEYS['retry_last_failed'])
+        hotkey_display = self._show('retry_last_failed')
 
         with self._last_failed_lock:
             rec = self._last_failed  # atomic local copy of the reference
@@ -1829,7 +1822,7 @@ class ThoughtborneApp:
         self.active_threads = [t for t in self.active_threads if t.is_alive()]
         if len(self.active_threads) >= MAX_PARALLEL_TRANSCRIPTIONS:
             logger.warning(f"Maximum parallel transcriptions reached ({MAX_PARALLEL_TRANSCRIPTIONS}) "
-                           f"-- retry deferred, press R again")
+                           f"-- retry deferred, press {hotkey_display} again")
             return
 
         sequence_number = self.output_manager.get_next_sequence_number()
@@ -2077,10 +2070,11 @@ class ThoughtborneApp:
         a single window itself (D-009), so a repeat press focuses the existing
         one."""
         if self._insertion_pending():
-            logger.info("Settings not opened -- finishing the last dictation (Ctrl+Alt+G)")
+            logger.info("Settings not opened -- finishing the last dictation "
+                        f"({self._show('open_settings')})")
             return
         if self._launch_settings_app():
-            logger.info("Opened the settings app (Ctrl+Alt+G)")
+            logger.info(f"Opened the settings app ({self._show('open_settings')})")
         else:
             logger.error("Could not open the settings app "
                          "(thoughtborne_settings.py missing or launch failed)")
@@ -2149,7 +2143,7 @@ class ThoughtborneApp:
             # nothing was lost and how to continue (#106/#109).
             logger.warning(f"Recording was still running ({reason}) -- audio saved "
                            f"({duration:.1f}s, not transcribed): {archive}", extra=FILE_ONLY)
-            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            retry_key = self._show('retry_last_failed')
             self._emit_block(
                 'exit-saved',
                 lambda ansi: console_ui.render_saved_strip(
@@ -2365,7 +2359,7 @@ class ThoughtborneApp:
                 sidecar.discard()
             archive = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
             self._record_failed_slot(timestamp, duration)
-            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            retry_key = self._show('retry_last_failed')
             # ERROR level on purpose: this IS an error state (file log unchanged);
             # the FAILED panel below is the console surface (#109), so these two
             # detail lines are file-only.
@@ -2377,8 +2371,7 @@ class ThoughtborneApp:
                 'device-loss',
                 lambda ansi: console_ui.render_device_loss(
                     duration, retry_key, self.transcriber.get_name(),
-                    self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
-                    ansi=ansi))
+                    self._footer_keys(retry=True), ansi=ansi))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
                     if sidecar is not None else "")
@@ -2414,7 +2407,7 @@ class ThoughtborneApp:
         self-test / switch / retry hotkey was pressed while no API key is
         configured. Safe on any thread (_emit_block only enqueues, #11); echoes
         the masthead's yellow guidance so the funnel to Settings stays coherent."""
-        settings_key = self._format_hotkey(HOTKEYS['open_settings'])
+        settings_key = self._show('open_settings')
         self._emit_block(
             'keyless',
             lambda ansi: console_ui.render_keyless_notice(
@@ -2430,12 +2423,6 @@ class ThoughtborneApp:
             logger.debug(msg)
         except Exception:
             pass
-
-    def _key_letter(self, name):
-        """The bare display key of a hotkey (e.g. 'ctrl+alt+w' -> 'W'), remap-safe."""
-        combo = HOTKEYS[name]
-        combo = combo[0] if isinstance(combo, list) else combo
-        return combo.rpartition('+')[2].capitalize()
 
     def _lineup_data(self):
         """MODEL lineup rows for the renderer: (label, descriptor, is_current,
@@ -2459,35 +2446,17 @@ class ThoughtborneApp:
         its own; `names` narrows to one box's actions without reordering them."""
         return [(n, self._show(n)) for n in HOTKEYS if names is None or n in names]
 
-    def _prefix_for(self, action_names):
-        """The once-per-box modifier lead (#115) for exactly the keys THIS box
-        shows, derived per box rather than globally (#55). Returns the shared
-        prefix formatted for display ('Ctrl+Alt'), or None when the box's keys
-        mix prefixes -- then the box keeps its existing bare-letter fallback. Per
-        box so rebinding one action (e.g. start_recording -> f9) no longer strips
-        the Ctrl+Alt lead off boxes whose keys still share it. Reads the same
-        first-combo-of-a-list key each surface displays."""
-        combos = [HOTKEYS[n][0] if isinstance(HOTKEYS[n], list) else HOTKEYS[n]
-                  for n in action_names]
-        prefix = common_prefix(combos)
-        return self._format_hotkey(prefix) if prefix is not None else None
-
     def _footer_keys(self, retry=False):
-        """The bottom action-strip key hints (letter, word). The retry variant
-        replaces '6 history' with 'R retry' (error panels)."""
-        rec, mdl, quit_ = (self._key_letter('start_recording'),
-                           self._key_letter('switch_api'),
-                           self._key_letter('exit_program'))
-        if retry:
-            return [(rec, 'record'), (self._key_letter('retry_last_failed'), 'retry'),
-                    (mdl, 'model'), (quit_, 'quit')]
-        return [(rec, 'record'), (self._key_letter('open_history'), 'history'),
-                (mdl, 'model'), (quit_, 'quit')]
+        """The footer's [(action_name, display_combo)] pairs -- full combos, so the
+        renderer derives the box's lead from exactly the keys the footer lists
+        (D-019); it decides whether they show bare or in full."""
+        return [(n, self._show(n)) for n in self._footer_actions(retry)]
 
     def _footer_actions(self, retry=False):
-        """The action names behind _footer_keys(), so a box's lead (#55) is
-        derived from exactly the keys its footer shows. Mirrors _footer_keys'
-        retry branch (history -> retry)."""
+        """The four actions the footer lists, in the #115 footer order: record .
+        history/retry . model . quit. Deliberately not the canonical D-019 order --
+        the footer line has read this way since #115, and D-019 governs every
+        surface that does not carry an order of its own."""
         tail = 'retry_last_failed' if retry else 'open_history'
         return ['start_recording', tail, 'switch_api', 'exit_program']
 
@@ -2512,9 +2481,7 @@ class ThoughtborneApp:
             # recording or self-test, both of which the keyless guards refuse
             # up front -- so self.transcriber is a real engine here.
             model = self.transcriber.get_name()
-            type_key = self._key_letter('stop_recording_keyboard')
-            paste_key = self._key_letter('stop_recording_clipboard')
-            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            retry_key = self._show('retry_last_failed')
             # Negative sequence numbers are internal (immediate tasks: self-test,
             # insert-last) -- omit them from the user-facing strip.
             seq_shown = seq if (seq is not None and seq >= 0) else None
@@ -2525,15 +2492,15 @@ class ThoughtborneApp:
                     self._emit_block(
                         'inserted-capped',
                         lambda ansi: console_ui.render_typed_capped(
-                            cap, original_chars, paste_key, model, self._footer_keys(),
-                            self._prefix_for(self._footer_actions()), ansi=ansi),
+                            cap, original_chars,
+                            self._show('stop_recording_clipboard'), model,
+                            self._footer_keys(), ansi=ansi),
                         detail=f"seq={seq} typed={chars} original={original_chars} cap={cap}")
                 else:
                     self._emit_block(
                         'inserted',
                         lambda ansi: console_ui.render_ok_strip(
                             seq_shown, chars, sent, model, self._footer_keys(),
-                            self._prefix_for(self._footer_actions()),
                             mode=mode, cap=cap, ansi=ansi),
                         detail=f"seq={seq} chars={chars} sent={sent} mode={mode}")
             elif event == 'ready':
@@ -2549,17 +2516,16 @@ class ThoughtborneApp:
                 self._emit_block(
                     'insert-failed',
                     lambda ansi: console_ui.render_insert_failed(
-                        seq_shown, type_key, paste_key, model, self._footer_keys(),
-                        self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']
-                                         + self._footer_actions()),
-                        ansi=ansi),
+                        seq_shown,
+                        self._pairs(['stop_recording_clipboard',
+                                     'stop_recording_keyboard']),
+                        model, self._footer_keys(), ansi=ansi),
                     detail=f"seq={seq}")
             elif event == 'failed':
                 self._emit_block(
                     'transcription-failed',
                     lambda ansi: console_ui.render_transcription_failed(
-                        seq_shown, retry_key, model,
-                        self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
+                        seq_shown, retry_key, model, self._footer_keys(retry=True),
                         reason=reason, provider=provider, inconclusive=inconclusive,
                         ansi=ansi),
                     detail=f"seq={seq} reason={reason} provider={provider}")
@@ -2567,7 +2533,7 @@ class ThoughtborneApp:
                 # #133: a benign 'no speech found' verdict, not a failure -- no retry
                 # hint, no retry hotkey. The recording is kept in history; a retry
                 # cannot help. The open-history hotkey (#159) lets the user listen.
-                open_key = self._format_hotkey(HOTKEYS['open_history'])
+                open_key = self._show('open_history')
                 self._emit_block(
                     'no-speech',
                     lambda ansi: console_ui.render_no_speech(
@@ -2591,7 +2557,7 @@ class ThoughtborneApp:
         as the yellow-lamp RECOVERED panel, emitted last so it sits at the bottom
         of the scrollback. Never raises."""
         try:
-            retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
+            retry_key = self._show('retry_last_failed')
             _, newest_dur, newest_ts = pending[-1]
             when = (f"{newest_ts[:4]}-{newest_ts[4:6]}-{newest_ts[6:8]} "
                     f"{newest_ts[9:11]}:{newest_ts[11:13]}")
@@ -2770,7 +2736,7 @@ class ThoughtborneApp:
             guidance = None
             if self._keyless:
                 guidance = ("To enable dictation, enter an API key in Settings "
-                            f"({self._format_hotkey(HOTKEYS['open_settings'])})")
+                            f"({self._show('open_settings')})")
             # #219: only an active valid defaults.api pin (DEFAULT_API_IS_EXPLICIT)
             # tags its engine's masthead row with a dim (default) -- the breadcrumb
             # back to Settings. Remember-mode and the built-in default show no tag.

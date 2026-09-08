@@ -6,10 +6,13 @@ nothing from the project -- all dynamic values (labels, hotkey combos, paths,
 seq/chars) arrive as parameters -- so it renders and is width-verified without
 a running Windows tool (see test_console_ui.py).
 
-Key surfaces receive `(action_name, display_combo)` pairs in the canonical
-config.DEFAULT_HOTKEYS order (D-019); this module holds the labels and the cell
-geometry and decides what to show -- the bare key under a shared modifier lead,
-the full combo without one, `[...]+<key>` past the key-column budget.
+Every key-bearing surface receives `(action_name, display_combo)` pairs (in the
+canonical config.DEFAULT_HOTKEYS order, D-019; the footers in the app's #115
+order); this module holds the labels and the cell geometry and decides what to
+show -- the bare key under a shared modifier lead, the full combo without one,
+`[...]+<key>` past the key-column budget. Prose is the one place a key is never
+bare: a sentence always names the full combo, since a bare `R` in one reads as
+"type R".
 
 Two frame classes carry the visual hierarchy (variant B grammar):
   - main panel   (double frame ╔═╗) for orientation moments: startup, errors,
@@ -381,14 +384,30 @@ def _keys_grid_lines(pairs, key_prefix, ansi):
     return _cell_rows(cells, key_prefix, dline, ansi, columns=columns)
 
 
-def _footer_lines(model_label, keyhints, key_prefix, emit, ansi):
-    """Two-line action footer (#115): model on its own line, then one key line
-    with a single `Ctrl+Alt + ` lead (no per-key modifier repetition). `emit` is
-    dline or sline (double vs single frame). key_prefix None -> bare 2-space lead
-    (documented edge; the shipped config never mixes prefixes)."""
-    lead = f"  {key_prefix} +  " if key_prefix else "  "
+def _key_lines(pairs, emit, ansi):
+    """One key list (#272 rules 3/4): the #115 flow line under a shared lead while
+    it fits the frame, aligned cells with full combos otherwise. pairs:
+    [(action_name, display_combo)] in the order the list reads, words from
+    KEY_WORDS. The lead is derived from exactly these combos, so a key can never
+    be shown bare without the lead that anchors it (D-019); the cell form is also
+    the honest fallback for a lead that would not fit."""
+    cells = [(c, KEY_WORDS[n]) for n, c in pairs]
+    prefix = _display_prefix([c for _, c in pairs])
+    if prefix is not None:
+        lead = f"  {prefix} +  "
+        flow = [(_bare(c, prefix), w) for c, w in cells]
+        if _flow_width(lead, flow) <= INNER:
+            return [_flow_line(lead, flow, emit, ansi)]
+    return _cell_rows(cells, None, emit, ansi)
+
+
+def _footer_lines(model_label, footer, emit, ansi):
+    """The action footer (#115): the model on its own line, then the box's key
+    list. footer: [(action_name, display_combo)] in the #115 footer order (record
+    . history/retry . model . quit) -- the app owns that order, this module owns
+    the words. `emit` is dline or sline (double vs single frame)."""
     return [emit([("  model: ", ()), (model_label, (BOLD,))], ansi),
-            _flow_line(lead, keyhints, emit, ansi)]
+            *_key_lines(footer, emit, ansi)]
 
 
 def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
@@ -547,8 +566,8 @@ def render_rec_strip(stops, *, ansi):
     ]
 
 
-def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
-                    *, mode=None, cap=None, ansi):
+def render_ok_strip(seq, chars, sent, model_label, footer, *, mode=None,
+                    cap=None, ansi):
     if mode == 'typing':
         # Typed insert (keyboard.write) -- length-capped (#7). Show the ceiling
         # beside the char count; a *truncated* one goes to render_typed_capped, so
@@ -561,7 +580,7 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
         return [
             *_strip_open(ansi),
             sline(left + [(" " * pad + annot, ())], ansi),
-            *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
+            *_footer_lines(model_label, footer, sline, ansi),
             sbot(ansi),
         ]
     what = "inserted at the cursor + sent" if sent else "inserted at the cursor"
@@ -570,27 +589,27 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
+        *_footer_lines(model_label, footer, sline, ansi),
         sbot(ansi),
     ]
 
 
-def render_typed_capped(cap, original_chars, paste_key, model_label, footer_keys,
-                        key_prefix, *, ansi):
+def render_typed_capped(cap, original_chars, paste_key, model_label, footer,
+                        *, ansi):
     """A typed insert that hit the #7 length cap. Benign success-with-notice, never
     red: the text WAS inserted (capped), the full transcript is kept in history and
-    re-insertable via the clipboard hotkey (paste_key). Yellow CAPPED tag -- it is
-    a successful insert with a heads-up, not a failure."""
+    re-insertable via the clipboard hotkey -- `paste_key` named in full, as prose
+    always is (D-019). Yellow CAPPED tag -- it is a successful insert with a
+    heads-up, not a failure."""
     head = truncate_end(
         f"typed insert limited to {cap:,} chars (of {original_chars:,})", INNER - 10)
     hint = truncate_end(
-        f"full text kept in history -- {paste_key} re-inserts all of it (clipboard)",
-        INNER - 4)
+        f"full text kept in history -- {paste_key} pastes all of it", INNER - 4)
     return [
         *_strip_open(ansi),
         sline([("  ", ()), ("CAPPED", (BOLD, YELLOW)), (f"  {head}", ())], ansi),
         sline([("  " + hint, ())], ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, sline, ansi),
+        *_footer_lines(model_label, footer, sline, ansi),
         sbot(ansi),
     ]
 
@@ -600,21 +619,10 @@ def render_waiting_strip(seq, chars, stops, *, ansi):
     order -- paste before type, the default route before the fallback."""
     row1 = _strip_row1_seq([("  ", ()), ("WAITING", (BOLD, GREEN)),
                             ("  kept -- not inserted yet", ())], seq, chars)
-    prefix = _display_prefix([c for _, c in stops])
-    if prefix is not None:
-        lead = f"  {prefix} +  "
-        cells = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops]
-        if _flow_width(lead, cells) <= INNER:
-            return [
-                *_strip_open(ansi),
-                sline(row1, ansi),
-                _flow_line(lead, cells, sline, ansi),
-                sbot(ansi),
-            ]
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
-        *_cell_rows([(c, KEY_WORDS[n]) for n, c in stops], None, sline, ansi),
+        *_key_lines(stops, sline, ansi),
         sbot(ansi),
     ]
 
@@ -634,7 +642,8 @@ def render_saved_strip(duration, retry_key, *, ansi):
         *_strip_open(ansi),
         sline([("  ", ()), ("SAVED", (BOLD, YELLOW)),
                (f"  the recording was still running -- audio saved ({dur})", ())], ansi),
-        sline([(f"  next start: press {retry_key} to transcribe & insert it", ())], ansi),
+        sline("  " + truncate_end(
+            f"next start: press {retry_key} to transcribe & insert it", INNER - 4), ansi),
         sbot(ansi),
     ]
 
@@ -677,17 +686,18 @@ def _reason_pair(reason, provider, inconclusive):
     return pair[0].replace("{P}", p), pair[1].replace("{P}", p)
 
 
-def render_transcription_failed(seq, retry_key, model_label, footer_keys,
-                                key_prefix, *, reason=None, provider=None,
+def render_transcription_failed(seq, retry_key, model_label, footer,
+                                *, reason=None, provider=None,
                                 inconclusive=False, ansi):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     pair = _reason_pair(reason, provider, inconclusive)
     is_auth = reason == "auth" and not inconclusive
     is_credits = reason == "no-credit" and not inconclusive   # #179
-    # Framed: the footer key line carries the sole Ctrl+Alt (its `R retry` /
-    # `L model` anchor the bare letters used here) -- one Ctrl+Alt per box (#115).
-    retry_letter = retry_key.rpartition('+')[2]
-    switch_letter = next((k for k, w in footer_keys if w == "model"), "L")
+    # Prose names the full combo (D-019): a bare letter in a sentence reads as
+    # "type R". The lead below anchors the footer's own key list only, so Ctrl+Alt
+    # may well appear here and once more down there. The switch key comes out of
+    # the footer by name -- absent, the parenthetical is simply omitted.
+    switch_key = next((c for n, c in footer if n == "switch_api"), None)
     lines = [
         dtop(ansi),
         _failed_top("FAILED", f"transcription failed{seq_part} -- nothing inserted", ansi),
@@ -705,27 +715,34 @@ def render_transcription_failed(seq, retry_key, model_label, footer_keys,
         lines.append(dline([('  set the key in Settings (Start menu "Thoughtborne Settings")', (DIM,))], ansi))
     elif is_credits:
         p = provider or "Soniox"
-        lines.append(dline([(f"  top up your balance, then press {retry_letter} -- it will wait for you", (BOLD,))], ansi))
+        lines.append(dline([("  " + truncate_end(
+            f"top up, then press {retry_key} -- it will wait for you", INNER - 4), (BOLD,))], ansi))
         lines.append(dline([(f"  add a little credit in the {p} console", (DIM,))], ansi))
     else:
-        lines.append(dline([(f"  press {retry_letter} to retry this recording", (BOLD,))], ansi))
-        lines.append(dline(f"  or switch the model ({switch_letter}), then retry", ansi))
-    lines += [dsep(ansi), *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi), dbot(ansi)]
+        lines.append(dline([("  " + truncate_end(
+            f"press {retry_key} to retry this recording", INNER - 4), (BOLD,))], ansi))
+        if switch_key:
+            lines.append(dline("  " + truncate_end(
+                f"or switch the model ({switch_key}), then retry", INNER - 4), ansi))
+    lines += [dsep(ansi), *_footer_lines(model_label, footer, dline, ansi), dbot(ansi)]
     return lines
 
 
-def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
-                         key_prefix, *, ansi):
+def render_insert_failed(seq, stops, model_label, footer, *, ansi):
+    """stops: the two (action_name, display_combo) insert pairs in canonical order
+    -- paste before type, the default route before the fallback, as on the WAITING
+    strip. The two keys are alternatives offered side by side, i.e. a key list and
+    not prose: two full combos in one sentence do not fit the frame. The
+    introducing words take their own line so they survive both forms."""
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     return [
         dtop(ansi),
         _failed_top("FAILED", f"could not insert{seq_part} -- the transcript is kept", ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline([("  insert the last transcript with ", ()),
-               (type_key, (BOLD,)), (" (type) or ", ()),
-               (paste_key, (BOLD,)), (" (paste)", ())], ansi),
+        dline("  insert the last transcript with:", ansi),
+        *_key_lines(stops, dline, ansi),
         dsep(ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
+        *_footer_lines(model_label, footer, dline, ansi),
         dbot(ansi),
     ]
 
@@ -743,31 +760,30 @@ def render_selftest_failed(reason, action_lines, *, ansi):
     return lines
 
 
-def render_device_loss(duration, retry_key, model_label, footer_keys, key_prefix,
-                       *, ansi):
+def render_device_loss(duration, retry_key, model_label, footer, *, ansi):
     dur = f"{duration:.0f}s"
-    # Framed: the footer key line's `R retry` anchors the bare retry letter here.
-    retry_letter = retry_key.rpartition('+')[2]
     return [
         dtop(ansi),
         _failed_top("FAILED", "microphone lost -- recording ended early", ansi),
         dline(f"    audio saved ({dur}, not transcribed)", ansi),
         dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline(f"  reconnect your microphone, then press {retry_letter} to transcribe it", ansi),
+        dline("  " + truncate_end(
+            f"reconnect the microphone, then press {retry_key} to transcribe it",
+            INNER - 4), ansi),
         dsep(ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
+        *_footer_lines(model_label, footer, dline, ansi),
         dbot(ansi),
     ]
 
 
-def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi):
+def render_mic_failed(model_label, footer, *, ansi):
     """The audio stream could not be opened on Ctrl+Alt+W (on_start_recording's
     `if not self.audio_recorder.start_recording():` branch in thoughtborne.py):
     no input device, or Windows denied microphone access. Replaces the two red log
     lines with a panel (#179). Red like render_device_loss (an audio FAILED where
     the hotkeys still work, so the footer is honest), but non-retry -- nothing was
-    captured; the fix is external, then press W to record again (the footer's
-    `W record` carries that)."""
+    captured; the fix is external, then record again -- the footer's `record`
+    entry names the key."""
     return [
         dtop(ansi),
         _failed_top("FAILED", "the microphone could not be opened", ansi),
@@ -776,7 +792,7 @@ def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi):
         dline("  Is a microphone connected and set as the input device?", ansi),
         dline("  Windows: Settings > Privacy > Microphone must allow apps", ansi),
         dsep(ansi),
-        *_footer_lines(model_label, footer_keys, key_prefix, dline, ansi),
+        *_footer_lines(model_label, footer, dline, ansi),
         dbot(ansi),
     ]
 
@@ -872,10 +888,12 @@ def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
         dzone([("WHAT NOW", (BOLD,))], ansi),
     ]
     if hotkeys_ok:
-        lines.append(dline(f"  press {retry_key} to transcribe & insert it", ansi))
+        lines.append(dline("  " + truncate_end(
+            f"press {retry_key} to transcribe & insert it", INNER - 4), ansi))
     else:
         lines.append(dline("  the audio is safe in the audio folder", ansi))
-        lines.append(dline(f"  once hotkeys work, press {retry_key} to transcribe & insert it", ansi))
+        lines.append(dline("  " + truncate_end(
+            f"once hotkeys work, press {retry_key} to transcribe & insert it", INNER - 4), ansi))
     edge = truncate_path_middle(audio_path, 56)
     lines.append(dedge([(f"audio: {edge}", (DIM,))], ansi))
     return lines

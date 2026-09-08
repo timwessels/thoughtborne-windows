@@ -25,17 +25,26 @@ What each rendered block is checked for:
      in the plain twin; every routine strip carries the monochrome bullet header
      (with its plain 'o' twin) plus one headroom line.
   7. the pair contract (D-019): the renderer's key tables cover the shipped
-     actions, the cell budgets stay derived, and the grid plus the REC/WAITING
-     strips hold their geometry under rebound hotkey schemes.
+     actions, the cell budgets stay derived, and every key-bearing surface --
+     grid, strips, footers and panels -- holds its geometry and shows the right
+     key under rebound hotkey schemes, prose naming the full combo.
+  8. the app half of that contract, read as source: `thoughtborne.py` derives no
+     key of its own, and a stress sweep over every legal combo length proves no
+     framed line can leave 70 cells.
 """
+import ast
+import inspect
+import itertools
 import re
 import sys
+from pathlib import Path
 
 import console_ui as u
+import hotkey_parse as hp   # the canonical modifier order + key set the ladder derives from
 import settings_io          # PRESET_FKEYS as an override fixture; stdlib-only
 from config import (API_DISPLAY, API_KEY_ENV, AVAILABLE_APIS, DEFAULT_API,
                     DEFAULT_HOTKEYS, LOG_FILE, engine_has_key)
-from hotkey_parse import common_prefix, first_combo, format_combo
+from hotkey_parse import canonical_combo, common_prefix, first_combo, format_combo
 
 SHOW = "--show" in sys.argv
 
@@ -61,8 +70,11 @@ def _record(msg):
     failures.append(msg)
 
 
-def check_block(name, lines, *, ansi):
-    """Generic per-block assertions (widths, corners, charset, red exclusivity)."""
+def check_block(name, lines, *, ansi, red_key=None):
+    """Generic per-block assertions (widths, corners, charset, red exclusivity).
+    `red_key` names the rendering for the red rule when `name` also carries the
+    scheme it was rendered under (check_footer_schemes)."""
+    red_key = name if red_key is None else red_key
     joined = "".join(lines)
     for i, ln in enumerate(lines):
         v = strip(ln)
@@ -93,9 +105,9 @@ def check_block(name, lines, *, ansi):
     if ansi:
         codes = re.findall(r"\x1b\[([0-9;]+)m", joined)
         has_red = any("31" in c.split(";") for c in codes)
-        if has_red and name not in RED_OK:
+        if has_red and red_key not in RED_OK:
             _record(f"{name} uses red (SGR 31) but is not an error rendering")
-        if not has_red and name in RED_OK:
+        if not has_red and red_key in RED_OK:
             _record(f"{name} is an error rendering but carries no red tag")
 
 
@@ -160,11 +172,28 @@ WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
 
 # the one MODEL header form (#276): masthead, switched and switch_failed alike
 SWITCH = format_combo(DEFAULT_HOTKEYS["switch_api"])
+PASTE = format_combo(DEFAULT_HOTKEYS["stop_recording_clipboard"])
 OPEN = format_combo(DEFAULT_HOTKEYS["open_history"])
 START = format_combo(DEFAULT_HOTKEYS["start_recording"])
 RETRY = format_combo(DEFAULT_HOTKEYS["retry_last_failed"])
-FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
-FFOOTER = [("W", "record"), ("R", "retry"), ("L", "model"), ("4", "quit")]
+# The #115 footer order, which is deliberately NOT the canonical one (D-019):
+# the app owns it in thoughtborne._footer_actions, and this driver cannot import
+# the app -- hence the one copy in the ladder. check_app_derives_no_key below
+# reads that order out of the app's source and holds this copy against it.
+FOOTER_ACTIONS = ["start_recording", "open_history", "switch_api", "exit_program"]
+FOOTER_ACTIONS_RETRY = ["start_recording", "retry_last_failed", "switch_api",
+                        "exit_program"]
+
+
+def footer_for(scheme, retry=False):
+    """The app's _footer_keys(), rebuilt: [(action_name, display_combo)] in the
+    #115 footer order -- record . history/retry . model . quit."""
+    names = FOOTER_ACTIONS_RETRY if retry else FOOTER_ACTIONS
+    return [(n, combo_for(scheme, n)) for n in names]
+
+
+FOOTER = footer_for(DEFAULT_HOTKEYS)
+FFOOTER = footer_for(DEFAULT_HOTKEYS, retry=True)
 
 PATHS = [  # four checkout depths, shallow to deep (console width stress)
     r"C:\thoughtborne",
@@ -198,8 +227,7 @@ def check_logo_state():
     strips = [
         ("rec", u.render_rec_strip, dict(stops=REC_STOPS)),
         ("ok", u.render_ok_strip, dict(seq=12, chars=184, sent=False,
-                                       model_label="Soniox Live", footer_keys=FOOTER,
-                                       key_prefix=KEY_PREFIX)),
+                                       model_label="Soniox Live", footer=FOOTER)),
         ("waiting", u.render_waiting_strip, dict(seq=12, chars=184, stops=WAIT_STOPS)),
         ("cancelled", u.render_cancelled_strip, {}),
         ("saved", u.render_saved_strip, dict(duration=12.3, retry_key=RETRY)),
@@ -269,18 +297,18 @@ def check_accent_state():
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     others = [
         u.render_rec_strip(REC_STOPS, ansi=True),
-        u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX, ansi=True),
+        u.render_ok_strip(12, 184, False, model, FOOTER, ansi=True),
         u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,
+        u.render_transcription_failed(12, RETRY, model, FFOOTER,
                                       ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #159 reason block
+        u.render_transcription_failed(12, RETRY, model, FFOOTER,   # #159 reason block
                                       reason="no-connection", provider="Soniox",
                                       ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #179 credits block
+        u.render_transcription_failed(12, RETRY, model, FFOOTER,   # #179 credits block
                                       reason="no-credit", provider="Soniox",
                                       ansi=True),
-        u.render_mic_failed(model, FFOOTER, KEY_PREFIX, ansi=True),   # #179
-        u.render_device_loss(12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True),
+        u.render_mic_failed(model, FFOOTER, ansi=True),   # #179
+        u.render_device_loss(12.0, RETRY, model, FFOOTER, ansi=True),
         u.render_switched_panel(model, lu, SWITCH, ansi=True),
     ]
     for lines in others:
@@ -347,11 +375,12 @@ def check_masthead_layout():
 
 
 def check_ctrl_alt_counts():
-    """The #115 rule as #276 re-scoped it: exactly one Ctrl+Alt per strip and
-    event panel (0 where the box carries no hotkey action) -- one lead per key
-    list, next to the keys it anchors. The masthead is the orientation surface
-    and spells the modifier out: READY line, MODEL header, KEYS lead, plus the
-    keyless guidance line."""
+    """The #115 rule as #276 and #277 re-scoped it: one lead per key list, next to
+    the keys it anchors, plus the full combo wherever prose names a key (D-019) --
+    so a panel that both explains and offers keys names the modifier more than
+    once, and each fixture is pinned at exactly what it should read. The masthead
+    is the orientation surface and spells it out: READY line, MODEL header, KEYS
+    lead, plus the keyless guidance line."""
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     cases = [
         ("masthead", _masthead(True), 3),
@@ -359,32 +388,33 @@ def check_ctrl_alt_counts():
         ("masthead/keyless", _masthead_with(lineup_keyed(None, set()),
                                             guidance=GUIDANCE), 4),
         ("rec", u.render_rec_strip(REC_STOPS, ansi=True), 1),
-        ("ok", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
+        ("ok", u.render_ok_strip(12, 184, False, model, FOOTER,
                                  ansi=True), 1),
-        ("ok/typing", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
+        ("ok/typing", u.render_ok_strip(12, 184, False, model, FOOTER,
                                         mode="typing", cap=4000, ansi=True), 1),
-        ("typed_capped", u.render_typed_capped(4000, 30818, "A", model, FOOTER, KEY_PREFIX,
-                                               ansi=True), 1),
+        ("typed_capped", u.render_typed_capped(4000, 30818, PASTE, model, FOOTER,
+                                               ansi=True), 2),
         ("waiting", u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True), 1),
         ("cancelled", u.render_cancelled_strip(ansi=True), 0),
         ("saved", u.render_saved_strip(12.3, RETRY, ansi=True), 1),
+        # retry prose + switch prose + the footer's lead
         ("transcription_failed", u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True), 1),
-        ("transcription_failed/reason", u.render_transcription_failed(   # #159 reason block: still 1
-            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-connection",
-            provider="Groq", ansi=True), 1),
-        ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth -> Settings: still 1
-            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="auth",
+            12, RETRY, model, FFOOTER, ansi=True), 3),
+        ("transcription_failed/reason", u.render_transcription_failed(   # #159 reason block adds none
+            12, RETRY, model, FFOOTER, reason="no-connection",
+            provider="Groq", ansi=True), 3),
+        ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth names no key at all
+            12, RETRY, model, FFOOTER, reason="auth",
             provider="Soniox", ansi=True), 1),
-        ("transcription_failed/credits", u.render_transcription_failed(  # #179 no-credit: still 1
-            12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-credit",
-            provider="Soniox", ansi=True), 1),
+        ("transcription_failed/credits", u.render_transcription_failed(  # #179 top-up prose + lead
+            12, RETRY, model, FFOOTER, reason="no-credit",
+            provider="Soniox", ansi=True), 2),
         ("insert_failed", u.render_insert_failed(
-            12, "A", "D", model, FOOTER, KEY_PREFIX, ansi=True), 1),
-        ("device_loss", u.render_device_loss(
-            12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True), 1),
+            12, WAIT_STOPS, model, FOOTER, ansi=True), 2),
+        ("device_loss", u.render_device_loss(   # WHAT-NOW prose + the footer's lead
+            12.0, RETRY, model, FFOOTER, ansi=True), 2),
         ("mic_failed", u.render_mic_failed(   # #179: footer carries the sole Ctrl+Alt
-            model, FFOOTER, KEY_PREFIX, ansi=True), 1),
+            model, FFOOTER, ansi=True), 1),
         ("selftest_failed", u.render_selftest_failed(
             "self-test failed -- no transcription received",
             ("check your API key in Settings,", f"then see {LOG_FILE.name} for details"),
@@ -418,7 +448,7 @@ def check_failed_reason_block():
 
     def render(**kw):
         return u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, **kw)
+            12, RETRY, model, FFOOTER, ansi=True, **kw)
 
     # Every categorized reason renders a CYAN two-line block, never ACCENT.
     for reason in ("no-connection", "service-error", "rate-limited", "auth", "no-credit"):
@@ -453,7 +483,7 @@ def check_failed_reason_block():
     credit = strip("".join(render(reason="no-credit", provider="Soniox")))
     if "out of credit" not in credit:
         _record("failed/no-credit: did not state the account is out of credit")
-    if "top up your balance" not in credit:
+    if f"top up, then press {RETRY}" not in credit:
         _record("failed/no-credit: WHAT-NOW does not offer the top-up step")
     if "Soniox console" not in credit:
         _record("failed/no-credit: does not name the Soniox console for the top-up")
@@ -513,7 +543,7 @@ def check_strip_structure():
     if len(lead) != 14:
         _record(f"strip lead is {len(lead)} cols, expected 14 (shipped Ctrl+Alt prefix)")
     rec = u.render_rec_strip(REC_STOPS, ansi=True)
-    ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
+    ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER,
                            ansi=True)
     waiting = u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True)
     for name, lines in (("rec", rec), ("ok", ok), ("waiting", waiting)):
@@ -549,7 +579,7 @@ def check_typed_cap_surfaces():
     red), naming the clipboard key and history, framed at full width."""
     model = "Soniox Live"
 
-    ok = u.render_ok_strip(12, 3990, False, model, FOOTER, KEY_PREFIX,
+    ok = u.render_ok_strip(12, 3990, False, model, FOOTER,
                            mode="typing", cap=4000, ansi=True)
     joined = strip("".join(ok))
     if "typed at the cursor" not in joined:
@@ -560,8 +590,7 @@ def check_typed_cap_surfaces():
     if "seq " in row1:
         _record(f"ok/typing: the typed strip still carries a seq block: {row1!r}")
 
-    cap = u.render_typed_capped(4000, 999999, "A", model, FOOTER, KEY_PREFIX,
-                                ansi=True)
+    cap = u.render_typed_capped(4000, 999999, PASTE, model, FOOTER, ansi=True)
     joinedc = "".join(cap)
     codes = re.findall(r"\x1b\[([0-9;]+)m", joinedc)
     if not any("33" in c.split(";") for c in codes):
@@ -570,7 +599,7 @@ def check_typed_cap_surfaces():
         _record("typed_capped: carries red (SGR 31) -- a cap is a success, not an error")
     txt = strip(joinedc)
     for want, label in (("CAPPED", "the CAPPED tag"), ("history", "history"),
-                        ("A re-inserts", "the paste key")):
+                        (f"{PASTE} pastes", "the paste key, named in full")):
         if want not in txt:
             _record(f"typed_capped: does not carry {label}: {txt!r}")
     for ln in cap:
@@ -762,10 +791,428 @@ def check_strip_pairs():
         _record(f"rec/lead-too-wide: expected [...]-shortened keys, got {_bold_tokens(lines)}")
 
 
-# ---- #55 override edge: no shared modifier prefix (key_prefix=None) ----------
+# ---- D-019 the footers and panels under rebound schemes (#277) --------------
+FOOTER_SCHEMES = {
+    "shipped": DEFAULT_HOTKEYS,
+    "fkeys-preset": settings_io.PRESET_FKEYS,
+    "f9-override": dict(DEFAULT_HOTKEYS, start_recording="f9"),
+    # Four modifiers on F-keys: the retry footer's flow line still fits (67 of 68
+    # cells) while the history one (69) does not -- the derived fallback, pinned
+    # in check_footer_lead_fallback below.
+    "four-modifier": {n: ("ctrl+alt+shift+win+u" if n == "exit_program"
+                          else "ctrl+alt+shift+win+f24") for n in DEFAULT_HOTKEYS},
+}
+# The prose each panel must spell out in full, per surface -- {r}/{s}/{p} are the
+# scheme's retry / switch / paste combos. Every one of these fits the guard budget
+# for any legal combo, so a truncation can never hide a miss.
+PROSE = {
+    "typed_capped": ["full text kept in history -- {p} pastes"],
+    "device_loss": ["reconnect the microphone, then press {r}"],
+    "saved": ["next start: press {r}"],
+    "recovered": ["once hotkeys work, press {r}"],
+    "failed/None": ["press {r} to retry this recording", "or switch the model ({s})"],
+    "failed/no-credit": ["top up, then press {r}"],
+}
+
+
+def _key_tokens(lines):
+    """The keys as a box shows them: each bold token, carrying the unstyled
+    `[...]+` artifact in front of it where the renderer shortened one. Read off
+    the render, so this does not restate the shortening rule."""
+    out, pre = [], u.ELLIPSIS + "+"
+    for ln in lines:
+        visible, i = "", 0
+        while i < len(ln):
+            m = _SGR.match(ln, i)
+            if m:
+                if m.group(0) == f"\x1b[{u.BOLD}m":
+                    tok = ln[m.end():ln.index("\x1b", m.end())]
+                    out.append(pre + tok if visible.endswith(pre) else tok)
+                i = m.end()
+            else:
+                visible += ln[i]
+                i += 1
+    return out
+
+
+def check_footer_schemes():
+    """Every key-bearing footer surface under the schemes it must survive: the
+    shipped one, the settings app's own F-keys preset (where the old code showed
+    `F8` for both `Shift+F8` and `Ctrl+F8` -- the bug #277 closed), a single bare
+    F-key rebind, and a four-modifier scheme. Per surface and scheme: framed at
+    full width in both ansi states plus the plain twin, no two different combos
+    rendering as the same key token, `[...]` only in key columns, and every prose
+    line naming the full combo instead of a bare key."""
+    model = "Soniox Live"
+    for sname, scheme in FOOTER_SCHEMES.items():
+        f, ff = footer_for(scheme), footer_for(scheme, retry=True)
+        stops = pairs_for(scheme, WAIT_ACTIONS)
+        rec_stops = pairs_for(scheme, REC_ACTIONS)
+        r = combo_for(scheme, "retry_last_failed")
+        sw = combo_for(scheme, "switch_api")
+        pa = combo_for(scheme, "stop_recording_clipboard")
+        surfaces = [
+            ("ok", "ok", u.render_ok_strip,
+             dict(seq=12, chars=184, sent=False, model_label=model, footer=f), [f]),
+            ("ok/typing", "ok", u.render_ok_strip,
+             dict(seq=12, chars=184, sent=True, model_label=model, footer=f,
+                  mode="typing", cap=4000), [f]),
+            ("typed_capped", "typed_capped", u.render_typed_capped,
+             dict(cap=4000, original_chars=30818, paste_key=pa, model_label=model,
+                  footer=f), [f]),
+            ("mic_failed", "mic_failed", u.render_mic_failed,
+             dict(model_label=model, footer=ff), [ff]),
+            ("insert_failed", "insert_failed", u.render_insert_failed,
+             dict(seq=12, stops=stops, model_label=model, footer=f), [stops, f]),
+            ("device_loss", "device_loss", u.render_device_loss,
+             dict(duration=12.0, retry_key=r, model_label=model, footer=ff), [ff]),
+            ("saved", "saved", u.render_saved_strip,
+             dict(duration=12.3, retry_key=r), []),
+            ("recovered", "recovered", u.render_recovered_panel,
+             dict(when="2026-07-11 03:14", duration=42, clean_exit=False,
+                  hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio",
+                  retry_key=r), []),
+            ("waiting", "waiting", u.render_waiting_strip,
+             dict(seq=12, chars=184, stops=stops), [stops]),
+            # REC keeps its own 3/2 flow split rather than the shared key-line
+            # helper, so only its width/twin come from here -- its key tokens are
+            # pinned in check_strip_pairs.
+            ("rec", "rec", u.render_rec_strip, dict(stops=rec_stops), []),
+        ]
+        for reason in (None, *u._REASON_LINES):
+            surfaces.append((f"failed/{reason}", "transcription_failed",
+                             u.render_transcription_failed,
+                             dict(seq=12, retry_key=r, model_label=model, footer=ff,
+                                  reason=reason, provider="Soniox"), [ff]))
+        for label, red, fn, kw, key_lists in surfaces:
+            name = f"{label} [{sname}]"
+            lines = fn(ansi=True, **kw)
+            for ansi in (True, False):
+                check_block(name, fn(ansi=ansi, **kw), ansi=ansi, red_key=red)
+            twin(name, fn, **kw)
+
+            # The key lists the box shows are the ones _key_lines renders, and no
+            # two different combos may arrive as the same token (the #277 bug).
+            # Exception, accepted in D-019: two over-budget combos ending on the
+            # same key both shorten to `[...]+<key>`.
+            inner = {strip(ln)[1:-1] for ln in lines}
+            for pairs in key_lists:
+                shown = u._key_lines(pairs, u.dline, True)
+                for ln in shown:
+                    if strip(ln)[1:-1] not in inner:
+                        _record(f"{name}: key line {strip(ln)[1:-1]!r} is not in the render")
+                tokens = _key_tokens(shown)
+                if len(tokens) != len(pairs):
+                    _record(f"{name}: {len(tokens)} key tokens for {len(pairs)} keys")
+                    continue
+                seen = {}
+                for (_, combo), tok in zip(pairs, tokens):
+                    if seen.setdefault(tok, combo) != combo and not tok.startswith(u.ELLIPSIS):
+                        _record(f"{name}: {tok!r} stands for both {seen[tok]!r} and {combo!r}")
+
+            joined = "".join(lines)
+            if joined.count(u.ELLIPSIS) != joined.count(f"{u.ELLIPSIS}+\x1b[1m"):
+                _record(f"{name}: an ELLIPSIS outside a key column")
+
+            # Prose spells the combination out, and never offers a bare key.
+            text = strip(joined)
+            for want in PROSE.get(label, []):
+                want = want.format(r=r, s=sw, p=pa)
+                if want not in text:
+                    _record(f"{name}: prose does not read {want!r}: {text!r}")
+            for combo in (r, sw, pa):
+                bare = combo.rpartition("+")[2]
+                if bare == combo:
+                    continue          # a bare-key binding: nothing to give away
+                for form in (f"press {bare} ", f"press {bare},", f"model ({bare})"):
+                    if form in text:
+                        _record(f"{name}: prose offers the bare key {form!r}")
+
+
+def check_footer_lead_fallback():
+    """The footer's flow-line-or-cells switch, derived rather than special-cased:
+    on a four-modifier F-key scheme the retry footer's line still fits the frame
+    (67 of 68 cells) and keeps its #115 lead, while the history one (69) falls
+    back to two aligned cell rows with the full combos."""
+    scheme = FOOTER_SCHEMES["four-modifier"]
+    lead = "  Ctrl+Alt+Shift+Win +  "
+    hist = [strip(ln)[1:-1] for ln in
+            u._footer_lines("Soniox Live", footer_for(scheme), u.sline, True)]
+    retry = [strip(ln)[1:-1] for ln in
+             u._footer_lines("Soniox Live", footer_for(scheme, retry=True), u.sline, True)]
+    if len(hist) != 3 or any(lead in ln for ln in hist):
+        _record(f"footer/four-modifier: the history footer kept a lead that does "
+                f"not fit: {hist!r}")
+    if len(retry) != 2 or not retry[1].startswith(lead):
+        _record(f"footer/four-modifier: the retry footer lost its fitting lead: {retry!r}")
+
+
+# ---- D-019 the app half, read as source (#277) ------------------------------
+_APP = Path(__file__).resolve().with_name("thoughtborne.py")
+_DERIVERS = {"partition", "rpartition", "split", "rsplit"}
+_HANDOVERS = {"_show", "_pairs", "_footer_keys"}
+
+
+def _is_handover(node):
+    """`self._show(...)` / `self._pairs(...)` / `self._footer_keys(...)` -- the
+    three ways the app is allowed to produce a key for a renderer."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "self"
+            and node.func.attr in _HANDOVERS)
+
+
+def _footer_order_from_app(tree):
+    """The #115 footer order as `thoughtborne._footer_actions` returns it:
+    (plain, retry) action names. This is what holds the ladder's literal copy
+    (FOOTER_ACTIONS above) honest -- so an order this cannot read is recorded as
+    a violation rather than skipped: an unread order is an unchecked copy."""
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "_footer_actions"), None)
+    if fn is None:
+        _record("thoughtborne.py: _footer_actions is gone -- the ladder's copy of the "
+                "#115 footer order has nothing left to be held against")
+        return None, None
+    assigned = {}
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            assigned.setdefault(node.targets[0].id, []).append(node.value)
+
+    def resolve(node):
+        """One list element as (name without retry, name with retry), or None:
+        a literal, a local assigned exactly once, or the `retry` conditional the
+        history/retry slot has always been."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value, node.value
+        if isinstance(node, ast.Name):
+            values = assigned.get(node.id, [])
+            return resolve(values[0]) if len(values) == 1 else None
+        if (isinstance(node, ast.IfExp) and isinstance(node.test, ast.Name)
+                and node.test.id == "retry"):
+            plain, retry = resolve(node.orelse), resolve(node.body)
+            return (plain[0], retry[1]) if plain and retry else None
+        return None
+
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    elements = returns[0].value.elts if (
+        len(returns) == 1 and isinstance(returns[0].value, ast.List)) else None
+    resolved = [resolve(e) for e in elements] if elements is not None else [None]
+    if any(r is None for r in resolved):
+        _record(f"thoughtborne.py:{fn.lineno}: _footer_actions no longer reads as one "
+                f"list of action names -- teach this check its new shape, or the "
+                f"ladder's copy of the footer order goes unchecked")
+        return None, None
+    return [r[0] for r in resolved], [r[1] for r in resolved]
+
+
+def check_app_derives_no_key():
+    """The app half of the pair contract, read as source: `thoughtborne.py`
+    derives no key of its own (D-019), and the footer order the fixtures copy is
+    the one it returns. The ladder cannot import the app off Windows, so this
+    parses it -- an AST, never a substring, so the same names in a comment or
+    docstring cannot trip it."""
+    tree = ast.parse(_APP.read_text(encoding="utf-8"), filename=str(_APP))
+    gone = ("_key_letter", "_format_hotkey")
+
+    for node in ast.walk(tree):
+        # G1: the two letter helpers stay gone, definition and call alike.
+        if isinstance(node, ast.FunctionDef) and node.name in gone:
+            _record(f"thoughtborne.py:{node.lineno}: {node.name} is back -- the app "
+                    f"hands full combos, the renderer decides (D-019)")
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in gone):
+            _record(f"thoughtborne.py:{node.lineno}: calls {node.func.attr} -- the app "
+                    f"hands full combos, the renderer decides (D-019)")
+        # G2: nothing takes a combo apart at its '+'.
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _DERIVERS and node.args
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value == "+"):
+            _record(f"thoughtborne.py:{node.lineno}: splits a combo on '+' -- a key "
+                    f"derived before the box's lead is known is the bug class #272 closed")
+
+    # G3: every key-bearing renderer argument comes from one of the three
+    # handovers, directly or through a local assigned exactly once. A name this
+    # cannot resolve is skipped rather than guessed at -- G1/G2 stay the hard net.
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        assigned = {}
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)):
+                assigned.setdefault(node.targets[0].id, []).append(node.value)
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "console_ui"
+                    and node.func.attr.startswith("render_")):
+                continue
+            target = getattr(u, node.func.attr, None)
+            if target is None:
+                _record(f"thoughtborne.py:{node.lineno}: calls console_ui."
+                        f"{node.func.attr}, which the renderer does not define")
+                continue
+            params = list(inspect.signature(target).parameters)
+            bound = {params[i]: a for i, a in enumerate(node.args) if i < len(params)}
+            bound.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
+            for pname, arg in bound.items():
+                if not (pname.endswith("_key") or pname in ("keys", "stops", "footer")):
+                    continue
+                if _is_handover(arg):
+                    continue
+                if isinstance(arg, ast.Name):
+                    values = assigned.get(arg.id, [])
+                    if len(values) != 1 or _is_handover(values[0]):
+                        continue
+                _record(f"thoughtborne.py:{node.lineno}: {node.func.attr}'s `{pname}` "
+                        f"is not one of self._show/_pairs/_footer_keys -- the app hands "
+                        f"full combos and the renderer decides (D-019)")
+
+    # G4: the #115 footer order the fixtures build on is the app's own, read out
+    # of _footer_actions -- the ladder's one literal copy of an order (D-019).
+    plain, retry = _footer_order_from_app(tree)
+    if plain is not None and (plain, retry) != (FOOTER_ACTIONS, FOOTER_ACTIONS_RETRY):
+        _record(f"thoughtborne.py: _footer_actions lists {plain!r} / {retry!r}, the "
+                f"ladder copies {FOOTER_ACTIONS!r} / {FOOTER_ACTIONS_RETRY!r} -- every "
+                f"footer fixture would pin an order the app no longer has")
+
+
+# ---- D-019 the stress check: no framed line ever leaves 70 cells (#277) ------
+_MODS = [n for n, _ in hp._CANONICAL_MODIFIERS]
+_STRESS_PREFIXES = [_MODS[:i] for i in range(len(_MODS) + 1)]
+_NARROW_KEYS = [chr(ord("a") + i) for i in range(12)]        # 1 cell
+_WIDE_KEYS = [f"f{i}" for i in range(10, 22)]                # the widest static keys
+# The longest combo a legal config can hold, derived from hotkey_parse rather
+# than pinned: every canonical modifier plus the widest key it maps.
+MAX_COMBO = format_combo(canonical_combo(
+    "+".join(_MODS + [max(sorted(hp.VK_MAP), key=len)])))
+
+_STRESS_KEY_ACTION = {"switch_key": "switch_api", "start_key": "start_recording",
+                      "paste_key": "stop_recording_clipboard",
+                      "retry_key": "retry_last_failed", "open_key": "open_history",
+                      "settings_key": "open_settings"}
+_STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS, "footer": FOOTER_ACTIONS}
+_STRESS_SWEEP = {"reason": (None, *u._REASON_LINES), "inconclusive": (False, True),
+                 "hotkeys_ok": (False, True), "clean_exit": (False, True),
+                 "sent": (False, True), "mode": (None, "typing")}
+_STRESS_NEUTRAL = {
+    "seq": 99999, "chars": 99999, "model_label": "Groq Whisper Large v3",
+    "cap": 4000, "original_chars": 999999, "duration": 42.0,
+    "when": "2026-07-11 03:14", "audio_path": PATHS[3] + r"\history\audio",
+    "history_path": PATHS[3] + r"\history", "lineup": lineup_for(DEFAULT_API),
+    "with_wordmark": False, "logo_lines": None, "pinned_default": None,
+    "provider": "Soniox", "registered": 10, "expected": 11,
+    "current_label": "Soniox Live", "new_label": "Soniox Live",
+    "other_failures": [], "env_dir": PATHS[3],
+    "action_lines": ("check your API key in Settings,", "then see the log"),
+}
+_STRESS_OVERRIDE = {   # where one parameter name means two different things
+    ("render_selftest_failed", "reason"): "self-test failed -- no transcription received",
+    ("render_switch_failed", "missing"): ["SONIOX_API_KEY"],
+    ("render_noapi_panel", "missing"): [("SONIOX_API_KEY", ["soniox-live", "soniox"])],
+}
+
+
+def _stress_scheme(mods, keys, mixed):
+    """One rung of the combo ladder as a whole hotkey scheme: every action on the
+    same modifiers with its own key (shared -- one lead for a whole box), or with
+    the prefixes rotated and bare keys mixed in (no lead anywhere)."""
+    scheme = {}
+    for i, n in enumerate(DEFAULT_HOTKEYS):
+        k = keys[i % len(keys)]
+        if mixed and i % 3 == 0:
+            parts = [k]                       # bare -- kills any shared lead
+        elif mixed and i % 3 == 1 and mods:
+            parts = mods[:1] + [k]
+        else:
+            parts = mods + [k]
+        scheme[n] = "+".join(parts)
+    return scheme
+
+
+def _stress_guidance(scheme):
+    """The keyless masthead's guidance line, shaped like the app's (#200): prose
+    with one full combo in it, built from the scheme under test rather than typed
+    out, so the longest combos reach the one framed line the app composes itself."""
+    return ("To enable dictation, enter an API key in Settings "
+            f"({combo_for(scheme, 'open_settings')})")
+
+
+def _stress_kwargs(fn, scheme):
+    """Fill one renderer's signature from the tables above, by parameter NAME: a
+    `*_key` takes one full combo, `keys`/`stops`/`footer` take pair lists, and the
+    sweep parameters yield one kwargs dict per branch. A parameter in none of the
+    tables is a hard failure -- so a new key-bearing input cannot slip past."""
+    name = fn.__name__
+    base, sweep = {}, {}
+    for pname in inspect.signature(fn).parameters:
+        if pname == "ansi":
+            continue
+        if (name, pname) in _STRESS_OVERRIDE:
+            base[pname] = _STRESS_OVERRIDE[(name, pname)]
+        elif pname.endswith("_key") and pname in _STRESS_KEY_ACTION:
+            base[pname] = combo_for(scheme, _STRESS_KEY_ACTION[pname])
+        elif pname == "footer":
+            base[pname] = footer_for(scheme)
+        elif pname in _STRESS_PAIRS:
+            base[pname] = pairs_for(scheme, _STRESS_PAIRS[pname])
+        elif pname == "guidance":            # keyless masthead: with and without
+            sweep[pname] = (None, _stress_guidance(scheme))
+        elif pname in _STRESS_SWEEP:
+            sweep[pname] = _STRESS_SWEEP[pname]
+        elif pname in _STRESS_NEUTRAL:
+            base[pname] = _STRESS_NEUTRAL[pname]
+        else:
+            _record(f"stress: {name} has an unclassified parameter {pname!r} -- put it "
+                    f"in the fixture tables so a new key-bearing input cannot slip through")
+            return []
+    names = list(sweep)
+    return [dict(base, **dict(zip(names, values)))
+            for values in itertools.product(*(sweep[k] for k in names))]
+
+
+def check_stress_widths():
+    """Every renderer, fed schemes of growing combo length up to the canonical
+    maximum (MAX_COMBO, derived above), once with one shared prefix and once with
+    the prefixes mixed: no framed line may ever be anything but 70 cells, in
+    either ansi state. Truncation is expected and fine -- this measures width, not
+    copy. The renderer list comes from `dir(console_ui)`, so a new view is in it
+    the moment it exists."""
+    renderers = [getattr(u, n) for n in sorted(dir(u)) if n.startswith("render_")]
+    for mods in _STRESS_PREFIXES:
+        for keys in (_NARROW_KEYS, _WIDE_KEYS):
+            for mixed in (False, True):
+                scheme = _stress_scheme(mods, keys, mixed)
+                tag = (f"{'+'.join(mods) or 'bare'}+{len(keys[0])}c/"
+                       f"{'mixed' if mixed else 'shared'}")
+                for fn in renderers:
+                    for kw in _stress_kwargs(fn, scheme):
+                        _stress_widths(f"{fn.__name__} [{tag}]", fn, kw)
+    # The ladder must actually reach the longest combo a config can hold.
+    top = _stress_scheme(_MODS, _WIDE_KEYS, False)
+    if len(combo_for(top, "start_recording")) != len(MAX_COMBO):
+        _record(f"stress: the ladder tops out below {MAX_COMBO!r} "
+                f"({combo_for(top, 'start_recording')!r})")
+
+
+def _stress_widths(name, fn, kw):
+    a, pl = fn(ansi=True, **kw), fn(ansi=False, **kw)
+    for i, ln in enumerate(a):
+        v = strip(ln)
+        if v and len(v) != u.W:
+            _record(f"stress {name}[{i}]: framed len {len(v)} != {u.W}: {v!r}")
+    if len(a) != len(pl):
+        _record(f"stress {name}: plain line count {len(pl)} != ansi {len(a)}")
+        return
+    for i, (la, lp) in enumerate(zip(a, pl)):
+        if len(strip(la)) != len(lp):
+            _record(f"stress {name}[{i}]: twin length {len(lp)} != {len(strip(la))}")
+
+
+# ---- #55 override edge: no shared modifier prefix ----------------------------
 def check_prefix_none_widths():
     """An override can leave the effective hotkeys without a shared modifier lead
-    (a bare F-key rebind, or mixed prefixes), so the renderer sees no lead -- a
+    (a bare F-key rebind, or mixed prefixes), so the renderer derives none -- a
     framed path the shipped config never reaches. Guard the masthead KEYS grid
     and a routine strip on it at full width."""
     lineup = lineup_for(DEFAULT_API)
@@ -775,7 +1222,6 @@ def check_prefix_none_widths():
     scheme = dict(DEFAULT_HOTKEYS, start_recording="f9",
                   retry_last_failed="ctrl+shift+f12",
                   test_transcription="ctrl+alt+ü")
-    bare_footer = [("F9", "record"), ("F6", "history"), ("F10", "model"), ("F4", "quit")]
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
          dict(lineup=lineup, keys=pairs_for(scheme),
@@ -785,7 +1231,7 @@ def check_prefix_none_widths():
               with_wordmark=False)),
         ("ok_prefix_none", u.render_ok_strip,
          dict(seq=12, chars=184, sent=False, model_label="Soniox Live",
-              footer_keys=bare_footer, key_prefix=None)),
+              footer=footer_for(scheme))),
     ]
     for name, fn, kw in fixtures:
         for ansi in (True, False):
@@ -982,10 +1428,9 @@ def main():
         run("switch_failed", u.render_switch_failed,   # empty branch (non-key skips)
             dict(current_label=model, lineup=lineup, switch_key=SWITCH, missing=[]))
         run("device_loss", u.render_device_loss,
-            dict(duration=12.0, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
-                 key_prefix=KEY_PREFIX))
+            dict(duration=12.0, retry_key=RETRY, model_label=model, footer=FFOOTER))
         run("mic_failed", u.render_mic_failed,   # #179: audio stream would not open
-            dict(model_label=model, footer_keys=FFOOTER, key_prefix=KEY_PREFIX))
+            dict(model_label=model, footer=FFOOTER))
         run("selftest_failed", u.render_selftest_failed, dict(   # mirrors the app copy (thoughtborne.py)
             reason="self-test failed -- no transcription received",
             action_lines=("check your API key in Settings,", f"then see {LOG_FILE.name} for details")))
@@ -994,8 +1439,7 @@ def main():
             for chars in (7, 184, 99999):
                 for sent in (False, True):
                     run("ok", u.render_ok_strip, dict(
-                        seq=seq, chars=chars, sent=sent, model_label=model, footer_keys=FOOTER,
-                        key_prefix=KEY_PREFIX))
+                        seq=seq, chars=chars, sent=sent, model_label=model, footer=FOOTER))
                 run("waiting", u.render_waiting_strip, dict(
                     seq=seq, chars=chars, stops=WAIT_STOPS))
 
@@ -1004,12 +1448,12 @@ def main():
         for chars in (7, 184, 4000):
             for sent in (False, True):
                 run("ok/typing", u.render_ok_strip, dict(
-                    seq=12, chars=chars, sent=sent, model_label=model, footer_keys=FOOTER,
-                    key_prefix=KEY_PREFIX, mode="typing", cap=4000))
+                    seq=12, chars=chars, sent=sent, model_label=model,
+                    footer=FOOTER, mode="typing", cap=4000))
         for original_chars in (4001, 30818, 999999):
             run("typed_capped", u.render_typed_capped, dict(
-                cap=4000, original_chars=original_chars, paste_key="A", model_label=model,
-                footer_keys=FOOTER, key_prefix=KEY_PREFIX))
+                cap=4000, original_chars=original_chars, paste_key=PASTE,
+                model_label=model, footer=FOOTER))
 
         for seq in (None, 12, 99999):
             # #159: one FAILED render per reason (incl. the None catch-all that omits
@@ -1017,17 +1461,15 @@ def main():
             for reason in (None, "no-connection", "service-error", "rate-limited", "auth", "no-credit"):
                 for provider in ("Soniox", "Groq"):
                     run("transcription_failed", u.render_transcription_failed, dict(
-                        seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
-                        key_prefix=KEY_PREFIX, reason=reason, provider=provider))
+                        seq=seq, retry_key=RETRY, model_label=model, footer=FFOOTER,
+                        reason=reason, provider=provider))
             # inconclusive (Soniox-Live async file lane empty + errored): the flag wins
             # over the category, so the "came back empty" message shows.
             run("transcription_failed", u.render_transcription_failed, dict(
-                seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
-                key_prefix=KEY_PREFIX, reason="service-error", provider="Soniox",
-                inconclusive=True))
+                seq=seq, retry_key=RETRY, model_label=model, footer=FFOOTER,
+                reason="service-error", provider="Soniox", inconclusive=True))
             run("insert_failed", u.render_insert_failed, dict(
-                seq=seq, type_key="A", paste_key="D", model_label=model, footer_keys=FOOTER,
-                key_prefix=KEY_PREFIX))
+                seq=seq, stops=WAIT_STOPS, model_label=model, footer=FOOTER))
 
         for clean in (True, False):
             for hk in (True, False):
@@ -1075,22 +1517,22 @@ def main():
     twin("rec", u.render_rec_strip, stops=REC_STOPS)
     twin("waiting", u.render_waiting_strip, seq=12, chars=184, stops=WAIT_STOPS)
     twin("ok", u.render_ok_strip, seq=12, chars=184, sent=False,
-         model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
+         model_label="Groq Whisper Large v3", footer=FOOTER)
     twin("ok/typing", u.render_ok_strip, seq=12, chars=184, sent=True,
-         model_label="Soniox Live", footer_keys=FOOTER, key_prefix=KEY_PREFIX,
+         model_label="Soniox Live", footer=FOOTER,
          mode="typing", cap=4000)
     twin("typed_capped", u.render_typed_capped, cap=4000, original_chars=30818,
-         paste_key="A", model_label="Soniox Live", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
+         paste_key=PASTE, model_label="Soniox Live", footer=FOOTER)
     twin("transcription_failed", u.render_transcription_failed, seq=12, retry_key=RETRY,
-         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
+         model_label="Soniox Live", footer=FFOOTER)
     twin("transcription_failed/reason", u.render_transcription_failed, seq=12, retry_key=RETRY,
-         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX,
+         model_label="Soniox Live", footer=FFOOTER,
          reason="no-connection", provider="Soniox")
     twin("transcription_failed/credits", u.render_transcription_failed, seq=12, retry_key=RETRY,
-         model_label="Soniox Live", footer_keys=FFOOTER, key_prefix=KEY_PREFIX,
+         model_label="Soniox Live", footer=FFOOTER,
          reason="no-credit", provider="Soniox")
     twin("mic_failed", u.render_mic_failed, model_label="Soniox Live",
-         footer_keys=FFOOTER, key_prefix=KEY_PREFIX)
+         footer=FFOOTER)
     twin("recovered", u.render_recovered_panel, when="2026-07-11 03:14", duration=42,
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("no_speech", u.render_no_speech, open_key=OPEN)
@@ -1116,7 +1558,7 @@ def main():
     last = strip(grid[-1])[1:-1]         # bottom row: 4 quit at col 46
     if "quit" not in last or last[46] != "4":
         _record(f"KEYS grid: '4 quit' not bottom-right: {last!r}")
-    ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
+    ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER,
                            ansi=True)
     row1 = strip(ok[2])   # top border, +1 headroom line, then the OK row (#109 fold-in)
     if not row1[u.SEQCOL:].lstrip().startswith("seq 12"):
@@ -1139,7 +1581,13 @@ def main():
     check_grid_schemes()
     check_strip_pairs()
 
-    # ---- #55 override edge: key_prefix=None framed render --------------------
+    # ---- D-019 the footers and panels, the app half, the width stress (#277) -
+    check_footer_schemes()
+    check_footer_lead_fallback()
+    check_app_derives_no_key()
+    check_stress_widths()
+
+    # ---- #55 override edge: a scheme with no shared lead ---------------------
     check_prefix_none_widths()
 
     # ---- #200 key-aware lineup + keyless shop-window -------------------------
