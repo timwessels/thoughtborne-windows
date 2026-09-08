@@ -17,36 +17,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The console masthead now says which keys to hold (#276).** On a fresh install the
-  `KEYS` grid listed bare letters under a plain `KEYS` header and the `MODEL` header read
-  `switch: L` — the only place the box spelled out *Ctrl+Alt* was the READY line two zones
-  above, so a newcomer had to infer that every letter in the grid meant Ctrl+Alt plus that
-  letter, and was left unsure what to press. The zone header now carries the shared lead,
-  `KEYS  Ctrl+Alt + `, directly over the keys it completes — whenever all twelve share one
-  modifier prefix; under a mixed scheme it stays plain over the two-column grid of full
-  combos. The `MODEL` header shows the configured switch combination in full, `switch:
-  Ctrl+Alt+L`, the same line the SWITCHED panel has always shown: with the settings app's
-  F-keys preset it used to read `switch: F8` for a hotkey that is `Ctrl+F8`. The masthead
+- **One hotkey order everywhere, and the console says which keys to hold (#274, #276,
+  D-019).** Four different action orders lived in the code — the console's `KEYS` grid, the
+  settings app's Hotkeys tab, the README tables, the registration log — and the grid put the
+  fallback typing key `H` in second place, right after `W`, reading as if it were the thing
+  you do. `config.DEFAULT_HOTKEYS`, reordered, is now the single source: the grid reads
+  `W A D / Y H X / R L 6 / G T 4` — the dictation loop first, then the special cases, then
+  the daily housekeeping, with *quit* last. The REC strip reads
+  `A paste   D paste+Enter   Y keep only` / `H type   X cancel`, the WAITING strip
+  `A paste   H type`, and the settings app's Hotkeys tab, the log's `Registered:` lines and
+  the README tables (now drift-guarded) follow the same order. The console also says what to
+  hold: the zone header carries the shared lead, `KEYS  Ctrl+Alt + `, directly over the keys
+  it completes, and the `MODEL` header names the switch combination in full,
+  `switch: Ctrl+Alt+L`, the line the SWITCHED panel has always shown. Before, the grid
+  listed bare letters under a plain `KEYS` header and `MODEL` read `switch: L`: the only
+  place the box spelled *Ctrl+Alt* out was the READY line two zones above, so a newcomer had
+  to infer that every letter in the grid meant Ctrl+Alt plus that letter. The masthead
   thereby names Ctrl+Alt up to three times (four with the keyless guidance line), which is
   the point — it is the orientation surface; the strips and event panels keep showing it
-  once, next to the keys it anchors.
-- **One hotkey order everywhere, and the console's key surfaces rebuilt on it (#274,
-  D-019).** Four different action orders lived in the code — console grid, settings
-  tab, README tables, registration log — and the grid put the fallback typing key `H`
-  in second place, reading as if it were the default. Under rebound hotkeys it got
-  worse: the grid degraded to a ragged twelve-line list, and the REC and WAITING
-  strips showed plainly wrong keys (under the settings app's own F-keys preset the REC
-  strip read `F10 type   F10 paste   F10 paste+Enter` — one key standing for three
-  different actions). `config.DEFAULT_HOTKEYS`, reordered, is now the single source:
-  the grid reads `W A D / Y H X / R L 6 / G T 4`, the REC strip `A paste   D
-  paste+Enter   Y keep only` / `H type   X cancel`, the WAITING strip `A paste   H
-  type`, and the settings app's Hotkeys tab, the log's `Registered:` lines and the
-  README tables (now drift-guarded) follow the same order. Behind it, the app hands
-  the renderer `(action, combo)` pairs and the renderer decides what to show: with
-  rebound keys the grid and both strips render aligned two-column cells carrying full,
-  correct combos — a combo wider than the derived 13-cell key column shows as
-  `[...]+<key>`. Footers and panels followed in #277, the next step of the package
-  (#272).
+  once, next to the keys it anchors. One grammar carries all of it: the app hands every
+  key-bearing surface `(action, combo)` pairs and the renderer decides what to show — bare
+  keys under a shared modifier lead, full combos where the keys share none, aligned cells on
+  one derived column budget, and sentences that always name the whole combination. The
+  per-key `FAILED:` lines a blocked registration prints follow the rule by leaving the
+  console: which combination another app took is now read in `thoughtborne.log` rather than
+  off the screen, where the summary line
+  `hotkeys: 11/12 registered -- full log: thoughtborne.log` and the `SOME KEYS INACTIVE`
+  panel below it report the shortfall and point at that file. They were the last console
+  output outside the grammar — raw lowercase combinations on unframed lines wider than the
+  frame, printed above the panel that already pointed at the log — and the file log keeps
+  every one of them, the split the summary line has claimed all along.
 - **The Windows app icon is the pixel mark (D-016).** The Start-menu shortcut (and the
   console window it opens under the classic console host) and *Settings > Installed apps*
   showed the round navy brand mark, all but invisible on a dark desktop, and the settings
@@ -162,24 +162,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Footers and panels now show the keys you actually pressed, whatever they are bound
-  to (#277).** With a rebound scheme — the settings app's own one-click F-keys preset
-  included — every footer and every panel showed plain wrong keys: the app handed the
-  renderer the letter behind each combo's last `+`, so `Shift+F8` and `Ctrl+F8` both
-  arrived as `F8`, one key standing for two actions, and the guidance lines read `press F8
-  to retry` for a key that does nothing. Footers and panels now take the same `(action,
-  combo)` pairs the grid and the strips took in #274, and the renderer decides what to
-  show: bare keys under a shared lead while that line fits the frame, two aligned lines of
-  full combos otherwise. Sentences always name the whole combination now — `press
-  Ctrl+Alt+R to retry this recording`, never `press R`, because in a console a bare `R`
-  reads as "type R" — and the shipped footer line is unchanged. Two framed lines could
-  also break the 70-column frame with perfectly legal rebindings (the recovery panel from
-  a 16-character combination, the SAVED strip from 23); every line carrying a combination
-  is now width-guarded, and a stress check in the test ladder feeds every key-bearing view
-  combinations up to the longest one a configuration can hold. Three hints were tightened
-  so they still fit once they spell the combination out, and the console lines for
-  a deferred retry and for the settings window name the configured hotkey instead of a
-  hardcoded one.
+- **Rebound hotkeys are now shown correctly on every console surface (#274, #276, #277,
+  D-019).** Under a scheme that is not the shipped `Ctrl+Alt` one — the settings app's own
+  one-click F-keys preset included — the console showed plainly wrong keys, because it
+  derived every key as the letter behind the last `+` before anyone knew what anchored it:
+  `Shift+F8` and `Ctrl+F8` both arrived as `F8`, one key standing for two actions; the REC
+  strip read `F10 type   F10 paste   F10 paste+Enter`, one key standing for three; the
+  guidance lines read `press F8 to retry` for a key that does nothing; the `MODEL` header
+  read `switch: F8` for a hotkey that is `Ctrl+F8`; and the `KEYS` grid degraded into a
+  ragged twelve-line list. Grid, strips, footers and panels now all render from the same
+  `(action, combo)` pairs, and each box's lead is derived from exactly the combos that box
+  was handed, so a key can no longer be shown before it is known whether a lead anchors it:
+  bare keys under a shared lead while the line fits the frame, otherwise aligned two-column
+  cells of full combos under a plain header, and a combo wider than the derived 13-cell key
+  column as `[...]+<key>`. Sentences name the whole combination — `press Ctrl+Alt+R to retry
+  this recording`, never `press R`, because in a console a bare `R` reads as "type R" — and
+  three hints were tightened so they still fit once they spell it out, while the console
+  lines for a deferred retry and for the settings window name the configured hotkey instead
+  of a hardcoded one. On the shipped scheme the footer line is unchanged. The recovery panel
+  could also break the 70-column frame outright, from a combination of 16 characters — well
+  inside what a rebinding can hold. Every line carrying a combination is width-guarded now,
+  the SAVED strip's guard sized so the widest combination a configuration can hold still
+  reads in full, and a stress check in the test ladder feeds every key-bearing view
+  combinations up to that width.
+
+- **A rebound hotkey is now shown the way the tool actually reads it, however you wrote it
+  (#275).** The `hotkeys` block of `personal_settings.json` deliberately accepts several
+  spellings of the same combination — `control` for `ctrl`, `windows` for `win`, the
+  modifiers in any order, spaces around the `+` — but the tool kept whatever you typed, and
+  that showed. A single `"control+alt+p"` among the twelve actions was enough for the console
+  to conclude that the keys no longer share `Ctrl+Alt` and to spell every one of them out;
+  the same entry read `Control+Alt+P` on screen while the settings app showed a lowercase
+  `control`; and `"alt+ctrl+w"` on *record* — the shipped combination, written back to front —
+  was stored as a personal override of a setting it is identical to. Every combination is now
+  brought into one spelling on the way in (`ctrl`, `alt`, `shift`, `win`, in that order, then
+  the key), so the console keeps its `Ctrl+Alt` lead, both surfaces print the same
+  `Ctrl+Alt+P`, and a reordered default drops out of your settings file on its next save. The
+  umlaut key gains from it twice: written `ue` it is read and shown as `ü` rather than
+  `Ue`, and binding it under both spellings at once is now caught as the collision it is —
+  before, the second registration simply failed at Windows with a line in the log. Behind it,
+  the three display formatters that had grown up in the tool, the settings app and the test
+  ladder are one function in `hotkey_parse.py`; nothing about the shipped keys changes.
 
 - **A key entered in the settings app now takes effect on the app's own restart, and a
   Windows environment variable can no longer steer the tool (#269, D-017).** Two faults
@@ -226,24 +249,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the removed helper used to be. Respects **D-002** (pickup stays start-based — the
   restart performs the start), **D-001** (the #202 salvage path is unchanged), **D-004** /
   **D-009** (the mutex wait and the single-window guard untouched) and **D-008**.
-
-- **A rebound hotkey is now shown the way the tool actually reads it, however you wrote it
-  (#275).** The `hotkeys` block of `personal_settings.json` deliberately accepts several
-  spellings of the same combination — `control` for `ctrl`, `windows` for `win`, the
-  modifiers in any order, spaces around the `+` — but the tool kept whatever you typed, and
-  that showed. A single `"control+alt+p"` among the twelve actions was enough for the console
-  to conclude that the keys no longer share `Ctrl+Alt` and to spell every one of them out;
-  the same entry read `Control+Alt+P` on screen while the settings app showed a lowercase
-  `control`; and `"alt+ctrl+w"` on *record* — the shipped combination, written back to front —
-  was stored as a personal override of a setting it is identical to. Every combination is now
-  brought into one spelling on the way in (`ctrl`, `alt`, `shift`, `win`, in that order, then
-  the key), so the console keeps its `Ctrl+Alt` lead, both surfaces print the same
-  `Ctrl+Alt+P`, and a reordered default drops out of your settings file on its next save. The
-  umlaut key gains from it twice: written `ue` it is stored and shown as `ü` rather than
-  `Ue`, and binding it under both spellings at once is now caught as the collision it is —
-  before, the second registration simply failed at Windows with a line in the log. Behind it,
-  the three display formatters that had grown up in the tool, the settings app and the test
-  ladder are one function in `hotkey_parse.py`; nothing about the shipped keys changes.
 
 ## [1.1.0] - 2026-09-06
 

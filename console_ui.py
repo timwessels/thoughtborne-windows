@@ -113,7 +113,7 @@ KEY_LABELS = {   # the KEYS grid; exactly the twelve action names
     "test_transcription": "self-test",
     "exit_program": "quit",
 }
-KEY_WORDS = {    # strips and footers, short form; the footer words land in #277
+KEY_WORDS = {    # strips and footers, short form
     "start_recording": "record",
     "stop_recording_clipboard": "paste",
     "stop_recording_send": "paste+Enter",
@@ -290,8 +290,10 @@ def _display_prefix(combos):
 
 def _bare(combo, key_prefix):
     """What a box shows for `combo` under its lead: the part behind the shared
-    prefix -- or the full combo when there is no lead, or the combo does not
-    carry it (the honest form: a wrong prefix can never yield a wrong key)."""
+    prefix -- or the full combo when there is no lead. Every caller derives the
+    prefix from exactly the combos it passes here, so a combo that does not carry
+    it cannot occur; the second return is the guarantee behind that, not a case
+    -- a wrong prefix can never yield a wrong key, only a redundant one."""
     if key_prefix and combo.startswith(key_prefix + "+"):
         return combo[len(key_prefix) + 1:]
     return combo
@@ -325,10 +327,10 @@ def _cell_rows(cells, key_prefix, emit, ansi, columns=2, indent=2):
     budget, both derived, both test-pinned. On a shortened key only the key token
     is bold (`[...]` is a renderer artifact, not part of the key)."""
     labels = [a for _, a in cells]
-    budget = min(KEY_BUDGET, _cell_budget(labels, columns, indent))
     if key_prefix is not None:
         keys = [_bare(c, key_prefix) for c, _ in cells]
     else:
+        budget = min(KEY_BUDGET, _cell_budget(labels, columns, indent))
         keys = [_shorten(c, budget) for c, _ in cells]
     wk = max(len(k) for k in keys)
     lmax = max(len(a) for a in labels)
@@ -642,8 +644,11 @@ def render_saved_strip(duration, retry_key, *, ansi):
         *_strip_open(ansi),
         sline([("  ", ()), ("SAVED", (BOLD, YELLOW)),
                (f"  the recording was still running -- audio saved ({dur})", ())], ansi),
+        # Budget = INNER minus the indent, so the widest legal combo (22 cells)
+        # still reads in full: the guard is against copy growth (#277), not a
+        # frame break any configuration can reach.
         sline("  " + truncate_end(
-            f"next start: press {retry_key} to transcribe & insert it", INNER - 4), ansi),
+            f"next start: press {retry_key} to transcribe & insert it", INNER - 2), ansi),
         sbot(ansi),
     ]
 

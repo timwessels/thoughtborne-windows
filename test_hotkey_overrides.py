@@ -22,7 +22,9 @@ kind of bad entry, F-key names, list vs. string shapes (a string-default action
 stays a string, only already-list actions multi-bind -- the maintainer's #55
 decision), duplicate detection on the *effective* set with case/modifier-order
 normalization -- which after #275 also catches the 'ue'/'ü' pair, one key under
-two spellings -- and the guarantee that the defaults dict is never mutated.
+two spellings -- and the guarantees that the defaults dict is never mutated and
+that their order, the canonical action order every surface follows (D-019),
+survives the one loader it passes through.
 
 The did-the-key-actually-fire check is hands-on (RegisterHotKey needs Windows)
 and is tracked in a separate `test` issue.
@@ -63,10 +65,15 @@ _DEFAULTS_SNAPSHOT = copy.deepcopy(DEFAULTS)
 def run(raw):
     """Call the production loader and bake in the always-true invariants:
     DEFAULTS is never mutated (guards the deepcopy), the effective set has exactly
-    the default keys, and warnings is a list of strings (tests 17 + 18)."""
+    the default keys *in their order* -- that dict order is the canonical action
+    order every surface follows by iteration (D-019), and the loader is the one
+    place it passes through -- and warnings is a list of strings (tests 17 + 18)."""
     eff, warns = apply_hotkey_overrides(DEFAULTS, raw)
     assert DEFAULTS == _DEFAULTS_SNAPSHOT, "apply_hotkey_overrides mutated DEFAULTS"
-    assert set(eff) == set(DEFAULTS), "effective keys differ from defaults"
+    assert list(eff) == list(DEFAULTS), (
+        f"effective keys differ from the defaults in content or order -- the "
+        f"canonical D-019 order must survive the loader:\n"
+        f"  defaults  {list(DEFAULTS)}\n  effective {list(eff)}")
     assert isinstance(warns, list) and all(isinstance(w, str) for w in warns), \
         "warnings must be a list of strings"
     return eff, warns

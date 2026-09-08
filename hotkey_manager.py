@@ -331,11 +331,11 @@ class HotkeyManager:
                 else:
                     error_code = ctypes.get_last_error()
                     if error_code == 1409:
-                        logger.error(f"  FAILED: {hotkey_str} -> {name} - Already registered by another application (Error 1409)")
+                        logger.error(f"  FAILED: {hotkey_str} -> {name} - Already registered by another application (Error 1409)", extra={'file_only': True})
                     else:
-                        logger.error(f"  FAILED: {hotkey_str} -> {name} - RegisterHotKey failed (Error {error_code})")
+                        logger.error(f"  FAILED: {hotkey_str} -> {name} - RegisterHotKey failed (Error {error_code})", extra={'file_only': True})
             except ValueError as e:
-                logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}")
+                logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}", extra={'file_only': True})
 
         logger.info(f"Hotkey registration complete: {registered_count}/{len(self._registrations)} successful", extra={'file_only': True})
 

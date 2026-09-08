@@ -177,12 +177,17 @@ def common_prefix(combos) -> "str | None":
     Returns the raw lowercased prefix -- everything before each combo's final
     '+' -- when every combo shares the same non-empty prefix, else None. A bare
     key like 'f9' has an empty prefix, so any set that mixes one in yields None.
-    This is the pure core of the once-per-box display lead (#115): with per-user
-    hotkey overrides the lead must follow the *effective* keys a box actually
-    shows, not one global assumption across every action. Callers format the
-    result for display (e.g. 'Ctrl+Alt'). Pure -- no Windows, no formatting; an
-    empty `combos` yields None. Expects canonical combos ('ctrl+alt+p', no inner
-    spaces), which config.apply_hotkey_overrides guarantees for overrides.
+    Pure -- no Windows, no formatting; an empty `combos` yields None. Expects
+    canonical combos ('ctrl+alt+p', no inner spaces), which
+    config.apply_hotkey_overrides guarantees for overrides.
+
+    The rule it states is the once-per-box display lead (#115): with per-user
+    overrides the lead must follow the *effective* keys a box actually shows, not
+    one global assumption across every action. No production caller since #277,
+    though -- the lead is derived inside the renderer now, from exactly the combos
+    of the box being drawn (D-019), and console_ui may import nothing from the
+    project, so it carries a deliberate twin (`_display_prefix`). This is that
+    twin's reference version: test_console_ui holds the two against each other.
     """
     prefixes = {c.rpartition('+')[0] for c in combos}
     if len(prefixes) == 1 and '' not in prefixes:

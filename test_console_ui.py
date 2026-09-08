@@ -29,8 +29,9 @@ What each rendered block is checked for:
      grid, strips, footers and panels -- holds its geometry and shows the right
      key under rebound hotkey schemes, prose naming the full combo.
   8. the app half of that contract, read as source: `thoughtborne.py` derives no
-     key of its own, and a stress sweep over every legal combo length proves no
-     framed line can leave 70 cells.
+     key of its own and hands its pairs out in the canonical order unreordered,
+     and a stress sweep over every legal combo length proves no framed line can
+     leave 70 cells.
 """
 import ast
 import inspect
@@ -170,12 +171,14 @@ WAIT_ACTIONS = {"stop_recording_clipboard", "stop_recording_keyboard"}
 REC_STOPS = pairs_for(DEFAULT_HOTKEYS, REC_ACTIONS)
 WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
 
-# the one MODEL header form (#276): masthead, switched and switch_failed alike
-SWITCH = format_combo(DEFAULT_HOTKEYS["switch_api"])
-PASTE = format_combo(DEFAULT_HOTKEYS["stop_recording_clipboard"])
-OPEN = format_combo(DEFAULT_HOTKEYS["open_history"])
-START = format_combo(DEFAULT_HOTKEYS["start_recording"])
-RETRY = format_combo(DEFAULT_HOTKEYS["retry_last_failed"])
+# the one MODEL header form (#276): masthead, switched and switch_failed alike.
+# Through combo_for, like every other fixture combo, so a list-shaped binding on
+# any of these actions keeps yielding the one combo a surface shows.
+SWITCH = combo_for(DEFAULT_HOTKEYS, "switch_api")
+PASTE = combo_for(DEFAULT_HOTKEYS, "stop_recording_clipboard")
+OPEN = combo_for(DEFAULT_HOTKEYS, "open_history")
+START = combo_for(DEFAULT_HOTKEYS, "start_recording")
+RETRY = combo_for(DEFAULT_HOTKEYS, "retry_last_failed")
 # The #115 footer order, which is deliberately NOT the canonical one (D-019):
 # the app owns it in thoughtborne._footer_actions, and this driver cannot import
 # the app -- hence the one copy in the ladder. check_app_derives_no_key below
@@ -630,6 +633,21 @@ def check_key_tables_and_budgets():
     three = u._cell_budget(u.KEY_LABELS.values(), 3)
     if three != 1:
         _record(f"three-column key budget is {three}, expected the derived 1")
+    # ...and derived in the source, not merely equal to the derivation today. A
+    # literal `KEY_BUDGET = 13` passes every value comparison -- including one
+    # against _cell_budget itself -- until a grid label grows and the global
+    # budget silently drifts from the geometry it is supposed to be. D-019 names
+    # "a hardcoded cell budget" on its do-not-reintroduce list, so read the module.
+    assign = next((n.value for n in ast.parse(
+        Path(u.__file__).read_text(encoding="utf-8")).body
+        if isinstance(n, ast.Assign) and len(n.targets) == 1
+        and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "KEY_BUDGET"),
+        None)
+    if not (isinstance(assign, ast.Call) and isinstance(assign.func, ast.Name)
+            and assign.func.id == "_cell_budget"):
+        _record("console_ui.py: KEY_BUDGET is not a _cell_budget(...) call -- the one "
+                "key-column budget must be derived from the grid at import, never "
+                "written down (D-019)")
 
     for combos in (["ctrl+alt+w", "ctrl+alt+a"],          # one shared prefix
                    ["ctrl+alt+w", "ctrl+shift+a"],        # mixed prefixes
@@ -1005,12 +1023,36 @@ def _footer_order_from_app(tree):
     return [r[0] for r in resolved], [r[1] for r in resolved]
 
 
+def _check_pairs_iterates_hotkeys(tree):
+    """`thoughtborne._pairs` -- the handover every key-bearing console surface is
+    built from -- must return a comprehension straight over HOTKEYS, which
+    inherits the canonical order by deepcopy. Anything in between (a sort, a
+    second order) reorders the grid, both strips, the footers and every panel at
+    once, and no rendering check can catch it: the renderers show whatever order
+    they are handed, and the fixtures build their own from DEFAULT_HOTKEYS. So the
+    order's app half is read as source, the way G4 reads the footer's."""
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "_pairs"), None)
+    if fn is None:
+        _record("thoughtborne.py: _pairs is gone -- the canonical hotkey order has no "
+                "checked path onto the console surfaces left (D-019)")
+        return
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    node = returns[0].value if len(returns) == 1 else None
+    if not (isinstance(node, ast.ListComp) and len(node.generators) == 1
+            and isinstance(node.generators[0].iter, ast.Name)
+            and node.generators[0].iter.id == "HOTKEYS"):
+        _record(f"thoughtborne.py:{fn.lineno}: _pairs no longer reads as one "
+                f"comprehension over HOTKEYS -- every console surface would follow "
+                f"whatever order it hands out instead of the canonical one (D-019)")
+
+
 def check_app_derives_no_key():
     """The app half of the pair contract, read as source: `thoughtborne.py`
-    derives no key of its own (D-019), and the footer order the fixtures copy is
-    the one it returns. The ladder cannot import the app off Windows, so this
-    parses it -- an AST, never a substring, so the same names in a comment or
-    docstring cannot trip it."""
+    derives no key of its own (D-019), hands its pairs out in the canonical order
+    unreordered, and the footer order the fixtures copy is the one it returns. The
+    ladder cannot import the app off Windows, so this parses it -- an AST, never a
+    substring, so the same names in a comment or docstring cannot trip it."""
     tree = ast.parse(_APP.read_text(encoding="utf-8"), filename=str(_APP))
     gone = ("_key_letter", "_format_hotkey")
 
@@ -1075,6 +1117,10 @@ def check_app_derives_no_key():
         _record(f"thoughtborne.py: _footer_actions lists {plain!r} / {retry!r}, the "
                 f"ladder copies {FOOTER_ACTIONS!r} / {FOOTER_ACTIONS_RETRY!r} -- every "
                 f"footer fixture would pin an order the app no longer has")
+
+    # G5: the canonical order reaches the surfaces by iteration -- _pairs adds no
+    # order of its own between HOTKEYS and the renderers (D-019).
+    _check_pairs_iterates_hotkeys(tree)
 
 
 # ---- D-019 the stress check: no framed line ever leaves 70 cells (#277) ------
@@ -1194,6 +1240,18 @@ def check_stress_widths():
         _record(f"stress: the ladder tops out below {MAX_COMBO!r} "
                 f"({combo_for(top, 'start_recording')!r})")
 
+    # The sweep above accepts truncation, so it cannot tell a guard that saves the
+    # frame from one that eats a legal combo. The SAVED line is the tightest of
+    # them -- its sentence plus MAX_COMBO fills the frame exactly -- so pin that it
+    # still names the combination in full at the widest rebinding (#277/#280).
+    saved = [strip(ln) for ln in u.render_saved_strip(42.0, MAX_COMBO, ansi=False)]
+    line = next((ln for ln in saved if "next start" in ln), "")
+    if MAX_COMBO not in line or "..." in line:
+        _record(f"saved strip truncates the widest legal combo {MAX_COMBO!r} -- its "
+                f"width guard is against copy growth, not against a rebinding: {line!r}")
+    elif len(line) != u.W:
+        _record(f"saved strip at {MAX_COMBO}: framed len {len(line)} != {u.W}: {line!r}")
+
 
 def _stress_widths(name, fn, kw):
     a, pl = fn(ansi=True, **kw), fn(ansi=False, **kw)
@@ -1280,19 +1338,20 @@ def check_keyless_lineup():
     # groq rows not; groq-large is current and must never be dim.
     present = {"GROQ_API_KEY"}
     lu = lineup_keyed("groq-large", present)
-    for renderer, rows in (("_lineup_lines", u._lineup_lines(lu, True)),):
-        if len(rows) != len(AVAILABLE_APIS):
-            _record(f"{renderer}: emitted {len(rows)} rows, expected {len(AVAILABLE_APIS)}")
-            continue
+    rows = u._lineup_lines(lu, True)
+    if len(rows) != len(AVAILABLE_APIS):
+        _record(f"_lineup_lines: emitted {len(rows)} rows, "
+                f"expected {len(AVAILABLE_APIS)}")
+    else:
         for a, row in zip(AVAILABLE_APIS, rows):
             has_key = API_KEY_ENV[a] in present
             dim = _line_has_dim(row)
             if has_key and dim:
-                _record(f"{renderer}: keyed row {a} is dim")
+                _record(f"_lineup_lines: keyed row {a} is dim")
             if not has_key and not dim:
-                _record(f"{renderer}: keyless row {a} is not dim")
+                _record(f"_lineup_lines: keyless row {a} is not dim")
             if a == "groq-large" and dim:
-                _record(f"{renderer}: current row {a} must never be dim")
+                _record(f"_lineup_lines: current row {a} must never be dim")
 
     # Fully-keyless masthead: every lineup row greyed + a YELLOW guidance line.
     lu = lineup_keyed(None, set())

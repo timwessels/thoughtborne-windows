@@ -1248,21 +1248,16 @@ class SettingsApp:
 
     # combo prettifier (display only; storage stays canonical lowercase)
     def _pretty_combo(self, value):
+        # format_combo is the one display formatter (#275); hotkeys_state is
+        # canonical, having come through apply_hotkey_overrides, so capitalizing
+        # per part is the whole grammar -- 'ctrl+alt+ü' -> 'Ctrl+Alt+Ü'.
         combos = value if isinstance(value, list) else [value]
         if not combos:
             return ""
-        text = self._pretty_one(combos[0])
+        text = format_combo(combos[0])
         if len(combos) > 1:
             text += " " + strings.t("hotkeys.more_suffix", self.lang).format(n=len(combos) - 1)
         return text
-
-    @staticmethod
-    def _pretty_one(combo):
-        # The one display formatter (#275); hotkeys_state is canonical, having
-        # come through apply_hotkey_overrides, so capitalizing per part is the
-        # whole grammar -- 'ctrl+alt+ü' -> 'Ctrl+Alt+Ü', 'ctrl+alt+f10' ->
-        # 'Ctrl+Alt+F10'.
-        return format_combo(combo)
 
     def _render_combo_label(self, name):
         # A re-render sets only text + foreground + font; the chip's box (card tint,

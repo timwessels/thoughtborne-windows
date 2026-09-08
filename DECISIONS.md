@@ -1334,20 +1334,24 @@ frames wraps them — that is the answer.
 
 Decided 2026-09-07, landed with #274 — the structural step of the
 hotkey-presentation package (#272). The two steps after it, #276 and #277,
-finish implementing the grammar recorded here, so within the package this entry
-deliberately leads the code by two commits.
+finished implementing the grammar recorded here (both landed 2026-09-08); within
+the package this entry deliberately led the code by two commits.
 
 **The order.** The dict order of `config.DEFAULT_HOTKEYS` is the one canonical
 action order: `start_recording, stop_recording_clipboard, stop_recording_send,
 stop_recording_no_insert, stop_recording_keyboard, cancel_recording,
 retry_last_failed, switch_api, open_history, open_settings, test_transcription,
 exit_program` — shipped letters `W A D Y H X R L 6 G T 4`. Every multi-column
-surface reads left to right, then top to bottom. Nothing else carries an order:
-the app iterates `HOTKEYS` (which inherits it by deepcopy) and hands renderers
-`(action_name, display_combo)` pairs, renderers look their labels up by name,
-and the settings app's Hotkeys tab, the registration log's `Registered:` lines
-and the README twins' tables all follow by iteration — the tables held there by
-a drift guard in `test_hotkey_overrides.py`.
+surface reads left to right, then top to bottom. Nothing else carries an order of
+its own: the app iterates `HOTKEYS` (which inherits it by deepcopy) and hands
+renderers `(action_name, display_combo)` pairs, renderers look their labels up by
+name, and the settings app's Hotkeys tab, the registration log's `Registered:`
+lines and the README twins' tables all follow by iteration — the tables held
+there by a drift guard in `test_hotkey_overrides.py`. The one deliberate
+exception is the four-key footer line, which keeps its #115 reading order (record
+· history/retry · model · quit) in `thoughtborne._footer_actions`: it reads as a
+sentence, not a grid, and has read that way since #115. It selects four actions
+by name; it is not a second copy of the twelve-action order.
 
 Before this, four different orders lived in the code (console grid, settings
 tab, README tables, registration log), one of them positionally coupled to a
@@ -1355,13 +1359,13 @@ list in `console_ui` with nothing checking the coupling.
 
 **Why `H` stands fifth, not second.** `Ctrl+Alt+H` (simulated typing) is the
 fallback insert path — the README calls it "the fallback for apps that block a
-paste", the settings app describes `A` as the faster default route — yet the old
-grid showed it right after `W`, reading as the thing you do. The first row is now
-the dictation loop (`W A D`), the second the special cases (`Y H X` — keep,
-fallback-type, abort), then daily housekeeping, then the rare things with *quit*
-last. `A D Y H` rather than `A D H Y` is deliberate: `H` must stop reading as the
-default, and the README's own "`Ctrl+Alt+Y` … insert later with `A` or `H`"
-matches it.
+paste" and tags the `Ctrl+Alt+A` row above it "clipboard paste — faster" — yet
+the old grid showed it right after `W`, reading as the thing you do. The first
+row is now the dictation loop (`W A D`), the second the special cases (`Y H X` —
+keep, fallback-type, abort), then daily housekeeping, then the rare things with
+*quit* last. `A D Y H` rather than `A D H Y` is deliberate: `H` must stop reading
+as the default, and the README's own "`Ctrl+Alt+Y` … insert later with `A` or
+`H`" matches it.
 
 **The display grammar** (rules 3–5 of #272, executed by the renderer):
 
