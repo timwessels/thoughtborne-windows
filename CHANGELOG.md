@@ -84,6 +84,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Both published screenshots retaken on the current build (#288).** The terminal shot (READMEs
+  and the website) still showed the pre-#272 console — `switch: L`, bare keys without the
+  `Ctrl+Alt +` lead, the old key order and *keep for later* — and the settings shot (READMEs) the
+  five-tab window with *Soniox — the quality lane (default engine)*. Both now show the shipped
+  state: the terminal image is a real dictation round from the maintainer's daily setup (ending in
+  *inserted at the cursor + sent*, so the send-after-insert stop is visible too), the settings image
+  the six-tab window with the *Machine room* and the D-016 icon, taken in Windows Sandbox by the new
+  reusable screenshot lane `sandbox/shots-in-sandbox.ps1`. The site's cache-buster moves to `?v=3`,
+  and the German settings alt text drops the last *Spur* for the *Weg* wording (#270).
+
 - **The website stops calling Soniox the default (#270).** The cost section still labelled the
   $0.12-per-hour figure *The Soniox default* and measured the quality bar *against the paid Soniox
   default* — the last public trace of a wording #270 withdrew everywhere else, and on a page that
