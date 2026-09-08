@@ -73,8 +73,8 @@ _EN = {
         "subscription and no middleman — you use your own account at a "
         "transcription provider and pay only for what you use. Two lanes, and one "
         "key is enough to start: Groq is free, so you can try Thoughtborne without "
-        "paying anyone; Soniox is the quality lane and carries the default engine. "
-        "The Provider tab walks you through getting a key and pasting it in."),
+        "paying anyone; Soniox is the quality lane. The Provider tab walks you "
+        "through getting a key and pasting it in."),
     "welcome.step2.heading": "2 — Choose your hotkeys",
     "welcome.step2.body": (
         "The shipped Ctrl+Alt scheme is the author's own setup — built for "
@@ -101,10 +101,9 @@ _EN = {
         "provider it belongs to."),
     "provider.lanes.body": (
         "One key is enough to start. Groq is the free lane — transcription on "
-        "Groq's free tier costs nothing, so you can try Thoughtborne without "
-        "paying anyone. Soniox is the quality lane and carries the default engine "
-        "(Soniox Live). With both keys, all four engines are available, switchable "
-        "while dictating (Ctrl+Alt+L)."),
+        "Groq's free tier costs nothing, so you can try Thoughtborne without paying "
+        "anyone. Soniox is the quality lane. With both keys, all four engines are "
+        "available, switchable while dictating (Ctrl+Alt+L)."),
     "provider.groq.heading": "Groq — the free lane",
     "provider.groq.body": (
         "Free for transcription, no credit card needed (as of July 2026). Sign up "
@@ -113,10 +112,10 @@ _EN = {
         "about 2 hours of audio per clock-hour and 8 per day, shared across your "
         "Groq account — leave plenty of room for personal dictation. Powers the "
         "two Groq Whisper engines."),
-    "provider.soniox.heading": "Soniox — the quality lane (default engine)",
+    "provider.soniox.heading": "Soniox — the quality lane",
     "provider.soniox.body": (
         "Pay-as-you-go, no subscription (as of July 2026): $0.12 per hour of audio "
-        "on the real-time default (Soniox Live), $0.10 on file uploads — billed by "
+        "on the real-time engine (Soniox Live), $0.10 on file uploads — billed by "
         "actual use (you pay only for the audio you send). Around 25 hours of "
         "dictation a month comes to about $3. New accounts get no free starting "
         "credit: after signing up at console.soniox.com, first top up a small "
@@ -404,8 +403,8 @@ _DE = {
         "eigenes Konto bei einem Transkriptionsanbieter und zahlst nur, was du "
         "verbrauchst. Zwei Wege, ein Key genügt zum Start: Groq ist kostenlos, "
         "damit lässt sich Thoughtborne ausprobieren, ohne jemanden zu bezahlen; "
-        "Soniox ist der Qualitäts-Weg und trägt die Standard-Engine. Der "
-        "Anbieter-Tab führt dich durch — Key holen und eintragen."),
+        "Soniox ist der Qualitäts-Weg. Der Anbieter-Tab führt dich durch — Key "
+        "holen und eintragen."),
     "welcome.step2.heading": "2 — Hotkeys wählen",
     "welcome.step2.body": (
         "Das mitgelieferte Ctrl+Alt-Schema ist das eigene Setup des Autors — "
@@ -435,9 +434,9 @@ _DE = {
     "provider.lanes.body": (
         "Ein Key genügt für den Start. Groq ist der kostenlose Weg — Transkription "
         "im Free Tier von Groq kostet nichts, damit lässt sich Thoughtborne "
-        "ausprobieren, ohne irgendwen zu bezahlen. Soniox ist der Qualitäts-Weg "
-        "und trägt die Standard-Engine (Soniox Live). Mit beiden Keys stehen alle "
-        "vier Engines bereit, umschaltbar beim Diktieren (Ctrl+Alt+L)."),
+        "ausprobieren, ohne irgendwen zu bezahlen. Soniox ist der Qualitäts-Weg. "
+        "Mit beiden Keys stehen alle vier Engines bereit, umschaltbar beim "
+        "Diktieren (Ctrl+Alt+L)."),
     "provider.groq.heading": "Groq — der kostenlose Weg",
     "provider.groq.body": (
         "Für Transkription kostenlos, keine Kreditkarte nötig (Stand Juli 2026). "
@@ -446,10 +445,10 @@ _DE = {
         "kopieren. Die Free-Tier-Limits — rund 2 Stunden Audio pro Stunde und 8 "
         "pro Tag, geteilt über das ganze Groq-Konto — lassen fürs persönliche "
         "Diktieren viel Luft. Versorgt die beiden Groq-Whisper-Engines."),
-    "provider.soniox.heading": "Soniox — der Qualitäts-Weg (Standard-Engine)",
+    "provider.soniox.heading": "Soniox — der Qualitäts-Weg",
     "provider.soniox.body": (
         "Zahlung nach Verbrauch, kein Abo (Stand Juli 2026): 0,12 $ pro Stunde "
-        "Audio beim Echtzeit-Default (Soniox Live), 0,10 $ bei Datei-Uploads — "
+        "Audio bei der Echtzeit-Engine (Soniox Live), 0,10 $ bei Datei-Uploads — "
         "abgerechnet nach tatsächlicher Nutzung (du zahlst nur für das gesendete "
         "Audio). Rund 25 Stunden Diktat im Monat ergeben etwa 3 $. Neue Konten "
         "bekommen kein Startguthaben: Nach der Registrierung auf console.soniox.com "

@@ -965,7 +965,7 @@ class SettingsApp:
         self._section(f, "provider.keys.heading", level="H1")
         self._prose(f, "provider.keys.body").pack(fill="x", pady=(sp(2), sp(6)))
         self._prose(f, "provider.lanes.body").pack(fill="x", pady=(0, sp(8)))
-        # Groq first (the free "try it now" lane), Soniox second (carries default).
+        # Groq first (the free "try it now" lane), Soniox second (the quality lane).
         self._build_provider_card(f, "groq", "provider.groq.heading",
                                   "provider.groq.body", "url.groq_keys",
                                   "provider.field.groq")

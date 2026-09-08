@@ -95,6 +95,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subscription), free even with regular use, reliable and in daily use since 2023, transcripts
   you can send unread in German too, a lot of time spent with chatbots and coding agents, and
   long texts one would rather just say. DE and EN twins in lockstep.
+- **The settings app stops calling Soniox the carrier of the "default engine" (#270).** Its
+  Provider tab headed the Soniox card *"Soniox — the quality lane (default engine)"*, and the lanes
+  intro above it and the wizard's first step said the same. The *Startup & windows* tab, meanwhile,
+  is where you pin which engine Thoughtborne starts with — so read side by side, the heading looked
+  like a statement about that choice, while it only named the built-in fallback `soniox-live`, a
+  tie-breaker of last resort that after the wizard practically never decides a start. What orients
+  a newcomer is the pair *free lane* / *quality lane*, and the heading now says just that; which
+  engine a start lands on stays the Startup tab's business, where the one line that does name the
+  built-in default is untouched, because it renders only when that is literally true. The price
+  wording drops *the real-time default* as well: the app's Soniox card and the READMEs' *The free
+  path* line both name *the real-time engine (Soniox Live)*. And in the READMEs' *First run*
+  section, the paragraph on the `history/` folder and the retry hotkey now credits the
+  empty-transcript verdict to a transcription rather than to the default engine — which is what it
+  always meant: a clean but empty result means no speech, on every engine. Wording only — no key
+  names, no precedence, no behaviour (D-008 stands). DE and EN twins in lockstep.
 
 ### Removed
 
