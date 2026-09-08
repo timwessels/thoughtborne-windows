@@ -47,7 +47,7 @@ from config import (
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
     SCRIPT_DIR, DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
-    engine_has_key,
+    engine_has_key, ALLOW_SECOND_INSTANCE,
     ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives, replay_import_warnings,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
@@ -2909,24 +2909,24 @@ def _second_instance_running() -> bool:
     mutex (#166). Fail-open in every uncertain case -- a non-Windows platform, a
     NULL handle for an unexpected reason, any exception -> False, so a guard fault
     can never block a legitimate start. The developer opt-out
-    (THOUGHTBORNE_ALLOW_SECOND_INSTANCE) likewise always returns False -- this copy
-    is meant to run alongside -- but, unlike those short-circuits, it still creates
-    and holds the mutex so a *later* normal instance recognises it and refuses. Both
-    ERROR_ALREADY_EXISTS and ERROR_ACCESS_DENIED count as "already running": a mutex
-    created by an elevated (high-integrity) first instance denies a medium-integrity
-    second one's open with ACCESS_DENIED rather than ALREADY_EXISTS, and that
-    elevation pair is the main case, not an edge."""
+    (THOUGHTBORNE_ALLOW_SECOND_INSTANCE, read from `.env` -- D-017) likewise always
+    returns False -- this copy is meant to run alongside -- but, unlike those
+    short-circuits, it still creates and holds the mutex so a *later* normal
+    instance recognises it and refuses. Both ERROR_ALREADY_EXISTS and
+    ERROR_ACCESS_DENIED count as "already running": a mutex created by an elevated
+    (high-integrity) first instance denies a medium-integrity second one's open with
+    ACCESS_DENIED rather than ALREADY_EXISTS, and that elevation pair is the main
+    case, not an edge."""
     if os.name != 'nt':
         return False
-    # Developer opt-out for running a second copy for non-hotkey work (#166). Read
-    # via os.getenv -- config's load_dotenv has already populated os.environ. This
-    # copy always starts, but it does NOT early-return: it still creates and holds
-    # the mutex below, so a *later* normal instance recognises this one and refuses.
+    # Developer opt-out for running a second copy for non-hotkey work (#166). The
+    # value comes from the install directory's .env through config's one reader
+    # (D-017); a shell or Windows variable of this name is not consulted. This copy
+    # always starts, but it does NOT early-return: it still creates and holds the
+    # mutex below, so a *later* normal instance recognises this one and refuses.
     # Without that, the opt-out copy would leave the name free and the next normal
     # start would run on deaf without hotkeys -- the very bug the guard shuts (D-004).
-    optout_val = (os.getenv('THOUGHTBORNE_ALLOW_SECOND_INSTANCE') or '').strip().lower()
-    optout = bool(optout_val) and optout_val not in ('0', 'false', 'no')
-    if optout:
+    if ALLOW_SECOND_INSTANCE:
         logger.info("Single-instance guard bypassed via THOUGHTBORNE_ALLOW_SECOND_INSTANCE",
                     extra=FILE_ONLY)
     try:
@@ -2991,7 +2991,7 @@ def _second_instance_running() -> bool:
             if err == ERROR_ACCESS_DENIED:
                 # The opt-out copy starts regardless (never a second instance to
                 # refuse); a normal one treats a denied open as "already running".
-                return not optout
+                return not ALLOW_SECOND_INSTANCE
             logger.warning(f"Single-instance guard: CreateMutexW failed (err {err}); "
                            f"starting anyway", extra=FILE_ONLY)   # fail-open
             return False
@@ -3000,7 +3000,7 @@ def _second_instance_running() -> bool:
         # in the opt-out case too, so a later normal instance sees this copy.
         global _INSTANCE_MUTEX_HANDLE
         _INSTANCE_MUTEX_HANDLE = handle
-        if optout:
+        if ALLOW_SECOND_INSTANCE:
             # Opt-out means "run a second copy", not "refuse if one exists": this
             # instance is never the one to bow out, whatever ERROR_* reports.
             return False

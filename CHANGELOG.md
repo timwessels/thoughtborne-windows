@@ -96,6 +96,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you can send unread in German too, a lot of time spent with chatbots and coding agents, and
   long texts one would rather just say. DE and EN twins in lockstep.
 
+### Fixed
+
+- **A key entered in the settings app now takes effect on the app's own restart, and a
+  Windows environment variable can no longer steer the tool (#269, D-017).** Two faults
+  with one cause. First: after entering a key and letting the settings app restart the
+  tool, the new engine stayed greyed out until the next cold start — the relaunched tool
+  inherited the previous instance's exported values, and the loader never overrode a name
+  it already found. On an install set up through the wizard that hit the *second* key
+  added and every key rotation: the `.env` and the settings window showed the new key
+  while the tool kept using the old one, with nothing on screen saying so. Second: a
+  leftover `GROQ_API_KEY` or `SONIOX_API_KEY` among the Windows user variables (Groq's own
+  SDK uses that name as its convention, so a techie plausibly has one) made the tool start
+  keyed while the settings app — which only ever read the file — opened its first-run
+  wizard with empty fields; each half was right about its own source. Thoughtborne now
+  takes its keys from the `.env` in its install directory and from nowhere else, and puts
+  nothing from that file into the process environment, so a restart carries no key state
+  at all. **If you keep your key as a Windows environment variable and have no `.env`, the
+  tool now starts keyless** — its start screen says where to enter the key — and
+  side-by-side installs can finally hold different keys. Both halves also read the file
+  through the same parser now, so a hand-edited `.env` can no longer mean two things at
+  once: a quoted value, an `export ` line, a `# comment` after the value and a duplicated
+  key are read identically by the tool and shown identically in the settings window, and
+  `${OTHER}` in a value is used literally instead of being resolved out of the
+  environment. The rules are written out in `.env.example`. `python-dotenv` is no longer a
+  dependency — the tool's configuration module needs no third-party package at all. The
+  developer opt-out `THOUGHTBORNE_ALLOW_SECOND_INSTANCE` keeps its documented `.env` route
+  through the same reader (D-004); the installer's own variables are unaffected.
+
 ## [1.1.0] - 2026-09-06
 
 The recommended release — it supersedes 1.0.0 in every respect. This block folds in the 1.1.0-rc2 candidate

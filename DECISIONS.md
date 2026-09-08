@@ -20,7 +20,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-001 | Untranscribed-recording recovery: remind once, keep it retryable | Active; extended 2026-07-22 (#138/#159) and 2026-08-15 (#179) |
 | D-002 | Settings app: how it writes config, and when the tool sees changes | Active; the 2026-08-16 addenda drop the `defaults.api` diff for this surface (#198) and narrow the no-coordination clause (#202); extended 2026-08-25 (#233) |
 | D-003 | Typed inserts are capped at 4,000 characters, not repaired | Active |
-| D-004 | A second instance refuses rather than running deaf | Active |
+| D-004 | A second instance refuses rather than running deaf | Active; narrowed 2026-09-07 (#269) — the developer opt-out is read from the install directory's `.env` only, per D-017 |
 | D-005 | Settings-app launcher: venv-first (probed), system Python is the rescue lane | Retired 2026-08-21 by D-014 (#223) with the standalone lane; the stdlib-only constraint on the settings-app import chain still holds |
 | D-006 | Release assets: two fixed-name files, the ZIP is `git archive` of the tag | Active |
 | D-007 | In-place update never overwrites the running `setup.bat` | Active |
@@ -33,6 +33,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated. Retires D-005 |
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
+| D-017 | API keys come from the install directory's `.env` only | Active |
 
 ---
 
@@ -280,7 +281,9 @@ mic and the caret. The decision:
   dies, including a hard kill, so a crash never leaves a stale lock — the next start is
   an ordinary single instance.
 - **A documented opt-out** (`THOUGHTBORNE_ALLOW_SECOND_INSTANCE`) lets a developer run a
-  second copy for non-hotkey work; the default is guard-on.
+  second copy for non-hotkey work; it is read from the install directory's `.env`
+  (D-017 — a shell or system variable of that name no longer counts), and the default
+  is guard-on.
 - **The trade-off, accepted honestly.** A first instance that is wedged (not answering
   `Ctrl+Alt+4`) blocks every new start until it is ended — so the notice tells the user
   they can end that window in Task Manager. Locking out a live, hotkey-holding instance
@@ -335,8 +338,8 @@ stages, and the order was deliberate:
 - **System Python is the rescue lane.** With no healthy venv, a real system
   `pythonw`/`python` on PATH (WindowsApps store stubs filtered out) runs the app.
   This lane works *only because the app is pure stdlib* — no venv, no uv, no
-  third-party packages required (the one `dotenv` import in `config.py` is
-  try/except-guarded, and `key_check.py` uses `urllib` on purpose). Keeping the
+  third-party packages required (since #269 `config.py` has no third-party import
+  at all, and `key_check.py` uses `urllib` on purpose). Keeping the
   settings-app import chain stdlib-only is therefore a load-bearing constraint of
   this decision, not an incidental property.
 - **uv bootstrap last.** With no system Python either, `uv run pythonw
@@ -1196,3 +1199,52 @@ rule: a Start-menu shortcut whose icon still points at the retired
 `favicon.ico` gets exactly that property moved, in place — otherwise every
 pre-D-016 install would keep the old icon forever, while any other icon a user
 chose stays theirs.
+
+---
+
+## D-017 — API keys come from the install directory's `.env` only
+
+Decided 2026-09-07 (#269).
+
+Thoughtborne obtains `GROQ_API_KEY` / `SONIOX_API_KEY` exclusively from the `.env`
+in its install directory. The process environment is neither a fallback nor an
+override, and nothing from `.env` is put into the process environment. Both halves
+of the product read the file through the same stdlib reader in `config`
+(`read_env_file`); `python-dotenv` is no longer a dependency, and `${VAR}`
+interpolation is not supported — a value is literal.
+
+Contestable, because most CLI tools honour environment variables. Rejected here:
+
+- **The settings app is the repair surface** and must always be able to show the
+  key the tool actually uses (D-002). A source the app can neither see nor write
+  breaks that: with a leftover Windows variable set, the tool started keyed while
+  the settings app opened its first-run wizard with empty fields — each half right
+  about its own source.
+- **Side-by-side installs need independent keys** — two checkouts, a test install
+  beside the live one.
+- **An inherited value silently defeating a key rotation** is exactly the "nothing
+  on screen says so" failure the quality bar forbids, and it was not hypothetical:
+  the settings app's own restart lane handed the relaunched tool an exported empty
+  value, which the old loader kept over the file's real key. Every install set up
+  through the wizard hit it on the second key added, or on any key change.
+- **Code that detects a source we do not want is dead weight**, so the settings app
+  grows no detection or display of inherited variables, and the relaunch path grows
+  no environment scrubbing — with nothing exported, that chain carries no key state
+  at all.
+
+One reader rather than two also ends the parser split: quoting, a leading
+`export `, comment tails and duplicates now mean the same thing to the tool and to
+the settings window, by construction rather than by two implementations that
+happen to agree. The rules are written out in `.env.example`'s header.
+
+The D-004 developer opt-out (`THOUGHTBORNE_ALLOW_SECOND_INSTANCE`) keeps its `.env`
+route through the same reader. Installer and handshake variables
+(`THOUGHTBORNE_INSTALL_DIR`, `THOUGHTBORNE_VERSION`, `THOUGHTBORNE_SPAWN_TS`) are
+process plumbing, not configuration, and stay environment variables.
+
+The accepted cost: a user who kept a key only as a Windows environment variable
+starts keyless after this change, and the start screen tells them where to put it.
+
+Respects D-002 (the write contract is unchanged), D-004 (the opt-out is kept, its
+route clarified), D-005 (the stdlib-only constraint only gets easier — `config.py`
+now has no third-party import at all) and D-014.

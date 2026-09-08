@@ -2,7 +2,8 @@
 Configuration Module for Thoughtborne
 
 This module contains all configuration constants and settings.
-It handles loading environment variables and provides default values.
+It reads the install directory's .env and personal_settings.json and
+provides default values.
 It also owns the legacy archive-layout migration (#50), kept next to the
 path constants it serves.
 """
@@ -10,7 +11,7 @@ path constants it serves.
 import copy
 import json
 import logging
-import os
+import re
 from pathlib import Path
 
 # Pure, ctypes-free hotkey lexical layer (#55): shared with hotkey_manager so a
@@ -45,38 +46,118 @@ def replay_import_warnings() -> list:
 # ===== PATHS =====
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
-# The .env holding the API keys, read from the install directory (#238) like every
-# other file here. A bare load_dotenv() searched UPWARD from this file instead (from
-# the cwd under a debugger, a REPL or a `-c` start), so a keyless install nested in
-# another code tree could inherit an ancestor's .env that no repair surface shows.
-# utf-8-sig keeps this reader in step with settings_io.read_env on the same bytes
-# (D-002): read as plain utf-8, a BOM-written .env -- PowerShell 5.1 writes one with
-# `-Encoding UTF8` -- hands its FIRST key over with the BOM still glued to the name,
-# so the console reports "no key" while the settings window shows the key the user
-# just entered there. An absent file stays silent (keyless is a supported state);
-# every other failure degrades to a warning plus whatever the process environment
-# already holds, never a traceback before logging exists.
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    # If python-dotenv is not installed, we can still use environment variables
-    pass
-else:
-    _env_path = SCRIPT_DIR / ".env"
+# ===== .env: the ONE key source (#238, #269 / D-017) =====
+# Thoughtborne's API keys come from the .env in its install directory and from
+# nowhere else -- not from a Windows or shell variable of the same name, and nothing
+# from this file is put into the process environment (D-017). The two halves of the
+# product used to parse this file with two different parsers (a third-party loader
+# here, a stdlib reader in the settings app), which disagreed on quoted values,
+# `export` lines and comment tails. That loader also resolved a ${VAR} in a value out
+# of the very environment D-017 rules out, and it merged the file into os.environ
+# without overriding a name already there -- so a tool relaunched by the settings app
+# inherited the previous instance's values and kept using the key they carried
+# instead of the one just written to this file, with nothing on screen saying so.
+# read_env_file is now the only parser -- settings_io.read_env is a thin call into it
+# -- so the settings window can never show a key the tool does not use, or hide one
+# it does (the parity D-002 needs, here true by construction).
+# The path is explicit (#238): the old loader, called without one, searched UPWARD
+# from this file (from the cwd under a debugger, a REPL or a `-c` start), so a
+# keyless install nested in another code tree inherited an ancestor's .env that no
+# repair surface shows. utf-8-sig because PowerShell 5.1 writes a BOM with `-Encoding UTF8`, and a
+# BOM read as plain utf-8 glues itself to the FIRST key name -- the console then
+# reports "no key" while the settings window shows the key just entered there.
+# A `#` that starts the value or follows whitespace begins a comment; one with a
+# non-whitespace neighbour on its left belongs to the value (`abc#def`).
+_ENV_COMMENT_RE = re.compile(r"(^|\s)#")
+
+
+def read_env_file(path, *, encoding="utf-8-sig") -> tuple:
+    """Parse a `.env` into ({KEY: value}, [warning, ...]). Never raises.
+
+    The single .env parser for the whole product (D-017): config derives the two API
+    keys and the D-004 opt-out from it at import, and settings_io.read_env calls it
+    for the settings app. The rules, written out for users in .env.example's header:
+    uncommented lines only; an optional leading `export ` is dropped; the split is at
+    the first `=`, key and value whitespace-stripped; a value in one pair of matching
+    quotes is taken literally between them (anything after the closing quote is
+    ignored); an unquoted value loses a `#` comment that starts it or follows
+    whitespace; `${VAR}` is NOT expanded; a duplicate key is last-wins; a blank value
+    counts as no key at all and is left OUT of the dict -- so "no key" has exactly one
+    shape and no caller can invent a distinction between missing and empty. A value is
+    therefore never None either, which settings_io.env_has_key relies on (it calls
+    .strip() on what it gets, and a None there would crash the settings window's
+    first-run decision).
+
+    `encoding` is keyword-only so the static guard's pinned `encoding="utf-8-sig"`
+    cannot drift into a positional argument.
+
+    Warnings are returned rather than logged: at import time no log handler exists
+    yet (#206), so config appends them to IMPORT_WARNINGS for main() to replay, while
+    settings_io drops them (its GUI shows empty fields instead). An absent file is
+    silent -- keyless is a supported state -- while every other failure degrades to a
+    warning and no keys, never a traceback before logging exists.
+    """
+    values = {}
+    warnings = []
     try:
-        if _env_path.is_file() and _env_path.read_bytes()[:3] == b"\xef\xbb\xbf":
-            # Tolerated, but said out loud -- the sibling reader's BOM line below.
-            IMPORT_WARNINGS.append(
-                f"{_env_path} starts with a UTF-8 byte-order mark (BOM); tolerated")
-        load_dotenv(_env_path, encoding="utf-8-sig")
-    except Exception as _e:
-        # Broad on purpose: load_dotenv reads the file itself, so an ANSI/UTF-16 save
-        # raises UnicodeDecodeError (a ValueError, not an OSError) and a locked file
-        # raises OSError -- both used to abort the import, taking the settings app
-        # that would repair the file down with it.
-        IMPORT_WARNINGS.append(
-            f"Could not load {_env_path} ({type(_e).__name__}: {_e}); continuing "
-            f"with process environment variables only")
+        raw = Path(path).read_bytes()
+    except FileNotFoundError:
+        return values, warnings
+    except Exception as e:
+        # Broad on purpose: a locked file raises OSError and a directory in its place
+        # IsADirectoryError, and either used to abort the import -- taking the
+        # settings app that would repair the file down with it.
+        warnings.append(f"Could not load {path} ({type(e).__name__}: {e}); "
+                        f"continuing without API keys")
+        return values, warnings
+    if raw[:3] == b"\xef\xbb\xbf":
+        warnings.append(f"{path} starts with a UTF-8 byte-order mark (BOM); tolerated")
+    try:
+        text = raw.decode(encoding)
+    except Exception as e:
+        # An ANSI/cp1252 or UTF-16 save: UnicodeDecodeError is a ValueError, not an
+        # OSError, so it needs its own lane here.
+        warnings.append(f"Could not load {path} ({type(e).__name__}: {e}); "
+                        f"continuing without API keys")
+        return values, warnings
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith(("export ", "export\t")):
+            s = s[len("export"):].lstrip()
+        key, sep, rest = s.partition("=")
+        key = key.strip()
+        if not sep or not key:
+            continue
+        value = rest.strip()
+        quote = value[:1]
+        if quote in ("'", '"') and value.find(quote, 1) != -1:
+            # Quoted: literal between the quotes, the rest of the line ignored. This
+            # is why the comment rule is an ELSE rather than a later step -- a `#`
+            # inside quotes belongs to the value.
+            value = value[1:value.find(quote, 1)]
+        else:
+            cut = _ENV_COMMENT_RE.search(value)
+            value = (value[:cut.start()] if cut else value).strip()
+        if value:
+            values[key] = value       # last line wins ...
+        else:
+            values.pop(key, None)     # ... and a later blank line clears an earlier
+                                      # value, so the LAST line always decides
+    return values, warnings
+
+
+_ENV_VALUES, _env_warnings = read_env_file(SCRIPT_DIR / ".env", encoding="utf-8-sig")
+IMPORT_WARNINGS.extend(_env_warnings)
+
+# ===== .env-borne settings (#166 / D-004, route confirmed by D-017) =====
+# The developer opt-out for a second instance. It lives in .env like the keys and is
+# read by the same parser -- a shell or system variable of this name is NOT consulted
+# (D-017). Same truthiness as before: any non-blank value except 0 / false / no turns
+# the guard off.
+_optout = (_ENV_VALUES.get("THOUGHTBORNE_ALLOW_SECOND_INSTANCE") or "").strip().lower()
+ALLOW_SECOND_INSTANCE = bool(_optout) and _optout not in ("0", "false", "no")
 
 LOG_FILE = SCRIPT_DIR / "thoughtborne.log"
 # Unified history layout (#50): one folder to open, audio and transcripts as
@@ -261,10 +342,11 @@ API_KEY_ENV = {
 def engine_has_key(api, env=None):
     """True when the .env key backing `api` is present and non-empty (#200).
 
-    Pure and off-Windows-testable: `env` defaults to the process environment;
-    tests inject a {var: value} dict. An engine not in API_KEY_ENV -> False
-    (defensive). Reads the same variables config loads once at import
-    (GROQ_API_KEY / SONIOX_API_KEY), so the lineup can never disagree with what
+    Pure and off-Windows-testable: `env` defaults to the values parsed from the
+    install directory's `.env` at import (D-017 -- the process environment is not a
+    key source); tests inject a {var: value} dict. An engine not in API_KEY_ENV ->
+    False (defensive). Reads the same values config derives GROQ_API_KEY /
+    SONIOX_API_KEY from, so the lineup can never disagree with what
     _create_startup_transcriber actually constructed. Presence only, matching
     MissingAPIKeyError's "not set" test -- a present-but-wrong key reads as
     having a key (the engine starts; the error surfaces at transcription time).
@@ -272,7 +354,7 @@ def engine_has_key(api, env=None):
     var = API_KEY_ENV.get(api)
     if not var:
         return False
-    val = os.getenv(var) if env is None else env.get(var)
+    val = _ENV_VALUES.get(var) if env is None else env.get(var)
     return bool(val and val.strip())
 
 
@@ -296,9 +378,9 @@ ENGINE_TOKENS = {
 }
 
 # ===== API KEYS =====
-# Load from environment variable or .env file
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
-SONIOX_API_KEY = os.getenv('SONIOX_API_KEY')
+# From the install directory's .env only -- never the process environment (D-017).
+GROQ_API_KEY = _ENV_VALUES.get('GROQ_API_KEY')
+SONIOX_API_KEY = _ENV_VALUES.get('SONIOX_API_KEY')
 
 # ===== SONIOX ASYNC REST API SETTINGS =====
 # Async REST engine: used by the 'soniox' slot for all recordings and as the

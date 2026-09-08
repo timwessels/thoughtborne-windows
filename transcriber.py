@@ -42,10 +42,10 @@ logger = logging.getLogger('Thoughtborne.Transcriber')
 
 
 class MissingAPIKeyError(ValueError):
-    """Raised at transcriber construction when the required API key env var
-    is not set (#40). Subclasses ValueError so existing handlers keep working;
-    carries the env var name so callers (carousel skip, startup fallback) can
-    say precisely which key is missing."""
+    """Raised at transcriber construction when the required API key is not set in
+    the install directory's `.env` (#40). Subclasses ValueError so existing handlers
+    keep working; carries the key's name so callers (carousel skip, startup
+    fallback) can say precisely which key is missing."""
 
     def __init__(self, env_var: str, transcriber_label: str):
         self.env_var = env_var
@@ -421,12 +421,12 @@ class GroqTranscriber(AbstractTranscriber):
         self._initialize_client()
     
     def _get_api_key(self) -> str:
-        """Get API key from environment"""
+        """Get the Groq API key, as config read it from the install directory's .env."""
         if not GROQ_API_KEY:
-            logger.debug("GROQ_API_KEY not found in environment variables!")
+            logger.debug("GROQ_API_KEY not set in .env")
             raise MissingAPIKeyError("GROQ_API_KEY", "Groq transcriber")
 
-        logger.info("Using Groq API key from environment", extra=FILE_ONLY)
+        logger.info("Using the Groq API key from .env", extra=FILE_ONLY)
         return GROQ_API_KEY
     
     def _initialize_client(self):

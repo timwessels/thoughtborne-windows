@@ -218,7 +218,7 @@ def test_config_flag_is_module_level():
     MODULE-level assignment, beside `DEFAULT_API = _api`, and its `= False`
     initializer must stay a single top-level statement ahead of it.
 
-    Read as source, never imported -- config.py pulls in dotenv and Windows paths.
+    Read as source, never imported -- config.py pulls in Windows paths.
     The point: if that personal_settings parse block were ever folded into a
     function, the assignment would become a local, the flag would stay False for
     everyone, and D-008 would silently invert -- an explicit defaults.api losing to

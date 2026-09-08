@@ -22,19 +22,26 @@ processes), the `IMPORT_WARNINGS` / `replay_import_warnings()` contract that get
 import-time warnings into thoughtborne.log instead of stderr, and two static guards
 that keep both halves wired.
 
-`.env` (#238) gets the same treatment for the same reason -- it is written by hand or
-by an assisting agent, on a Windows whose PowerShell defaults are ANSI, UTF-16 and
-UTF-8-with-BOM. Its lane checks what the load is anchored on and how tolerant it is:
-one `import config` per fixture reporting the env-var names the import created, so a
-broken `.env` is a warning rather than a traceback, a BOM'd one yields the same key
-names `settings_io.read_env` reads from the same bytes, and an ancestor directory's
-`.env` is no longer picked up. Two static guards back it up on boxes where the
-behavioural lanes skip: the call shape in `config.py`, and `.env.example` staying
-plain ASCII so a copy of it cannot become the undecodable file.
+`.env` (#238, #269) gets the same treatment for the same reason -- it is written by
+hand or by an assisting agent, on a Windows whose PowerShell defaults are ANSI,
+UTF-16 and UTF-8-with-BOM. Since #269 it is also the ONLY place a key may come from
+(D-017): `config.read_env_file` is the one parser for the whole product, the process
+environment is neither fallback nor override, and nothing from the file is put into
+`os.environ` -- which is what used to let a tool relaunched by the settings app keep
+the key it inherited over the one just saved. The lanes here check all of that on a
+real `import config` per fixture: what the load is anchored on, how tolerant it is,
+what every parsing rule makes of a hand-edited line (asserted on the config constants
+AND on `settings_io.read_env` of the same bytes -- equal by construction now, and
+asserted anyway), that an inherited variable never wins, that the D-004 opt-out
+follows the file, and that the import creates no environment variable at all. Static
+guards back them up: the reader's call shape in `config.py`, no `dotenv` import left
+in any driver or module, no process-environment read of the three `.env`-borne names
+in either half, and `.env.example` staying plain ASCII so a copy of it cannot become
+the undecodable file.
 
 The Soniox constructor lane needs `groq` (transcriber's only third-party import off
-Windows) and skips cleanly without it, as do the `.env` lanes without `python-dotenv`
-(both are installed in CI). Starting the real tool with a broken file and reading the
+Windows) and skips cleanly without it; the `.env` lanes need nothing beyond the
+stdlib and always run. Starting the real tool with a broken file and reading the
 resulting thoughtborne.log line stays hands-on (Windows-only start).
 
     python3 test_config_loading.py          # verify, exit non-zero on any violation
@@ -295,7 +302,8 @@ def test_import_subprocess():
     try:
         _copy_config_into(tmp)
         settings = Path(tmp) / "personal_settings.json"
-        # Inherit the environment (config reads env vars) minus the .pyc writes.
+        # Inherit the environment (HOME, PATH -- what the interpreter needs to run;
+        # config itself reads no environment variable since D-017) minus the .pyc writes.
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         for label, raw, n_warnings, soniox_none, default_api in cases:
             if raw is None:
@@ -334,10 +342,14 @@ def test_import_subprocess():
 # The .env lane: which file is loaded, in which encoding (#238)
 # ======================================================================
 
-# _IMPORT_PROBE's sibling, plus the one thing the .env lane is about: the env-var
-# names `import config` created (an os.environ diff around the import). ASCII-escaped
-# on the way out -- a BOM glued to a key name then prints as a readable escape
-# instead of breaking the pipe, and that escape IS the pre-#238 failure.
+# _IMPORT_PROBE's sibling. It reports what the .env lanes are about: the two key
+# constants and the D-004 opt-out `import config` derived from the file, plus the
+# env-var names the import created (an os.environ diff around it) -- which since #269
+# must be NONE in every case, because nothing from .env may reach the process
+# environment (D-017). Values are ASCII-escaped on the way out: a BOM glued to a key
+# name then prints as a readable escape instead of breaking the pipe, and that escape
+# IS the pre-#238 failure. `-` is the "absent" sentinel, so no fixture may use it as
+# a value.
 _ENV_PROBE = (
     "import os;"
     "before = set(os.environ);"
@@ -345,14 +357,79 @@ _ENV_PROBE = (
     "esc = lambda s: s.encode('ascii', 'backslashreplace').decode();"
     "print('WARNINGS', len(config.IMPORT_WARNINGS));"
     "print('W0', esc(config.IMPORT_WARNINGS[0]) if config.IMPORT_WARNINGS else '-');"
-    "print('NEWVARS', ','.join(esc(n) for n in sorted(set(os.environ) - before)) or '-')"
+    "print('NEWVARS', ','.join(esc(n) for n in sorted(set(os.environ) - before)) or '-');"
+    "print('GROQ', esc(config.GROQ_API_KEY) if config.GROQ_API_KEY else '-');"
+    "print('SONIOX', esc(config.SONIOX_API_KEY) if config.SONIOX_API_KEY else '-');"
+    "print('OPTOUT', config.ALLOW_SECOND_INSTANCE)"
 )
 
 _ENV_GOOD = b"GROQ_API_KEY=dummy-a\nSONIOX_API_KEY=dummy-b\n"
 
+# The three names that may only ever come out of the install directory's .env.
+_ENV_BORNE = ("GROQ_API_KEY", "SONIOX_API_KEY", "THOUGHTBORNE_ALLOW_SECOND_INSTANCE")
+
+
+def _env_install_tmp(prefix):
+    """A tempdir with an importable `config` copy in `install/`, plus the environment
+    its subprocess import must run with. Returns (tmp, install, env).
+
+    The child environment keeps HOME and PATH -- a minimal env would change what the
+    interpreter can reach -- and scrubs the three .env-borne names. **That scrub is
+    load-bearing and must not be rationalized away**: without it, the inherited lane
+    below would run against whatever the box really exports, so on a machine with a
+    real SONIOX_API_KEY in the environment -- the very state that opened #269 -- this
+    issue's regression lane would be handling a live key and could print it in a
+    failure message. Scrubbed first, then injecting one fake value, the lane knows
+    exactly what it is testing. (The checkout's own `.env` is never read either way:
+    the copy's SCRIPT_DIR is the tempdir.)"""
+    tmp = Path(tempfile.mkdtemp(prefix=prefix))
+    inst = tmp / "install"
+    inst.mkdir()
+    _copy_config_into(inst)
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    for name in _ENV_BORNE:
+        env.pop(name, None)
+    return tmp, inst, env
+
+
+def _run_env_probe(label, inst, env, cwd=None):
+    """One `import config` in a fresh interpreter against the copy in `inst`. Returns
+    the probe's reported dict, or None after recording the failure -- a non-zero exit
+    means the tool would not start on this `.env` at all."""
+    try:
+        proc = subprocess.run([sys.executable, "-c", _ENV_PROBE],
+                              cwd=str(cwd or inst), env=env, capture_output=True,
+                              text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        failures.append(f".env {label}: `import config` did not finish within 120 s")
+        return None
+    if proc.returncode != 0:
+        failures.append(
+            f".env {label}: `import config` exited {proc.returncode} -- the tool would "
+            f"not start on this .env: {proc.stderr.strip()[-300:]}")
+        return None
+    reported = dict(line.split(" ", 1) for line in proc.stdout.split("\n") if " " in line)
+    if SHOW:
+        print(f"    {label}: {reported}")
+    return reported
+
+
+def _check_no_new_vars(label, reported):
+    """The inverted #269 invariant: `import config` must create no environment
+    variable at all. The export into os.environ is what let the settings app's own
+    restart hand the relaunched tool a stale (or empty) inherited key that the loader
+    then refused to override (D-017)."""
+    names = reported.get("NEWVARS", "")
+    got = set() if names in ("", "-") else set(names.split(","))
+    check(not got,
+          f".env {label}: `import config` created the environment variable(s) "
+          f"{sorted(got)} -- nothing from .env may reach os.environ, or a tool "
+          f"relaunched by the settings app inherits stale keys again (D-017)")
+
 
 def test_env_loading_subprocess():
-    """`.env` is loaded from the install directory, tolerantly, and never fatally.
+    """`.env` is loaded from the install directory, tolerantly, never fatally, and
+    into config's own dict rather than into the process environment.
 
     The keys live in `.env`, and it is the one file a first-run user (or an agent
     following llms-install.md) writes by hand or by script -- with a PowerShell 5.1
@@ -365,13 +442,15 @@ def test_env_loading_subprocess():
     inherited an ancestor directory's `.env` no repair surface would ever show.
 
     Each case is a real `import config` in a fresh interpreter against a copy in a
-    tempdir, reporting the env-var names the import created. Three traps are baked
-    into the fixtures and must survive future tidying:
+    tempdir, reporting the keys config ended up with and the env-var names the import
+    created -- the latter now an inverted invariant (#269): none, ever. Three traps
+    are baked into the fixtures and must survive future tidying:
 
     * The unreadable case is a **chmod'd file**, not the directory-in-its-place trick
-      test_absent_and_unreadable uses: python-dotenv's `os.path.isfile` check treats a
-      directory as *absent* and stays silent, so that stand-in would test nothing.
-    * The layout is **two-level** -- the sentinel `.env` sits in the PARENT of the
+      test_absent_and_unreadable uses. Both now warn, so the stand-in would no longer
+      test nothing -- but it would test a different failure than the realistic one: a
+      locked or permission-denied file is what an unreadable `.env` is on a user's box.
+    * The layout is **two-level** -- the ancestor `.env` sits in the PARENT of the
       copy's directory -- and the ancestor case's child runs FROM that parent, reaching
       the copy through PYTHONPATH instead of through its cwd. Both halves carry weight.
       The layout is what makes the case red on the unfixed code: the old upward search
@@ -379,46 +458,36 @@ def test_env_loading_subprocess():
       it. The cwd is what makes it red on a `config.py` whose `SCRIPT_DIR / ".env"` was
       later "tidied" to a cwd-relative `Path(".env")` -- run from the install copy like
       its siblings, that regression would read the very directory it is supposed to and
-      leave this lane (and the call-shape guard below, which leaves the argument's
-      shape free) green. The sentinel is present in every case, so any lane that ever
-      falls back to searching says so by carrying it into NEWVARS.
-    * The child environment keeps **HOME and PATH** and only scrubs the two API keys
-      plus the sentinel. python-dotenv may live in user site-packages (it does on the
-      maintainer's box), so a minimal env would silently cost the child its dotenv and
-      turn every lane into a hollow pass -- the utf-8 control case, which REQUIRES two
-      names to appear, is the canary for that and for a future dotenv API break.
+      leave this lane green. That ancestor file carries **keys of its own**, present in
+      every case: since #269 nothing is exported, so an upward search can no longer be
+      spotted in NEWVARS -- it shows up as `ancestor-*` in GROQ/SONIOX instead, which
+      also catches a failure lane that "helpfully" falls back to searching.
+    * The child environment keeps **HOME and PATH** and scrubs only the three
+      .env-borne names (_env_install_tmp). The utf-8 control case, which REQUIRES both
+      keys to arrive, is the canary for a scaffolding that silently stopped reading the
+      fixture at all.
 
-    The scrub is also what keeps the workshop's real keys out of a failure message:
-    fixtures carry obviously fake values, and the real `.env` is never read."""
-    try:
-        import dotenv  # noqa: F401  -- the lanes below need the real loader
-    except ModuleNotFoundError as e:
-        print(f"    (skipped .env loading lanes: '{e.name}' is not installed off Windows)")
-        return
-
-    keys = {"GROQ_API_KEY", "SONIOX_API_KEY"}
-    # (label, file bytes or None for "no .env", warnings, warning fragment, new names)
+    Fixtures carry obviously fake values, and the real `.env` is never read: the copy's
+    SCRIPT_DIR is the tempdir."""
+    # (label, file bytes or None for "no .env", warnings, fragment, GROQ, SONIOX)
     cases = [
-        ("utf-8", _ENV_GOOD, 0, None, keys),
-        ("bom", b"\xef\xbb\xbf" + _ENV_GOOD, 1, "BOM", keys),
+        ("utf-8", _ENV_GOOD, 0, None, "dummy-a", "dummy-b"),
+        ("bom", b"\xef\xbb\xbf" + _ENV_GOOD, 1, "BOM", "dummy-a", "dummy-b"),
         ("cp1252", '# Schlüssel\nGROQ_API_KEY=dummy-a\n'.encode("cp1252"),
-         1, "Could not load", set()),
-        ("unreadable", _ENV_GOOD, 1, "Could not load", set()),
-        ("ancestor", None, 0, None, set()),
+         1, "Could not load", "-", "-"),
+        ("unreadable", _ENV_GOOD, 1, "Could not load", "-", "-"),
+        ("ancestor", None, 0, None, "-", "-"),
     ]
 
-    tmp = tempfile.mkdtemp(prefix="tb_config_env_")
-    inst = Path(tmp) / "install"
+    tmp, inst, env = _env_install_tmp("tb_config_env_")
     env_file = inst / ".env"
     try:
-        (Path(tmp) / ".env").write_bytes(b"TB238_ANCESTOR_SENTINEL=1\n")
-        inst.mkdir()
-        _copy_config_into(inst)
-        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-        for name in sorted(keys) + ["TB238_ANCESTOR_SENTINEL"]:
-            env.pop(name, None)
+        (tmp / ".env").write_bytes(b"GROQ_API_KEY=ancestor-groq\n"
+                                   b"SONIOX_API_KEY=ancestor-soniox\n"
+                                   b"TB238_ANCESTOR_SENTINEL=1\n")
+        env.pop("TB238_ANCESTOR_SENTINEL", None)
 
-        for label, raw, n_warnings, fragment, expected in cases:
+        for label, raw, n_warnings, fragment, want_groq, want_soniox in cases:
             if raw is None:
                 env_file.unlink(missing_ok=True)
             else:
@@ -430,42 +499,22 @@ def test_env_loading_subprocess():
                           "ignores chmod)")
                     os.chmod(env_file, 0o600)
                     continue
-            if label == "bom":
-                # Parity on the very bytes just written: whatever key names the
-                # settings app reads out of this file, the tool must end up with
-                # (D-002 -- the two must never disagree about whether a key exists).
-                expected = set(sio.read_env(env_file))
-                check(expected == keys,
-                      f"settings_io read {expected} from the BOM fixture, not {keys} "
-                      f"-- the parity assert below would compare against nothing")
             child_cwd, child_env = inst, env
             if label == "ancestor":
-                # Run from the sentinel's directory (see the docstring): only from
-                # here can this lane tell SCRIPT_DIR-anchoring from cwd-anchoring.
-                # PYTHONPATH is prepended, not set -- python-dotenv itself may be
-                # reachable only through an inherited one.
+                # Run from the ancestor's directory (see the docstring): only from here
+                # can this lane tell SCRIPT_DIR-anchoring from cwd-anchoring. PYTHONPATH
+                # is prepended, not set -- it may be carrying something the child needs.
                 inherited = env.get("PYTHONPATH", "")
                 child_cwd = tmp
                 child_env = dict(env, PYTHONPATH=os.pathsep.join(
                     [str(inst)] + ([inherited] if inherited else [])))
             try:
-                proc = subprocess.run([sys.executable, "-c", _ENV_PROBE],
-                                      cwd=child_cwd, env=child_env, capture_output=True,
-                                      text=True, timeout=120)
-            except subprocess.TimeoutExpired:
-                failures.append(f".env {label}: `import config` did not finish within 120 s")
-                continue
+                reported = _run_env_probe(label, inst, child_env, cwd=child_cwd)
             finally:
                 if label == "unreadable":
                     os.chmod(env_file, 0o600)
-            if proc.returncode != 0:
-                failures.append(
-                    f".env {label}: `import config` exited {proc.returncode} -- the "
-                    f"tool would not start on this .env: {proc.stderr.strip()[-300:]}")
+            if reported is None:
                 continue
-            reported = dict(line.split(" ", 1) for line in proc.stdout.split("\n") if " " in line)
-            if SHOW:
-                print(f"    {label}: {reported}")
             check(reported.get("WARNINGS") == str(n_warnings),
                   f".env {label}: expected {n_warnings} import warning(s), got "
                   f"{reported.get('WARNINGS')} ({reported.get('W0')})")
@@ -473,19 +522,201 @@ def test_env_loading_subprocess():
                 check(fragment in reported.get("W0", ""),
                       f".env {label}: the warning does not mention '{fragment}': "
                       f"{reported.get('W0')}")
-            names = reported.get("NEWVARS", "")
-            got = set() if names in ("", "-") else set(names.split(","))
-            check(got == expected,
-                  f".env {label}: `import config` created {sorted(got)}, expected "
-                  f"{sorted(expected)}"
-                  + (" -- an ancestor directory's .env is being picked up again"
-                     if "TB238_ANCESTOR_SENTINEL" in got else ""))
+            _check_no_new_vars(label, reported)
+            for name, want, got in (("GROQ_API_KEY", want_groq, reported.get("GROQ")),
+                                    ("SONIOX_API_KEY", want_soniox, reported.get("SONIOX"))):
+                check(got == want,
+                      f".env {label}: config.{name} is {got!r}, expected {want!r}"
+                      + (" -- an ancestor directory's .env is being picked up again"
+                         if (got or "").startswith("ancestor-") else ""))
+            if label == "bom":
+                # Parity on the very bytes just written: what the settings app reads out
+                # of this file is what the tool ends up with (D-002 -- the two must never
+                # disagree about whether a key exists). Since #269 they share the parser,
+                # so this asserts that sameness across the process boundary as well.
+                app = sio.read_env(env_file)
+                tool = {k: v for k, v in (("GROQ_API_KEY", reported.get("GROQ")),
+                                          ("SONIOX_API_KEY", reported.get("SONIOX")))
+                        if v not in (None, "-")}
+                check(app == tool,
+                      f".env bom: settings_io read {app} while the tool got {tool} -- "
+                      f"the two halves disagree about a BOM'd file")
     finally:
         try:
             if env_file.exists():
                 os.chmod(env_file, 0o600)
         except OSError:
             pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# Every parsing rule of config.read_env_file, one fixture per rule (#269). The value
+# side is what the two halves used to disagree about: a quoted value reached the tool
+# unquoted but the settings window WITH its quotes (so `Test key` failed on it), an
+# `export ` line was invisible to the settings app entirely (wizard mode on a keyed
+# tool), and `${OTHER}` was resolved out of the process environment -- the backdoor
+# D-017 closes. `-` means "config has no such key".
+# (label, .env text (str -> utf-8) or bytes, expected settings_io.read_env, warnings)
+_ENV_CORPUS = [
+    ("plain",              "GROQ_API_KEY=dummy-a",       {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("double-quoted",      'GROQ_API_KEY="dummy-a"',     {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("single-quoted",      "GROQ_API_KEY='dummy-a'",     {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("export",             "export GROQ_API_KEY=dummy-a", {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("export-quoted",      'export GROQ_API_KEY="dummy-a"', {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("comment-tail",       "GROQ_API_KEY=dummy-a # note", {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("comment-tail-tab",   "GROQ_API_KEY=dummy-a\t#note", {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("hash-in-value",      "GROQ_API_KEY=dummy#a",       {"GROQ_API_KEY": "dummy#a"}, 0),
+    ("hash-in-quotes",     'GROQ_API_KEY="du # my"',     {"GROQ_API_KEY": "du # my"}, 0),
+    ("comment-after-quote", 'GROQ_API_KEY="dummy-a" # note', {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("interpolation",      "GROQ_API_KEY=${SONIOX_API_KEY}\nSONIOX_API_KEY=dummy-b",
+     {"GROQ_API_KEY": "${SONIOX_API_KEY}", "SONIOX_API_KEY": "dummy-b"}, 0),
+    ("blank",              "GROQ_API_KEY=",              {}, 0),
+    ("blank-spaces",       "GROQ_API_KEY=   ",           {}, 0),
+    ("empty-quotes",       'GROQ_API_KEY=""',            {}, 0),
+    ("placeholder-comment", "GROQ_API_KEY= # paste your key here", {}, 0),
+    ("no-equals",          "GROQ_API_KEY",               {}, 0),
+    ("commented-out",      "#GROQ_API_KEY=dummy-a",      {}, 0),
+    ("duplicate",          "GROQ_API_KEY=first\nGROQ_API_KEY=second",
+     {"GROQ_API_KEY": "second"}, 0),
+    ("duplicate-blank-last", "GROQ_API_KEY=first\nGROQ_API_KEY=", {}, 0),
+    ("crlf",               b"GROQ_API_KEY=dummy-a\r\n",  {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("bom",                b"\xef\xbb\xbfGROQ_API_KEY=dummy-a\n",
+     {"GROQ_API_KEY": "dummy-a"}, 1),
+    ("tabs",               "\tGROQ_API_KEY\t=\tdummy-a\t", {"GROQ_API_KEY": "dummy-a"}, 0),
+    ("indented",           "  GROQ_API_KEY=dummy-a",     {"GROQ_API_KEY": "dummy-a"}, 0),
+]
+
+
+def test_env_corpus_subprocess():
+    """One parser, one meaning: every rule checked on the tool's side AND the settings
+    app's, on the same bytes (#269 / D-017).
+
+    Before #269 the tool parsed `.env` with python-dotenv and the settings app with its
+    own stdlib reader, and they disagreed exactly where a hand-edited file gets
+    creative -- an `export ` line the app could not see at all, a quoted value it showed
+    WITH the quotes, a comment tail it kept. Each disagreement is a split brain the user
+    cannot see: the masthead says keyed, the settings window says keyless, and both are
+    right about their own source. `settings_io.read_env` is now a thin call into
+    `config.read_env_file`, so parity holds by construction -- and is asserted anyway,
+    across the process boundary, because "by construction" is a claim about today's
+    code.
+
+    The tool's side is a real `import config` per fixture (the same ~35 ms subprocess
+    the lane above uses), so what is asserted is the constant a transcriber would
+    actually get, not the reader in isolation. The settings app's side runs in-process
+    against the fixture path -- never against the checkout's own `.env`, whose real keys
+    must never reach a failure message."""
+    tmp, inst, env = _env_install_tmp("tb_config_corpus_")
+    env_file = inst / ".env"
+    try:
+        for label, raw, expected, n_warnings in _ENV_CORPUS:
+            env_file.write_bytes(raw if isinstance(raw, bytes) else raw.encode("utf-8"))
+            reported = _run_env_probe(f"corpus {label}", inst, env)
+            if reported is None:
+                continue
+            check(reported.get("WARNINGS") == str(n_warnings),
+                  f".env corpus {label}: expected {n_warnings} import warning(s), got "
+                  f"{reported.get('WARNINGS')} ({reported.get('W0')})")
+            _check_no_new_vars(f"corpus {label}", reported)
+            for name, probe_key in (("GROQ_API_KEY", "GROQ"), ("SONIOX_API_KEY", "SONIOX")):
+                want = expected.get(name, "-")
+                got = reported.get(probe_key)
+                check(got == want,
+                      f".env corpus {label} ({raw!r}): config.{name} is {got!r}, "
+                      f"expected {want!r}")
+            app = sio.read_env(env_file)
+            check(app == expected,
+                  f".env corpus {label} ({raw!r}): the settings app reads {app}, "
+                  f"expected {expected} -- the two halves parse the same bytes "
+                  f"differently again")
+            if label == "interpolation":
+                # The reason this row exists: python-dotenv expanded ${OTHER} against
+                # os.environ, so a .env could pull a value out of the very environment
+                # D-017 rules out (single quotes did not protect it either).
+                check(reported.get("GROQ") != "dummy-b",
+                      ".env corpus interpolation: ${SONIOX_API_KEY} was expanded -- a "
+                      "value must be used exactly as written (D-017)")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_env_inherited_subprocess():
+    """The regression lane for #269: a key in the process environment never counts.
+
+    Two real incidents, one mechanism. A leftover Windows user variable
+    `SONIOX_API_KEY` made the tool start keyed while the settings app -- which only
+    ever read the file -- opened its first-run wizard with empty fields. And the
+    settings app's own restart lane did it without any Windows variable at all: the
+    wizard's first save seeded `.env` from the example, whose blank `SONIOX_API_KEY=`
+    line the old loader exported as an EMPTY STRING; the settings app inherited it, the
+    tool it relaunched inherited it in turn, and `override=False` kept that empty
+    string over the real key the same save had just written. Nothing on screen said so,
+    and only a cold start ever fixed it -- variant (c) is exactly that case.
+
+    The child environment here carries the variable on purpose (the one place this
+    driver does not scrub it), so a regression to any environment fallback is red."""
+    variants = [
+        # (label, inherited value, .env bytes or None, expected config.SONIOX_API_KEY)
+        ("no-file", "from-env", None, "-"),
+        ("different", "from-env", b"SONIOX_API_KEY=from-file\n", "from-file"),
+        ("empty", "", b"SONIOX_API_KEY=from-file\n", "from-file"),
+    ]
+    tmp, inst, env = _env_install_tmp("tb_config_inherited_")
+    env_file = inst / ".env"
+    try:
+        for label, inherited, raw, want in variants:
+            if raw is None:
+                env_file.unlink(missing_ok=True)
+            else:
+                env_file.write_bytes(raw)
+            child_env = dict(env, SONIOX_API_KEY=inherited)
+            reported = _run_env_probe(f"inherited {label}", inst, child_env)
+            if reported is None:
+                continue
+            got = reported.get("SONIOX")
+            check(got == want,
+                  f".env inherited {label}: config.SONIOX_API_KEY is {got!r}, expected "
+                  f"{want!r} -- the process environment is not a key source (D-017)")
+            _check_no_new_vars(f"inherited {label}", reported)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_env_optout_subprocess():
+    """The D-004 developer opt-out keeps its documented `.env` route (#166, #269).
+
+    It used to work only as a side effect: the old loader put `.env` into os.environ
+    and `thoughtborne.py` read it back with `os.getenv`. With nothing exported any
+    more, that route had to be rebuilt deliberately -- `config.ALLOW_SECOND_INSTANCE`
+    now comes from the same parsed dict as the keys, with the same truthiness rule.
+    The last case is the other half of D-017: set only in the shell, the opt-out no
+    longer counts (a documented consequence, not an oversight)."""
+    cases = [
+        # (label, .env bytes, inherited value or None, expected ALLOW_SECOND_INSTANCE)
+        ("on", b"THOUGHTBORNE_ALLOW_SECOND_INSTANCE=1\n", None, "True"),
+        ("absent", b"GROQ_API_KEY=dummy-a\n", None, "False"),
+        ("blank", b"THOUGHTBORNE_ALLOW_SECOND_INSTANCE=\n", None, "False"),
+        ("false", b"THOUGHTBORNE_ALLOW_SECOND_INSTANCE=false\n", None, "False"),
+        ("shell-only", b"GROQ_API_KEY=dummy-a\n", "1", "False"),
+    ]
+    tmp, inst, env = _env_install_tmp("tb_config_optout_")
+    env_file = inst / ".env"
+    try:
+        for label, raw, inherited, want in cases:
+            env_file.write_bytes(raw)
+            child_env = env if inherited is None else dict(
+                env, THOUGHTBORNE_ALLOW_SECOND_INSTANCE=inherited)
+            reported = _run_env_probe(f"optout {label}", inst, child_env)
+            if reported is None:
+                continue
+            got = reported.get("OPTOUT")
+            check(got == want,
+                  f".env optout {label}: config.ALLOW_SECOND_INSTANCE is {got}, "
+                  f"expected {want}"
+                  + (" -- a shell variable of that name must not bypass the "
+                     "single-instance guard (D-017)" if label == "shell-only" else ""))
+            _check_no_new_vars(f"optout {label}", reported)
+    finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -535,9 +766,11 @@ def test_replay():
 
 def test_source_guards():
     """Read as source, never imported (thoughtborne.py pulls in Windows-only
-    modules): main() must call the replay, and config.py must keep logging nothing
-    at import time -- an import-time log call has no handler yet and would fall to
-    stderr, which is exactly the lane #206 closed (and the one #238 inherits)."""
+    modules): main() must call the replay, config.py must keep logging nothing at
+    import time -- an import-time log call has no handler yet and would fall to
+    stderr, which is exactly the lane #206 closed (and the one #238 inherits) -- and
+    the three guards below keep the .env reader anchored (G1), python-dotenv out of
+    the tree (G2) and the process environment out of the key path (G3, D-017)."""
     root = Path(__file__).resolve().parent
     try:
         src = (root / "thoughtborne.py").read_text(encoding="utf-8")
@@ -575,31 +808,93 @@ def test_source_guards():
               for n in tree.body),
           "config.py no longer defines _load_personal_settings at module level")
 
-    # #238's call shape, pinned statically because every behavioural .env lane above
-    # skips on a box without python-dotenv -- a regression to the bare `load_dotenv()`
-    # would ride a green local ladder otherwise. Only the two properties the fix is
-    # about: an explicit path argument (whatever it is named) and the tolerant
-    # encoding. Left free on purpose: the argument's shape, and everything else.
+    # G1 -- the reader's call shape (#238, #269). The behavioural lanes above cover
+    # this too, and no longer skip on any box, but the shape is cheap to pin and says
+    # in one place what the import-time contract is: exactly one call, at module level
+    # (the constants 200 lines below read its result), anchored on the install
+    # directory, in the tolerant encoding.
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-             and n.func.id == "load_dotenv"]
+             and n.func.id == "read_env_file"]
     check(len(calls) == 1,
-          f"config.py makes {len(calls)} load_dotenv() calls, expected exactly one")
+          f"config.py makes {len(calls)} read_env_file() calls, expected exactly one")
     for call in calls:
         check(not any(s.lineno <= call.lineno <= (s.end_lineno or s.lineno) for s in scopes),
-              f"config.py:{call.lineno}: load_dotenv() moved inside a function -- the "
-              f"keys must reach os.environ at import time, before the constants below "
-              f"read them")
-        check(bool(call.args),
-              f"config.py:{call.lineno}: load_dotenv() is called without a path -- it "
-              f"would search UPWARD from here again and could load an ancestor "
-              f"directory's .env instead of the install directory's (#238)")
+              f"config.py:{call.lineno}: read_env_file() moved inside a function -- the "
+              f"keys must be parsed at import time, before the constants below read them")
+        arg = call.args[0] if call.args else None
+        check(isinstance(arg, ast.BinOp) and isinstance(arg.op, ast.Div)
+              and isinstance(arg.left, ast.Name) and arg.left.id == "SCRIPT_DIR"
+              and isinstance(arg.right, ast.Constant) and arg.right.value == ".env",
+              f"config.py:{call.lineno}: read_env_file() is no longer called on "
+              f"SCRIPT_DIR / \".env\" -- a cwd-relative path or an upward search would "
+              f"load some other directory's .env, which no repair surface shows (#238)")
         enc = [kw.value for kw in call.keywords if kw.arg == "encoding"]
         check(len(enc) == 1 and isinstance(enc[0], ast.Constant)
               and enc[0].value == "utf-8-sig",
-              f"config.py:{call.lineno}: load_dotenv() no longer passes "
+              f"config.py:{call.lineno}: read_env_file() no longer passes "
               f"encoding=\"utf-8-sig\" -- a BOM'd .env would rename the first key and "
               f"the console would report 'no key' while the settings window shows one")
+
+    # G2 -- python-dotenv is gone (#269), and must not creep back into a driver either:
+    # the .env lanes above used to skip without it, which is exactly the hollow pass a
+    # re-added import would restore. Every *.py in the repo root, not a hand-kept list.
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        try:
+            t = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            failures.append(f"could not parse {path.name}: {type(e).__name__}: {e}")
+            continue
+        for n in ast.walk(t):
+            if isinstance(n, ast.Import):
+                if any(a.name.split(".")[0] == "dotenv" for a in n.names):
+                    offenders.append(f"{path.name}:{n.lineno}")
+            elif isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "dotenv":
+                offenders.append(f"{path.name}:{n.lineno}")
+    check(not offenders,
+          f"python-dotenv is imported again at {', '.join(offenders)} -- config."
+          f"read_env_file is the one .env parser since #269, and the package is no "
+          f"longer a dependency (D-017)")
+
+    # G3 -- no process-environment read of the three .env-borne names, in either half
+    # (#269 / D-017). Name-based on purpose, not shape-based: `{**os.environ, ...}` in
+    # the settings-app spawn and the THOUGHTBORNE_SPAWN_TS read in the app are process
+    # plumbing that must keep working, so a blanket "no os.environ here" guard would be
+    # wrong. Catches `os.getenv(NAME)`, `os.environ.get(NAME)` and `os.environ[NAME]`.
+    def _reads_os_environ(node):
+        """(kind, name) if `node` reads a process-environment variable by literal
+        name, else None."""
+        def _is_environ(n):
+            return (isinstance(n, ast.Attribute) and n.attr == "environ"
+                    and isinstance(n.value, ast.Name) and n.value.id == "os")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            f = node.func
+            getter = ((f.attr == "getenv" and isinstance(f.value, ast.Name)
+                       and f.value.id == "os")
+                      or (f.attr == "get" and _is_environ(f.value)))
+            if getter and node.args and isinstance(node.args[0], ast.Constant):
+                return (f"os.{f.attr}", node.args[0].value)
+        if isinstance(node, ast.Subscript) and _is_environ(node.value) \
+                and isinstance(node.slice, ast.Constant):
+            return ("os.environ[...]", node.slice.value)
+        return None
+
+    for name in ("config.py", "transcriber.py", "thoughtborne.py", "settings_io.py",
+                 "thoughtborne_settings.py"):
+        try:
+            t = ast.parse((root / name).read_text(encoding="utf-8"))
+        except Exception as e:
+            failures.append(f"could not parse {name}: {type(e).__name__}: {e}")
+            continue
+        for n in ast.walk(t):
+            hit = _reads_os_environ(n)
+            if hit and hit[1] in _ENV_BORNE:
+                failures.append(
+                    f"{name}:{n.lineno}: {hit[0]}({hit[1]!r}) -- {hit[1]} comes from the "
+                    f"install directory's .env and from nowhere else (D-017); an "
+                    f"inherited value silently defeating a key rotation is the failure "
+                    f"#269 closed")
 
 
 def test_env_example_ascii():
@@ -686,6 +981,9 @@ TEMPDIR_CASES = [
 PLAIN_CASES = [
     test_import_subprocess,
     test_env_loading_subprocess,
+    test_env_corpus_subprocess,
+    test_env_inherited_subprocess,
+    test_env_optout_subprocess,
     test_replay,
     test_source_guards,
     test_env_example_ascii,
@@ -721,8 +1019,10 @@ def main():
     print(f"\nOK: all {len(TEMPDIR_CASES) + len(PLAIN_CASES)} config-reading cases "
           f"pass (personal_settings: encoding, top-level shape, vocabulary shape, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "
-          f"directory as the only source, BOM key-name parity, a broken file warned "
-          f"about instead of fatal; plus the warning replay and the static guards)")
+          f"directory as the only source, every parsing rule read the same way by both "
+          f"halves, an inherited variable that never counts, the D-004 opt-out's .env "
+          f"route, a broken file warned about instead of fatal; plus the warning replay "
+          f"and the static guards)")
     return 0
 
 

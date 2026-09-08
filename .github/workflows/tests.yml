@@ -2,12 +2,11 @@
 # repo root) on every push to main and every pull request.
 #
 # The drivers are standalone stdlib scripts, so the job needs no test framework and
-# no venv: just a Python, three third-party packages and Xvfb. The three are
-# `soundfile`, `groq` and `python-dotenv` -- the only non-stdlib imports the ladder
-# reaches off Windows: groq is transcriber.py's one module-level third-party import,
-# so without it the #206 Soniox constructor lane would skip instead of running, and
-# python-dotenv is the loader config.py reads `.env` with, so without it the #238
-# .env lanes would skip too. `uv sync` is deliberately not usable here --
+# no venv: just a Python, two third-party packages and Xvfb. The two are
+# `soundfile` and `groq` -- the only non-stdlib imports the ladder reaches off
+# Windows: groq is transcriber.py's one module-level third-party import, so without
+# it the #206 Soniox constructor lane would skip instead of running.
+# `uv sync` is deliberately not usable here --
 # pyproject.toml restricts resolution to sys_platform == 'win32', and PyAudio has no
 # Linux wheels.
 #
@@ -47,7 +46,7 @@ jobs:
 
       - name: Install the ladder's dependencies
         run: |
-          python -m pip install soundfile groq python-dotenv
+          python -m pip install soundfile groq
           # python3-tk brings the Tcl/Tk shared libraries the interpreter's
           # _tkinter links against; without them the display checks would skip.
           sudo apt-get update -qq && sudo apt-get install -qq -y xvfb python3-tk

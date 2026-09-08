@@ -183,7 +183,10 @@ def check_env(tmp):
     check(p.exists(), ".env absent-seed: file not created")
     got = p.read_text(encoding="utf-8")
     check("Groq API Key" in got, ".env absent-seed: example header comments lost")
-    check(sio.read_env(p) == {"GROQ_API_KEY": "", "SONIOX_API_KEY": "xyz"},
+    # The example's untouched `GROQ_API_KEY=` line is a blank value, i.e. no key at
+    # all -- the shared reader leaves it out of the dict entirely (D-017), so "no
+    # key" has exactly one shape for every consumer.
+    check(sio.read_env(p) == {"SONIOX_API_KEY": "xyz"},
           f".env absent-seed read wrong: {sio.read_env(p)}")
 
     # 4. malformed line skipped (read_env), not fatal
@@ -314,7 +317,7 @@ def check_regressions(tmp):
     check(raw == b"FOO=bar\r\nGROQ_API_KEY=new\r\nUNRELATED=x\r\n",
           f"S5: CRLF .env not byte-preserved: {raw!r}")
 
-    # S3 -- python-dotenv is last-wins, so EVERY duplicate managed-key line must be
+    # S3 -- the reader is last-wins, so EVERY duplicate managed-key line must be
     # rewritten; a stale later duplicate would otherwise keep being read.
     p = tmp / "env_dup"
     p.write_text("GROQ_API_KEY=first\nFOO=bar\nGROQ_API_KEY=second\n", encoding="utf-8")
@@ -324,6 +327,20 @@ def check_regressions(tmp):
           f"S3: duplicate managed-key lines not all replaced: {got!r}")
     check("first" not in got and "second" not in got,
           f"S3: a stale duplicate value survived: {got!r}")
+
+    # S3b -- an `export KEY=old` line is a managed key line for the writer too since
+    # #269 (the shared reader honours that form), so a rotation rewrites it IN PLACE
+    # and its `export` survives: no second, bare KEY= line appended beside a stale
+    # one, and a .env someone sources from a shell stays sourceable (D-002 -- change
+    # the value, not the line's form).
+    p = tmp / "env_export"
+    p.write_text("export GROQ_API_KEY=old\nFOO=bar\n", encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": "new"})
+    got = p.read_text(encoding="utf-8")
+    check(got == "export GROQ_API_KEY=new\nFOO=bar\n",
+          f"S3b: an export line was not rewritten in place: {got!r}")
+    check(sio.read_env(p) == {"GROQ_API_KEY": "new"},
+          f"S3b: the rewritten export line does not read back: {sio.read_env(p)}")
 
     # S4 -- a whitespace-only value is treated as empty (dropped, stored key
     # untouched); a padded real value is stored stripped.

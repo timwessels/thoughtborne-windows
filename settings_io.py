@@ -1,11 +1,12 @@
 """
 File IO and pure hotkey-combo helpers for the settings/onboarding app (#144).
 
-The ONLY module that touches `.env` and `personal_settings.json`, plus the pure
-hotkey-combo helpers the GUI's capture widget leans on. No tkinter, no network,
-nothing Windows-bound: it reuses the ctypes-free `hotkey_parse` layer and
-`config`'s pure constants, so `test_settings_io.py` runs on plain Python (the
-`console_ui.py` + `test_console_ui.py` house style).
+The ONLY module that WRITES `.env` and `personal_settings.json` -- reading `.env`
+goes through the one shared parser in `config` (D-017), which this module's
+`read_env` calls -- plus the pure hotkey-combo helpers the GUI's capture widget
+leans on. No tkinter, no network, nothing Windows-bound: it reuses the ctypes-free
+`hotkey_parse` layer and `config`'s pure constants, so `test_settings_io.py` runs
+on plain Python (the `console_ui.py` + `test_console_ui.py` house style).
 
 Write policy (DECISIONS.md D-002): surgical merge, never a full
 rewrite.
@@ -71,42 +72,33 @@ ENV_KEYS = ("GROQ_API_KEY", "SONIOX_API_KEY")   # the only keys this app manages
 
 
 def read_env(path) -> dict:
-    """Return {KEY: value} for the managed keys found as uncommented KEY=value
-    lines. A missing file or a missing key -> that key absent from the dict.
-    Never raises on a malformed line (it is skipped). The value is the raw text
-    right of the first '=', stripped of surrounding whitespace; not evaluated or
-    unquoted. A leading UTF-8 BOM is tolerated (utf-8-sig). An undecodable file (an
-    ANSI/cp1252 .env, e.g. a German umlaut in a comment) -> {}: this pre-fill helper
-    can't pre-fill it (the GUI shows empty fields) but must never raise -- the write
-    path (write_env) separately aborts on such a file rather than clobber it."""
-    result = {}
-    try:
-        with open(path, encoding="utf-8-sig") as f:
-            text = f.read()
-    except OSError:
-        return result
-    except UnicodeDecodeError:
-        # An ANSI/cp1252 .env is intact but not utf-8 decodable; read_env is a
-        # never-raises pre-fill helper, so degrade to {} (can't pre-fill) instead of
-        # crashing the GUI. UnicodeDecodeError is a ValueError, NOT an OSError, so the
-        # clause above would miss it.
-        return result
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        if key in ENV_KEYS:
-            result[key] = value.strip()
-    return result
+    """Return {KEY: value} for the managed keys (ENV_KEYS) the `.env` at `path`
+    assigns a non-blank value to. THE parser is config.read_env_file -- the tool and
+    this app read the same bytes through the same code (D-017), so the settings
+    window can never show a key the tool does not use, or hide one it does (the
+    parity D-002 needs, here true by construction rather than by two implementations
+    that happen to agree). Quoting, a leading `export `, comment tails, `${VAR}`
+    staying literal and the blank-is-no-key rule are that reader's, documented for
+    users in .env.example's header.
+
+    Never raises: a missing file, a missing key, a blank value, an unreadable or
+    non-UTF-8 file all yield that key absent / {} -- this is a pre-fill helper, and
+    the GUI simply shows empty fields (the write path, write_env, separately aborts
+    on such a file rather than clobber it). The reader's warnings are dropped here;
+    only config's import-time lane replays them into the log.
+
+    `encoding` is deliberately not passed on: one default in one place, so the two
+    call sites cannot drift apart again."""
+    values, _warnings = config.read_env_file(path)
+    return {k: v for k, v in values.items() if k in ENV_KEYS}
 
 
 def write_env(path, updates: dict, *, example_path=None) -> None:
     """Set each managed KEY in `updates` in the `.env` at `path`, preserving every
     other line / comment / blank / key order and the file's existing line endings.
-    For a KEY that already has one or more uncommented `KEY=...` lines, the value on
-    EVERY such line is replaced (python-dotenv is last-wins, so a stale later
+    For a KEY that already has one or more uncommented `KEY=...` lines (an
+    `export KEY=...` line counts, and keeps its `export`), the value on
+    EVERY such line is replaced (the reader is last-wins, so a stale later
     duplicate must not survive); else `KEY=value` is appended. File absent: seed
     from `example_path` (keeping its helpful header), else start empty, then apply
     updates. A value is stripped of surrounding whitespace and any embedded newline;
@@ -154,15 +146,23 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
 
     append_ending = "\r\n" if any(l.endswith("\r\n") for l in lines) else "\n"
 
-    def _is_key_line(line, key):
-        # An `export KEY=value` line is deliberately NOT matched (the parse yields
-        # "export KEY" != key): still functional via python-dotenv (last-wins on the
-        # bare KEY= line the writer appends), only a cosmetic stale line remains.
-        # Deferred (#144).
+    def _key_line_prefix(line, key):
+        """The text before `key` on an uncommented `KEY=` / `export KEY=` line, or
+        None when the line does not assign `key`. `export` is recognized because
+        config.read_env_file honours it: without this, a rotation would append a
+        second `KEY=` line and leave the stale `export` one behind (the #144
+        deferral, closed with #269). The prefix -- the line's original indentation
+        plus a normalized `export ` -- is carried into the rewritten line, so a
+        shell-sourceable .env stays shell-sourceable (D-002: change the value, not
+        the line's form)."""
         s = line.lstrip()
         if s.startswith("#") or "=" not in s:
-            return False
-        return s.partition("=")[0].strip() == key
+            return None
+        indent = line[:len(line) - len(s)]
+        head = s.partition("=")[0].strip()
+        if head[:6] == "export" and head[6:7] in (" ", "\t"):
+            return indent + "export " if head[6:].lstrip() == key else None
+        return indent if head == key else None
 
     def _line_ending(line):
         # Recognized line terminators are \n and \r\n only. A lone \r (classic-Mac) or
@@ -180,9 +180,14 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
     seen = set()
     new_lines = []
     for line in lines:
-        matched = next((k for k in updates if _is_key_line(line, k)), None)
+        matched, prefix = None, ""
+        for k in updates:
+            p = _key_line_prefix(line, k)
+            if p is not None:
+                matched, prefix = k, p
+                break
         if matched is not None:
-            new_lines.append(f"{matched}={updates[matched]}{_line_ending(line)}")
+            new_lines.append(f"{prefix}{matched}={updates[matched]}{_line_ending(line)}")
             seen.add(matched)
         else:
             new_lines.append(line)
