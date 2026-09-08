@@ -116,6 +116,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sharing the German page now shows a German card.** Both pages pointed at the same social
+  preview image, whose subline is English — so a link to thoughtborne.app shared into a chat
+  carried *voice-to-text for Windows* under the wordmark even for German readers. The German
+  page now has its own card, *Diktieren per Hotkey für Windows*, rendered from the identical
+  logo pixels and type parameters (recovered pixel-exactly from the shipped image); `/en/`
+  keeps the English one. Along the way the German cost list writes its two dollar figures
+  the German way (`0,12 $` instead of `$0,12`), matching every other figure on the page —
+  the English page already followed the English convention throughout.
+
 - **Nothing on screen changed; the console renderer carries three copies less (#290).** Three
   leftovers the #272 review measured and left lying. The REC strip held its own copy of the rule
   that decides between the one-line key list and the aligned cells — the same rule the footers, the

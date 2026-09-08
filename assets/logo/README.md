@@ -30,7 +30,8 @@ the taskbar, *Settings > Installed apps* and the settings window.
 | `make_app_icon.py` | Rebuilds `thoughtborne.ico` from `console_ui.LOGO_MARK_A5` and `console_ui.ACCENT` (needs Pillow; build-time only) — run it when the mark or the accent changes |
 | `png/` | Raster exports of the masters (mark 16–512, wordmark/lockup 1024) |
 | `thoughtborne-avatar-512.png` | GitHub avatar upload — flattened on white so the channel reads in every theme |
-| `thoughtborne-social-preview.png` | GitHub social preview, 1280×640 |
+| `thoughtborne-social-preview.png` | GitHub social preview, 1280×640; also the English page's share card (`docs/en/index.html`, og:image) |
+| `thoughtborne-social-preview-de.png` | The same card with the subline in German — the German page's share card (`docs/index.html`, og:image); rendered with the identical logo pixels and type parameters |
 
 ## Palette
 
