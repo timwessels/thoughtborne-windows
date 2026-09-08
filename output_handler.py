@@ -14,7 +14,6 @@ Windows Adaptations:
 """
 
 import time
-import queue
 import logging
 import threading
 import ctypes
@@ -35,7 +34,7 @@ from collections import deque
 
 from config import (
     TRANSCRIPT_HISTORY_SIZE, OUTPUT_QUEUE_TIMEOUT,
-    CLIPBOARD_RESTORE_DELAY, KEY_RELEASE_DELAY, FILE_ONLY
+    CLIPBOARD_RESTORE_DELAY, FILE_ONLY
 )
 from typed_cap import cap_typed_text, TYPED_INSERT_CAP
 

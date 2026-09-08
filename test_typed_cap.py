@@ -10,7 +10,6 @@ no newline, total payload <= cap) are checked on plain Python, where
 """
 import sys
 
-import typed_cap as tc
 from typed_cap import cap_typed_text, TYPED_INSERT_CAP, TYPED_INSERT_CAP_NOTICE
 
 failures = []

@@ -150,7 +150,6 @@ def tool_is_running() -> bool:
         from ctypes import wintypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-        ERROR_FILE_NOT_FOUND = 2
         ERROR_ACCESS_DENIED = 5
         SYNCHRONIZE = 0x00100000
 

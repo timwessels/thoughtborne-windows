@@ -28,8 +28,8 @@ from pathlib import Path
 from typing import List, NamedTuple, Tuple, Optional
 
 from config import (
-    CHUNK, FORMAT, CHANNELS, RATE,
-    ARCHIVE_FOLDER, SCRIPT_DIR,
+    CHUNK, CHANNELS, RATE,
+    ARCHIVE_FOLDER,
     AUDIO_TRIM_END_MS, AUDIO_SILENCE_PADDING_MS,
     SIDECAR_FLUSH_SECONDS, FILE_ONLY,
     AUDIO_READ_POLL_SECONDS, AUDIO_STALL_TIMEOUT_SECONDS,
@@ -1141,7 +1141,7 @@ class AudioRecorder:
                         self._sidecar_writer = None
                         self.recording_aborted = True
                     else:
-                        logger.debug(f"Stream closed during recording, stopping chunk recording")
+                        logger.debug("Stream closed during recording, stopping chunk recording")
                     return False
 
                 try:

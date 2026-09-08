@@ -32,6 +32,19 @@ from hotkey_parse import (
     MODIFIER_MAP, VK_MAP, HotkeyParseError, parse_hotkey_lexical,
 )
 
+# The module's public surface, spelled out so the re-exports above read as the
+# deliberate API they are rather than as oversights. Nothing in the tree does
+# `from hotkey_manager import *`, so this changes no behaviour -- it states the
+# intent in a form a tool can read, and the undefined-name lane (#289) verifies
+# from here on that every name listed actually exists.
+__all__ = [
+    # this module's own API
+    "HotkeyManager", "is_key_pressed", "is_vk_pressed", "VK_RMENU",
+    # re-exported from hotkey_parse (#55) so hotkey_manager.X keeps working
+    "MOD_ALT", "MOD_CONTROL", "MOD_SHIFT", "MOD_WIN", "MOD_NOREPEAT",
+    "MODIFIER_MAP", "VK_MAP", "HotkeyParseError", "parse_hotkey_lexical",
+]
+
 logger = logging.getLogger('Thoughtborne.HotkeyManager')
 
 # ===== Win32 Constants =====
@@ -147,7 +160,7 @@ def _resolve_vk_code(key_str: str) -> int:
         if vk != 0xFF:
             return vk
         # Fallback: VK_OEM_4 (0xDB) - typically 'ü' on German QWERTZ
-        logger.warning(f"VkKeyScanW failed for 'ü', using fallback VK_OEM_4 (0xDB)")
+        logger.warning("VkKeyScanW failed for 'ü', using fallback VK_OEM_4 (0xDB)")
         return 0xDB
 
     raise ValueError(f"Cannot resolve key '{key_str}' to VK code")

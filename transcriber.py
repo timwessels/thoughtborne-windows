@@ -14,14 +14,12 @@ Classes:
 
 import os
 import re
-import sys
 import time
 import logging
 import threading
 import queue
 from abc import ABC, abstractmethod
 from typing import Optional
-from pathlib import Path
 
 from groq import Groq, AuthenticationError
 
