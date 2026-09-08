@@ -823,6 +823,8 @@ def check_i18n():
           "behavior.engine.remember.current must use exactly {engine}")
     check(set(re.findall(r"{(\w+)}", sstr._EN["behavior.engine.remember.none"])) == {"engine"},
           "behavior.engine.remember.none must use exactly {engine}")
+    check(set(re.findall(r"{(\w+)}", sstr._EN["machine.version.body"])) == {"version"},
+          "machine.version.body must use exactly {version}")
 
 
 # ---- settings_io ui.language merge (#144, F6) --------------------------------

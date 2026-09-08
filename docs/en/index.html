@@ -371,6 +371,17 @@
     </div>
   </section>
 
+  <!-- Anchor #updating is deep-linked from the settings app's Machine-Room tab
+       (settings_strings.py, url.update) — renaming it breaks that link silently. -->
+  <section class="section updating" id="updating">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Updates</p>
+      <h2>Updating</h2>
+      <p>There is no auto-update: Thoughtborne never looks for a new version and never installs one behind your back. Updating means <a href="#installation">running the install command again</a> — it fetches the current release itself. It works without the command line too: a double-click on <code>setup.bat</code> in the install folder does the same. Neither way asks you to download anything by hand.</p>
+      <p>An update replaces the program files and adds new ones — it never deletes. <strong>Your two files survive everything; code edits don’t:</strong> <code>.env</code> with your keys and <code>personal_settings.json</code> with your vocabulary and hotkeys are left untouched, and so are the log and every recording under <code>history/</code>. A value you changed inside the program code, though, is gone after an update — <code>personal_settings.json</code> is the file that survives.</p>
+    </div>
+  </section>
+
 </main>
 
 <footer class="site-footer">

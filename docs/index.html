@@ -371,6 +371,17 @@
     </div>
   </section>
 
+  <!-- Anchor #aktualisieren is deep-linked from the settings app's Machine-Room
+       tab (settings_strings.py, url.update) — renaming it breaks that link silently. -->
+  <section class="section updating" id="aktualisieren">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">Updates</p>
+      <h2>Aktualisieren</h2>
+      <p>Es gibt kein Auto-Update: Thoughtborne sucht nie nach einer neuen Version und installiert auch keine im Hintergrund. Aktualisieren heißt, <a href="#installation">den Installationsbefehl noch einmal auszuführen</a> – er holt die aktuelle Version selbst. Ohne Kommandozeile geht es auch: ein Doppelklick auf <code>setup.bat</code> im Installationsordner tut dasselbe. Auf keinem der beiden Wege musst du etwas von Hand herunterladen.</p>
+      <p>Ein Update ersetzt die Programmdateien und ergänzt neue – gelöscht wird dabei nie. <strong>Deine zwei Dateien überleben alles, Änderungen am Programmcode nicht:</strong> <code>.env</code> mit deinen Keys und <code>personal_settings.json</code> mit Vokabular und Hotkeys bleiben unangetastet, ebenso das Log und jede Aufnahme unter <code>history/</code>. Was du dagegen direkt im Programmcode geändert hast, ist nach einem Update weg – die <code>personal_settings.json</code> ist die Datei, die bleibt.</p>
+    </div>
+  </section>
+
 </main>
 
 <footer class="site-footer">

@@ -69,6 +69,21 @@ which is both the dead guard against an over-broad gate and the proof that the c
 is probed fresh per write rather than latched at load. It runs against a tempdir-patched
 `config.SCRIPT_DIR`; unlike the read-only display checks above, this one WRITES.
 
+A fifth, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
+(#281). Three of its four checks are one-liners against couplings the code can only
+state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has entries
+(they are `zip`ped, and `zip` drops a surplus on either side silently -- a page or a
+label would just vanish), `_tab_canvases` must stay index-parallel to `_tab_frames`
+(#180, or the mouse wheel scrolls the wrong page), and the machine-room version line
+must carry `config.VERSION` -- it is built empty and filled only out of `render_all`,
+so a dropped call leaves a blank gap on the page that no other check notices (where
+`pyproject.toml` cannot be read the same check demands the opposite: an empty line, not
+a guess). The fourth is the width: at the MINIMUM window size, in both languages, the
+notebook must get at least the width it asks for -- clam neither wraps nor scrolls a
+tab strip that does not fit, it squeezes every tab and clips each label with no error
+anywhere. The width part needs a font from `settings_theme.FAMILY_CHAIN` to mean
+anything and says so instead of failing when the box has none.
+
 Since #240 the same module also owns the settings app's whole `[SETTINGS]` log lane, and
 this driver owns its checks: `format_settings_line` (asserted BYTE-IDENTICAL to the
 literal f-strings the startup and focus-existing lines used to be, so no consumer -- the
@@ -598,6 +613,97 @@ def test_storm_guards_with_display():
             pass
 
 
+def test_tab_layout_with_display():
+    # The six-tab layout (#281). Two index-parallel lists that must stay in step, and
+    # the tab strip fitting the MINIMUM window width -- clam clips tab labels silently
+    # rather than wrapping or scrolling them, so nothing but a measurement catches a
+    # strip that outgrew its window. Both languages, since the labels differ.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped tab-layout check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped tab-layout check: no display)")
+        return
+
+    try:
+        import config
+        import settings_theme
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped tab-layout check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    try:
+        # Same modal neutralization as the storm lane: __init__ pops a showerror over
+        # an unreadable personal_settings.json, which nothing dismisses headless.
+        ts.messagebox.showerror = lambda *a, **k: None
+        ts._size_window(root)          # the real base geometry AND the real minsize
+        app = ts.SettingsApp(root, first_run=False)
+        root.update()
+
+        check(len(app.notebook.tabs()) == len(ts._TAB_KEYS),
+              f"{len(app.notebook.tabs())} notebook pages vs {len(ts._TAB_KEYS)} "
+              "_TAB_KEYS -- the zip() in _build_ui drops the surplus silently, so a "
+              "page or its label just disappears")
+        check(len(app._tab_canvases) == len(app._tab_frames),
+              f"{len(app._tab_canvases)} scroll canvases vs {len(app._tab_frames)} "
+              "tab frames -- _tab_canvases is no longer index-parallel (#180) and the "
+              "mouse wheel would scroll the wrong page")
+
+        # The tab's headline promise: it names the installed version. The label is
+        # BUILT empty and filled only by _render_machine_page out of render_all, so a
+        # dropped call leaves a blank gap on the page that every other check here
+        # still passes. Both worlds are asserted -- an unreadable pyproject.toml
+        # (config.VERSION None) must show nothing rather than a guess.
+        vtext = app.machine_version_lbl.cget("text")
+        if config.VERSION:
+            check(config.VERSION in vtext,
+                  f"the machine-room version line reads {vtext!r} and does not carry "
+                  f"config.VERSION ({config.VERSION!r}) -- render_all no longer fills "
+                  "it and the tab shows a blank gap where the version belongs (#281)")
+        else:
+            check(vtext == "",
+                  f"config.VERSION is None (pyproject.toml unreadable) but the version "
+                  f"line reads {vtext!r} -- an unreadable version must show nothing")
+
+        family = settings_theme._pick_family(root)
+        if family not in settings_theme.FAMILY_CHAIN:
+            print(f"  (skipped tab-strip width check: Tk fell back to {family!r}, "
+                  f"none of {settings_theme.FAMILY_CHAIN} is installed -- a width "
+                  "measured in it says nothing about the target system)")
+            return
+        min_w, min_h = root.wm_minsize()
+        for lang in ("en", "de"):
+            app.lang = lang
+            app.lang_var.set(lang)
+            app.render_all()           # no _on_lang: this lane must not write files
+            root.geometry(f"{min_w}x{min_h}")
+            root.update()
+            nb = app.notebook
+            check(nb.winfo_width() >= nb.winfo_reqwidth(),
+                  f"[{lang}] at the minimum window width ({min_w}px) the notebook is "
+                  f"{nb.winfo_width()}px wide but asks for {nb.winfo_reqwidth()}px -- "
+                  "clam squeezes the tabs and clips every label, silently (#281)")
+            if SHOW:
+                print(f"    tab strip [{lang}]: {nb.winfo_reqwidth()}px asked, "
+                      f"{nb.winfo_width()}px given at {min_w}x{min_h}")
+    finally:
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def test_maximize_restore_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case has
     # no tkinter or no display and skips cleanly. Builds the REAL settings app and
@@ -658,7 +764,8 @@ def test_maximize_restore_with_display():
         for tab_idx in (0, 1):
             app.notebook.select(tab_idx)
             settle()
-            # Maximize stand-in: a window far wider than the 800px restore, past the #216
+            # Maximize stand-in: a window far wider than the 800px this lane restores
+            # to -- its own pinned geometry, not the app's size -- past the #216
             # threshold (the freeze needs the stale region and the restored viewport
             # horizontally disjoint after clamping -- ~2360px for an 800px window).
             root.geometry("3400x1500")
@@ -1231,6 +1338,7 @@ def main():
     test_append_log_line()
     test_log_sink_source_guards()
     test_storm_guards_with_display()
+    test_tab_layout_with_display()
     test_maximize_restore_with_display()
     test_verdict_wrap_with_display()
     test_language_toggle_gate_with_display()
@@ -1249,9 +1357,10 @@ def main():
           "formatter (full / fail-open / partial), the #240 log sink (line parity with "
           "the pre-#240 literals, error block, never-raise sweep, guarded append) with "
           "its source guards, and (with a display) the auto-hide grid idempotency, "
-          "wrap-deferral invariant, the #216 maximize->restore content-vanish guard, "
-          "the #231 verdict-line wrap, the #239 language-toggle gate, and the #240 "
-          "callback / pre-mainloop crash logging all pass")
+          "wrap-deferral invariant, the #281 six-tab layout with its version line and "
+          "strip width, the #216 maximize->restore content-vanish guard, the #231 "
+          "verdict-line wrap, the #239 language-toggle gate, and the #240 callback / "
+          "pre-mainloop crash logging all pass")
     return 0
 
 

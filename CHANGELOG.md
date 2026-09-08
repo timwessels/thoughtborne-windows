@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A sixth tab in the settings app: the *Machine room* (#281).** The window kept sending you to
+  `.env` and to `personal_settings.json` *in the Thoughtborne folder* without ever showing where
+  that folder is — the maintainer went looking for his own `personal_settings.json` — and it
+  answered none of the questions a tool raises about itself: which version is this, how do I update,
+  is anything updating behind my back, which files are mine to edit, under what license does this
+  run. One page now answers all of them. It opens with *You are running Thoughtborne X.Y.Z*, read
+  from `pyproject.toml` — the repo's only version string — with the same line-anchored expression
+  `setup.ps1` already uses for the *Installed apps* entry, so the two cannot drift apart; a
+  `pyproject.toml` that cannot be read shows nothing at all rather than a guess, and never costs a
+  start. Under it stands the install folder's own path with a button that opens it in Explorer, and
+  then the two files in there that are yours: `.env` for the API keys — where the tab can now say
+  the sentence that only became true with #269, that the key Thoughtborne uses comes from that file,
+  in that folder, and from no other source — and `personal_settings.json` for everything else you
+  can change without touching code, with the notes that the two `.example` files beside them carry
+  the per-setting comments (and are the template when a block is still missing), that a change takes
+  effect the next time Thoughtborne starts, and that this window writes those very same files. The
+  recognition-vocabulary pointer moves here from *Startup & windows*, where it only ever sat for
+  want of a better place; it now stands directly under the paragraph that introduces the file it is
+  about. Then the update route: there is no auto-update, Thoughtborne never looks for a new version
+  and never installs one behind your back, running the install command again *is* the update, and
+  thoughtborne.app always carries the current one — the tab deliberately carries no command of its
+  own, because the site is the place that can change if the command ever does. It closes with the
+  MIT license in one line. Nothing on the page reaches the network; a live update *check* stays
+  parked. The tab shows in the first-run wizard too — hiding it there would fork the single tab list
+  the code keeps deliberately single, and the page reads fine for a newcomer — so the wizard is one
+  *Next* longer. Six labels no longer fit the old window: measured under Xvfb they need 824 px, and
+  the theme silently clips a too-narrow tab strip instead of wrapping or scrolling it, so the
+  window's base width goes from 800 to 900 px and its *minimum* from 700 to 860. `thoughtborne.log`
+  also gains a `Thoughtborne version:` line at startup, so a bug report carries the version without
+  anyone having to open the window. Around it, the documentation gained the target the tab points
+  at: [thoughtborne.app](https://thoughtborne.app) and both READMEs now have an *Updating* section
+  of their own — no auto-update, the install command is the update command, an update replaces and
+  adds but never deletes (D-013), your two files survive everything and edits made inside the
+  program code do not. The READMEs add the two details the shorter surfaces leave out: that the
+  dictation language is the one setting with no home in `personal_settings.json`, so `LANGUAGE` has
+  to be set in `config.py` again after an update, and that a custom install folder needs its
+  `THOUGHTBORNE_INSTALL_DIR` set again for the update (#176). The comments in
+  `personal_settings.example.json` were freshened in the same pass: they now warn that an unedited
+  copy hands *Project Name* and *Acronym* to the speech model as real vocabulary (the README and
+  `llms-install.md` copy invitations say so too), say what a missing file means for the user rather
+  than naming an internal constant, name the open issues behind the 8,000-token context limit (#286)
+  and the endpointing tuning (#122), and describe the push-to-talk insert paths and the remembered
+  engine without naming key combinations that anyone may have rebound.
+
 - **A sixth guiding principle in `VISION.md`: lean by default.** The five principles said
   how what gets built should look; none said whether a thing gets built at all. The new
   one does: convenience for an edge case is weighed against the code it costs to carry

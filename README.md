@@ -75,7 +75,7 @@ The script installs [uv](https://docs.astral.sh/uv/) (a Python project manager) 
 
 </details>
 
-**Updating.** Run the one-liner again, or `setup.bat` in the install folder — no manual download needed. The update fetches the current release itself and keeps your recordings, keys, and settings.
+**Updating.** Run the one-liner again, or `setup.bat` in the install folder — no manual download needed; your recordings, keys, and `personal_settings.json` are kept, code edits are not ([Updating](#updating)).
 
 **Uninstalling.** Thoughtborne registers itself like any other program: **Settings > Installed apps > Thoughtborne > Uninstall**. That removes the program files and the Start-menu entry and keeps your recordings, transcripts, and API key — unless you tick the box offering to delete them too. No admin rights.
 
@@ -142,9 +142,19 @@ pip install -r requirements.txt
 python thoughtborne.py
 ```
 
+## Updating
+
+There is no auto-update: Thoughtborne never looks for a new version and never installs one behind your back. Updating *is* the install command again — the same one-liner as under [Quick start](#quick-start), or a double-click on `setup.bat` in the install folder. Either way the script fetches the current release itself; nothing has to be downloaded by hand. On a git clone, `git pull` is the update — uv re-syncs the dependencies on the next start.
+
+**Your two files survive everything; code edits do not.** `.env` (your keys) and `personal_settings.json` (vocabulary, hotkeys, push-to-talk, startup engine) are never overwritten, and neither are `history/`, `runtime_state.json`, or `thoughtborne.log`. Everything else is program code and gets replaced — so a value you changed in `config.py` is gone after an update. Whatever you want to keep belongs in `personal_settings.json` (see [Customization](#customization)). The one exception is the dictation language: `LANGUAGE` lives in `config.py` only, so set it again after an update.
+
+An update replaces the files the new release carries and adds the ones it gained; it never deletes. A file an older release left behind stays in the folder — dead weight, nothing that gets in the way.
+
+**Installed somewhere other than the default folder?** Setup updates `%LOCALAPPDATA%\Programs\Thoughtborne` unless `THOUGHTBORNE_INSTALL_DIR` points elsewhere — set that same variable again for the update (`setup.bat` in the install folder does not derive the path on its own), or you end up with a second installation in the default place.
+
 ## The settings app
 
-Configuration has a graphical front door: a small settings app — one window that doubles as the first-run wizard and the everyday settings dialog, in German or English (switchable in the header). On a first start without any API key, Thoughtborne opens it automatically and walks you through its pages — transcription provider & API key (with a live "Test key" check), hotkeys (push-to-talk on or off, two one-click preset schemes, or capture any combo per action), behavior (default engine, and pointers for the tray and admin-window routes). Later, once a key is stored, open the same window any time from the running tool with **`Ctrl+Alt+G`** — it is part of Thoughtborne, not a separate program. Saving reads **Save & restart**: it saves, restarts the tool for you, and the changes take effect right away — no need to remember to restart it yourself (a recording in progress is saved first and can be re-transcribed with the retry hotkey after the restart). That holds without a key too — the tool comes back and opens this window again until a key is entered. If the tool doesn't close in a few seconds it says so and leaves it running untouched; it never force-closes anything.
+Configuration has a graphical front door: a small settings app — one window that doubles as the first-run wizard and the everyday settings dialog, in German or English (switchable in the header). On a first start without any API key, Thoughtborne opens it automatically and walks you through its pages — transcription provider & API key (with a live "Test key" check), hotkeys (push-to-talk on or off, two one-click preset schemes, or capture any combo per action), startup & windows (default engine, and pointers for the tray and admin-window routes), machine room (this installation: version, install folder, your two files, updating, license). Later, once a key is stored, open the same window any time from the running tool with **`Ctrl+Alt+G`** — it is part of Thoughtborne, not a separate program. Saving reads **Save & restart**: it saves, restarts the tool for you, and the changes take effect right away — no need to remember to restart it yourself (a recording in progress is saved first and can be re-transcribed with the retry hotkey after the restart). That holds without a key too — the tool comes back and opens this window again until a key is entered. If the tool doesn't close in a few seconds it says so and leaves it running untouched; it never force-closes anything.
 
 <p align="center"><img src="assets/screenshots/settings-provider.png" width="520" alt="The settings app on its Provider &amp; API key tab: first an explanation of what an API key is, then a card for Groq — the free lane — with a masked key field and Show and Test key buttons, and below it a card for Soniox, the quality lane."></p>
 
@@ -210,7 +220,7 @@ Transcripts are always inserted in recording order, even when several recordings
 
 Most of what follows is also available graphically in [the settings app](#the-settings-app) — it writes the very same files described below, so you can mix the two freely.
 
-**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and the Soniox upload slot; the Groq APIs ignore it. Without the file, the tool simply runs unpersonalized.
+**Recognition vocabulary** (recommended): copy `personal_settings.example.json` to `personal_settings.json` and fill the `vocabulary` block with your names, project terms, and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Used by every Soniox engine — Soniox Live and the Soniox upload slot; the Groq APIs ignore it. The example ships placeholder terms ("Project Name", "Acronym", …) — replace them all and delete what you don't need, or the copy hands the placeholders to the speech model as real vocabulary. Without the file, the tool simply runs unpersonalized.
 
 ```
 copy personal_settings.example.json personal_settings.json

@@ -253,12 +253,6 @@ _EN = {
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
     "engine.desc.groq": "fast, free",
-    "behavior.vocab.heading": "Recognition vocabulary",
-    "behavior.vocab.body": (
-        "Recurring proper names, technical terms or acronyms are recognized more "
-        "reliably on the Soniox engines once you list them: edit the \"vocabulary\" "
-        "section of personal_settings.json in the Thoughtborne folder. The Groq "
-        "engines ignore it."),
     "behavior.tray.heading": "Console out of the taskbar (tray)",
     "behavior.tray.body": (
         "The console is a status monitor — dictation keeps working with the window "
@@ -288,6 +282,56 @@ _EN = {
         "the README under Troubleshooting."),
     "behavior.admin.link": "README — Troubleshooting",
     "url.admin_recipe": "https://github.com/timwessels/thoughtborne-windows#troubleshooting",
+
+    # ---- machine room tab ----
+    "machine.tab": "Machine room",
+    "machine.install.heading": "This installation",
+    "machine.version.body": "You are running Thoughtborne {version}.",
+    "machine.folder.body": (
+        "Thoughtborne sits in one folder — the program itself, your two settings "
+        "files, the log, and every recording under history/:"),
+    "btn.open_folder": "Open this folder",
+    "machine.files.heading": "The two files that are yours",
+    "machine.files.body": (
+        "You write exactly two of them. .env holds your API keys — the key "
+        "Thoughtborne uses comes from that file, in this folder, and from no other "
+        "source. personal_settings.json holds everything else you can change "
+        "without touching code: "
+        "recognition vocabulary, hotkeys, push-to-talk, Soniox endpointing, the "
+        "engine to start on, and the language of this window. Every other file in "
+        "the folder belongs to the program."),
+    "machine.files.body2": (
+        "What each setting does is explained in the comments of .env.example and "
+        "personal_settings.example.json beside them — they are the templates to copy "
+        "from when a block is still missing from your own file. A change takes effect "
+        "the next time Thoughtborne starts, and this window writes the same two files. "
+        "If personal_settings.json is no longer valid JSON, saving from here "
+        "replaces it with a clean file — rescue hand-edited content in a text "
+        "editor first."),
+    "machine.vocab.heading": "Recognition vocabulary",
+    "machine.vocab.body": (
+        "Recurring proper names, technical terms or acronyms are recognized more "
+        "reliably on the Soniox engines once you list them: edit the \"vocabulary\" "
+        "section of personal_settings.json. The Groq engines ignore it."),
+    "machine.update.heading": "Updating",
+    "machine.update.body": (
+        "There is no auto-update: Thoughtborne never looks for a new version and "
+        "never installs one behind your back. Running the install command again is "
+        "the update — thoughtborne.app always carries the current command."),
+    "machine.update.body2": (
+        "An update replaces the program files and adds new ones; it deletes "
+        "nothing. Your .env, your personal_settings.json, the log and history/ are "
+        "left untouched — but a value you changed inside the program code is gone "
+        "afterwards; personal_settings.json is the file that survives."),
+    "machine.update.link": "▸ thoughtborne.app — how to update",
+    "url.update": "https://thoughtborne.app/en/#updating",
+    "machine.license.heading": "License",
+    "machine.license.body": (
+        "Thoughtborne is open source under the MIT license: use it, change it, pass "
+        "it on — without warranty."),
+    "machine.license.link": "▸ MIT License",
+    "url.license": ("https://github.com/timwessels/thoughtborne-windows/blob/"
+                    "main/LICENSE"),
 
     # ---- done / closing tab ----
     "done.tab": "How you dictate",
@@ -595,12 +639,6 @@ _DE = {
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",
     "engine.desc.groq": "schnell, kostenlos",
-    "behavior.vocab.heading": "Erkennungs-Vokabular",
-    "behavior.vocab.body": (
-        "Wiederkehrende Eigennamen, Fachbegriffe oder Abkürzungen erkennen die "
-        "Soniox-Engines zuverlässiger, wenn sie hinterlegt sind: dazu den Abschnitt "
-        "„vocabulary“ in personal_settings.json im Thoughtborne-Ordner bearbeiten. "
-        "Die Groq-Engines ignorieren ihn."),
     "behavior.tray.heading": "Konsole aus der Taskleiste (Tray)",
     "behavior.tray.body": (
         "Die Konsole ist ein Status-Monitor — Diktieren funktioniert auch bei "
@@ -632,6 +670,58 @@ _DE = {
     "behavior.admin.link": "README — Troubleshooting",
     "url.admin_recipe": ("https://github.com/timwessels/thoughtborne-windows/blob/"
                          "main/README.de.md#troubleshooting"),
+
+    # ---- machine room tab ----
+    "machine.tab": "Maschinenraum",
+    "machine.install.heading": "Diese Installation",
+    "machine.version.body": "Installiert ist Thoughtborne {version}.",
+    "machine.folder.body": (
+        "Thoughtborne liegt in einem einzigen Ordner — das Programm selbst, deine "
+        "zwei Einstellungsdateien, das Log und jede Aufnahme unter history/:"),
+    "btn.open_folder": "Ordner öffnen",
+    "machine.files.heading": "Die zwei Dateien, die dir gehören",
+    "machine.files.body": (
+        "Genau zwei schreibst du selbst. In der .env stehen deine API-Keys — den "
+        "Key, mit dem Thoughtborne arbeitet, liest es aus dieser Datei in diesem "
+        "Ordner und aus keiner anderen Quelle. In der personal_settings.json steht "
+        "alles andere, was sich ohne Eingriff in den Code einstellen lässt: "
+        "Erkennungs-Vokabular, Hotkeys, Push-to-talk, Soniox-Endpointing, die Engine "
+        "beim Start und die Sprache dieses Fensters. Jede weitere Datei im Ordner "
+        "gehört dem Programm."),
+    "machine.files.body2": (
+        "Was sich im Einzelnen einstellen lässt, erklären .env.example und "
+        "personal_settings.example.json daneben in Kommentaren — sie sind zugleich "
+        "die Vorlage, wenn ein Block in deiner Datei noch fehlt. Eine Änderung "
+        "greift beim nächsten Start von Thoughtborne, und dieses Fenster schreibt "
+        "dieselben zwei Dateien. Ist die personal_settings.json kein gültiges JSON "
+        "mehr, wird sie beim Speichern aus diesem Fenster durch eine saubere Datei "
+        "ersetzt — handgepflegte Inhalte vorher im Texteditor retten."),
+    "machine.vocab.heading": "Erkennungs-Vokabular",
+    "machine.vocab.body": (
+        "Wiederkehrende Eigennamen, Fachbegriffe oder Abkürzungen erkennen die "
+        "Soniox-Engines zuverlässiger, wenn sie hinterlegt sind: dazu den Abschnitt "
+        "„vocabulary“ in personal_settings.json bearbeiten. Die Groq-Engines "
+        "ignorieren ihn."),
+    "machine.update.heading": "Aktualisieren",
+    "machine.update.body": (
+        "Es gibt kein Auto-Update: Thoughtborne sucht nie nach einer neuen Version "
+        "und installiert auch keine im Hintergrund. Aktualisieren heißt, den "
+        "Installationsbefehl noch einmal auszuführen — auf thoughtborne.app steht "
+        "immer der aktuelle."),
+    "machine.update.body2": (
+        "Ein Update ersetzt die Programmdateien und ergänzt neue; gelöscht wird "
+        "nie. Deine .env, deine personal_settings.json, das Log und history/ "
+        "bleiben unangetastet — ein Wert, den du im Programmcode geändert hast, ist "
+        "danach aber weg. Die personal_settings.json ist die Datei, die bleibt."),
+    "machine.update.link": "▸ thoughtborne.app — Anleitung zum Aktualisieren",
+    "url.update": "https://thoughtborne.app/#aktualisieren",
+    "machine.license.heading": "Lizenz",
+    "machine.license.body": (
+        "Thoughtborne ist Open Source unter der MIT-Lizenz: benutzen, ändern, "
+        "weitergeben — ohne Gewährleistung."),
+    "machine.license.link": "▸ MIT-Lizenz",
+    "url.license": ("https://github.com/timwessels/thoughtborne-windows/blob/"
+                    "main/LICENSE"),
 
     # ---- done / closing tab ----
     "done.tab": "So diktierst du",

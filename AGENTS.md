@@ -22,7 +22,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 | `test_app_icon.py` | The shipped `assets/logo/thoughtborne.ico` against `console_ui.LOGO_MARK_A5` and `ACCENT` (D-016): every frame decoded and compared pixel for pixel, plus the two consumers (`setup.ps1`, the settings window) naming that file. | `--show` |
 | `test_archive_migration.py` | `config.migrate_legacy_archives` against tempdir layouts, asserted on the files on disk; an escaping exception is itself a failure. | `--show` |
 | `test_audio_stall.py` | The audio stall/deadlock guards in `audio_handler`, against a fault-injecting fake stream. | — |
-| `test_config_loading.py` | The hardened `personal_settings.json` and `.env` readers against tempdir fixtures, each re-checked by a real `import config` in a subprocess, plus the one `.env` parser both halves share and the guards that keep the process environment out (D-017). | `--show`; skips its `groq` lane when that is absent |
+| `test_config_loading.py` | The hardened `personal_settings.json` and `.env` readers against tempdir fixtures, each re-checked by a real `import config` in a subprocess, plus the one `.env` parser both halves share, the guards that keep the process environment out (D-017), and the `pyproject.toml` version reader with its regex twin in `setup.ps1`. | `--show`; skips its `groq` lane when that is absent |
 | `test_console_ui.py` | Every console panel/strip: widths, CP437 charset, the plain-ASCII twin, red-exclusivity, the key-aware lineup and the keyless panels, the mixed-scheme fixtures for every key-bearing surface, the combo stress check, and the static guard that the app derives no key of its own (D-019). | `--show` |
 | `test_deps_sync.py` | `pyproject.toml`'s dependencies and `requirements.txt` stay in lockstep, naming the drifting package. | `--show` |
 | `test_engine_memory.py` | The last-selected-engine memory (`runtime_state.json`): round-trip, fallbacks that must never cost a start, the startup precedence rule (D-008). | — |
@@ -33,7 +33,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 | `test_settings_instance.py` | The settings single-instance guard (D-009): lazy ctypes, the localized window titles, a mutex name distinct from the tool's, fail-open off-Windows. | — |
 | `test_settings_io.py` | The settings-app IO core: the surgical `.env` / `personal_settings.json` merges, the hotkey-combo helpers, `key_check`, the DE/EN string table, the pure save/engine decision helpers. | `--show` |
 | `test_settings_theme.py` | The theme module: palette shape, WCAG contrast on both surfaces, the type ladder; with a display, the `clam` pin and the page/scroll-canvas sync. | display part skips without a display |
-| `test_settings_visibility.py` | The tkinter-free visibility helpers and the `[SETTINGS]` log lane; with a display, regressions against the real app (auto-hide, wrapping, maximize→restore, language toggle, crash lanes). | `--show`; display parts skip without a display |
+| `test_settings_visibility.py` | The tkinter-free visibility helpers and the `[SETTINGS]` log lane; with a display, regressions against the real app (auto-hide, wrapping, maximize→restore, language toggle, crash lanes, and the tab strip fitting the minimum window width). | `--show`; display parts skip without a display |
 | `test_setup.py` | Static drift guard on `setup.ps1`, `setup.bat`, `uninstall.ps1` and the sandbox harness — reads them as text, runs no PowerShell; real behaviour belongs to `sandbox/`. | `--show` |
 | `test_text_cleanup.py` | The transcript cleanup functions `_remove_spoken_fillers` and `_clean_groq_hallucinations`, every case as input → output. | `--show` |
 | `test_typed_cap.py` | The typed-insert length cap helper `cap_typed_text` (D-003). | — |
@@ -72,7 +72,7 @@ The reliable check is the log heartbeat: the recording loop writes a `Recording 
   - `output_handler.py` — text insertion: the typed and clipboard routes, plus the send-after-insert flag.
   - `hotkey_manager.py` — Win32 hotkey registration; `hotkey_parse.py` — the ctypes-free lexical layer it shares with `config`, plus the one canonical combo spelling (`canonical_combo`) and its display form (`format_combo`, `first_combo`).
   - `ptt_detector.py` — the push-to-talk gesture state machine, Win32-decoupled.
-  - `config.py` — constants, the `.env` and `personal_settings.json` loading with the hotkey/engine overrides, the legacy-archive migration.
+  - `config.py` — constants, the `.env` and `personal_settings.json` loading with the hotkey/engine overrides, the legacy-archive migration, and `VERSION` read from `pyproject.toml` (the regex twin of `setup.ps1`'s).
   - `console_ui.py` — the console renderer, pure stdlib.
   - `typed_cap.py` — the 4,000-character typed-insert cap (D-003).
   - `engine_memory.py` — the last selected engine, remembered in `runtime_state.json`, and the startup precedence rule (D-008).

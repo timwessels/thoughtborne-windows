@@ -45,7 +45,8 @@ from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    SCRIPT_DIR, DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
+    SCRIPT_DIR, VERSION,
+    DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     engine_has_key, ALLOW_SECOND_INSTANCE,
     ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives, replay_import_warnings,
@@ -564,6 +565,10 @@ class ThoughtborneApp:
         logger.info(f"Python Version: {sys.version}", extra=FILE_ONLY)
         logger.info(f"Working directory: {os.getcwd()}", extra=FILE_ONLY)
         logger.info(f"Script directory: {SCRIPT_DIR}", extra=FILE_ONLY)
+        # The version a bug report arrives with (#268/#281). File-only like the rest
+        # of this wall -- the console masthead stays as it is. 'unknown' rather than
+        # a dropped line: in a log, "could not be read" is itself the information.
+        logger.info(f"Thoughtborne version: {VERSION or 'unknown'}", extra=FILE_ONLY)
 
         # Initialize components
         try:

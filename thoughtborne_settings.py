@@ -6,8 +6,8 @@ One tkinter window that doubles as the first-run wizard (rail: Back / Next /
 Cancel) -- every save restarts the tool, keyed or keyless (#271, D-014). The two
 modes differ by the `--first-run` CLI flag, or an auto-promote to the wizard when no
 API key is stored yet (#163); the tabs (Overview -> Provider -> Hotkeys -> Behavior
--> How you dictate) are identical in both ("one window, one face"). German or
-English, switchable in the header.
+-> Machine room -> How you dictate) are identical in both ("one window, one face").
+German or English, switchable in the header.
 
 Pure stdlib: tkinter + ctypes + threading + queue + subprocess + webbrowser. This
 module holds NO IO or validation logic of its own -- every file read/write, key
@@ -24,11 +24,11 @@ round-trip runs on a daemon worker and marshals its result back through a
 `queue.Queue` polled by `root.after` -- widgets are only ever touched on the UI
 thread.
 
-Every Windows-only call (High-DPI awareness, launching wt.exe / Thoughtborne.bat)
-lives inside a function behind try/except, so importing this module can never hard-
-crash at load. It is not unit-tested (a display + real Windows are needed -- the
-render, the Tk state-bit capture, and the live key check are hands-on, #151); it
-must `py_compile` cleanly.
+Every Windows-only call (High-DPI awareness, launching wt.exe / Thoughtborne.bat,
+opening the install folder in Explorer) lives inside a function behind try/except, so
+importing this module can never hard-crash at load. It is not unit-tested (a display +
+real Windows are needed -- the render, the Tk state-bit capture, and the live key check
+are hands-on, #151); it must `py_compile` cleanly.
 
 Known capture limits, mirrored from state-144 / the #151 hands-on list (not shown
 in the UI): Win-modifier combos cannot be captured (no Tk state bit -- hand-edit
@@ -95,7 +95,8 @@ from settings_theme import (LINK_COLOR, TEXT_COLOR, GREEN, RED, GREY, AMBER,
 # stray import off-Windows can't fail at module load.
 CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 
-_TAB_KEYS = ("welcome.tab", "provider.tab", "hotkeys.tab", "behavior.tab", "done.tab")
+_TAB_KEYS = ("welcome.tab", "provider.tab", "hotkeys.tab", "behavior.tab",
+             "machine.tab", "done.tab")
 
 # How many callback-exception blocks one settings process writes before it goes quiet
 # (#240). A callback that throws once usually throws again -- a failing `after` loop
@@ -197,8 +198,13 @@ def _size_window(root: tk.Tk) -> None:
     inside the scaled window is a hands-on check (#151); the point here is to not ship
     a guaranteed clip on scaled displays. All wrapped in try/except so a display quirk
     just leaves Tk's own default size."""
-    base_w, base_h = 800, 860
-    min_w, min_h = 700, 680
+    # Width floor since the sixth tab (#281): measured under Xvfb, six tab labels
+    # need 824 px, and clam neither wraps nor scrolls a too-narrow strip -- it
+    # squeezes every tab and clips the labels silently. So the MINIMUM carries the
+    # strip (860) and the base sits comfortably above it (900); the heights are
+    # untouched.
+    base_w, base_h = 900, 860
+    min_w, min_h = 860, 680
     try:
         try:
             factor = max(root.winfo_fpixels("1i") / 96.0, 1.0)
@@ -653,6 +659,7 @@ class SettingsApp:
             self._build_provider_tab(),
             self._build_hotkeys_tab(),
             self._build_behavior_tab(),
+            self._build_machine_tab(),
             self._build_done_tab(),
         ]
         for frame, key in zip(self._tab_frames, _TAB_KEYS):
@@ -1440,11 +1447,6 @@ class SettingsApp:
         # language switch.
         self.engine_guidance = self._prose(ctrl, "behavior.engine.keyless", surface="Hint.")
 
-        # Pointer to the Soniox recognition vocabulary (#178) -- names only the
-        # section + file, so it never depends on wording #177 may add to the example.
-        self._section(f, "behavior.vocab.heading", level="H2", pady=(sp(28), 0))
-        self._prose(f, "behavior.vocab.body", surface="Muted.").pack(fill="x", pady=(sp(2), 0))
-
         # The 12-line tray wall is split into three digestible blocks (#155); the
         # third is the honest-limits caveat, so it is muted.
         self._section(f, "behavior.tray.heading", level="H2", pady=(sp(28), 0))
@@ -1459,6 +1461,74 @@ class SettingsApp:
         self._prose(f, "behavior.admin.body").pack(fill="x", pady=(sp(2), sp(4)))
         self._link(f, "behavior.admin.link", "url.admin_recipe").pack(anchor="w")
         return outer
+
+    # ---- machine room tab ----
+    def _build_machine_tab(self):
+        # The reference page about the installation itself (#281): the version, the
+        # folder and the two files in it that are the user's, the vocabulary pointer
+        # that used to sit on the Behavior tab, the update route, the license. The
+        # order is where you are -> what of it is yours -> the one thing you do with
+        # it -> how you get a newer one -> the legal footnote. Static text plus two
+        # local actions: no network call of any kind lives here (VISION principle 5;
+        # a live update CHECK is #136 and stays parked). Built in BOTH modes like
+        # every other page, so the tab count never forks _TAB_KEYS -- hence prose
+        # that also reads for a first-run newcomer.
+        outer, f = self._scrollable_tab()
+        sp = self.theme.sp
+
+        self._section(f, "machine.install.heading", level="H1")
+        # The version line is a format string ({version}) -> _prose_dyn, filled by
+        # _render_machine_page. Built unconditionally so render_all always finds it,
+        # packed only when the version could be read: an unreadable pyproject.toml
+        # shows NOTHING here rather than "None" (config.read_version is fail-open).
+        self.machine_version_lbl = self._prose_dyn(f)
+        if config.VERSION:
+            self.machine_version_lbl.pack(fill="x", pady=(sp(2), sp(6)))
+
+        self._prose(f, "machine.folder.body").pack(fill="x", pady=(0, sp(4)))
+        # The install path itself: not translatable, so _prose_dyn rather than _prose
+        # (render_all must not t() it) -- but it wraps like every other label, and Tk
+        # breaks an over-long path mid-token, so even a pathological folder name
+        # cannot widen the page.
+        path_lbl = self._prose_dyn(f, surface="Muted.")
+        path_lbl.config(text=str(config.SCRIPT_DIR))
+        path_lbl.pack(fill="x", pady=(0, sp(6)))
+        fbtn = ttk.Button(f, command=self._open_install_folder)
+        self._reg(fbtn, "btn.open_folder")
+        fbtn.pack(anchor="w")
+
+        self._section(f, "machine.files.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "machine.files.body").pack(fill="x", pady=(sp(2), sp(4)))
+        self._prose(f, "machine.files.body2", surface="Muted.").pack(fill="x")
+
+        # Moved here from the Behavior tab (#281, #178): it is about
+        # personal_settings.json, which the paragraph above has just introduced.
+        # Names only the section + file, so it never depends on wording the example
+        # file may add.
+        self._section(f, "machine.vocab.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "machine.vocab.body", surface="Muted.").pack(fill="x", pady=(sp(2), 0))
+
+        self._section(f, "machine.update.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "machine.update.body").pack(fill="x", pady=(sp(2), sp(4)))
+        self._prose(f, "machine.update.body2", surface="Muted.").pack(fill="x", pady=(0, sp(6)))
+        # The site carries the install command, not this tab: it is the one place
+        # that can change if the command ever does.
+        self._link(f, "machine.update.link", "url.update").pack(anchor="w")
+
+        self._section(f, "machine.license.heading", level="H2", pady=(sp(28), 0))
+        self._prose(f, "machine.license.body").pack(fill="x", pady=(sp(2), sp(6)))
+        self._link(f, "machine.license.link", "url.license").pack(anchor="w")
+        return outer
+
+    def _render_machine_page(self):
+        # The version line, from config.VERSION -- a format string, so it is not
+        # _reg-istered and render_all would otherwise leave it in the old language
+        # (or blind-t() it into a raw '{version}'). Never filled when the version
+        # could not be read; the label is then unpacked as well.
+        if config.VERSION:
+            self.machine_version_lbl.config(
+                text=strings.t("machine.version.body", self.lang).format(
+                    version=config.VERSION))
 
     # ---- done / closing tab ----
     def _build_done_tab(self):
@@ -1599,6 +1669,22 @@ class SettingsApp:
         self._remember_display_api = target
         self.engine_index = config.AVAILABLE_APIS.index(target)
         self._render_engine_control()   # reflect live, even off-tab
+
+    def _open_install_folder(self):
+        # The install folder in Explorer (#281) -- the tool's own Ctrl+Alt+6 pattern
+        # (thoughtborne.on_open_history), minus the mkdir: SCRIPT_DIR is where this
+        # module lives, so it always exists. Broad guard on purpose: os.startfile is
+        # Windows-only and does not even exist elsewhere (an AttributeError, not an
+        # OSError), and the off-Windows ladder builds and drives this page. No dialog
+        # on failure -- the path stands next to the button, so a click that cannot
+        # reach Explorer still leaves the user with the answer.
+        try:
+            os.startfile(str(config.SCRIPT_DIR))
+        except Exception as e:
+            settings_visibility.append_log_line(
+                config.LOG_FILE, settings_visibility.format_settings_line(
+                    time.strftime("%Y-%m-%d %H:%M:%S"), "open-folder",
+                    f"could not open {config.SCRIPT_DIR}: {e}"))
 
     def _open_terminal(self):
         # No documented wt.exe flag opens the settings pane directly (web re-checked
@@ -1793,6 +1879,7 @@ class SettingsApp:
         self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
+        self._render_machine_page()
         self._render_rail()
         self.root.title(strings.t(
             "app.title.firstrun" if self.first_run else "app.title.settings", self.lang))

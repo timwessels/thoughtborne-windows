@@ -47,6 +47,46 @@ def replay_import_warnings() -> list:
 # ===== PATHS =====
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
+# ===== VERSION: the one string, read from pyproject.toml (#268, #281) =====
+# pyproject.toml carries the repo's only version string (RELEASING.md) and ships
+# beside the script on every install path -- the release ZIP lists it under must_have
+# (build-release-zip.sh), a clone has it anyway, and an in-place update overwrites it
+# with the new release's copy (D-013), so the shown version always moves with the
+# files. Read with the SAME line-anchored regex setup.ps1 uses for the Installed-apps
+# DisplayVersion (its Get-InstalledVersion): the two answer one question about one
+# file, so the patterns are kept identical. tomllib is deliberately not used -- it is
+# 3.11+ and the floor is 3.10 (requires-python).
+_VERSION_RE = re.compile(r'(?m)^\s*version\s*=\s*"([^"]+)"')
+
+
+def read_version(path=None):
+    """The installed version from pyproject.toml, or None when it cannot be read.
+
+    Fail-open like every other reader here: missing, unreadable, undecodable or
+    unparseable all yield None, and each surface then shows nothing rather than a
+    guess -- a version display must never cost a start. An empty value collapses to
+    None too, so "no version" has exactly one shape. Never raises, and never adds to
+    IMPORT_WARNINGS: a missing version is cosmetic, not a configuration problem, and
+    a log line about a file the user never edits would be noise.
+
+    `path` exists for the tests; production reads SCRIPT_DIR / "pyproject.toml".
+    """
+    p = Path(path) if path is not None else SCRIPT_DIR / "pyproject.toml"
+    try:
+        # utf-8-sig for the same reason .env is read that way: a BOM must not cost
+        # the value. UnicodeDecodeError is a ValueError, not an OSError, so it needs
+        # naming here or the fail-open has a hole.
+        text = p.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+    m = _VERSION_RE.search(text)
+    if not m:
+        return None
+    return m.group(1).strip() or None
+
+
+VERSION = read_version()
+
 # ===== .env: the ONE key source (#238, #269 / D-017) =====
 # Thoughtborne's API keys come from the .env in its install directory and from
 # nowhere else -- not from a Windows or shell variable of the same name, and nothing

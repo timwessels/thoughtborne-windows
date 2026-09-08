@@ -39,6 +39,16 @@ in any driver or module, no process-environment read of the three `.env`-borne n
 in either half, and `.env.example` staying plain ASCII so a copy of it cannot become
 the undecodable file.
 
+Since #281 the driver also covers the one file here that users do NOT edit:
+`pyproject.toml`, the repo's single version string, which `config.read_version`
+reads for the settings app's Machine-room tab and the startup log line. It belongs
+in this driver for the same reason as the rest -- it is a fail-open read off the
+install directory whose only correct behaviour on a broken file is to yield None and
+cost nothing. Its lane checks the parsing rules against tempdir fixtures, that a
+broken file still lets `import config` through, and, as the point of the exercise,
+that the regex stays character-identical to the one `setup.ps1` uses for the
+Installed-apps `DisplayVersion`: two answers about one file that must not drift.
+
 The Soniox constructor lane needs `groq` (transcriber's only third-party import off
 Windows) and skips cleanly without it; the `.env` lanes need nothing beyond the
 stdlib and always run. Starting the real tool with a broken file and reading the
@@ -916,6 +926,126 @@ def test_env_example_ascii():
 
 
 # ======================================================================
+# The version lane: pyproject.toml, read exactly as setup.ps1 reads it (#268, #281)
+# ======================================================================
+
+# What both halves match on. Kept as one literal so the drift guard below can look
+# for the very same characters in the PowerShell source.
+_VERSION_PATTERN = r'''^\s*version\s*=\s*"([^"]+)"'''
+
+
+def test_version_reader(d):
+    """`config.read_version` against hand-shaped pyproject.toml fixtures.
+
+    The real file first (the version the settings app will show must be a stripped,
+    non-empty string), then the cases that decide whether a display is a fact or a
+    guess. Fail-open is the rule: absent, undecodable, a directory in the file's
+    place, no `version =` line at all, or an empty value all yield None -- "no
+    version" has exactly one shape, so no surface can invent a distinction between
+    missing and empty. And the line anchor has to hold: a commented-out version above
+    the real one must not win (`#` is not whitespace), and `requires-python` must
+    never be mistaken for it."""
+    real = config.read_version()
+    check(isinstance(real, str) and real == real.strip() and real,
+          f"the checkout's own pyproject.toml yields {real!r}, not a clean version string")
+
+    pp = Path(d) / "pyproject.toml"
+    cases = [
+        ("plain", b'[project]\nname = "thoughtborne"\nversion = "1.2.3"\n', "1.2.3"),
+        ("indented", b'[project]\n  version   =   "1.2.3"  \n', "1.2.3"),
+        ("crlf", b'[project]\r\nversion = "1.2.3"\r\n', "1.2.3"),
+        ("bom", b'\xef\xbb\xbf[project]\nversion = "1.2.3"\n', "1.2.3"),
+        ("commented-out above", b'# version = "9.9.9"\nversion = "1.2.3"\n', "1.2.3"),
+        ("requires-python only",
+         b'[project]\nrequires-python = ">=3.10,<3.14"\n', None),
+        ("empty value", b'[project]\nversion = ""\n', None),
+        ("no version line", b'[project]\nname = "thoughtborne"\n', None),
+        ("undecodable", '[project]\nversion = "1.2.3"\n'.encode("utf-16"), None),
+        ("empty file", b"", None),
+    ]
+    for label, raw, expected in cases:
+        pp.write_bytes(raw)
+        got = config.read_version(pp)
+        if SHOW:
+            print(f"    {label}: {raw[:40]!r} -> {got!r}")
+        check(got == expected,
+              f"pyproject.toml [{label}]: read_version -> {got!r}, expected {expected!r}")
+
+    pp.unlink()
+    check(config.read_version(pp) is None,
+          "an absent pyproject.toml must read as None, not raise")
+    check(config.read_version(Path(d)) is None,
+          "a directory in the file's place must read as None, not raise")
+
+
+def test_version_drift_guard():
+    """The point of the lane: `setup.ps1` writes the same version into the
+    Installed-apps `DisplayVersion` (its Get-InstalledVersion), read out of the same
+    installed `pyproject.toml`. Two readers of one fact drift silently -- a `[tool.x]`
+    table gaining a `version =` line would move one and not the other -- so the
+    pattern is pinned character for character in both. Read as text; no PowerShell
+    runs here."""
+    check(_VERSION_PATTERN in config._VERSION_RE.pattern,
+          f"config._VERSION_RE is {config._VERSION_RE.pattern!r}, which no longer "
+          f"contains setup.ps1's pattern {_VERSION_PATTERN!r}")
+    path = Path(__file__).resolve().parent / "setup.ps1"
+    try:
+        src = path.read_text(encoding="utf-8")
+    except OSError as e:
+        failures.append(f"could not read setup.ps1: {type(e).__name__}: {e}")
+        return
+    check(_VERSION_PATTERN in src,
+          "setup.ps1 no longer matches the version with "
+          f"{_VERSION_PATTERN!r} -- it and config.read_version must read "
+          "pyproject.toml the same way")
+
+
+def test_version_import_subprocess():
+    """The acceptance clause, literally: a broken pyproject.toml must not cost a
+    start. A fresh interpreter imports the copied config beside each fixture and
+    reports config.VERSION -- a non-zero exit is the tool refusing to start over a
+    cosmetic file, and a warning would be noise about a file the user never edits."""
+    probe = ("import config;"
+             "print('VERSION', config.VERSION if config.VERSION else '-');"
+             "print('WARNINGS', len(config.IMPORT_WARNINGS))")
+    cases = [
+        ("valid", b'[project]\nversion = "9.8.7"\n', "9.8.7"),
+        ("absent", None, "-"),
+        ("undecodable", b'\xff\xfe[project]\nversion = "9.8.7"\n', "-"),
+        ("unparseable", b"not a toml file at all\n", "-"),
+    ]
+    tmp = tempfile.mkdtemp(prefix="tb_config_version_")
+    try:
+        _copy_config_into(tmp)
+        pp = Path(tmp) / "pyproject.toml"
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        for label, raw, expected in cases:
+            if raw is None:
+                pp.unlink(missing_ok=True)
+            else:
+                pp.write_bytes(raw)
+            proc = subprocess.run([sys.executable, "-c", probe], cwd=tmp, env=env,
+                                  capture_output=True, text=True, timeout=120)
+            if proc.returncode != 0:
+                failures.append(
+                    f"version [{label}]: `import config` exited {proc.returncode} -- "
+                    f"an unreadable version must never cost a start: "
+                    f"{proc.stderr.strip()[-300:]}")
+                continue
+            reported = dict(line.split(" ", 1) for line in proc.stdout.split("\n") if " " in line)
+            if SHOW:
+                print(f"    {label}: {reported}")
+            check(reported.get("VERSION") == expected,
+                  f"version [{label}]: config.VERSION is {reported.get('VERSION')!r}, "
+                  f"expected {expected!r}")
+            check(reported.get("WARNINGS") == "0",
+                  f"version [{label}]: a missing version is cosmetic and must not "
+                  f"add an import warning (got {reported.get('WARNINGS')})")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ======================================================================
 # The consumer lane: both Soniox constructors survive a dropped vocabulary
 # ======================================================================
 
@@ -977,6 +1107,7 @@ TEMPDIR_CASES = [
     test_absent_and_unreadable,
     test_vocabulary_shape,
     test_never_raises,
+    test_version_reader,
 ]
 PLAIN_CASES = [
     test_import_subprocess,
@@ -987,6 +1118,8 @@ PLAIN_CASES = [
     test_replay,
     test_source_guards,
     test_env_example_ascii,
+    test_version_drift_guard,
+    test_version_import_subprocess,
     test_soniox_constructors,
 ]
 
@@ -1021,8 +1154,9 @@ def main():
           f"settings_io parity, a real `import config` per fixture; .env: the install "
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "
-          f"route, a broken file warned about instead of fatal; plus the warning replay "
-          f"and the static guards)")
+          f"route, a broken file warned about instead of fatal; pyproject.toml: the "
+          f"version reader's fail-open rules and its regex twin in setup.ps1; plus the "
+          f"warning replay and the static guards)")
     return 0
 
 
