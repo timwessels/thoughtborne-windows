@@ -337,8 +337,8 @@ _EN = {
         "nothing. Your .env, your personal_settings.json, the log and history/ are "
         "left untouched — but a value you changed inside the program code is gone "
         "afterwards; personal_settings.json is the file that survives."),
-    "machine.update.link": "▸ thoughtborne.app — how to update",
-    "url.update": "https://thoughtborne.app/en/#updating",
+    "machine.update.link": "▸ thoughtborne.app — the current command",
+    "url.update": "https://thoughtborne.app/en/#installation",
     "machine.license.heading": "License",
     "machine.license.body": (
         "Thoughtborne is open source under the MIT license: use it, change it, pass "
@@ -767,8 +767,8 @@ _DE = {
         "nie. Deine .env, deine personal_settings.json, das Log und history/ "
         "bleiben unangetastet — ein Wert, den du im Programmcode geändert hast, ist "
         "danach aber weg. Die personal_settings.json ist die Datei, die bleibt."),
-    "machine.update.link": "▸ thoughtborne.app — Anleitung zum Aktualisieren",
-    "url.update": "https://thoughtborne.app/#aktualisieren",
+    "machine.update.link": "▸ thoughtborne.app — der aktuelle Befehl",
+    "url.update": "https://thoughtborne.app/#installation",
     "machine.license.heading": "Lizenz",
     "machine.license.body": (
         "Thoughtborne ist Open Source unter der MIT-Lizenz: benutzen, ändern, "

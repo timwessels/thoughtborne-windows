@@ -225,6 +225,7 @@ code {
 .ip-panel a { color: var(--accent); text-decoration-color: rgba(89,194,255,.45); }
 .ip-panel a:hover { text-decoration-color: currentColor; }
 .ip-more { margin-top: 0.45rem; padding-bottom: 0.9rem; font-size: 0.84rem; text-align: right; }
+.ip-update { color: var(--term-dim); margin-right: 1.5rem; }
 .ip-panel kbd { color: var(--term-text); border-color: var(--term-line); background: rgba(222,231,237,.06); }
 .ip-flow { list-style: none; margin: 1rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.55rem; }
 .ip-flow li { display: inline-flex; align-items: center; gap: 0.55rem; }

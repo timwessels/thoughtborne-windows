@@ -26,7 +26,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -69,6 +69,8 @@
 
     <!-- The canonical release lane — releases/latest/download always resolves
          to the newest published release, so this URL never needs a version bump. -->
+    <!-- Anchor #installation is deep-linked from the settings app's Machine-Room
+         tab (settings_strings.py, url.update) — renaming it breaks that link silently. -->
     <div class="install install-tabs" id="installation">
       <!-- Three-step strip. Panels 2/3 ship `hidden` so nothing flashes before the
            script at the end of the body wires the tabs; the head's noscript rule
@@ -92,7 +94,7 @@
           <code class="install-cmd">powershell -c "irm https://github.com/timwessels/<wbr>thoughtborne-windows/<wbr>releases/latest/download/setup.ps1 | iex"</code>
           <button class="copy-btn" type="button" data-label="Kopieren" data-done="✓ Kopiert" data-fail="Strg+C drücken">Kopieren</button>
         </div>
-        <p class="ip-more"><a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1" target="_blank" rel="noopener">Installationsskript lesen</a></p>
+        <p class="ip-more"><span class="ip-update">Update: gleicher Befehl</span><a href="https://github.com/timwessels/thoughtborne-windows/blob/main/setup.ps1" target="_blank" rel="noopener">Installationsskript lesen</a></p>
       </div>
 
       <div class="ip-panel" role="tabpanel" id="ip-panel-2" aria-labelledby="ip-tab-2" hidden>
@@ -368,17 +370,6 @@
         <a class="btn btn-ghost" href="https://github.com/timwessels/thoughtborne-windows#installation" target="_blank" rel="noopener">Installation (README)</a>
       </p>
       <p class="audience">Lieber ohne Kommandozeile? Das ZIP entpacken und <code>setup.bat</code> doppelklicken – dasselbe Setup. Wer alles selbst in der Hand haben will, folgt dem README.</p>
-    </div>
-  </section>
-
-  <!-- Anchor #aktualisieren is deep-linked from the settings app's Machine-Room
-       tab (settings_strings.py, url.update) — renaming it breaks that link silently. -->
-  <section class="section updating" id="aktualisieren">
-    <div class="wrap prose">
-      <p class="eyebrow" aria-hidden="true">Updates</p>
-      <h2>Aktualisieren</h2>
-      <p>Es gibt kein Auto-Update: Thoughtborne sucht nie nach einer neuen Version und installiert auch keine im Hintergrund. Aktualisieren heißt, <a href="#installation">den Installationsbefehl noch einmal auszuführen</a> – er holt die aktuelle Version selbst. Ohne Kommandozeile geht es auch: ein Doppelklick auf <code>setup.bat</code> im Installationsordner tut dasselbe. Auf keinem der beiden Wege musst du etwas von Hand herunterladen.</p>
-      <p>Ein Update ersetzt die Programmdateien und ergänzt neue – gelöscht wird dabei nie. <strong>Deine zwei Dateien überleben alles, Änderungen am Programmcode nicht:</strong> <code>.env</code> mit deinen Keys und <code>personal_settings.json</code> mit Vokabular und Hotkeys bleiben unangetastet, ebenso das Log und jede Aufnahme unter <code>history/</code>. Was du dagegen direkt im Programmcode geändert hast, ist nach einem Update weg – die <code>personal_settings.json</code> ist die Datei, die bleibt.</p>
     </div>
   </section>
 

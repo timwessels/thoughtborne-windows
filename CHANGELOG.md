@@ -276,6 +276,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The site's *Updating* section is gone — updating is one line in the install box now (#292).**
+  The section (added with #281's Machine-room work) was the only part of either page that led
+  nowhere, and it pushed the closing call-to-action away from the end of the page. What it said
+  fits in four words, and those now sit right where the update actually happens: *Update: same
+  command* / *Update: gleicher Befehl*, unlinked and dimmed, beside the read-the-install-script
+  link under the install command. The full story — what an update replaces, which files survive —
+  lives on in the settings app's Machine-room tab and the READMEs' *Updating* sections, both
+  unchanged; the Machine-room's site link now points at the install box itself, relabeled to
+  *the current command*, instead of at a section that no longer exists.
+
 - **The console's second, frameless form is gone — one console form now (#273, D-018).** In a
   terminal window narrower than 72 columns every panel and strip used to drop its frame for a
   compact variant. It arrived with the Cockpit redesign as a design element and no real setup
