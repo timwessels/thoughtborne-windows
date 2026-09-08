@@ -832,18 +832,20 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 #       default therefore uses a statically mapped key (letter / digit / F-key); the
 #       self-test moved off the umlaut for exactly this reason (#211, D-012). The
 #       umlaut lane stays available for user overrides via personal_settings.json.
+# Dict order = THE canonical action order (D-019): every surface -- console grid,
+# strips, settings tab, registration log, README tables -- follows it by iteration.
 DEFAULT_HOTKEYS = {
     'start_recording': 'ctrl+alt+w',           # W = Start recording
-    'stop_recording_keyboard': 'ctrl+alt+h',   # H = Stop & insert (keyboard typing)
     'stop_recording_clipboard': 'ctrl+alt+a',  # A = Stop & insert (clipboard paste)
     'stop_recording_send': 'ctrl+alt+d',       # D = Stop & insert & SEND (press Enter)
     'stop_recording_no_insert': 'ctrl+alt+y',  # Y = Stop & process only (insert later) - NEW!
-    'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
+    'stop_recording_keyboard': 'ctrl+alt+h',   # H = Stop & insert (keyboard typing)
     'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
-    'test_transcription': 'ctrl+alt+t',        # T = Test transcription
+    'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
     'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
     'open_settings': 'ctrl+alt+g',             # G = Open the settings app (gear) (#164)
+    'test_transcription': 'ctrl+alt+t',        # T = Test transcription
     'exit_program': ['ctrl+alt+4']             # 4 = Exit program
 }
 

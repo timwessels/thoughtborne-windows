@@ -54,7 +54,7 @@ from config import (
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
-from hotkey_parse import common_prefix, format_combo
+from hotkey_parse import common_prefix, first_combo, format_combo
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
@@ -1505,14 +1505,10 @@ class ThoughtborneApp:
             self._emit_block(
                 'recording',
                 lambda ansi: console_ui.render_rec_strip(
-                    self._key_letter('stop_recording_keyboard'),
-                    self._key_letter('stop_recording_clipboard'),
-                    self._key_letter('stop_recording_send'),
-                    self._key_letter('stop_recording_no_insert'),
-                    self._key_letter('cancel_recording'),
-                    self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard',
-                                      'stop_recording_send', 'stop_recording_no_insert',
-                                      'cancel_recording']),
+                    # a set of names, not an order -- _pairs supplies the order
+                    self._pairs(['stop_recording_clipboard', 'stop_recording_send',
+                                 'stop_recording_no_insert', 'stop_recording_keyboard',
+                                 'cancel_recording']),
                     ansi=ansi))
 
             # Start live streaming session if transcriber supports it
@@ -2453,21 +2449,15 @@ class ThoughtborneApp:
         return [(*entry(a), a == self.current_api, engine_has_key(a))
                 for a in AVAILABLE_APIS]
 
-    def _keys_grid_data(self):
-        """The 12 KEYS-grid letters (console_ui.KEY_ACTIONS order) plus the
-        shared modifier prefix, from config.HOTKEYS. Degrades to full combos
-        with prefix=None if the config ever mixes prefixes (edge, documented)."""
-        order = ['start_recording', 'stop_recording_keyboard', 'stop_recording_clipboard',
-                 'stop_recording_send', 'stop_recording_no_insert', 'cancel_recording',
-                 'retry_last_failed', 'switch_api', 'open_history', 'test_transcription',
-                 'exit_program', 'open_settings']
-        combos = [HOTKEYS[n][0] if isinstance(HOTKEYS[n], list) else HOTKEYS[n]
-                  for n in order]
-        prefixes = {c.rpartition('+')[0] for c in combos}
-        if len(prefixes) == 1 and '' not in prefixes:
-            return ([c.rpartition('+')[2].capitalize() for c in combos],
-                    self._format_hotkey(prefixes.pop()))
-        return [self._format_hotkey(c) for c in combos], None
+    def _show(self, name):
+        """The one display combo of an action (the first of a list value)."""
+        return format_combo(first_combo(HOTKEYS[name]))
+
+    def _pairs(self, names=None):
+        """[(action_name, display_combo)] in canonical order -- HOTKEYS inherits
+        DEFAULT_HOTKEYS' order via deepcopy (D-019), so no surface carries one of
+        its own; `names` narrows to one box's actions without reordering them."""
+        return [(n, self._show(n)) for n in HOTKEYS if names is None or n in names]
 
     def _prefix_for(self, action_names):
         """The once-per-box modifier lead (#115) for exactly the keys THIS box
@@ -2550,8 +2540,9 @@ class ThoughtborneApp:
                 self._emit_block(
                     'ready',
                     lambda ansi: console_ui.render_waiting_strip(
-                        seq_shown, chars, type_key, paste_key,
-                        self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']),
+                        seq_shown, chars,
+                        self._pairs(['stop_recording_clipboard',
+                                     'stop_recording_keyboard']),
                         ansi=ansi),
                     detail=f"seq={seq} chars={chars}")
             elif event == 'failed' and kind == 'insertion':
@@ -2624,30 +2615,30 @@ class ThoughtborneApp:
 
         self.hotkey_manager = HotkeyManager()
 
-        # Single-value hotkeys
-        single_hotkeys = {
+        # name -> callback; looked up, never iterated -- the registration order
+        # (and with it the log's `Registered:` lines) comes from HOTKEYS, which
+        # carries the canonical DEFAULT_HOTKEYS order (D-019). Indexing this map
+        # is deliberate: a future action without a callback fails loudly here
+        # rather than staying silently unregistered.
+        callbacks = {
             'start_recording': self.on_start_recording,
-            'stop_recording_keyboard': self.on_stop_recording_keyboard,
             'stop_recording_clipboard': self.on_stop_recording_clipboard,
             'stop_recording_send': self.on_stop_recording_send,
             'stop_recording_no_insert': self.on_stop_recording_no_insert,
+            'stop_recording_keyboard': self.on_stop_recording_keyboard,
+            'cancel_recording': self.on_cancel_recording,
             'retry_last_failed': self.on_retry_last_failed,
-            'test_transcription': self.on_test_transcription,
             'switch_api': self.on_switch_api,
             'open_history': self.on_open_history,
             'open_settings': self.on_open_settings,   # #164
+            'test_transcription': self.on_test_transcription,
+            'exit_program': self.on_exit_program,
         }
 
-        for hotkey_name, callback in single_hotkeys.items():
-            hotkey_str = HOTKEYS[hotkey_name]
-            self.hotkey_manager.register(hotkey_str, callback, name=hotkey_name)
-
-        # List-value hotkeys (cancel_recording, exit_program)
-        for cancel_hotkey in HOTKEYS['cancel_recording']:
-            self.hotkey_manager.register(cancel_hotkey, self.on_cancel_recording, name='cancel_recording')
-
-        for exit_hotkey in HOTKEYS['exit_program']:
-            self.hotkey_manager.register(exit_hotkey, self.on_exit_program, name='exit_program')
+        for hotkey_name, value in HOTKEYS.items():
+            for hotkey_str in (value if isinstance(value, list) else [value]):
+                self.hotkey_manager.register(hotkey_str, callbacks[hotkey_name],
+                                             name=hotkey_name)
 
         # Start the listener thread (blocks until registration is done)
         if not self.hotkey_manager.start():
@@ -2774,7 +2765,7 @@ class ThoughtborneApp:
             # MODEL lineup, the KEYS grid, the history edge. Keyless (#200) it also
             # carries a yellow "enter a key in Settings" guidance line under the
             # greyed lineup. Recovery gets its own prominent panel below (#78).
-            keys, key_prefix = self._keys_grid_data()
+            keys = self._pairs()
             lineup = self._lineup_data()
             guidance = None
             if self._keyless:
@@ -2790,10 +2781,11 @@ class ThoughtborneApp:
             self._emit_block(
                 'startup',
                 lambda ansi: console_ui.render_masthead(
-                    lineup, keys, key_prefix, str(HISTORY_FOLDER),
-                    # bare letters: Ctrl+Alt is established once on the READY line (#115).
+                    lineup, keys, str(HISTORY_FOLDER),
+                    # bare letter: Ctrl+Alt is established once on the READY line
+                    # (#115); the MODEL header takes the full combo in #276.
                     self._key_letter('switch_api'),
-                    self._format_hotkey(HOTKEYS['start_recording']),
+                    self._show('start_recording'),
                     guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
                     pinned_default=pinned_default,

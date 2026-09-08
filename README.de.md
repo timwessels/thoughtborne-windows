@@ -192,8 +192,8 @@ Die eigenen Daten bleiben lokal: Jedes Diktat liegt in einem gemeinsamen `histor
 | `Ctrl+Alt+W` | Aufnahme starten (geht auch, während eine vorherige Aufnahme noch transkribiert wird) |
 | `Ctrl+Alt+A` | Stopp + an der Cursor-Position einfügen (über die Zwischenablage — schneller) |
 | `Ctrl+Alt+D` | Stopp + einfügen + Enter drücken (Senden mit einem Tastendruck, für Chats) |
-| `Ctrl+Alt+H` | Stopp + an der Cursor-Position einfügen (simuliertes Tippen) |
 | `Ctrl+Alt+Y` | Stopp + nur transkribieren — später mit `A` oder `H` einfügen |
+| `Ctrl+Alt+H` | Stopp + an der Cursor-Position einfügen (simuliertes Tippen) |
 | `Ctrl+Alt+X` | Aufnahme abbrechen (nichts wird eingefügt) |
 | `Ctrl+Alt+R` | Letzte fehlgeschlagene Transkription wiederholen (aus der archivierten Aufnahme) |
 | `Ctrl+Alt+L` | Transkriptions-API wechseln (zyklisch: Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); die gewählte Engine wird gemerkt und startet beim nächsten Mal |

@@ -16,18 +16,25 @@ What each rendered block is checked for:
      is ASCII + the single allowed umlaut U-umlaut (the self-test hotkey).
   3. ansi=True: every non-ASCII glyph is in the CP437 safe set.
   4. red (SGR 31) appears only in error renderings.
-  5. KEYS grid anchored at columns 24/46; OK/WAITING seq block at column 41.
+  5. KEYS grid anchored at columns 24/46 and reading W A D / Y H X / R L 6 /
+     G T 4; OK/WAITING seq block at column 41. Every key fixture is built from
+     config.DEFAULT_HOTKEYS with the app's own helpers (D-019), so no copy of
+     the canonical action order lives here.
   6. logo fold-in (#109): the active a5 masthead mark renders in ANSI and drops
      in the plain twin; every routine strip carries the monochrome bullet header
      (with its plain 'o' twin) plus one headroom line.
+  7. the pair contract (D-019): the renderer's key tables cover the shipped
+     actions, the cell budgets stay derived, and the grid plus the REC/WAITING
+     strips hold their geometry under rebound hotkey schemes.
 """
 import re
 import sys
 
 import console_ui as u
+import settings_io          # PRESET_FKEYS as an override fixture; stdlib-only
 from config import (API_DISPLAY, API_KEY_ENV, AVAILABLE_APIS, DEFAULT_API,
-                    HOTKEYS, LOG_FILE, engine_has_key)
-from hotkey_parse import format_combo
+                    DEFAULT_HOTKEYS, LOG_FILE, engine_has_key)
+from hotkey_parse import common_prefix, first_combo, format_combo
 
 SHOW = "--show" in sys.argv
 
@@ -123,33 +130,34 @@ def lineup_keyed(current, present):
              a == current, API_KEY_ENV[a] in present) for a in AVAILABLE_APIS]
 
 
-def keys_and_prefix():
-    """The 12 key letters (KEY_ACTIONS order) plus the shared modifier prefix,
-    exactly as the app derives them from config.HOTKEYS."""
-    order = ["start_recording", "stop_recording_keyboard", "stop_recording_clipboard",
-             "stop_recording_send", "stop_recording_no_insert", "cancel_recording",
-             "retry_last_failed", "switch_api", "open_history",
-             "test_transcription", "exit_program", "open_settings"]
-    combos = []
-    for k in order:
-        v = HOTKEYS[k]
-        combos.append(v[0] if isinstance(v, list) else v)
-    prefixes = {c.rpartition("+")[0] for c in combos}
-    if len(prefixes) == 1 and "" not in prefixes:
-        prefix = format_combo(prefixes.pop())
-        letters = [c.rpartition("+")[2].capitalize() for c in combos]
-        return letters, prefix
-    return [format_combo(c) for c in combos], None
+def pairs_for(scheme, names=None):
+    """The app's _pairs(), rebuilt from the same functions -- the order comes
+    from the scheme dict's own iteration, so no copy of it lives here (D-019).
+    Built on the pristine DEFAULT_HOTKEYS rather than the effective HOTKEYS: the
+    anchor assertions below assume the shipped scheme, and a checkout with its
+    own personal_settings.json override must not break the ladder."""
+    return [(n, format_combo(first_combo(scheme[n])))
+            for n in scheme if names is None or n in names]
 
 
-KEYS, KEY_PREFIX = keys_and_prefix()
-SWITCH = format_combo(HOTKEYS["switch_api"])       # full combo (switched/switch_failed panels)
-OPEN = format_combo(HOTKEYS["open_history"])
+PAIRS = pairs_for(DEFAULT_HOTKEYS)
+_prefix = common_prefix([first_combo(v) for v in DEFAULT_HOTKEYS.values()])
+KEY_PREFIX = format_combo(_prefix) if _prefix else None
+# Which actions a box shows -- sets, deliberately: pairs_for supplies the order.
+REC_ACTIONS = {"stop_recording_clipboard", "stop_recording_send",
+               "stop_recording_no_insert", "stop_recording_keyboard",
+               "cancel_recording"}
+WAIT_ACTIONS = {"stop_recording_clipboard", "stop_recording_keyboard"}
+REC_STOPS = pairs_for(DEFAULT_HOTKEYS, REC_ACTIONS)
+WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
+
+SWITCH = format_combo(DEFAULT_HOTKEYS["switch_api"])   # full combo (switched/switch_failed)
+OPEN = format_combo(DEFAULT_HOTKEYS["open_history"])
 # bare letters the masthead now receives (#115): Ctrl+Alt is established once on
 # the READY line, so MODEL carries only the letter.
-SWITCH_LETTER = HOTKEYS["switch_api"].rpartition("+")[2].capitalize()   # "L"
-START = format_combo(HOTKEYS["start_recording"])
-RETRY = format_combo(HOTKEYS["retry_last_failed"])
+SWITCH_LETTER = DEFAULT_HOTKEYS["switch_api"].rpartition("+")[2].capitalize()   # "L"
+START = format_combo(DEFAULT_HOTKEYS["start_recording"])
+RETRY = format_combo(DEFAULT_HOTKEYS["retry_last_failed"])
 FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
 FFOOTER = [("W", "record"), ("R", "retry"), ("L", "model"), ("4", "quit")]
 
@@ -183,13 +191,11 @@ def check_logo_state():
         _record("ACTIVE_STRIP_HEADER is not 'THOUGHTBORNE'")
 
     strips = [
-        ("rec", u.render_rec_strip, dict(type_key="A", paste_key="D", send_key="H",
-                                         keep_key="Y", cancel_key="X", key_prefix=KEY_PREFIX)),
+        ("rec", u.render_rec_strip, dict(stops=REC_STOPS)),
         ("ok", u.render_ok_strip, dict(seq=12, chars=184, sent=False,
                                        model_label="Soniox Live", footer_keys=FOOTER,
                                        key_prefix=KEY_PREFIX)),
-        ("waiting", u.render_waiting_strip, dict(seq=12, chars=184, type_key="A", paste_key="D",
-                                                 key_prefix=KEY_PREFIX)),
+        ("waiting", u.render_waiting_strip, dict(seq=12, chars=184, stops=WAIT_STOPS)),
         ("cancelled", u.render_cancelled_strip, {}),
         ("saved", u.render_saved_strip, dict(duration=12.3, retry_key=RETRY)),
     ]
@@ -207,7 +213,7 @@ def check_logo_state():
 
     # a5 disc: rendered beside the wordmark in ANSI, gone from the plain twin
     # (which collapses to WM_PLAIN).
-    mkw = dict(lineup=lineup_for(DEFAULT_API), keys=KEYS, key_prefix=KEY_PREFIX,
+    mkw = dict(lineup=lineup_for(DEFAULT_API), keys=PAIRS,
                history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
                start_key=START, logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True)
     ma = u.render_masthead(ansi=True, **mkw)
@@ -227,7 +233,7 @@ ACC = f"\x1b[{u.ACCENT}m"    # the accent SGR as it appears inline
 
 def _masthead(ansi, *, logo=True, wordmark=True):
     return u.render_masthead(
-        lineup_for(DEFAULT_API), KEYS, KEY_PREFIX, PATHS[1] + r"\history",
+        lineup_for(DEFAULT_API), PAIRS, PATHS[1] + r"\history",
         SWITCH_LETTER, START,
         logo_lines=(u.ACTIVE_LOGO_MARK if logo else None), with_wordmark=wordmark,
         ansi=ansi)
@@ -255,9 +261,9 @@ def check_accent_state():
     # accent is exclusive to the masthead wordmark/mark -- no strip/panel takes it
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     others = [
-        u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True),
+        u.render_rec_strip(REC_STOPS, ansi=True),
         u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX, ansi=True),
-        u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True),
+        u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True),
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,
                                       ansi=True),
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #159 reason block
@@ -326,16 +332,14 @@ def check_ctrl_alt_counts():
     cases = [
         ("masthead", _masthead(True), 1),
         ("ready", _masthead(True, logo=False, wordmark=False), 1),
-        ("rec", u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX,
-                                   ansi=True), 1),
+        ("rec", u.render_rec_strip(REC_STOPS, ansi=True), 1),
         ("ok", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
                                  ansi=True), 1),
         ("ok/typing", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
                                         mode="typing", cap=4000, ansi=True), 1),
         ("typed_capped", u.render_typed_capped(4000, 30818, "A", model, FOOTER, KEY_PREFIX,
                                                ansi=True), 1),
-        ("waiting", u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX,
-                                           ansi=True), 1),
+        ("waiting", u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True), 1),
         ("cancelled", u.render_cancelled_strip(ansi=True), 0),
         ("saved", u.render_saved_strip(12.3, RETRY, ansi=True), 1),
         ("transcription_failed", u.render_transcription_failed(
@@ -482,15 +486,20 @@ def check_strip_structure():
     lead = f"  {KEY_PREFIX} +  "
     if len(lead) != 14:
         _record(f"strip lead is {len(lead)} cols, expected 14 (shipped Ctrl+Alt prefix)")
-    rec = u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True)
+    rec = u.render_rec_strip(REC_STOPS, ansi=True)
     ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
                            ansi=True)
-    waiting = u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True)
+    waiting = u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True)
     for name, lines in (("rec", rec), ("ok", ok), ("waiting", waiting)):
         joined = strip("".join(lines))
         for label in ("stop:", "or:", "insert:", "retry:"):
             if label in joined:
                 _record(f"{name}: stale lead-in label {label!r}")
+        # D-019 retired the two long strip words; a regression would read fine
+        # but break the widest-case flow-line measurement (67 of 68 cells).
+        for stale in ("keep for later", "type text"):
+            if stale in joined:
+                _record(f"{name}: stale strip word {stale!r}")
         keyline = next((strip(ln) for ln in lines if f"{KEY_PREFIX} +" in strip(ln)), None)
         if keyline is None:
             _record(f"{name}: no Ctrl+Alt key line")
@@ -544,22 +553,202 @@ def check_typed_cap_surfaces():
             _record(f"typed_capped framed line != {u.W}: {v!r}")
 
 
+# ---- D-019 key tables, derived budgets, prefix parity ------------------------
+def check_key_tables_and_budgets():
+    """The renderer's key copy is keyed by action name, so it must cover exactly
+    the actions config ships (`console_ui` cannot import them); the cell budgets
+    are derived at import, not hardcoded; and `_display_prefix` -- the deliberate
+    twin of `hotkey_parse.common_prefix` this module may not import -- agrees
+    with the original on formatted combos."""
+    if set(u.KEY_LABELS) != set(DEFAULT_HOTKEYS):
+        _record(f"KEY_LABELS keys != DEFAULT_HOTKEYS: "
+                f"{set(u.KEY_LABELS) ^ set(DEFAULT_HOTKEYS)}")
+    # A subset on purpose: open_settings / test_transcription appear on no strip
+    # or footer. A missing word a surface DOES need is a KeyError in its fixture.
+    if not set(u.KEY_WORDS) <= set(DEFAULT_HOTKEYS):
+        _record(f"KEY_WORDS carries unknown action names: "
+                f"{set(u.KEY_WORDS) - set(DEFAULT_HOTKEYS)}")
+
+    # Derived values, pinned: a copy change that moves them must be a decision.
+    if u.KEY_BUDGET != 13:
+        _record(f"KEY_BUDGET is {u.KEY_BUDGET}, expected the derived 13")
+    three = u._cell_budget(u.KEY_LABELS.values(), 3)
+    if three != 1:
+        _record(f"three-column key budget is {three}, expected the derived 1")
+
+    for combos in (["ctrl+alt+w", "ctrl+alt+a"],          # one shared prefix
+                   ["ctrl+alt+w", "ctrl+shift+a"],        # mixed prefixes
+                   ["f9", "ctrl+alt+a"],                  # a bare key mixed in
+                   ["ctrl+alt+shift+win+f24"],            # a single long combo
+                   ["f9", "f10"]):                        # bare keys only
+        want = common_prefix(combos)
+        want = format_combo(want) if want is not None else None
+        got = u._display_prefix([format_combo(c) for c in combos])
+        if got != want:
+            _record(f"_display_prefix{combos} -> {got!r}, common_prefix says {want!r}")
+
+
+# ---- D-019 cell geometry: the grid under override schemes --------------------
+def _bold_tokens(lines):
+    """The key tokens of a render: the pure-bold spans (tags carry a colour too)."""
+    return re.findall(r"\x1b\[1m([^\x1b]*)\x1b", "".join(lines))
+
+
+def _cell_columns(line):
+    """Visible start columns of the key cells in one rendered row: the bold key
+    token, or the unstyled `[...]+` artifact standing in front of it. Read off
+    the render, so the alignment check does not restate the cell formula."""
+    visible, cols, i = "", [], 0
+    while i < len(line):
+        m = _SGR.match(line, i)
+        if m:
+            if m.group(0) == f"\x1b[{u.BOLD}m":
+                cols.append(len(visible))
+            i = m.end()
+        else:
+            visible += line[i]
+            i += 1
+    pre = u.ELLIPSIS + "+"
+    return [c - len(pre) if visible[:c].endswith(pre) else c for c in cols]
+
+
+def check_grid_schemes():
+    """The KEYS grid under override schemes it must survive: the settings app's
+    own F-keys preset, a single bare-F-key rebind, a three-modifier scheme (the
+    `[...]` rule), a pathological 22-cell one, and all-F-keys under one lead --
+    two columns each, aligned, framed at full width, nothing truncated."""
+    lineup = lineup_for(DEFAULT_API)
+
+    def grid_for(name, scheme, expect_rows=6, columns=2):
+        """Render a whole masthead on `scheme` (framed, both ansi states, twin),
+        then return its grid rows -- asserting the row count and that every row
+        puts its cells at the same columns: the uniform cell width, read off the
+        render rather than restated from the formula."""
+        pairs = pairs_for(scheme)
+        kw = dict(lineup=lineup, keys=pairs, history_path=PATHS[1] + r"\history",
+                  switch_key="L", start_key="F9", with_wordmark=False)
+        for ansi in (True, False):
+            check_block(name, u.render_masthead(ansi=ansi, **kw), ansi=ansi)
+        twin(name, u.render_masthead, **kw)
+        rows = u._keys_grid_lines(pairs, u._display_prefix([c for _, c in pairs]), True)
+        if len(rows) != expect_rows:
+            _record(f"{name}: {len(rows)} grid rows, expected {expect_rows}")
+        starts = {tuple(_cell_columns(r)) for r in rows}
+        if starts != {tuple(_cell_columns(rows[0]))} or len(_cell_columns(rows[0])) != columns:
+            _record(f"{name}: cells not aligned in {columns} columns: {sorted(starts)}")
+        return rows
+
+    # (a) the settings app's F-keys preset: mixed prefixes, every combo within
+    #     the key-column budget (widest: Ctrl+Alt+F10 = 12), so nothing shortens.
+    rows = grid_for("grid/fkeys-preset", settings_io.PRESET_FKEYS)
+    if u.ELLIPSIS in strip("".join(rows)):
+        _record("grid/fkeys-preset: shortened a combo that fits the budget")
+
+    # (b) one bare-F-key rebind -- the realistic #55 case that costs the lead.
+    rows = grid_for("grid/f9-override", dict(DEFAULT_HOTKEYS, start_recording="f9"))
+    joined = strip("".join(rows))
+    if u.ELLIPSIS in joined or "Ctrl+Alt+W" in joined:
+        _record(f"grid/f9-override: unexpected shortening or a stale key: {joined!r}")
+
+    # (c) three modifiers on eleven actions, one bare key: no lead, and every
+    #     16-cell combo shortens -- with only the key token bold ([...] is a
+    #     renderer artifact, not part of the key).
+    three = {n: ("f9" if n == "start_recording"
+                 else "ctrl+alt+shift+" + first_combo(v).rpartition("+")[2])
+             for n, v in DEFAULT_HOTKEYS.items()}
+    rows = grid_for("grid/three-modifiers", three)
+    ansi_joined = "".join(rows)
+    if f"{u.ELLIPSIS}+\x1b[1m" not in ansi_joined:
+        _record("grid/three-modifiers: expected shortened keys with only the key token bold")
+    if f"\x1b[1m{u.ELLIPSIS}" in ansi_joined:
+        _record("grid/three-modifiers: the [...] artifact is styled as part of the key")
+
+    # (d) pathological: a four-modifier lead with multi-cell bare keys (22-cell
+    #     combos). Illegal as a config -- every action on one combo -- but a
+    #     legitimate renderer stress: two columns of bare keys under the lead.
+    rows = grid_for("grid/four-modifier-lead",
+                    {n: ("ctrl+alt+shift+win+u" if n == "exit_program"
+                         else "ctrl+alt+shift+win+f24") for n in DEFAULT_HOTKEYS})
+    if u.ELLIPSIS in strip("".join(rows)):
+        _record("grid/four-modifier-lead: shortened a bare key under a lead")
+
+    # (e) all of Ctrl+Alt+F1..F12: one lead, but 3-cell bare keys -> two columns,
+    #     not three (the column count follows the geometry, not the lead).
+    rows = grid_for("grid/fkeys-under-lead",
+                    {n: f"ctrl+alt+f{i + 1}" for i, n in enumerate(DEFAULT_HOTKEYS)})
+    joined = strip("".join(rows))
+    if "Ctrl+Alt" in joined or "F12" not in joined:
+        _record(f"grid/fkeys-under-lead: keys are not bare under the lead: {joined!r}")
+
+
+# ---- D-019 REC / WAITING on the pair contract --------------------------------
+def check_strip_pairs():
+    """The two strips the pair contract reaches in this step: the shipped flow
+    form word for word, the aligned cell form under a rebound scheme (where the
+    old code showed the same wrong key three times), and the width fallback."""
+    rec = [strip(ln) for ln in u.render_rec_strip(REC_STOPS, ansi=True)]
+    want = ["  Ctrl+Alt +  A paste   D paste+Enter   Y keep only",
+            "              H type   X cancel"]
+    got = [ln[1:-1].rstrip() for ln in rec[3:5]]   # the two key lines
+    if got != want:
+        _record(f"rec strip: {got!r} != the canonical {want!r}")
+    waiting = [strip(ln) for ln in u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True)]
+    if waiting[3][1:-1].rstrip() != "  Ctrl+Alt +  A paste   H type":
+        _record(f"waiting strip: {waiting[3][1:-1].rstrip()!r} != the canonical form")
+
+    # Rebound to the settings app's F-keys preset: aligned cells with full,
+    # DIFFERENT combos. Before D-019 this rendered `F10 type  F10 paste
+    # F10 paste+Enter` -- three keys, one letter, two of them wrong.
+    stops = pairs_for(settings_io.PRESET_FKEYS, REC_ACTIONS)
+    lines = u.render_rec_strip(stops, ansi=True)
+    for ansi in (True, False):
+        check_block("rec/fkeys-preset", u.render_rec_strip(stops, ansi=ansi), ansi=ansi)
+    twin("rec/fkeys-preset", u.render_rec_strip, stops=stops)
+    tokens = _bold_tokens(lines)
+    if len(tokens) != len(stops):
+        _record(f"rec/fkeys-preset: {len(tokens)} key tokens for {len(stops)} keys")
+    if len(set(tokens)) != len(tokens):
+        _record(f"rec/fkeys-preset: two keys render the same token: {tokens}")
+    # top border, headroom, REC head, 3 cell rows for 5 keys, bottom border
+    if len(lines) != 7:
+        _record(f"rec/fkeys-preset: {len(lines)} lines, expected 7 (3 cell rows)")
+    # [...] may only ever stand in a key column, i.e. immediately before a token.
+    joined = "".join(lines)
+    if joined.count(u.ELLIPSIS) != joined.count(f"{u.ELLIPSIS}+\x1b[1m"):
+        _record("rec/fkeys-preset: an ELLIPSIS outside a key column")
+
+    # The flow line does not fit: a four-modifier lead plus wide keys. Unreachable
+    # with canonical combos and today's words (widest real case: 67 of 68 cells),
+    # so the fixture is synthetic -- the renderer measures, it never parses.
+    wide = [(n, "Ctrl+Alt+Shift+Win+F24" + str(i))
+            for i, (n, _) in enumerate(REC_STOPS)]
+    lines = u.render_rec_strip(wide, ansi=True)
+    for ansi in (True, False):
+        check_block("rec/lead-too-wide", u.render_rec_strip(wide, ansi=ansi), ansi=ansi)
+    twin("rec/lead-too-wide", u.render_rec_strip, stops=wide)
+    if any("Ctrl+Alt+Shift+Win +" in strip(ln) for ln in lines):
+        _record("rec/lead-too-wide: rendered a flow line that does not fit the frame")
+    if not all(t.startswith("F24") for t in _bold_tokens(lines)):
+        _record(f"rec/lead-too-wide: expected [...]-shortened keys, got {_bold_tokens(lines)}")
+
+
 # ---- #55 override edge: no shared modifier prefix (key_prefix=None) ----------
 def check_prefix_none_widths():
     """An override can leave the effective hotkeys without a shared modifier lead
-    (a bare F-key rebind, or mixed prefixes), so the app derives key_prefix=None --
-    a framed path the shipped config never reaches. Guard the masthead KEYS grid
+    (a bare F-key rebind, or mixed prefixes), so the renderer sees no lead -- a
+    framed path the shipped config never reaches. Guard the masthead KEYS grid
     and a routine strip on it at full width."""
     lineup = lineup_for(DEFAULT_API)
     # Ctrl+Alt+Ü is deliberate: the umlaut is override-only since #211/D-012, and this
     # synthetic fixture is the console's only remaining render coverage of the glyph.
-    mixed_keys = ["F9", "Ctrl+Alt+A", "Ctrl+Alt+D", "Ctrl+Alt+H", "Ctrl+Alt+Y",
-                  "Ctrl+Alt+X", "Ctrl+Shift+F12", "Ctrl+Alt+L", "Ctrl+Alt+6",
-                  "Ctrl+Alt+Ü", "Ctrl+Alt+4", "Ctrl+Alt+G"]
+    # Ctrl+Shift+F12 (14 cells) is over the key-column budget and renders `[...]+F12`.
+    mixed = pairs_for(dict(DEFAULT_HOTKEYS, start_recording="f9",
+                           retry_last_failed="ctrl+shift+f12",
+                           test_transcription="ctrl+alt+ü"))
     bare_footer = [("F9", "record"), ("F6", "history"), ("F10", "model"), ("F4", "quit")]
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
-         dict(lineup=lineup, keys=mixed_keys, key_prefix=None,
+         dict(lineup=lineup, keys=mixed,
               history_path=PATHS[1] + r"\history", switch_key="L",
               start_key="F9", with_wordmark=False)),
         ("ok_prefix_none", u.render_ok_strip,
@@ -651,7 +840,7 @@ def check_keyless_lineup():
 def _masthead_with(lineup, *, guidance=None, pinned_default=None):
     """A masthead render for the #200/#219 checks (ANSI), wordmark on, given lineup."""
     return u.render_masthead(
-        lineup, KEYS, KEY_PREFIX, PATHS[1] + r"\history", SWITCH_LETTER,
+        lineup, PAIRS, PATHS[1] + r"\history", SWITCH_LETTER,
         START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
         pinned_default=pinned_default, ansi=True)
 
@@ -702,7 +891,7 @@ def check_pinned_default_tag():
     # (D) plain twin: ASCII tag present on the pinned row, no ESC.
     lu = lineup_for("soniox-live")
     mplain = u.render_masthead(
-        lu, KEYS, KEY_PREFIX, PATHS[1] + r"\history", SWITCH_LETTER,
+        lu, PAIRS, PATHS[1] + r"\history", SWITCH_LETTER,
         START, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
         pinned_default=API_DISPLAY["groq"]["label"], ansi=False)
     prow = next((ln for ln in mplain if API_DISPLAY["groq"]["label"] in ln), None)
@@ -737,21 +926,19 @@ def main():
 
         for path in PATHS:
             run("masthead", u.render_masthead, dict(
-                lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=path + r"\history",
+                lineup=lineup, keys=PAIRS, history_path=path + r"\history",
                 switch_key=SWITCH_LETTER, start_key=START,
                 with_wordmark=True))
         # masthead with the active a5 mark beside the wordmark (as the app wires it)
         run("masthead_logo", u.render_masthead, dict(
-            lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=PATHS[1] + r"\history",
+            lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
             switch_key=SWITCH_LETTER, start_key=START,
             logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
         run("ready", u.render_masthead, dict(
-            lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=PATHS[1] + r"\history",
+            lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
             switch_key=SWITCH_LETTER, start_key=START, with_wordmark=False))
 
-        run("rec", u.render_rec_strip,
-            dict(type_key="A", paste_key="D", send_key="H", keep_key="Y", cancel_key="X",
-                 key_prefix=KEY_PREFIX))
+        run("rec", u.render_rec_strip, dict(stops=REC_STOPS))
         run("cancelled", u.render_cancelled_strip, {})
         run("saved", u.render_saved_strip, dict(duration=12.3, retry_key=RETRY))
         run("hotkeys_failed", u.render_hotkeys_failed, {})
@@ -778,7 +965,7 @@ def main():
                         seq=seq, chars=chars, sent=sent, model_label=model, footer_keys=FOOTER,
                         key_prefix=KEY_PREFIX))
                 run("waiting", u.render_waiting_strip, dict(
-                    seq=seq, chars=chars, type_key="A", paste_key="D", key_prefix=KEY_PREFIX))
+                    seq=seq, chars=chars, stops=WAIT_STOPS))
 
         # #7 typed insert: the cap annotation beside the char count (mode='typing',
         # chars <= cap), and the yellow CAPPED strip for a truncated one.
@@ -821,7 +1008,7 @@ def main():
     # press raises. run() sweeps both ansi states; check_block enforces width,
     # charset, the plain twin, and (both being yellow) red-exclusivity.
     run("masthead_keyless", u.render_masthead, dict(
-        lineup=lineup_keyed(None, set()), keys=KEYS, key_prefix=KEY_PREFIX,
+        lineup=lineup_keyed(None, set()), keys=PAIRS,
         history_path=PATHS[1] + r"\history",
         switch_key=SWITCH_LETTER, start_key=START, guidance=GUIDANCE, with_wordmark=True))
     run("keyless", u.render_keyless_notice, dict(settings_key="Ctrl+Alt+G"))
@@ -850,9 +1037,11 @@ def main():
 
     # ---- structural twin checks (skip the wordmark masthead) -----------------
     lineup = lineup_for(DEFAULT_API)
-    twin("ready", u.render_masthead, lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX,
+    twin("ready", u.render_masthead, lineup=lineup, keys=PAIRS,
          history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
          start_key=START, with_wordmark=False)
+    twin("rec", u.render_rec_strip, stops=REC_STOPS)
+    twin("waiting", u.render_waiting_strip, seq=12, chars=184, stops=WAIT_STOPS)
     twin("ok", u.render_ok_strip, seq=12, chars=184, sent=False,
          model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
     twin("ok/typing", u.render_ok_strip, seq=12, chars=184, sent=True,
@@ -879,16 +1068,22 @@ def main():
          other_failures=[], env_dir=PATHS[1])
 
     # ---- grid + seq column anchors (default config) --------------------------
-    grid = u._keys_grid_lines(KEYS, KEY_PREFIX, True)
+    grid = u._keys_grid_lines(PAIRS, KEY_PREFIX, True)
     if len(grid) != 4:
         _record(f"KEYS grid: expected 4 rows (3+3+3+3), got {len(grid)}")
     for i in range(len(grid)):
         content = strip(grid[i])[1:-1]   # drop the ║ borders -> cells at cols 2/24/46
         if content[24] == " " or content[46] == " ":
             _record(f"KEYS grid row {i} anchor 24/46 broken: {content!r}")
-    last = strip(grid[-1])[1:-1]         # bottom row: G settings (gear) at col 46 (#164)
-    if "settings (gear)" not in last or last[46] != "G":
-        _record(f"KEYS grid: 'G settings (gear)' not bottom-right: {last!r}")
+    # D-019 reading order, pinned at the anchors: W A D / Y H X / R L 6 / G T 4.
+    for i, want in enumerate(("WAD", "YHX", "RL6", "GT4")):
+        content = strip(grid[i])[1:-1]
+        got = content[2] + content[24] + content[46]
+        if got != want:
+            _record(f"KEYS grid row {i} reads {got!r}, expected {want!r}: {content!r}")
+    last = strip(grid[-1])[1:-1]         # bottom row: 4 quit at col 46
+    if "quit" not in last or last[46] != "4":
+        _record(f"KEYS grid: '4 quit' not bottom-right: {last!r}")
     ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
                            ansi=True)
     row1 = strip(ok[2])   # top border, +1 headroom line, then the OK row (#109 fold-in)
@@ -906,6 +1101,11 @@ def main():
     check_no_speech_open_key_width()
     check_strip_structure()
     check_typed_cap_surfaces()
+
+    # ---- D-019 pair contract: key tables, cell geometry, the two strips ------
+    check_key_tables_and_budgets()
+    check_grid_schemes()
+    check_strip_pairs()
 
     # ---- #55 override edge: key_prefix=None framed render --------------------
     check_prefix_none_widths()

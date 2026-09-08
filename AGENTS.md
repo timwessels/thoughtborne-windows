@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository. Plain Markdown — hum
 
 ## What this is
 
-Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Python. Recording is started with `Ctrl+Alt+W`; one of `A` / `D` / `H` / `Y` (held with `Ctrl+Alt`) ends it and inserts the transcript at the cursor position in whatever Windows app is active. Four transcription APIs are switchable at runtime; the default is `soniox-live`. Windows-only by design (Win32 hotkeys, audio capture, text insertion).
+Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Python. Recording is started with `Ctrl+Alt+W`; one of `A` / `D` / `Y` / `H` (held with `Ctrl+Alt`) ends it and inserts the transcript at the cursor position in whatever Windows app is active. Four transcription APIs are switchable at runtime; the default is `soniox-live`. Windows-only by design (Win32 hotkeys, audio capture, text insertion).
 
 - **Setting the tool up for a user?** Follow [`llms-install.md`](llms-install.md) — the guided setup, including API-key onboarding and the WSL2 pitfalls.
 - **Vision & direction:** [`VISION.md`](VISION.md) — why the tool exists, the quality bar (*good enough to send to LLMs unread*), who it's for, decision principles, and non-goals. Calibrate judgment calls — scope, trade-offs, priorities — against it. Stability is principle #1; the quality floor and the no-training-on-user-data rule are hard gates. The target user, in one sentence: a self-reliant, German-dictating techie who wants no subscription, no lock-in, verifiable privacy, and a tool that bends to their workflow (full persona under "Who it's for" in `VISION.md`).
@@ -26,7 +26,7 @@ Thoughtborne is a hotkey-driven voice-to-text tool for Windows, written in Pytho
 | `test_console_ui.py` | Every console panel/strip: widths, CP437 charset, the plain-ASCII twin, red-exclusivity, the key-aware lineup and the keyless panels. | `--show` |
 | `test_deps_sync.py` | `pyproject.toml`'s dependencies and `requirements.txt` stay in lockstep, naming the drifting package. | `--show` |
 | `test_engine_memory.py` | The last-selected-engine memory (`runtime_state.json`): round-trip, fallbacks that must never cost a start, the startup precedence rule (D-008). | — |
-| `test_hotkey_overrides.py` | The `personal_settings.json` hotkey override surface — `hotkey_parse` and `config.apply_hotkey_overrides` — plus the guard that every shipped default is a statically mapped key (D-012). | `--show` |
+| `test_hotkey_overrides.py` | The `personal_settings.json` hotkey override surface — `hotkey_parse` and `config.apply_hotkey_overrides` — plus the guard that every shipped default is a statically mapped key (D-012) and the one holding the README twins' `## Hotkeys` tables to `DEFAULT_HOTKEYS`, order and combos (D-019). | `--show` |
 | `test_ptt_detector.py` | The push-to-talk gesture state machine against synthetic tick sequences, compared as exact per-tick action lists. | — |
 | `test_restart_signal.py` | The settings-app → tool restart handshake: the signal file's write/consume round-trip and the no-shutdown-without-a-successful-consume invariant. | — |
 | `test_retry_marker_lifecycle.py` | The persistent retry-marker lifecycle against a tempdir archive (D-001), plus the guard that importing `output_handler` leaves pyautogui's corner fail-safe off. | — |

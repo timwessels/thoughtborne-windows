@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One hotkey order everywhere, and the console's key surfaces rebuilt on it (#274,
+  D-019).** Four different action orders lived in the code — console grid, settings
+  tab, README tables, registration log — and the grid put the fallback typing key `H`
+  in second place, reading as if it were the default. Under rebound hotkeys it got
+  worse: the grid degraded to a ragged twelve-line list, and the REC and WAITING
+  strips showed plainly wrong keys (under the settings app's own F-keys preset the REC
+  strip read `F10 type   F10 paste   F10 paste+Enter` — one key standing for three
+  different actions). `config.DEFAULT_HOTKEYS`, reordered, is now the single source:
+  the grid reads `W A D / Y H X / R L 6 / G T 4`, the REC strip `A paste   D
+  paste+Enter   Y keep only` / `H type   X cancel`, the WAITING strip `A paste   H
+  type`, and the settings app's Hotkeys tab, the log's `Registered:` lines and the
+  README tables (now drift-guarded) follow the same order. Behind it, the app hands
+  the renderer `(action, combo)` pairs and the renderer decides what to show: with
+  rebound keys the grid and both strips render aligned two-column cells carrying full,
+  correct combos — a combo wider than the derived 13-cell key column shows as
+  `[...]+<key>`. Footers and panels still show today's letters until the next step of
+  the package (#272).
 - **The Windows app icon is the pixel mark (D-016).** The Start-menu shortcut (and the
   console window it opens under the classic console host) and *Settings > Installed apps*
   showed the round navy brand mark, all but invisible on a dark desktop, and the settings

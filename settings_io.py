@@ -791,18 +791,18 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
 # means no relearning. cancel_recording / exit_program keep single-element LISTS to
 # match their list-shaped defaults (apply_hotkey_overrides preserves shape). Bare f8
 # is intentionally left unassigned -- reserved for a future push-to-talk hold key.
-PRESET_FKEYS = {
+PRESET_FKEYS = {   # keys in the canonical DEFAULT_HOTKEYS order (D-019)
     "start_recording": "f9",
-    "stop_recording_keyboard": "ctrl+alt+f10",
     "stop_recording_clipboard": "f10",
     "stop_recording_send": "ctrl+f10",
     "stop_recording_no_insert": "ctrl+alt+f9",
-    "retry_last_failed": "shift+f8",
+    "stop_recording_keyboard": "ctrl+alt+f10",
     "cancel_recording": ["ctrl+f9"],
-    "test_transcription": "ctrl+alt+t",
+    "retry_last_failed": "shift+f8",
     "switch_api": "ctrl+f8",
     "open_history": "ctrl+alt+6",
     "open_settings": "ctrl+alt+g",   # housekeeping stays on Ctrl+Alt (#164)
+    "test_transcription": "ctrl+alt+t",
     "exit_program": ["ctrl+alt+4"],
 }
 

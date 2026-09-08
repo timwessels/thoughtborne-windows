@@ -35,6 +35,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
 | D-017 | API keys come from the install directory's `.env` only | Active |
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
+| D-019 | One canonical hotkey order, and one display grammar for keys | Active |
 
 ---
 
@@ -1326,3 +1327,75 @@ terminal-width measurement that switches between presentation forms, per block
 or anywhere else; a second copy of any renderer text (reason lines, wordmark,
 key grid) that exists only for a narrower layout. A window too narrow for the
 frames wraps them — that is the answer.
+
+---
+
+## D-019 — One canonical hotkey order, and one display grammar for keys
+
+Decided 2026-09-07, landed with #274 — the structural step of the
+hotkey-presentation package (#272). The two steps after it, #276 and #277,
+finish implementing the grammar recorded here, so within the package this entry
+deliberately leads the code by two commits.
+
+**The order.** The dict order of `config.DEFAULT_HOTKEYS` is the one canonical
+action order: `start_recording, stop_recording_clipboard, stop_recording_send,
+stop_recording_no_insert, stop_recording_keyboard, cancel_recording,
+retry_last_failed, switch_api, open_history, open_settings, test_transcription,
+exit_program` — shipped letters `W A D Y H X R L 6 G T 4`. Every multi-column
+surface reads left to right, then top to bottom. Nothing else carries an order:
+the app iterates `HOTKEYS` (which inherits it by deepcopy) and hands renderers
+`(action_name, display_combo)` pairs, renderers look their labels up by name,
+and the settings app's Hotkeys tab, the registration log's `Registered:` lines
+and the README twins' tables all follow by iteration — the tables held there by
+a drift guard in `test_hotkey_overrides.py`.
+
+Before this, four different orders lived in the code (console grid, settings
+tab, README tables, registration log), one of them positionally coupled to a
+list in `console_ui` with nothing checking the coupling.
+
+**Why `H` stands fifth, not second.** `Ctrl+Alt+H` (simulated typing) is the
+fallback insert path — the README calls it "the fallback for apps that block a
+paste", the settings app describes `A` as the faster default route — yet the old
+grid showed it right after `W`, reading as the thing you do. The first row is now
+the dictation loop (`W A D`), the second the special cases (`Y H X` — keep,
+fallback-type, abort), then daily housekeeping, then the rare things with *quit*
+last. `A D Y H` rather than `A D H Y` is deliberate: `H` must stop reading as the
+default, and the README's own "`Ctrl+Alt+Y` … insert later with `A` or `H`"
+matches it.
+
+**The display grammar** (rules 3–5 of #272, executed by the renderer):
+
+- A modifier prefix shared by ALL keys of one key list is shown once, as a lead
+  next to the keys it anchors; those keys are bare. Keys that share no prefix are
+  shown as full combos — every one of them.
+- Prose, and any single named combo (the READY line, `MODEL  switch:`, guidance,
+  the WHAT-NOW sentences), always names the full combo: in a console program a
+  bare letter in a sentence reads as "type R".
+- Key cells are laid out by one geometry — uniform cell width (widest shown key +
+  2 + widest label), two-cell gaps — and the column count follows it: three
+  columns exactly while every bare key fits the three-column budget (one cell with
+  the shipped letters, which is where the anchors 2/24/46 come from); two columns
+  otherwise, bare under a lead, full combos without one.
+- A combo wider than the derived key-column budget (`KEY_BUDGET`, 13 today,
+  computed at import from the grid — the tightest key surface) renders as
+  `[...]+<key>`: every modifier replaced by the ASCII `[...]`, the final key kept,
+  only the key token bold. Key columns only — prose is never shortened this way,
+  and the settings app always shows full combos; it is the place to look one up.
+- No surface derives a bare key before it is known whether a lead anchors it. The
+  app hands full display combos; the renderer derives a box's lead from exactly
+  the combos that box was handed (the computing place is the implementer's call
+  per #272; putting it in the renderer makes "a key shown but missing from its own
+  lead derivation" structurally impossible). That inversion is where the old wrong
+  keys came from: letters derived first, the lead decided later — under the
+  settings app's own F-keys preset the REC strip read `F10 type   F10 paste
+  F10 paste+Enter`, one letter standing for three different actions.
+
+Accepted edge: two *different* combos that share their final key and are both
+over budget shorten to the same `[...]+<key>` token. Reachable only with 14-cell
+combos in one box; the settings app disambiguates.
+
+Do not reintroduce: a key letter derived anywhere before the box's lead is known;
+a fallback key inside the renderer (the old `"L"`); a second copy of the action
+order, positional or literal; a hardcoded cell budget or column count. Respects
+D-012 — the reorder changes no value, and the F-keys preset's housekeeping keys
+still equal the defaults, compared per action.

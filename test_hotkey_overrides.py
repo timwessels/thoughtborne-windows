@@ -13,7 +13,8 @@ Layer A -- `hotkey_parse` (the ctypes-free lexical layer): the static VK map
 `classify_key`, and the one spelling a combo is stored and shown in --
 `canonical_combo`, `format_combo`, `first_combo` (#275), including the guard
 that both shipped schemes (`DEFAULT_HOTKEYS` and `settings_io.PRESET_FKEYS`) are
-written canonically themselves.
+written canonically themselves -- and the drift guard that keeps the README
+twins' `## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019).
 
 Layer B -- `config.apply_hotkey_overrides` (the pure production loader config
 calls verbatim): partial override by action name, warn-and-keep-default on every
@@ -28,7 +29,9 @@ and is tracked in a separate `test` issue.
 """
 import copy
 import logging
+import re
 import sys
+from pathlib import Path
 
 # Silence config's import-time settings warnings -- importing config parses the
 # repo's real personal_settings.json, which may legitimately warn; irrelevant to
@@ -318,6 +321,30 @@ def test_shipped_combos_are_canonical():
                     f"({hp.canonical_combo(combo)!r})"
 
 
+def _readme_hotkey_column(path):
+    """First-column combos of the ## Hotkeys table (backticked, one per row)."""
+    text = path.read_text(encoding="utf-8")
+    section = text.split("## Hotkeys", 1)[1].split("\n## ", 1)[0]
+    return re.findall(r"^\|\s*`([^`]+)`\s*\|", section, flags=re.M)
+
+
+def test_readme_hotkey_tables_match_defaults():
+    # D-019: the README twins' ## Hotkeys tables track DEFAULT_HOTKEYS -- order
+    # AND values (the spirit of test_deps_sync). The canonical order is the dict's,
+    # and the tables are the user-facing copy of it.
+    expected = [hp.format_combo(hp.first_combo(DEFAULT_HOTKEYS[a]))
+                for a in DEFAULT_HOTKEYS]
+    here = Path(__file__).resolve().parent
+    for name in ("README.md", "README.de.md"):
+        got = _readme_hotkey_column(here / name)
+        if SHOW and got != expected:
+            print(f"----- {name} vs DEFAULT_HOTKEYS -----")
+            for e, g in zip(expected, got):
+                print(f"    {e:14} | {g}{'' if e == g else '   <-- drift'}")
+        assert got == expected, (f"{name} ## Hotkeys drifted from DEFAULT_HOTKEYS:\n"
+                                 f"  expected {expected}\n  got      {got}")
+
+
 def test_override_is_canonicalized():
     # An alias-spelled override arrives canonical, so the console lead, the
     # display and the diff all see one spelling.
@@ -355,6 +382,7 @@ CASES = [
     test_format_and_first_combo,
     test_shipped_defaults_are_static,
     test_shipped_combos_are_canonical,
+    test_readme_hotkey_tables_match_defaults,
     test_common_prefix,
     test_partial_override,
     test_value_shapes,

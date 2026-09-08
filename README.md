@@ -192,8 +192,8 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | `Ctrl+Alt+W` | Start recording (works while a previous recording is still transcribing) |
 | `Ctrl+Alt+A` | Stop + insert at the cursor (clipboard paste — faster) |
 | `Ctrl+Alt+D` | Stop + insert + press Enter (one-press send, for chats) |
-| `Ctrl+Alt+H` | Stop + insert at the cursor (simulated typing) |
 | `Ctrl+Alt+Y` | Stop + transcribe only — insert later with `A` or `H` |
+| `Ctrl+Alt+H` | Stop + insert at the cursor (simulated typing) |
 | `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
 | `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); the engine you switch to is remembered and starts the next session |

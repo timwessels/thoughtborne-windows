@@ -2,9 +2,14 @@
 
 Pure presentation layer: every function takes plain data plus the runtime
 switch `ansi` and returns a list of ready-to-print lines. The module imports
-nothing from the project -- all dynamic values (labels, hotkey letters, paths,
+nothing from the project -- all dynamic values (labels, hotkey combos, paths,
 seq/chars) arrive as parameters -- so it renders and is width-verified without
 a running Windows tool (see test_console_ui.py).
+
+Key surfaces receive `(action_name, display_combo)` pairs in the canonical
+config.DEFAULT_HOTKEYS order (D-019); this module holds the labels and the cell
+geometry and decides what to show -- the bare key under a shared modifier lead,
+the full combo without one, `[...]+<key>` past the key-column budget.
 
 Two frame classes carry the visual hierarchy (variant B grammar):
   - main panel   (double frame ╔═╗) for orientation moments: startup, errors,
@@ -88,13 +93,36 @@ STRIP_HEADER_GLYPH = "•"   # bullet before the name; conhost-safe, plain twin 
 ACTIVE_LOGO_MARK = LOGO_MARK_A5        # None | LOGO_MARK_A5 | LOGO_MARK_B1
 ACTIVE_STRIP_HEADER = "THOUGHTBORNE"   # None | "THOUGHTBORNE" (optionally a glyph)
 
-# ---- KEYS grid copy (design order matches the 12 letters the app supplies) --
-KEY_ACTIONS = [
-    "start recording", "stop, type text", "stop, paste",
-    "stop, paste+Enter", "stop, keep only", "cancel recording",
-    "retry last failed", "switch model", "open history",
-    "self-test", "quit", "settings (gear)",
-]
+# ---- key copy, keyed by action name (#274) ---------------------------------
+# console_ui imports nothing from the project: that these keys match
+# config.DEFAULT_HOTKEYS is pinned by test_console_ui, not by an import.
+KEY_LABELS = {   # the KEYS grid; exactly the twelve action names
+    "start_recording": "start recording",
+    "stop_recording_clipboard": "stop, paste",
+    "stop_recording_send": "stop, paste+Enter",
+    "stop_recording_no_insert": "stop, keep only",
+    "stop_recording_keyboard": "stop, type text",
+    "cancel_recording": "cancel recording",
+    "retry_last_failed": "retry last failed",
+    "switch_api": "switch model",
+    "open_history": "open history",
+    "open_settings": "settings (gear)",
+    "test_transcription": "self-test",
+    "exit_program": "quit",
+}
+KEY_WORDS = {    # strips and footers, short form; the footer words land in #277
+    "start_recording": "record",
+    "stop_recording_clipboard": "paste",
+    "stop_recording_send": "paste+Enter",
+    "stop_recording_no_insert": "keep only",
+    "stop_recording_keyboard": "type",
+    "cancel_recording": "cancel",
+    "retry_last_failed": "retry",
+    "switch_api": "model",
+    "open_history": "history",
+    "exit_program": "quit",
+}
+ELLIPSIS = "[...]"   # ASCII on purpose: survives CP437 and the plain twin 1:1
 
 SEQCOL = 41  # column where the OK/WAITING strip's seq/chars block starts
 
@@ -245,26 +273,112 @@ def _lineup_lines(lineup, ansi, pinned_label=None):
     return rows
 
 
-def _keys_grid_lines(keys, key_prefix, ansi):
-    """KEYS grid rows. keys: 12 key-letter strings in KEY_ACTIONS order. Anchors
-    at columns 2/24/46 for single-letter keys under a shared prefix; degrades to
-    a full-combo list when there is no common prefix."""
-    if key_prefix is None:
-        # No shared modifier prefix -- list full combos, one per line.
-        return [dline([("  ", ()), (k, (BOLD,)), ("  " + a, ())], ansi)
-                for k, a in zip(keys, KEY_ACTIONS)]
-    cells = [(k, a) for k, a in zip(keys, KEY_ACTIONS)]
+def _display_prefix(combos):
+    """The shared modifier lead of one box, derived from the display combos it
+    is handed (#272 rule 5: the renderer decides what to show). Mirrors
+    hotkey_parse.common_prefix on formatted combos -- a deliberate twin, since
+    this module imports nothing from the project; the canonical spelling of #275
+    makes the two agree (format_combo maps token-wise). None on any mix."""
+    prefixes = {c.rpartition("+")[0] for c in combos}
+    if len(prefixes) == 1 and "" not in prefixes:
+        return prefixes.pop()
+    return None
+
+
+def _bare(combo, key_prefix):
+    """What a box shows for `combo` under its lead: the part behind the shared
+    prefix -- or the full combo when there is no lead, or the combo does not
+    carry it (the honest form: a wrong prefix can never yield a wrong key)."""
+    if key_prefix and combo.startswith(key_prefix + "+"):
+        return combo[len(key_prefix) + 1:]
+    return combo
+
+
+def _shorten(key, budget):
+    """The `[...]` rule (#272 rule 4): over budget, every modifier collapses into
+    the ASCII ELLIPSIS and the final key token stays."""
+    return key if len(key) <= budget else ELLIPSIS + "+" + key.rpartition("+")[2]
+
+
+def _cell_budget(labels, columns, indent=2):
+    """The widest key column that still fits `columns` aligned cells of these
+    labels into the frame (uniform cell = key + 2 + widest label, 2-cell gaps)."""
+    lmax = max(len(a) for a in labels)
+    return (INNER - indent - (columns - 1) * 2 - columns * (2 + lmax)) // columns
+
+
+# The one key-column budget every surface shortens against, derived at import
+# from the grid -- the tightest key surface -- so a combo looks the same
+# everywhere. 13 today; test-pinned as a derived value, never hardcoded.
+KEY_BUDGET = _cell_budget(KEY_LABELS.values(), 2)
+
+
+def _cell_rows(cells, key_prefix, emit, ansi, columns=2, indent=2):
+    """Aligned key cells. cells: [(display_combo, label)] in reading order.
+    Under a lead: bare keys; without one: full combos, shortened past
+    min(KEY_BUDGET, this box's own geometry budget). One uniform cell width
+    (widest shown key + 2 + widest label), 2-cell gaps -- the geometry that puts
+    the shipped letter grid's anchors at 2/24/46 and yields the two-column combo
+    budget, both derived, both test-pinned. On a shortened key only the key token
+    is bold (`[...]` is a renderer artifact, not part of the key)."""
+    labels = [a for _, a in cells]
+    budget = min(KEY_BUDGET, _cell_budget(labels, columns, indent))
+    if key_prefix is not None:
+        keys = [_bare(c, key_prefix) for c, _ in cells]
+    else:
+        keys = [_shorten(c, budget) for c, _ in cells]
+    wk = max(len(k) for k in keys)
+    lmax = max(len(a) for a in labels)
     rows = []
-    for i in range(0, len(cells), 3):
-        row = cells[i:i + 3]
-        segs = [("  ", ())]
+    shown = list(zip(keys, labels))
+    for i in range(0, len(shown), columns):
+        row = shown[i:i + columns]
+        segs = [(" " * indent, ())]
         for j, (k, a) in enumerate(row):
-            text = k + "  " + a
-            pad = (22 - len(text)) if j < len(row) - 1 else 0
-            segs.append((k, (BOLD,)))
-            segs.append(("  " + a + " " * max(0, pad), ()))
-        rows.append(dline(segs, ansi))
+            if k.startswith(ELLIPSIS + "+"):
+                segs.append((ELLIPSIS + "+", ()))
+                segs.append((k[len(ELLIPSIS) + 1:], (BOLD,)))
+            else:
+                segs.append((k, (BOLD,)))
+            tail = " " * (wk - len(k)) + "  " + a
+            if j < len(row) - 1:                      # no pad behind the last cell
+                tail += " " * (lmax - len(a)) + "  "  # label pad + 2-cell gap
+            segs.append((tail, ()))
+        rows.append(emit(segs, ansi))
     return rows
+
+
+def _flow_line(lead, cells, emit, ansi):
+    """The #115 key line: `lead`, then `key word` cells three spaces apart,
+    unaligned; only the key tokens bold. cells: [(shown_key, word)]."""
+    segs = [(lead, ())]
+    for i, (k, w) in enumerate(cells):
+        if i:
+            segs.append(("   ", ()))               # 3-space cell separator
+        segs.append((k, (BOLD,)))
+        segs.append((" " + w, ()))
+    return emit(segs, ansi)
+
+
+def _flow_width(lead, cells):
+    """Visible width of a _flow_line body (frame borders excluded) -- the
+    measurement behind the flow-line-or-cells switch on the strips."""
+    return len(lead) + sum(len(k) + 1 + len(w) for k, w in cells) + 3 * (len(cells) - 1)
+
+
+def _keys_grid_lines(pairs, key_prefix, ansi):
+    """KEYS grid rows. pairs: [(action_name, display_combo)] in canonical
+    (DEFAULT_HOTKEYS) order; labels looked up by name. Three columns while a lead
+    is set and every bare key fits the three-column budget (one cell with the
+    shipped letters -- anchors 2/24/46 fall out of the geometry); otherwise two
+    columns -- bare keys under the lead, full combos with `[...]` without one."""
+    cells = [(c, KEY_LABELS[n]) for n, c in pairs]
+    columns = 2
+    if key_prefix is not None and \
+            max(len(_bare(c, key_prefix)) for c, _ in cells) \
+            <= _cell_budget(KEY_LABELS.values(), 3):
+        columns = 3
+    return _cell_rows(cells, key_prefix, dline, ansi, columns=columns)
 
 
 def _footer_lines(model_label, keyhints, key_prefix, emit, ansi):
@@ -273,14 +387,8 @@ def _footer_lines(model_label, keyhints, key_prefix, emit, ansi):
     dline or sline (double vs single frame). key_prefix None -> bare 2-space lead
     (documented edge; the shipped config never mixes prefixes)."""
     lead = f"  {key_prefix} +  " if key_prefix else "  "
-    segs = [(lead, ())]
-    for i, (k, w) in enumerate(keyhints):
-        if i:
-            segs.append(("   ", ()))               # 3-space cell separator
-        segs.append((k, (BOLD,)))
-        segs.append((" " + w, ()))
     return [emit([("  model: ", ()), (model_label, (BOLD,))], ansi),
-            emit(segs, ansi)]
+            _flow_line(lead, keyhints, emit, ansi)]
 
 
 def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
@@ -292,10 +400,12 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 # =====================================================================
 # Masthead / READY (Screen 1 / 2)
 # =====================================================================
-def render_masthead(lineup, keys, key_prefix, history_path,
+def render_masthead(lineup, keys, history_path,
                     switch_key, start_key,
                     guidance=None, with_wordmark=True, logo_lines=None,
                     pinned_default=None, *, ansi):
+    """`keys`: the twelve (action_name, display_combo) pairs in canonical order;
+    the KEYS grid's lead is derived from exactly those combos (D-019)."""
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, ansi))
@@ -313,6 +423,7 @@ def render_masthead(lineup, keys, key_prefix, history_path,
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before KEYS
     lines.append(dzone([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
+    key_prefix = _display_prefix([c for _, c in keys])
     lines.extend(_keys_grid_lines(keys, key_prefix, ansi))
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before History edge
@@ -398,19 +509,32 @@ def _strip_row1_seq(left_segs, seq, chars):
     return left_segs + [(" " * pad + right, ())]
 
 
-def render_rec_strip(type_key, paste_key, send_key, keep_key, cancel_key,
-                     key_prefix, *, ansi):
-    lead = f"  {key_prefix} +  " if key_prefix else "  "   # 14 cols for "Ctrl+Alt"
+def render_rec_strip(stops, *, ansi):
+    """stops: the five (action_name, display_combo) stop pairs in canonical order
+    (paste, paste+Enter, keep only, type, cancel). Under a shared lead, and while
+    both flow lines fit the frame, the #115 form with bare keys in a 3/2 split;
+    otherwise aligned two-column cells with full combos (the `[...]` rule). The
+    fallback is unreachable with canonical combos and today's words (widest case:
+    67 of 68 cells) -- it guards copy growth, and the honest form when it does
+    trigger is the no-lead one."""
+    prefix = _display_prefix([c for _, c in stops])
+    head = sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi)
+    if prefix is not None:
+        lead = f"  {prefix} +  "                          # 14 cols for "Ctrl+Alt"
+        row1 = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops[:3]]
+        row2 = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops[3:]]
+        if max(_flow_width(lead, row1), _flow_width(" " * len(lead), row2)) <= INNER:
+            return [
+                *_strip_open(ansi),
+                head,
+                _flow_line(lead, row1, sline, ansi),
+                _flow_line(" " * len(lead), row2, sline, ansi),
+                sbot(ansi),
+            ]
     return [
         *_strip_open(ansi),
-        sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
-        sline([(lead, ()),
-               (type_key, (BOLD,)), (" type   ", ()),
-               (paste_key, (BOLD,)), (" paste   ", ()),
-               (send_key, (BOLD,)), (" paste+Enter", ())], ansi),
-        sline([(" " * len(lead), ()),
-               (keep_key, (BOLD,)), (" keep for later   ", ()),
-               (cancel_key, (BOLD,)), (" cancel", ())], ansi),
+        head,
+        *_cell_rows([(c, KEY_WORDS[n]) for n, c in stops], None, sline, ansi),
         sbot(ansi),
     ]
 
@@ -463,16 +587,26 @@ def render_typed_capped(cap, original_chars, paste_key, model_label, footer_keys
     ]
 
 
-def render_waiting_strip(seq, chars, type_key, paste_key, key_prefix, *, ansi):
+def render_waiting_strip(seq, chars, stops, *, ansi):
+    """stops: the two (action_name, display_combo) insert pairs in canonical
+    order -- paste before type, the default route before the fallback."""
     row1 = _strip_row1_seq([("  ", ()), ("WAITING", (BOLD, GREEN)),
                             ("  kept -- not inserted yet", ())], seq, chars)
-    lead = f"  {key_prefix} +  " if key_prefix else "  "
+    prefix = _display_prefix([c for _, c in stops])
+    if prefix is not None:
+        lead = f"  {prefix} +  "
+        cells = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops]
+        if _flow_width(lead, cells) <= INNER:
+            return [
+                *_strip_open(ansi),
+                sline(row1, ansi),
+                _flow_line(lead, cells, sline, ansi),
+                sbot(ansi),
+            ]
     return [
         *_strip_open(ansi),
         sline(row1, ansi),
-        sline([(lead, ()),
-               (type_key, (BOLD,)), (" type text   ", ()),
-               (paste_key, (BOLD,)), (" paste", ())], ansi),
+        *_cell_rows([(c, KEY_WORDS[n]) for n, c in stops], None, sline, ansi),
         sbot(ansi),
     ]
 
