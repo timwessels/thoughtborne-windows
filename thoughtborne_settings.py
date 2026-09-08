@@ -274,6 +274,10 @@ class SettingsApp:
         self._test_queue = {"groq": queue.Queue(), "soniox": queue.Queue()}
         self._combo_labels = {}     # action -> tk.Label
         self._armed = None          # the action currently capturing a keypress
+        # The Machine Room's reset button (#282). It is built in settings mode only,
+        # so it stays None in the wizard -- _set_rail_waiting has to be able to ask
+        # either way.
+        self.reset_btn = None
 
         # Per-tab scroll region (#180): a canvas per notebook page, filled by
         # _scrollable_tab in tab-build order so its index parallels _tab_frames;
@@ -1468,11 +1472,11 @@ class SettingsApp:
         # folder and the two files in it that are the user's, the vocabulary pointer
         # that used to sit on the Behavior tab, the update route, the license. The
         # order is where you are -> what of it is yours -> the one thing you do with
-        # it -> how you get a newer one -> the legal footnote. Static text plus two
-        # local actions: no network call of any kind lives here (VISION principle 5;
-        # a live update CHECK is #136 and stays parked). Built in BOTH modes like
-        # every other page, so the tab count never forks _TAB_KEYS -- hence prose
-        # that also reads for a first-run newcomer.
+        # it -> the way back -> how you get a newer one -> the legal footnote. Static
+        # text plus two local actions: no network call of any kind lives here (VISION
+        # principle 5; a live update CHECK is #136 and stays parked). Built in BOTH
+        # modes like every other page, so the tab count never forks _TAB_KEYS -- hence
+        # prose that also reads for a first-run newcomer.
         outer, f = self._scrollable_tab()
         sp = self.theme.sp
 
@@ -1507,6 +1511,21 @@ class SettingsApp:
         # file may add.
         self._section(f, "machine.vocab.heading", level="H2", pady=(sp(28), 0))
         self._prose(f, "machine.vocab.body", surface="Muted.").pack(fill="x", pady=(sp(2), 0))
+
+        # The way back (#282), under the two files it rewrites and the vocabulary
+        # pointer into one of them. Settings mode only: a first run has nothing to
+        # reset, and the wizard is where an unsaved API key sits in a field -- the
+        # reset never writes .env, so the restart it triggers would drop it. The TAB
+        # itself is still built in both modes, so the #281 rule that the tab list must
+        # not fork stays intact.
+        if not self.first_run:
+            self._section(f, "machine.reset.heading", level="H2", pady=(sp(28), 0))
+            self._prose(f, "machine.reset.body").pack(fill="x", pady=(sp(2), sp(4)))
+            self._prose(f, "machine.reset.body2", surface="Muted.").pack(
+                fill="x", pady=(0, sp(6)))
+            self.reset_btn = ttk.Button(f, command=self._reset_to_defaults)
+            self._reg(self.reset_btn, "btn.reset_defaults")
+            self.reset_btn.pack(anchor="w")
 
         self._section(f, "machine.update.heading", level="H2", pady=(sp(28), 0))
         self._prose(f, "machine.update.body").pack(fill="x", pady=(sp(2), sp(4)))
@@ -1966,6 +1985,76 @@ class SettingsApp:
         # shutting the fresh instance down.
         self._restart_and_relaunch()   # owns the window from here (wait -> relaunch)
 
+    def _reset_to_defaults(self):
+        """#282, D-020: put the app-managed settings back to the shipped state and
+        restart. One write of the four managed keys, then _save's own restart lane.
+
+        The values are FORCED, not derived from the form. The save signals
+        (resolve_engine_save_signal / resolve_ptt_save_signal) express "did the control
+        move?", and D-002 then leaves an untouched block exactly as found -- so a
+        hand-typed invalid value (`"api": "grok"`, `"enabled": "yes"`) is displayed as
+        the default it produces, would move no control, and would survive the very
+        action meant to clear it. Forcing the managed keys is what makes a reset a
+        reset, and it needs no new write function: the surgical merge already keeps
+        every unmanaged block and every _comment.
+
+        The keys are untouched STRUCTURALLY, not by promise: settings_io.write_env is
+        the only .env writer and is never reached from here. The remembered engine in
+        runtime_state.json stays too -- it records what the user did, it is not a
+        setting (D-008: dropping a pin never touches the memory).
+
+        No _loaded refresh and no re-render afterwards: every exit from
+        _restart_and_relaunch destroys the window, so there is no next save to lie to.
+        """
+        ps_path = config.SCRIPT_DIR / "personal_settings.json"
+        try:
+            _data, corrupt = settings_io.read_personal_settings(ps_path)
+        except Exception as e:
+            # Unreadable or undecodable bytes: the write below aborts on the same read
+            # (B1), so say so now instead of after a confirmation.
+            messagebox.showerror(
+                strings.t("dlg.savefail.title", self.lang),
+                strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
+            return
+        # Corrupt-but-decodable: the reset takes D-002's warn-then-overwrite branch
+        # like any explicit save, so the hand-written blocks really are lost here. The
+        # confirmation then says exactly that instead of promising they survive -- the
+        # way out stays open (flattening a broken file is a legitimate thing to want),
+        # it just must not lie in the moment the user clicks. The #239 gate covers the
+        # SILENT language write; this one the user confirms twice.
+        body_key = "dlg.reset.body_corrupt" if corrupt is not None else "dlg.reset.body"
+        # icon + default follow D-011's shape: the action cannot be undone, so the
+        # preselected answer is the preserving one and there is no click-through path.
+        if not messagebox.askyesno(strings.t("dlg.reset.title", self.lang),
+                                   strings.t(body_key, self.lang),
+                                   icon=messagebox.WARNING, default=messagebox.NO):
+            return
+        try:
+            settings_io.write_personal_settings(
+                ps_path,
+                # The shipped scheme: its diff vs config.DEFAULT_HOTKEYS is empty, so
+                # the block keeps only its _comment and any parked "_" key, or drops.
+                hotkeys_effective=config.DEFAULT_HOTKEYS,
+                # No startup pin is the shipped state (D-008: the remembered engine
+                # then decides, untouched).
+                default_api=settings_io.REMOVE_API_PIN,
+                example_path=config.SCRIPT_DIR / "personal_settings.example.json",
+                # English is the shipped display language (D-015) -- the same literal
+                # __init__ falls back to. Written rather than removed: there is no
+                # removal sentinel for the ui block, and behaviour is what matters.
+                ui_language="en",
+                # Only `enabled` is touched, so a hand-tuned trigger, insert path and
+                # the three timings survive (D-002 addendum, #233).
+                ptt_enabled=False)
+        except Exception as e:
+            # _save's lane: the write is atomic and aborts on an unreadable target, so
+            # nothing is left half-written and the window stays open to fix the file.
+            messagebox.showerror(
+                strings.t("dlg.savefail.title", self.lang),
+                strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
+            return
+        self._restart_and_relaunch()   # owns the window from here (wait -> relaunch)
+
     def _launch_tool(self):
         try:
             subprocess.Popen(
@@ -2040,9 +2129,11 @@ class SettingsApp:
         _poll()
 
     def _set_rail_waiting(self):
-        """Freeze the rail for the #202 restart wait: disable both buttons and label
-        the acting one 'Restarting…'. Handles either rail -- the wizard's next/back or
-        everyday's save/cancel."""
+        """Freeze the window's actions for the #202 restart wait: disable both rail
+        buttons and label the acting one 'Restarting…'. Handles either rail -- the
+        wizard's next/back or everyday's save/cancel. The header's language radios
+        stay live: a switch during the wait writes ui.language again, which is
+        self-inflicted and minor, and not worth a third frozen control."""
         self._restarting = True   # from here update_rail / _render_rail leave the rail alone
         if self.first_run:
             acting, other = self.next_btn, self.back_btn
@@ -2050,6 +2141,13 @@ class SettingsApp:
             acting, other = self.save_btn, self.cancel_btn
         acting.config(text=strings.t("btn.restarting", self.lang), state="disabled")
         other.config(state="disabled")
+        # The reset (#282) is an action of the window too, but it sits on a TAB, so
+        # the rail freeze above does not reach it. Without this a second click during
+        # the deliberately responsive restart wait -- after a save just as much as
+        # after a reset -- would write a second signal, start a second poll loop and
+        # destroy the window twice.
+        if self.reset_btn is not None:
+            self.reset_btn.config(state="disabled")
 
 
 def _probe_viewable(root):

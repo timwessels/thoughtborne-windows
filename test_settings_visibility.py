@@ -69,7 +69,20 @@ which is both the dead guard against an over-broad gate and the proof that the c
 is probed fresh per write rather than latched at load. It runs against a tempdir-patched
 `config.SCRIPT_DIR`; unlike the read-only display checks above, this one WRITES.
 
-A fifth, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
+A fifth, `test_reset_with_display`, drives the #282 reset through the real window: the
+Machine Room button exists in the everyday dialog and not in the wizard, follows the
+language switch, and sits behind a confirmation that really is the gate -- a declined
+one leaves the file byte-identical, and over a CORRUPT personal_settings.json it asks
+with the second body, the one that says the hand-written blocks are about to be lost
+instead of promising they survive. A confirmed one puts the four managed keys back,
+leaves the vocabulary and the .env alone and reaches the restart handshake (stubbed --
+unstubbed it would write a real restart signal and destroy the root mid-test). Over
+bytes it cannot decode at all -- an ANSI/cp1252 file, B1's case -- it stops before the
+confirmation: nothing asked, nothing written, no restart. And the restart freeze
+disables the button, which the rail freeze alone does not reach. Like the #239 lane it
+WRITES and runs against a tempdir-patched `config.SCRIPT_DIR`.
+
+A sixth, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
 (#281). Three of its four checks are one-liners against couplings the code can only
 state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has entries
 (they are `zip`ped, and `zip` drops a surplus on either side silently -- a page or a
@@ -1075,6 +1088,192 @@ def test_language_toggle_gate_with_display():
             pass
 
 
+def test_reset_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. The #282 reset through the REAL app: test_settings_io.py proves the write
+    # contract and pins the call site on the syntax tree, but only the built window
+    # shows that the button exists in the mode it is meant for, that the confirmation is
+    # really the gate in front of it, and that the dialog tells the truth over a corrupt
+    # file -- the promise "your vocabulary stays" is the one the app cannot keep there.
+    #
+    # WRITES, like the #239 lane above, so config.SCRIPT_DIR is patched to a tempdir
+    # BEFORE the app is built and restored in finally; otherwise this check would reset
+    # the maintainer's own personal_settings.json.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped reset check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped reset check: no display)")
+        return
+    try:
+        import config
+        import settings_strings as sstr
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped reset check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _askyesno = ts.messagebox.askyesno
+    _script_dir = config.SCRIPT_DIR
+    root2 = None
+    try:
+        # Both are modal and would hang a headless run with nobody to dismiss them.
+        ts.messagebox.showerror = lambda *a, **k: None
+        shown = []      # the body text each confirmation was asked with
+
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            config.SCRIPT_DIR = tmp
+            ps = tmp / "personal_settings.json"
+            ps.write_text(json.dumps(
+                {"vocabulary": {"terms": ["Grüße"]},
+                 "hotkeys": {"start_recording": "ctrl+alt+p"},
+                 "defaults": {"api": "groq"}}, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8")
+            env = tmp / ".env"
+            env.write_text("GROQ_API_KEY=gsk_secret\n", encoding="utf-8")
+            env_before = env.read_bytes()
+
+            root.geometry("900x860")
+            app = ts.SettingsApp(root, first_run=False)
+            root.update()
+            check(app.reset_btn is not None,
+                  "the everyday settings dialog has no reset button -- #282 builds it "
+                  "on the Machine Room tab")
+            if app.reset_btn is None:
+                return
+            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "en"),
+                  f"the reset button does not carry btn.reset_defaults: "
+                  f"{app.reset_btn.cget('text')!r}")
+            # It re-renders with the window's language, i.e. it really hangs in the
+            # text registry rather than carrying a text set once at build time.
+            app.lang = "de"
+            app.render_all()
+            root.update()
+            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "de"),
+                  "the reset button did not follow the language switch -- it is not "
+                  "registered for re-render")
+            app.lang = "en"
+            app.render_all()
+            root.update()
+
+            # Declining is the gate: the file must come out byte-identical, and the
+            # dialog must have asked with the ordinary body (a readable file keeps
+            # every hand-written block, which is what that text promises).
+            ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), False)[1]
+            before = ps.read_bytes()
+            app._reset_to_defaults()
+            check(ps.read_bytes() == before,
+                  "a DECLINED reset still rewrote personal_settings.json -- the "
+                  "confirmation is the only thing between a mis-click and the file")
+            check(shown[-1:] == [sstr.t("dlg.reset.body", "en")],
+                  f"the confirmation over a healthy file used the wrong body: "
+                  f"{shown[-1:]!r}")
+
+            # Over a CORRUPT file the same reset takes D-002's warn-then-overwrite
+            # branch, so the hand-written blocks really are lost -- and the dialog has
+            # to say that instead of promising they survive. The way out stays open;
+            # it just may not lie in the moment the user clicks.
+            ps.write_text('{\n  "vocabulary": {"terms": ["Grüße"]},\n', encoding="utf-8")
+            broken = ps.read_bytes()
+            app._reset_to_defaults()
+            check(ps.read_bytes() == broken,
+                  "a declined reset over a corrupt file still rewrote it")
+            check(shown[-1:] == [sstr.t("dlg.reset.body_corrupt", "en")],
+                  f"the confirmation over a CORRUPT personal_settings.json promised "
+                  f"the hand-written blocks would survive, which is exactly the case "
+                  f"where they do not: {shown[-1:]!r}")
+            ps.write_text(json.dumps(
+                {"vocabulary": {"terms": ["Grüße"]},
+                 "hotkeys": {"start_recording": "ctrl+alt+p"},
+                 "defaults": {"api": "groq"}}, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8")
+
+            # Confirming: the four managed facts land, the hand-written vocabulary and
+            # the .env do not move, and the restart handshake is really triggered. The
+            # handshake itself MUST be stubbed -- unstubbed it writes a real restart
+            # signal, shells out on Windows and destroys the root mid-test.
+            calls = []
+            ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), True)[1]
+            app._restart_and_relaunch = lambda: calls.append(True)
+            app._reset_to_defaults()
+            data = json.loads(ps.read_text(encoding="utf-8"))
+            check(not [k for k in data.get("hotkeys", {}) if not k.startswith("_")]
+                  and "api" not in data.get("defaults", {})
+                  and data.get("ui", {}).get("language") == "en"
+                  and data.get("push_to_talk", {}).get("enabled") is False,
+                  f"the confirmed reset did not put all four managed keys back at "
+                  f"their shipped value: {data}")
+            check(data.get("vocabulary", {}).get("terms") == ["Grüße"],
+                  f"the reset destroyed the hand-written vocabulary: {data.get('vocabulary')}")
+            check(env.read_bytes() == env_before,
+                  "the reset wrote the .env -- the API keys are the user's data and "
+                  "the reset never goes near the code that writes them (D-020)")
+            check(calls == [True],
+                  "the confirmed reset did not trigger the restart -- pickup is "
+                  "start-based, so the defaults would sit on disk unapplied (#271)")
+
+            # Bytes that cannot be DECODED at all -- the real case is an ANSI/cp1252
+            # personal_settings.json whose German vocabulary is intact, just in the
+            # wrong encoding (D-002's B1) -- abort the reset before the confirmation:
+            # the write would fail on the same read, so nothing is asked, nothing is
+            # written and no restart is triggered. Only the error dialog appears
+            # (stubbed out above, like every modal in this lane).
+            ps.write_bytes('{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252"))
+            undecodable = ps.read_bytes()
+            asked, restarts = len(shown), len(calls)
+            app._reset_to_defaults()
+            check(ps.read_bytes() == undecodable,
+                  "a reset over an undecodable personal_settings.json rewrote it -- "
+                  "the read that guards the write failed, so the vocabulary in there "
+                  "is still rescuable and must not be skeletoned over (B1)")
+            check(len(shown) == asked,
+                  "the reset asked for confirmation over a file it cannot read -- the "
+                  "question would promise an outcome the write cannot deliver")
+            check(len(calls) == restarts,
+                  "the reset restarted Thoughtborne after failing to read the file -- "
+                  "nothing was written, so there is nothing for a start to pick up")
+
+            # The restart freeze reaches the button. It sits on a tab, so the rail
+            # freeze does not cover it, and a second click during the responsive wait
+            # would start a second handshake (#282).
+            app._set_rail_waiting()
+            root.update()
+            check(str(app.reset_btn.cget("state")) == "disabled",
+                  "the reset button stays clickable during the restart wait -- a "
+                  "second click would write a second restart signal")
+
+            # The wizard has nothing to reset, and it is where an unsaved API key sits
+            # in a field the reset would not write, so the control is not built there.
+            root.destroy()
+            root2 = tk.Tk()
+            root2.geometry("900x860")
+            app2 = ts.SettingsApp(root2, first_run=True)
+            root2.update()
+            check(app2.reset_btn is None,
+                  "the first-run wizard built the reset button -- a first run has "
+                  "nothing to reset, and the restart would drop the key being typed")
+    finally:
+        config.SCRIPT_DIR = _script_dir
+        ts.messagebox.showerror = _showerror
+        ts.messagebox.askyesno = _askyesno
+        for r in (root, root2):
+            try:
+                if r is not None:
+                    r.destroy()
+            except Exception:
+                pass
+
+
 def test_callback_error_log_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
     # cleanly. Acceptance bullet 1 of #240, against the REAL wiring: an exception raised
@@ -1342,6 +1541,7 @@ def main():
     test_maximize_restore_with_display()
     test_verdict_wrap_with_display()
     test_language_toggle_gate_with_display()
+    test_reset_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
 
@@ -1359,8 +1559,9 @@ def main():
           "its source guards, and (with a display) the auto-hide grid idempotency, "
           "wrap-deferral invariant, the #281 six-tab layout with its version line and "
           "strip width, the #216 maximize->restore content-vanish guard, the #231 "
-          "verdict-line wrap, the #239 language-toggle gate, and the #240 callback / "
-          "pre-mainloop crash logging all pass")
+          "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
+          "with its confirmation gate, and the #240 callback / pre-mainloop crash "
+          "logging all pass")
     return 0
 
 

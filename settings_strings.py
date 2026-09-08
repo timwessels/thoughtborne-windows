@@ -313,6 +313,20 @@ _EN = {
         "Recurring proper names, technical terms or acronyms are recognized more "
         "reliably on the Soniox engines once you list them: edit the \"vocabulary\" "
         "section of personal_settings.json. The Groq engines ignore it."),
+    "machine.reset.heading": "Reset to defaults",
+    "machine.reset.body": (
+        "Puts the settings this window writes back to how Thoughtborne shipped: the "
+        "hotkeys, push-to-talk, the engine to start on, and the language of this "
+        "window. Your API keys stay, and so does everything you hand-wrote in "
+        "personal_settings.json — the recognition vocabulary, the Soniox endpointing "
+        "block, the push-to-talk trigger and timings, your own comments. Thoughtborne "
+        "restarts afterwards so the defaults take effect."),
+    "machine.reset.body2": (
+        "Two things it does not do. The engine you last switched to stays remembered "
+        "— that is a record of what you did, not a setting. And it is not a wipe: for "
+        "a truly fresh start, close Thoughtborne and delete .env and "
+        "personal_settings.json in the folder above."),
+    "btn.reset_defaults": "Reset & restart",
     "machine.update.heading": "Updating",
     "machine.update.body": (
         "There is no auto-update: Thoughtborne never looks for a new version and "
@@ -365,6 +379,22 @@ _EN = {
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
         "them (details on the Hotkeys tab). Save anyway?"),
+    "dlg.reset.title": "Reset to defaults",
+    "dlg.reset.body": (
+        "This puts your hotkeys, push-to-talk, the engine to start on and the "
+        "language of this window back to the shipped defaults. Your API keys are not "
+        "touched, and neither is anything you hand-wrote in personal_settings.json — "
+        "the recognition vocabulary, the Soniox endpointing block, the push-to-talk "
+        "trigger and timings, your own comments. Anything entered in this window and "
+        "not yet saved is discarded. Thoughtborne restarts right afterwards. "
+        "Reset now?"),
+    "dlg.reset.body_corrupt": (
+        "personal_settings.json cannot be read — it is no longer valid JSON, so the "
+        "reset replaces it with a clean file and everything hand-written in it is "
+        "lost: the recognition vocabulary, the Soniox endpointing block, the "
+        "push-to-talk trigger and timings, your own comments. To keep them, stop "
+        "here and repair the file in a text editor first. Your API keys are not "
+        "touched either way. Thoughtborne restarts right afterwards. Reset now?"),
     "dlg.savefail.title": "Saving failed",
     "dlg.savefail.body": (
         "The settings could not be saved. Each file is written atomically — swapped "
@@ -702,6 +732,22 @@ _DE = {
         "Soniox-Engines zuverlässiger, wenn sie hinterlegt sind: dazu den Abschnitt "
         "„vocabulary“ in personal_settings.json bearbeiten. Die Groq-Engines "
         "ignorieren ihn."),
+    "machine.reset.heading": "Auf Standard zurücksetzen",
+    "machine.reset.body": (
+        "Setzt die Einstellungen, die dieses Fenster schreibt, auf den "
+        "Auslieferungszustand zurück: die Hotkeys, Push-to-talk, die Engine beim "
+        "Start und die Sprache dieses Fensters. Deine API-Keys bleiben, und alles, "
+        "was du selbst in die personal_settings.json geschrieben hast, bleibt auch — "
+        "das Erkennungs-Vokabular, der Soniox-Endpointing-Block, die Trigger-Taste "
+        "und die Zeitschwellen von Push-to-talk, deine eigenen Kommentare. "
+        "Thoughtborne startet danach neu, damit die Standardwerte greifen."),
+    "machine.reset.body2": (
+        "Zwei Dinge passieren dabei nicht. Die Engine, zu der du zuletzt gewechselt "
+        "hast, bleibt gemerkt — das ist eine Aufzeichnung dessen, was du getan hast, "
+        "keine Einstellung. Und ein Löschen ist es nicht: Wer wirklich bei null "
+        "anfangen will, beendet Thoughtborne und löscht .env und "
+        "personal_settings.json im Ordner oben."),
+    "btn.reset_defaults": "Zurücksetzen & neu starten",
     "machine.update.heading": "Aktualisieren",
     "machine.update.body": (
         "Es gibt kein Auto-Update: Thoughtborne sucht nie nach einer neuen Version "
@@ -756,6 +802,25 @@ _DE = {
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "
         "in Kraft (Details im Hotkeys-Tab). Trotzdem speichern?"),
+    "dlg.reset.title": "Auf Standard zurücksetzen",
+    "dlg.reset.body": (
+        "Hotkeys, Push-to-talk, die Engine beim Start und die Sprache dieses "
+        "Fensters gehen zurück auf den Auslieferungszustand. Deine API-Keys bleiben "
+        "unangetastet, und ebenso alles, was du selbst in die personal_settings.json "
+        "geschrieben hast — das Erkennungs-Vokabular, der Soniox-Endpointing-Block, "
+        "die Trigger-Taste und die Zeitschwellen von Push-to-talk, deine eigenen "
+        "Kommentare. Was in diesem Fenster eingetragen und noch nicht gespeichert "
+        "ist, geht dabei verloren. Thoughtborne startet gleich danach neu. "
+        "Jetzt zurücksetzen?"),
+    "dlg.reset.body_corrupt": (
+        "Die personal_settings.json lässt sich nicht lesen — sie ist kein gültiges "
+        "JSON mehr. Das Zurücksetzen ersetzt sie deshalb durch eine saubere Datei, "
+        "und alles von Hand Geschriebene darin geht verloren: das "
+        "Erkennungs-Vokabular, der Soniox-Endpointing-Block, die Trigger-Taste und "
+        "die Zeitschwellen von Push-to-talk, deine eigenen Kommentare. Wenn du das "
+        "behalten willst, brich hier ab und repariere die Datei zuerst im "
+        "Texteditor. Deine API-Keys bleiben in beiden Fällen unangetastet. "
+        "Thoughtborne startet gleich danach neu. Jetzt zurücksetzen?"),
     "dlg.savefail.title": "Speichern fehlgeschlagen",
     "dlg.savefail.body": (
         "Die Einstellungen konnten nicht gespeichert werden. Jede Datei wird atomar "

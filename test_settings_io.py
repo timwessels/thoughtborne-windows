@@ -103,6 +103,18 @@ What is covered:
     no flag -> the plain dialog; the shared key-presence predicate and the read_env
     seam (a readable keyed .env -> plain, an ANSI .env -> wizard, matching
     _had_stored_key).
+  - the Machine Room reset (#282, D-020): the one forced write that puts the four
+    app-managed keys back to the shipped state -- over a dirty file (every hand-
+    written block, `_comment` and parked `_` hotkey key preserved, order included,
+    an unknown block among them), over the hand-typed invalid values no ordinary
+    save can clear (the reason the values are forced rather than derived, asserted
+    against the two save signals that return None there), over no file at all
+    (the canonical all-defaults file, still without the example's placeholder
+    vocabulary), twice in a row (idempotent bytes), and with a .env beside it that
+    must not move. Plus the call site, statically: the forced arguments, no
+    resolver, no write_env, no engine-memory write, a confirmation that warns and
+    preselects the preserving answer, the restart as the tail, and reset_btn in the
+    restart freeze.
   - the "every save restarts" invariant (#271, D-014): the retired save-action
     resolver and its btn.save / btn.save_close strings stay gone, and the two places
     the invariant lives are pinned on thoughtborne_settings.py's syntax tree -- _save
@@ -1534,6 +1546,262 @@ def check_ptt_toggle(tmp):
           "PTT-combined: the unmanaged vocabulary was clobbered")
 
 
+def check_reset_defaults(tmp):
+    """The write contract behind the Machine Room reset (#282, D-020): the one
+    write_personal_settings call _reset_to_defaults makes, over the files it will
+    realistically meet. Both halves of the promise need proving -- that the four
+    managed keys really land at their shipped values, and that nothing else in the
+    file moves -- and the second half is the one a user notices."""
+    # Exactly the call _reset_to_defaults makes (check_reset_wiring pins that it
+    # keeps making it): the shipped hotkeys, no pin, English, push-to-talk off.
+    RESET = dict(hotkeys_effective=config.DEFAULT_HOTKEYS,
+                 default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS,
+                 ui_language="en", ptt_enabled=False)
+
+    # (a) The realistically dirty file: every managed block carries a non-default
+    # value, every hand-written one carries something worth keeping -- including an
+    # `experimental` block nothing in the code knows, which proves preservation is
+    # structural and not a whitelist.
+    dirty = {
+        "_comment": "Meine eigenen Notizen ganz oben in der Datei",
+        "vocabulary": {"general": "Diktat über Softwareentwicklung",
+                       "terms": ["Thoughtborne", "Soniox", "Grüße"],
+                       "text": "Ein Beispielsatz für den Kontext."},
+        "soniox_endpointing": {"_comment": "hand-tuned", "silence_ms": 700,
+                               "min_speech_ms": 120},
+        "push_to_talk": {"_comment": "Opt-in push-to-talk (Issue #66)",
+                         "enabled": True, "trigger": "rctrl", "insert": "type",
+                         "tap_window_s": 0.35, "min_hold_s": 0.25,
+                         "release_tail_s": 0.18},
+        "hotkeys": {"_comment": "Overrides for the shipped scheme",
+                    "start_recording": "ctrl+alt+p", "exit_program": "f9",
+                    "_disabled_exit_program": "ctrl+alt+4"},
+        "defaults": {"_comment": "The engine to start on", "api": "groq-large"},
+        "ui": {"_comment": "The language of the settings window", "language": "de"},
+        "experimental": {"nobody_knows": [1, 2, 3]},
+    }
+    p = tmp / "ps_reset_dirty.json"
+    p.write_text(json.dumps(dirty, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, **RESET)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "reset-dirty: the file did not reload as valid JSON")
+    # The hotkeys block keeps its comment lead and the parked "_" key -- the latter is
+    # a comment to apply_hotkey_overrides, not a binding, so it is hand-written
+    # content like any other (D-020) -- and loses every real override.
+    check(data.get("hotkeys") == {"_comment": dirty["hotkeys"]["_comment"],
+                                  "_disabled_exit_program": "ctrl+alt+4"},
+          f"reset-dirty: the hotkeys block is not back at the shipped scheme (or lost "
+          f"its _comment / its parked '_' key): {data.get('hotkeys')}")
+    check("api" not in data.get("defaults", {}),
+          f"reset-dirty: the startup pin survived the reset: {data.get('defaults')}")
+    check(data.get("defaults", {}).get("_comment") == dirty["defaults"]["_comment"],
+          f"reset-dirty: dropping the pin cost the defaults block's _comment: "
+          f"{data.get('defaults')}")
+    check(data.get("ui", {}).get("language") == "en",
+          f"reset-dirty: the window language is not back at the D-015 default: "
+          f"{data.get('ui')}")
+    check(data.get("ui", {}).get("_comment") == dirty["ui"]["_comment"],
+          f"reset-dirty: the ui block's _comment was lost: {data.get('ui')}")
+    check(data.get("push_to_talk", {}).get("enabled") is False,
+          f"reset-dirty: push-to-talk was not switched off: {data.get('push_to_talk')}")
+    check({k: v for k, v in data.get("push_to_talk", {}).items() if k != "enabled"}
+          == {k: v for k, v in dirty["push_to_talk"].items() if k != "enabled"},
+          f"reset-dirty: the reset cost a hand-tuned push-to-talk value -- only "
+          f"`enabled` is a setting, the trigger and the three timings are the user's "
+          f"(D-020): {data.get('push_to_talk')}")
+    # The unmanaged half, compared as SERIALIZED json so a reordering fails too -- a
+    # bare == would not notice one, and the user reads this file.
+    for key in ("_comment", "vocabulary", "soniox_endpointing", "experimental"):
+        check(json.dumps(data.get(key), indent=2, ensure_ascii=False)
+              == json.dumps(dirty[key], indent=2, ensure_ascii=False),
+              f"reset-dirty: the reset changed the hand-written {key!r} -- the reset "
+              f"is about settings, never the user's data (D-020): {data.get(key)!r}")
+
+    # (b) The case the whole "forced, not derived" design exists for: values no save
+    # can clear. A hand-typed invalid pin and a quoted `enabled` are DISPLAYED as the
+    # default they produce, so the form's controls never move over them, the save
+    # signals return None, and D-002's leave-as-found rule keeps exactly the junk the
+    # tool warns about at every start. The reset is the only way out.
+    check(sio.resolve_engine_save_signal(
+        mode_now="remember", mode_loaded="remember", engine_now="soniox-live",
+        engine_loaded="soniox-live", remember_display_now="groq",
+        remember_display_loaded="groq") == (None, None),
+        "reset-invalid: an untouched engine control no longer signals (None, None) -- "
+        "the premise of the forced write below has changed, re-read D-002/D-008")
+    check(sio.resolve_ptt_save_signal(enabled_now=False, enabled_loaded=False) is None,
+          "reset-invalid: an untouched push-to-talk toggle no longer signals None -- "
+          "the premise of the forced write below has changed, re-read D-002")
+    p = tmp / "ps_reset_invalid.json"
+    p.write_text(json.dumps({"defaults": {"api": "grok"},
+                             "push_to_talk": {"enabled": "yes"},
+                             "vocabulary": {"terms": ["keepme"]}},
+                            indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, **RESET)
+    data, _ = sio.read_personal_settings(p)
+    check("api" not in data.get("defaults", {}),
+          f"reset-invalid: an unknown engine id survived the reset -- no ordinary save "
+          f"can clear it either, so nothing would: {data.get('defaults')}")
+    check(data.get("push_to_talk", {}).get("enabled") is False,
+          f"reset-invalid: a hand-typed non-boolean `enabled` survived the reset: "
+          f"{data.get('push_to_talk')}")
+    check(data.get("vocabulary", {}).get("terms") == ["keepme"],
+          "reset-invalid: the vocabulary was clobbered")
+
+    # (c) No file at all: the reset writes the canonical all-defaults file, self-
+    # documenting through the example's _comment leads -- and WITHOUT the example's
+    # placeholder vocabulary, which would otherwise become live Soniox vocabulary.
+    p = tmp / "ps_reset_fresh.json"
+    sio.write_personal_settings(p, **RESET)
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "reset-fresh: the written file is not valid JSON")
+    check("vocabulary" not in data,
+          f"reset-fresh: the reset seeded the example's placeholder vocabulary: "
+          f"{data.get('vocabulary')}")
+    check("api" not in data.get("defaults", {}) and data.get("ui", {}).get("language") == "en"
+          and data.get("push_to_talk", {}).get("enabled") is False
+          and not [k for k in data.get("hotkeys", {}) if not k.startswith("_")],
+          f"reset-fresh: the four managed facts are not all at their shipped value: {data}")
+
+    # (d) Idempotence -- the honest form of the issue's "byte-for-byte unchanged".
+    # write_personal_settings re-serializes the whole file, so a hand-formatted one
+    # comes back normalized on the FIRST reset; from there the bytes must stand still.
+    p = tmp / "ps_reset_twice.json"
+    p.write_text(json.dumps(dirty, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    sio.write_personal_settings(p, **RESET)
+    once = p.read_bytes()
+    sio.write_personal_settings(p, **RESET)
+    check(p.read_bytes() == once,
+          "reset-twice: a second reset changed the file -- the reset is a forced "
+          "state, so repeating it must be a no-op on the bytes")
+
+    # (e) .env is untouched. Trivially true (the reset never calls write_env, which
+    # check_reset_wiring pins on the source), but it is the feature's loudest promise.
+    env = tmp / "ps_reset.env"
+    env.write_text("GROQ_API_KEY=gsk_secret\nSONIOX_API_KEY=so_secret\n", encoding="utf-8")
+    env_before = env.read_bytes()
+    sio.write_personal_settings(tmp / "ps_reset_dirty.json", **RESET)
+    check(env.read_bytes() == env_before,
+          "reset-env: the settings write reached the .env -- the keys are the user's "
+          "data and the reset must never write them (D-011, D-020)")
+
+
+def check_reset_wiring():
+    """The reset's call site, pinned statically on thoughtborne_settings.py's syntax
+    tree (#282, D-020) -- the twin of check_ptt_wiring and check_save_always_restarts,
+    and the only off-Windows coverage the GUI half can have.
+
+    Everything in check_reset_defaults proves what the WRITE does; what nothing else
+    can catch is the reset feeding it something else -- a resolver instead of a forced
+    value (which would leave invalid hand-typed values alive), a .env write beside the
+    only one, a memory clear, or a restart lane of its own."""
+    for key in ("machine.reset.heading", "machine.reset.body", "machine.reset.body2",
+                "btn.reset_defaults", "dlg.reset.title", "dlg.reset.body",
+                "dlg.reset.body_corrupt"):
+        check(key in sstr._EN and key in sstr._DE,
+              f"reset-wiring: {key} is missing a string in EN or DE")
+    # The "this is not a wipe" pointer names both files verbatim in both languages --
+    # it is the only place the app says how to get a genuinely empty slate, and the
+    # reset deliberately is not it (same coupling style as the hotkeys.ptt.fine guard).
+    for lang in ("en", "de"):
+        for name in (".env", "personal_settings.json"):
+            check(name in sstr.t("machine.reset.body2", lang),
+                  f"reset-wiring: machine.reset.body2 ({lang}) must name {name} "
+                  "verbatim -- it is the app's only pointer to a true wipe")
+
+    methods = _settings_app_methods("reset-wiring")
+    if not methods:
+        return
+    reset = methods.get("_reset_to_defaults")
+    if reset is None:
+        failures.append("reset-wiring: SettingsApp._reset_to_defaults not found -- the "
+                        "reset was renamed and this guard no longer guards anything")
+        return
+
+    writes = _calls_to(reset, "write_personal_settings")
+    check(len(writes) == 1,
+          f"reset-wiring: _reset_to_defaults makes {len(writes)} settings writes, "
+          "expected exactly one -- the reset is one forced write, not a sequence")
+    if len(writes) == 1:
+        kw = {k.arg: k.value for k in writes[0].keywords}
+        forced = {"hotkeys_effective": ("config", "DEFAULT_HOTKEYS"),
+                  "default_api": ("settings_io", "REMOVE_API_PIN")}
+        for name, (mod, attr) in forced.items():
+            node = kw.get(name)
+            check(isinstance(node, ast.Attribute) and node.attr == attr
+                  and getattr(node.value, "id", None) == mod,
+                  f"reset-wiring: {name}= is not {mod}.{attr} -- the reset must FORCE "
+                  "the shipped value; anything derived from the form moves no control "
+                  "over a hand-typed invalid value and would leave it in place (D-002)")
+        for name, want in (("ui_language", "en"), ("ptt_enabled", False)):
+            node = kw.get(name)
+            check(isinstance(node, ast.Constant) and type(node.value) is type(want)
+                  and node.value == want,
+                  f"reset-wiring: {name}= is not the literal {want!r} -- the shipped "
+                  "state is written unconditionally, never diffed (D-015/D-002)")
+    for name in ("resolve_engine_save_signal", "resolve_ptt_save_signal"):
+        check(not _calls_to(reset, name),
+              f"reset-wiring: _reset_to_defaults calls {name} -- the save signals ask "
+              "'did the control move?', which is exactly the question a reset must "
+              "not ask (D-020)")
+    check(not _calls_to(reset, "write_env"),
+          "reset-wiring: _reset_to_defaults calls write_env -- the API keys are safe "
+          "STRUCTURALLY, by this method never reaching the only .env writer, and that "
+          "is a stronger promise than any dialog wording (D-011, D-020)")
+    check(not _calls_to(reset, "write_last_engine"),
+          "reset-wiring: _reset_to_defaults writes the engine memory -- "
+          "runtime_state.json records what the user did and is not a setting; dropping "
+          "a pin leaves the memory alone and it keeps deciding (D-008)")
+    # The confirmation is not optional, and its preselected answer is the preserving
+    # one: an Enter or a reflex click must never reset (D-011's shape). The VALUES are
+    # what carry that promise -- a `default=` that happens to say YES would satisfy a
+    # guard that only looks for the keyword, and D-020 lists exactly that among the
+    # things not to reintroduce -- so both keywords are pinned to their attribute.
+    asks = _calls_to(reset, "askyesno")
+    ask_kw = {k.arg: k.value for k in asks[0].keywords} if len(asks) == 1 else {}
+    check(len(asks) == 1
+          and all(isinstance(ask_kw.get(arg), ast.Attribute)
+                  and ask_kw[arg].attr == attr
+                  and getattr(ask_kw[arg].value, "id", None) == "messagebox"
+                  for arg, attr in (("default", "NO"), ("icon", "WARNING"))),
+          "reset-wiring: the reset's askyesno is not asked with "
+          "`icon=messagebox.WARNING, default=messagebox.NO` -- an action this "
+          "irreversible needs a confirmation that looks like a warning and whose "
+          "destructive answer is never the preselected one (D-011, D-020)")
+    # The restart lane is reused, not copied: the tail is the handshake, and nothing
+    # here destroys the window. That is also what makes the frozen _loaded snapshots
+    # harmless -- every exit from _restart_and_relaunch ends the window, so there is
+    # no next save for a stale snapshot to lie to.
+    tail = reset.body[-1]
+    tail_call = tail.value if isinstance(tail, ast.Expr) else None
+    check(isinstance(tail_call, ast.Call)
+          and getattr(tail_call.func, "attr", None) == "_restart_and_relaunch",
+          "reset-wiring: _reset_to_defaults does not END in _restart_and_relaunch -- "
+          "pickup is start-based (D-002), so a reset that does not restart would "
+          "silently defer itself to the user's next manual start")
+    destroys = [n for n in ast.walk(reset)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "destroy"
+                and isinstance(n.func.value, ast.Attribute)
+                and n.func.value.attr == "root"]
+    check(not destroys,
+          "reset-wiring: _reset_to_defaults destroys the window itself -- every exit "
+          "of a completed reset belongs to _restart_and_relaunch; the aborts (a "
+          "declined dialog, a read or write failure) leave the window open on purpose")
+    # The re-entrancy fix (#282): the reset button sits on a TAB, so the rail freeze
+    # cannot reach it. Without it a click during the deliberately responsive restart
+    # wait -- after a save just as much as after a reset -- writes a second signal.
+    freeze = methods.get("_set_rail_waiting")
+    if freeze is None:
+        failures.append("reset-wiring: SettingsApp._set_rail_waiting not found -- the "
+                        "restart freeze was renamed and this guard no longer guards it")
+        return
+    check(any(isinstance(n, ast.Attribute) and n.attr == "reset_btn"
+              for n in ast.walk(freeze)),
+          "reset-wiring: _set_rail_waiting does not disable reset_btn -- the button "
+          "lives on a tab, so the rail freeze misses it and a second click during the "
+          "restart wait would start a second handshake")
+
+
 def check_ptt_read():
     """read_ptt_enabled: what the settings toggle SHOWS for a given file, by exactly
     the rule config.py applies -- a real JSON boolean or nothing. The point is that the
@@ -1994,6 +2262,7 @@ def main():
         check_ui_language_gate(tmp)
         check_engine_pin(tmp)
         check_ptt_toggle(tmp)
+        check_reset_defaults(tmp)
         check_first_run_decision(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
@@ -2016,6 +2285,7 @@ def main():
     check_lang_gate_wiring()
     check_mode_flip_wiring()
     check_save_always_restarts()
+    check_reset_wiring()
 
     if SHOW:
         _show()

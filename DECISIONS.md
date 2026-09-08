@@ -36,6 +36,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-017 | API keys come from the install directory's `.env` only | Active |
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active |
+| D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
 
 ---
 
@@ -1403,3 +1404,95 @@ a fallback key inside the renderer (the old `"L"`); a second copy of the action
 order, positional or literal; a hardcoded cell budget or column count. Respects
 D-012 — the reorder changes no value, and the F-keys preset's housekeeping keys
 still equal the defaults, compared per action.
+
+---
+
+## D-020 — Reset to defaults: the app's own settings, never the user's data
+
+Decided 2026-09-08 (#282).
+
+The settings app gets what a settings window is expected to have: one control on
+the Machine Room tab that puts everything back to how the tool shipped. What it
+may touch is the contestable part, and the line is **settings, not data**:
+
+- **Reset means the four app-managed keys, and exactly those.** The `hotkeys`
+  block, `defaults.api`, `push_to_talk.enabled` and `ui.language` — precisely
+  what `settings_io.write_personal_settings` manages — go back to the shipped
+  state: no hotkey overrides, no startup pin, push-to-talk off, English.
+  Nothing else in the file is app-written, so there is nothing else to reset.
+- **Keys and hand-written content stay — the uninstaller's line (D-011).** The
+  `.env` keys, the `vocabulary` and `soniox_endpointing` blocks, the hand-tuned
+  push-to-talk trigger/insert/timings, every `_comment` and every block the app
+  does not know are the user's data, not settings. The keys are safe
+  **structurally**, not by promise: the reset never calls `settings_io.write_env`,
+  the only `.env` writer. A parked `_`-prefixed hotkey key
+  (`"_disabled_exit_program"`) survives too — `apply_hotkey_overrides` skips
+  every `_` key, so such an entry is a comment, not a binding.
+- **The values are FORCED, not diffed — that is the whole point.** The save
+  signals (`resolve_engine_save_signal` / `resolve_ptt_save_signal`) express "did
+  the control move?", and D-002's leave-as-found rule then keeps an invalid
+  hand-typed value alive on purpose (`"api": "grok"`, `"enabled": "yes"` — the
+  tool warns about them at every start). Those values are *displayed* as the
+  default they produce, so a form-driven reset would move nothing, signal `None`,
+  and leave exactly the junk the user wants gone. The reset therefore writes
+  `hotkeys_effective=DEFAULT_HOTKEYS`, `default_api=REMOVE_API_PIN`,
+  `ptt_enabled=False`, `ui_language="en"` unconditionally. It needs no new write
+  function and no new sentinel; D-002's surgical merge stands unchanged.
+- **The engine memory stays (D-008).** `runtime_state.json` records the engine
+  last chosen with `Ctrl+Alt+L`: machine-written, a record of what the user did,
+  not a setting — and on the never-delete list in `AGENTS.md`. Dropping the pin is
+  exactly D-008's `REMOVE_API_PIN` case, whose own rule is that the memory is left
+  alone and keeps deciding. The consequence is named rather than hidden: with a
+  pin *and* a divergent memory, the next start lands on the remembered engine,
+  not on `soniox-live`. The setting is at its shipped default; the record is not a
+  setting. The tab says so, and the engine control shows the remembered engine in
+  plain text.
+- **One lane, one exit (D-014).** The reset writes once and then goes through the
+  existing `_restart_and_relaunch` handshake like every save since #271 — pickup
+  is start-based (D-002), so a reset that did not restart would silently defer
+  itself. It is not a third save path: no `.env` write, no resolvers, no second
+  rail label. Because the button sits on a tab rather than the rail, the restart
+  freeze disables it explicitly; otherwise a second click during the deliberately
+  responsive wait would start a second handshake.
+- **A confirmation is not an unsaved-changes guard.** D-014 forbids an "are you
+  sure" on *closing*; this one sits in front of a *destructive* action and follows
+  D-011's shape — the destructive answer is an explicit opt-in, never a
+  click-through: the dialog opens with **No** preselected, so Enter preserves.
+- **Over a corrupt file the dialog tells the truth instead of promising.** A
+  corrupt-but-decodable `personal_settings.json` takes D-002's warn-then-overwrite
+  branch like any explicit save, so the hand-written blocks really are lost there
+  — and a broken file is *correlated* with a hand-edited vocabulary, since that is
+  the block people edit. The reset stays available (flattening a broken file is a
+  legitimate thing to want), but the confirmation switches to a second body that
+  says what will be lost and suggests repairing the file first. The rule is
+  unchanged; only the wording stops making a promise it cannot keep in that one
+  case. The #239 gate remains what it was: protection for the *silent* language
+  write, not for an action confirmed twice.
+- **Settings mode only.** The control is built in the everyday dialog, not the
+  first-run wizard: a first run has nothing to reset, and the wizard is where an
+  unsaved API key sits in a field the reset would not write. The Machine Room
+  **tab** is still built in both modes — the #281 rule that the tab list must not
+  fork is untouched.
+- **The reset is not a wipe, and says so.** A truly empty slate means deleting
+  `.env` and `personal_settings.json` by hand; the tab says that in one sentence,
+  next to #281's open-the-folder button.
+
+Accepted edge: `write_personal_settings` re-serializes the whole file, so a
+hand-formatted `personal_settings.json` comes back normalized even though no
+unmanaged value changed. The honest promise is "no unmanaged value is changed,
+added or removed"; byte-for-byte holds for `.env` (never opened) and for every
+reset after the first (it is idempotent).
+
+Do not reintroduce: a reset that deletes API keys, the `vocabulary` or
+`soniox_endpointing` blocks, any `_comment`, or a settings file wholesale; a
+reset driven by the save signals instead of forced values (it leaves invalid
+hand-typed values behind); a reset that clears `runtime_state.json`; a reset that
+writes without restarting; a confirmation whose destructive answer is the
+preselected one, or one that promises the hand-written blocks survive a corrupt
+file; or a second write path to `.env` beside `settings_io.write_env`.
+
+Respects D-002 (the surgical merge and its three-valued contracts, unchanged),
+D-008 (precedence and the memory-write rules untouched), D-011 (the
+keep-by-default line and the opt-in shape), D-014 (one lane, one exit; the
+confirmation guards an action, not a close) and D-015 (English is the shipped
+language the reset writes).

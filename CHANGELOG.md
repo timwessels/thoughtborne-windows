@@ -53,6 +53,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the endpointing tuning (#122), and describe the push-to-talk insert paths and the remembered
   engine without naming key combinations that anyone may have rebound.
 
+- **One control puts the settings back to how Thoughtborne shipped (#282).** A settings window
+  is expected to have a way back, and this one had none — the closest things were the `Ctrl+Alt`
+  preset button on the *Hotkeys* tab and deleting files by hand. The *Machine room* tab now
+  carries **Reset & restart**: the hotkeys, push-to-talk, the engine to start on and the language
+  of the window go back to their shipped values, and Thoughtborne restarts so they take effect
+  right away. What it does *not* touch is the point: your API keys are never written — the reset
+  does not go anywhere near the only code that writes `.env` — and neither is anything you
+  hand-wrote in `personal_settings.json`: the recognition vocabulary, the Soniox endpointing
+  block, the push-to-talk trigger and timings, your own comments, any block the app does not know.
+  That is the same line the uninstaller draws between the app and your data. The engine you last
+  switched to with `Ctrl+Alt+L` stays remembered too — it records what you did, it is not a
+  setting. The four values are written unconditionally rather than derived from the form, which is
+  what lets the reset clear a hand-typed value the settings never could: an unknown
+  `defaults.api`, a quoted `"enabled": "yes"` — the kind the tool warns about at every start and
+  that every ordinary save deliberately leaves alone. Because it cannot be undone it asks first,
+  with **No** preselected, and the dialog names in one breath what goes and what stays; over a
+  `personal_settings.json` that is no longer valid JSON it asks with a different text, the one
+  that says the hand-written blocks will be lost and that repairing the file first is the way to
+  keep them — the reset stays available, it just does not make a promise it cannot keep there. It
+  appears in the everyday settings dialog only, not in the first-run wizard, where there is
+  nothing to reset and an unsaved key would sit in the field. For a genuinely empty slate the tab
+  points at the two files and the folder button right above it.
+
 - **A sixth guiding principle in `VISION.md`: lean by default.** The five principles said
   how what gets built should look; none said whether a thing gets built at all. The new
   one does: convenience for an edge case is weighed against the code it costs to carry
