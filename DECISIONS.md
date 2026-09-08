@@ -34,6 +34,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
 | D-017 | API keys come from the install directory's `.env` only | Active |
+| D-018 | The console is built for 72 columns and up; there is no second form | Active |
 
 ---
 
@@ -1248,3 +1249,53 @@ starts keyless after this change, and the start screen tells them where to put i
 Respects D-002 (the write contract is unchanged), D-004 (the opt-out is kept, its
 route clarified), D-005 (the stdlib-only constraint only gets easier — `config.py`
 now has no third-party import at all) and D-014.
+
+---
+
+## D-018 — The console is built for 72 columns and up; there is no second form
+
+Decided 2026-09-07 (#273).
+
+`console_ui` renders one presentation form: the framed panels and strips, 70
+cells wide. The 72 in the title is that figure rounded up — a 72-column window
+carries the frames with a column to spare on either side; a window too narrow
+for 70 cells wraps them, and that is the whole behaviour — there is no narrow
+variant, and nothing in the renderer or the app measures the terminal. (The `ansi` switch is a different axis and stays: it is
+the length-equal plain-ASCII twin of the *same* framed layout, not a second one.)
+
+The frameless *compact* form came with the Cockpit redesign (#109) as a design
+element — every block measured the terminal width and, under 72 columns,
+replaced the framed panels with a frameless variant — and was never recorded as
+a decision. It cost 28 branches through the renderer, four helpers of its own, a
+second reason table, its own wordmark and a complete second test lane, so every
+layout rule had to be thought through twice.
+
+- **No real use case.** Windows Terminal and the classic console both open at
+  120 columns; nobody lands under 72 by accident. The console reports, it is not
+  operated (README), and for getting it out of the way the README already points
+  at Terminal's own hide settings. The dim ticker and log lines were never
+  width-limited anyway.
+- **It was the worse-tested half.** The width verification ahead of the
+  hotkey-presentation package (#272) found six overflows in the compact key
+  grid alone, and more elsewhere in the form that already broke under the
+  shipped `Ctrl+Alt` scheme — not one of them caught by a test, because the
+  width check had no fixture for that form at all: it measured the framed
+  masthead and one strip, and never a compact line.
+- **Its arithmetic could not carry what comes next.** The two-column combo grid
+  #272 introduces does not fit the compact widths at all; it would have needed a
+  layout rule of its own, written twice for every screen.
+- **VISION principle 6, *lean by default*:** "Convenience for an edge case is
+  weighed against what it costs in code to carry forever; when in doubt, the tool
+  stays small and maintainable. Removing something nobody needs is as much
+  maintenance as adding something people do." A convenience nobody reached for,
+  set against a second version of every screen — it loses.
+
+The accepted cost: someone who deliberately runs a very narrow console window
+sees wrapped frames instead of a layout made for them. Cosmetic, and the console
+is not what one looks at while dictating.
+
+Do not reintroduce: a compact or otherwise frameless console form; a
+terminal-width measurement that switches between presentation forms, per block
+or anywhere else; a second copy of any renderer text (reason lines, wordmark,
+key grid) that exists only for a narrower layout. A window too narrow for the
+frames wraps them — that is the answer.

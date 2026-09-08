@@ -27,7 +27,6 @@ import sys
 import copy
 import time
 import queue
-import shutil
 import signal
 import logging
 import threading
@@ -1156,11 +1155,11 @@ class ThoughtborneApp:
                 # listener thread: _emit_block only enqueues (#11).
                 self._emit_block(
                     'self-test-failed',
-                    lambda ansi, compact: console_ui.render_selftest_failed(
+                    lambda ansi: console_ui.render_selftest_failed(
                         "self-test failed -- no transcription received",
                         ("check your API key in Settings,",
                          f"then see {LOG_FILE.name} for details"),
-                        ansi=ansi, compact=compact))
+                        ansi=ansi))
 
             logger.info("Test completed")
         else:
@@ -1168,11 +1167,11 @@ class ThoughtborneApp:
             logger.error("Place a file named 'test_audio.wav' or 'test_audio.mp3' in the script directory.")
             self._emit_block(
                 'self-test-failed',
-                lambda ansi, compact: console_ui.render_selftest_failed(
+                lambda ansi: console_ui.render_selftest_failed(
                     "self-test failed -- no test audio file found",
                     ("place test_audio.wav or test_audio.mp3",
                      "in the project folder, then retry"),
-                    ansi=ansi, compact=compact))
+                    ansi=ansi))
 
     def _create_startup_transcriber(self):
         """Construct the startup transcriber, falling through the carousel (#40).
@@ -1327,10 +1326,9 @@ class ThoughtborneApp:
         logger.error("No transcription API could be constructed -- tried: "
                      + ", ".join(api for api, _ in failures), extra=FILE_ONLY)
         try:
-            compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
             lines = console_ui.render_noapi_panel(
                 list(missing.items()), other, str(SCRIPT_DIR),
-                ansi=_ANSI_ENABLED, compact=compact)
+                ansi=_ANSI_ENABLED)
             print("\n" + "\n".join(lines))
         except Exception as e:
             logger.debug(f"No-API panel render failed: {e}")
@@ -1382,9 +1380,9 @@ class ThoughtborneApp:
                 switch_key = self._format_hotkey(HOTKEYS['switch_api'])
                 self._emit_block(
                     'switched',
-                    lambda ansi, compact: console_ui.render_switched_panel(
+                    lambda ansi: console_ui.render_switched_panel(
                         new_label, self._lineup_data(), switch_key,
-                        ansi=ansi, compact=compact))
+                        ansi=ansi))
                 # Remember the pick for the next start (#193, D-008). After the
                 # panel, so nothing user-visible waits on the disk, and never
                 # raising (engine_memory's contract) so it cannot disturb the
@@ -1407,9 +1405,9 @@ class ThoughtborneApp:
             switch_key = self._format_hotkey(HOTKEYS['switch_api'])
             self._emit_block(
                 'switch-failed',
-                lambda ansi, compact: console_ui.render_switch_failed(
+                lambda ansi: console_ui.render_switch_failed(
                     current_label, self._lineup_data(), switch_key, missing,
-                    ansi=ansi, compact=compact))
+                    ansi=ansi))
 
         except Exception as e:
             logger.error(f"Error in API switch: {e}", exc_info=True)
@@ -1496,10 +1494,10 @@ class ThoughtborneApp:
                              extra=FILE_ONLY)
                 self._emit_block(
                     'mic-failed',
-                    lambda ansi, compact: console_ui.render_mic_failed(
+                    lambda ansi: console_ui.render_mic_failed(
                         self.transcriber.get_name(),
                         self._footer_keys(), self._prefix_for(self._footer_actions()),
-                        ansi=ansi, compact=compact))
+                        ansi=ansi))
                 return
 
             # REC strip once the mic is actually open (#109): shows the stop
@@ -1507,7 +1505,7 @@ class ThoughtborneApp:
             # stops on a trigger release, so those stop hints would be wrong.
             self._emit_block(
                 'recording',
-                lambda ansi, compact: console_ui.render_rec_strip(
+                lambda ansi: console_ui.render_rec_strip(
                     self._key_letter('stop_recording_keyboard'),
                     self._key_letter('stop_recording_clipboard'),
                     self._key_letter('stop_recording_send'),
@@ -1516,7 +1514,7 @@ class ThoughtborneApp:
                     self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard',
                                       'stop_recording_send', 'stop_recording_no_insert',
                                       'cancel_recording']),
-                    ansi=ansi, compact=compact))
+                    ansi=ansi))
 
             # Start live streaming session if transcriber supports it
             if self.transcriber.is_live:
@@ -1673,8 +1671,8 @@ class ThoughtborneApp:
             logger.info(f"Recording cancelled ({hotkey_display})", extra=FILE_ONLY)
             self._emit_block(
                 'cancelled',
-                lambda ansi, compact: console_ui.render_cancelled_strip(
-                    ansi=ansi, compact=compact))
+                lambda ansi: console_ui.render_cancelled_strip(
+                    ansi=ansi))
 
             # Cancel live session if active
             if self._active_live_transcriber is not None:
@@ -2159,8 +2157,8 @@ class ThoughtborneApp:
             retry_key = self._format_hotkey(HOTKEYS['retry_last_failed'])
             self._emit_block(
                 'exit-saved',
-                lambda ansi, compact: console_ui.render_saved_strip(
-                    duration, retry_key, ansi=ansi, compact=compact))
+                lambda ansi: console_ui.render_saved_strip(
+                    duration, retry_key, ansi=ansi))
             # Arm the next start's retry offer (#106). A clean exit leaves no
             # .partial (unlike a hard kill), so without this marker startup
             # recovery finds nothing and Ctrl+Alt+R reports "nothing to retry".
@@ -2382,10 +2380,10 @@ class ThoughtborneApp:
                          extra=FILE_ONLY)
             self._emit_block(
                 'device-loss',
-                lambda ansi, compact: console_ui.render_device_loss(
+                lambda ansi: console_ui.render_device_loss(
                     duration, retry_key, self.transcriber.get_name(),
                     self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
-                    ansi=ansi, compact=compact))
+                    ansi=ansi))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
                     if sidecar is not None else "")
@@ -2398,14 +2396,13 @@ class ThoughtborneApp:
         the old show_status_block (#37/#11): one pre-composed string through the
         console-only logger (serialized by the single QueueListener, atomic
         write, never the file log), one DEBUG breadcrumb to the file, never
-        raises. `builder(ansi, compact)` returns the ready-to-print lines.
+        raises. `builder(ansi)` returns the ready-to-print lines.
 
         On a renderer fault a minimal one-line fallback still reaches the console
         -- in the Cockpit many former plain-text log lines are file-only, so a
         silent swallow could drop an entire FAILED panel (stability #1)."""
         try:
-            compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
-            lines = builder(ansi=_ANSI_ENABLED, compact=compact)
+            lines = builder(ansi=_ANSI_ENABLED)
             console_logger.info("\n".join([""] + lines), extra={'raw_console': True})
             logger.debug(f"Status block: event={event} api={self.current_api}"
                          + (f" {detail}" if detail else ""))
@@ -2425,8 +2422,8 @@ class ThoughtborneApp:
         settings_key = self._format_hotkey(HOTKEYS['open_settings'])
         self._emit_block(
             'keyless',
-            lambda ansi, compact: console_ui.render_keyless_notice(
-                settings_key, ansi=ansi, compact=compact))
+            lambda ansi: console_ui.render_keyless_notice(
+                settings_key, ansi=ansi))
 
     def _ticker(self, msg, error=False):
         """One [Seq:]-style progress line: dim on the console (red for the
@@ -2538,43 +2535,43 @@ class ThoughtborneApp:
                     # Typed insert hit the #7 length cap -> its own yellow strip.
                     self._emit_block(
                         'inserted-capped',
-                        lambda ansi, compact: console_ui.render_typed_capped(
+                        lambda ansi: console_ui.render_typed_capped(
                             cap, original_chars, paste_key, model, self._footer_keys(),
-                            self._prefix_for(self._footer_actions()), ansi=ansi, compact=compact),
+                            self._prefix_for(self._footer_actions()), ansi=ansi),
                         detail=f"seq={seq} typed={chars} original={original_chars} cap={cap}")
                 else:
                     self._emit_block(
                         'inserted',
-                        lambda ansi, compact: console_ui.render_ok_strip(
+                        lambda ansi: console_ui.render_ok_strip(
                             seq_shown, chars, sent, model, self._footer_keys(),
                             self._prefix_for(self._footer_actions()),
-                            mode=mode, cap=cap, ansi=ansi, compact=compact),
+                            mode=mode, cap=cap, ansi=ansi),
                         detail=f"seq={seq} chars={chars} sent={sent} mode={mode}")
             elif event == 'ready':
                 self._emit_block(
                     'ready',
-                    lambda ansi, compact: console_ui.render_waiting_strip(
+                    lambda ansi: console_ui.render_waiting_strip(
                         seq_shown, chars, type_key, paste_key,
                         self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']),
-                        ansi=ansi, compact=compact),
+                        ansi=ansi),
                     detail=f"seq={seq} chars={chars}")
             elif event == 'failed' and kind == 'insertion':
                 self._emit_block(
                     'insert-failed',
-                    lambda ansi, compact: console_ui.render_insert_failed(
+                    lambda ansi: console_ui.render_insert_failed(
                         seq_shown, type_key, paste_key, model, self._footer_keys(),
                         self._prefix_for(['stop_recording_keyboard', 'stop_recording_clipboard']
                                          + self._footer_actions()),
-                        ansi=ansi, compact=compact),
+                        ansi=ansi),
                     detail=f"seq={seq}")
             elif event == 'failed':
                 self._emit_block(
                     'transcription-failed',
-                    lambda ansi, compact: console_ui.render_transcription_failed(
+                    lambda ansi: console_ui.render_transcription_failed(
                         seq_shown, retry_key, model,
                         self._footer_keys(retry=True), self._prefix_for(self._footer_actions(retry=True)),
                         reason=reason, provider=provider, inconclusive=inconclusive,
-                        ansi=ansi, compact=compact),
+                        ansi=ansi),
                     detail=f"seq={seq} reason={reason} provider={provider}")
             elif event == 'no_speech':
                 # #133: a benign 'no speech found' verdict, not a failure -- no retry
@@ -2583,8 +2580,8 @@ class ThoughtborneApp:
                 open_key = self._format_hotkey(HOTKEYS['open_history'])
                 self._emit_block(
                     'no-speech',
-                    lambda ansi, compact: console_ui.render_no_speech(
-                        open_key, ansi=ansi, compact=compact),
+                    lambda ansi: console_ui.render_no_speech(
+                        open_key, ansi=ansi),
                     detail=f"seq={seq}")
         except Exception as e:
             logger.debug(f"Status block dispatch failed ({event}): {e}")
@@ -2611,9 +2608,9 @@ class ThoughtborneApp:
             n = len(pending)
             self._emit_block(
                 'recovered',
-                lambda ansi, compact: console_ui.render_recovered_panel(
+                lambda ansi: console_ui.render_recovered_panel(
                     when, newest_dur, newest_clean_exit, hotkeys_ok,
-                    str(ARCHIVE_FOLDER), retry_key, ansi=ansi, compact=compact),
+                    str(ARCHIVE_FOLDER), retry_key, ansi=ansi),
                 detail=f"count={n} newest={newest_ts} clean_exit={newest_clean_exit}")
         except Exception as e:
             logger.debug(f"Recovery status block suppressed: {e}")
@@ -2793,17 +2790,15 @@ class ThoughtborneApp:
                 pinned_default = entry["label"] if entry else DEFAULT_API
             self._emit_block(
                 'startup',
-                lambda ansi, compact: console_ui.render_masthead(
+                lambda ansi: console_ui.render_masthead(
                     lineup, keys, key_prefix, str(HISTORY_FOLDER),
-                    # bare letters: Ctrl+Alt is established once on the READY line
-                    # (#115). open_key survives only in the compact history line.
-                    self._key_letter('open_history'),
+                    # bare letters: Ctrl+Alt is established once on the READY line (#115).
                     self._key_letter('switch_api'),
                     self._format_hotkey(HOTKEYS['start_recording']),
                     guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
                     pinned_default=pinned_default,
-                    ansi=ansi, compact=compact))
+                    ansi=ansi))
         else:
             # No READY invitation after a shortfall -- the tool keeps running
             # (status quo), but the panel must say so. Split total vs partial
@@ -2817,13 +2812,13 @@ class ThoughtborneApp:
             if reg == 0:
                 self._emit_block(
                     'hotkeys-failed',
-                    lambda ansi, compact: console_ui.render_hotkeys_failed(
-                        ansi=ansi, compact=compact))
+                    lambda ansi: console_ui.render_hotkeys_failed(
+                        ansi=ansi))
             else:
                 self._emit_block(
                     'hotkeys-partial',
-                    lambda ansi, compact: console_ui.render_hotkeys_partial(
-                        reg, exp, ansi=ansi, compact=compact))
+                    lambda ansi: console_ui.render_hotkeys_partial(
+                        reg, exp, ansi=ansi))
 
         # Recovery notice as its own prominent block, emitted last so it sits at
         # the bottom of the scrollback below READY and can't be scrolled off
@@ -3018,8 +3013,7 @@ def _refuse_second_instance():
     the AGENTS running-check on the real instance is never misled)."""
     logger.info("Second instance refused: Thoughtborne already running", extra=FILE_ONLY)
     try:
-        compact = shutil.get_terminal_size((80, 25)).columns < console_ui.COMPACT_THRESHOLD
-        lines = console_ui.render_already_running(ansi=_ANSI_ENABLED, compact=compact)
+        lines = console_ui.render_already_running(ansi=_ANSI_ENABLED)
         # Console-only (console_logger has no file handler); the sleep gives the
         # QueueListener daemon time to drain the panel before the process exits.
         console_logger.info("\n".join([""] + lines), extra={'raw_console': True})

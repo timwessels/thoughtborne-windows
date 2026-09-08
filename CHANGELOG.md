@@ -96,6 +96,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   you can send unread in German too, a lot of time spent with chatbots and coding agents, and
   long texts one would rather just say. DE and EN twins in lockstep.
 
+### Removed
+
+- **The console's second, frameless form is gone — one console form now (#273, D-018).** In a
+  terminal window narrower than 72 columns every panel and strip used to drop its frame for a
+  compact variant. It arrived with the Cockpit redesign as a design element and no real setup
+  ever reached it: Windows Terminal and the classic console both open at 120 columns, and the
+  console reports — it is not operated, and the README already points at Terminal's own
+  settings for getting the window out of the way. It was also the worse-tested half: the width
+  verification ahead of the hotkey-presentation work found six overflows in its key grid alone,
+  and more elsewhere in the form — the recording strip, the capped-insert notice — that already
+  broke under the shipped `Ctrl+Alt` scheme; not one of them caught by a test. A window too
+  narrow for the frames now simply wraps them — cosmetic, and irrelevant while dictating. **At 72 columns
+  and more nothing looks different than before**, verified render by render: every panel and
+  strip, in the coloured form and in its plain-ASCII twin, is byte-for-byte identical before
+  and after. Gone with the form: the terminal-width measurement each block did
+  (`shutil.get_terminal_size`), four renderer helpers, a second table of failure reasons, the
+  compact wordmark, and the whole second test lane — 28 branches through the renderer that
+  every layout rule had to be thought through twice for.
+
 ### Fixed
 
 - **A key entered in the settings app now takes effect on the app's own restart, and a

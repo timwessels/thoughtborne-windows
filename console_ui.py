@@ -1,10 +1,10 @@
 """Console renderer for the Thoughtborne "Cockpit" console design (#109).
 
-Pure presentation layer: every function takes plain data plus the two runtime
-switches (`ansi`, `compact`) and returns a list of ready-to-print lines. The
-module imports nothing from the project -- all dynamic values (labels, hotkey
-letters, paths, seq/chars) arrive as parameters -- so it renders and is width-
-verified without a running Windows tool (see test_console_ui.py).
+Pure presentation layer: every function takes plain data plus the runtime
+switch `ansi` and returns a list of ready-to-print lines. The module imports
+nothing from the project -- all dynamic values (labels, hotkey letters, paths,
+seq/chars) arrive as parameters -- so it renders and is width-verified without
+a running Windows tool (see test_console_ui.py).
 
 Two frame classes carry the visual hierarchy (variant B grammar):
   - main panel   (double frame ╔═╗) for orientation moments: startup, errors,
@@ -26,8 +26,6 @@ is limited to the 16 ANSI colors + bold; red is reserved for error states.
 W = 70            # outer width of every panel/strip (variant-b invariant)
 INNER = W - 2     # 68 content cells between the vertical borders
 MAXCOL = 76       # hard limit for any console line (80-col cmd minus margin)
-COMPACT_MAX = 46  # design guideline for the frameless compact form
-COMPACT_THRESHOLD = 72  # terminal columns below this -> compact form (N5)
 
 # ---- SGR palette (16 colors + bold; red stays error-exclusive) ----
 BOLD = "1"
@@ -64,7 +62,6 @@ _R1 = ["▀█▀", "█ █", "█▀█", "█ █", "█▀▀", "█ █", "
 _R2 = [" █ ", "█▀█", "█ █", "█ █", "█ █", "█▀█", " █ ", "█▀▄", "█ █", "█▀▄", "█ █", "█▀▀"]
 _R3 = [" ▀ ", "▀ ▀", "▀▀▀", "▀▀▀", "▀▀▀", "▀ ▀", " ▀ ", "▀▀ ", "▀▀▀", "▀ ▀", "▀ ▀", "▀▀▀"]
 WM = [" ".join(r) for r in (_R1, _R2, _R3)]   # 47 cols each
-WM_COMPACT = "▐█ THOUGHTBORNE █▌"             # 18 cols
 WM_PLAIN = "== THOUGHTBORNE =="               # 18 cols (length-matched on purpose)
 TAGLINE = "voice-to-text for Windows"
 LAMP = "██"
@@ -182,13 +179,6 @@ def _fin(line, ansi):
     return line if ansi else line.translate(PLAIN)
 
 
-def cline(segs, ansi):
-    """Frameless compact line: styled, translated to ASCII in plain mode, no pad."""
-    segs = _segs(segs)
-    text = "".join(_sgr(t, c, ansi) for t, c in segs)
-    return text if ansi else text.translate(PLAIN)
-
-
 # =====================================================================
 # Truncation + wrapping helpers
 # =====================================================================
@@ -209,17 +199,14 @@ def truncate_end(text, budget):
     return text if len(text) <= budget else text[:budget - 3] + "..."
 
 
-def _wrap(text, width, indent, first=None):
-    """Greedy word wrap; continuation lines get `indent` spaces. `first` caps the
-    first line separately (for a tag prefix). Returns the line bodies (indent
-    already applied to lines 1..n)."""
-    first = width if first is None else first
+def _wrap(text, width, indent):
+    """Greedy word wrap; continuation lines get `indent` spaces. Returns the line
+    bodies (indent already applied to lines 1..n)."""
     words = text.split()
     lines, cur = [], ""
     for w in words:
-        limit = first if not lines else width
         cand = w if not cur else cur + " " + w
-        if len(cand) <= limit or not cur:
+        if len(cand) <= width or not cur:
             cur = cand
         else:
             lines.append(cur)
@@ -306,13 +293,9 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 # Masthead / READY (Screen 1 / 2)
 # =====================================================================
 def render_masthead(lineup, keys, key_prefix, history_path,
-                    open_key, switch_key, start_key,
+                    switch_key, start_key,
                     guidance=None, with_wordmark=True, logo_lines=None,
-                    pinned_default=None, *, ansi, compact):
-    if compact:
-        return _masthead_compact(lineup, keys, open_key, switch_key,
-                                 start_key, guidance, with_wordmark, ansi,
-                                 pinned_default)
+                    pinned_default=None, *, ansi):
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, ansi))
@@ -320,7 +303,7 @@ def render_masthead(lineup, keys, key_prefix, history_path,
     lines.append(dline([("  ", ()), ("READY", (BOLD, GREEN)),
                         (f" -- press {start_key} and start talking", ())], ansi))
     # #115: one framed spacer before each zone header + the history edge. Gated on
-    # with_wordmark (mirrors _masthead_compact) so the terse re-display stays tight.
+    # with_wordmark so the terse re-display stays tight.
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before MODEL
     lines.append(dzone([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
@@ -400,8 +383,7 @@ def _strip_top(ansi):
 def _strip_open(ansi):
     """Opening lines of a full-frame strip: the top border, plus one headroom
     line when the border carries the ACTIVE_STRIP_HEADER name -- so the name in
-    the border does not crowd the first content row. Compact strips have no
-    header and no headroom."""
+    the border does not crowd the first content row."""
     top = _strip_top(ansi)
     return [top, sline("", ansi)] if ACTIVE_STRIP_HEADER else [top]
 
@@ -417,17 +399,7 @@ def _strip_row1_seq(left_segs, seq, chars):
 
 
 def render_rec_strip(type_key, paste_key, send_key, keep_key, cancel_key,
-                     key_prefix, *, ansi, compact):
-    if compact:
-        clead = f"{key_prefix} +  " if key_prefix else ""   # 12 cols, no frame indent
-        return [
-            cline([("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
-            cline([(clead, ()), (type_key, (BOLD,)), (" type   ", ()),
-                   (paste_key, (BOLD,)), (" paste   ", ()),
-                   (send_key, (BOLD,)), (" paste+Enter", ())], ansi),
-            cline([(" " * len(clead), ()), (keep_key, (BOLD,)), (" keep for later   ", ()),
-                   (cancel_key, (BOLD,)), (" cancel", ())], ansi),
-        ]
+                     key_prefix, *, ansi):
     lead = f"  {key_prefix} +  " if key_prefix else "  "   # 14 cols for "Ctrl+Alt"
     return [
         *_strip_open(ansi),
@@ -444,15 +416,11 @@ def render_rec_strip(type_key, paste_key, send_key, keep_key, cancel_key,
 
 
 def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
-                    *, mode=None, cap=None, ansi, compact):
+                    *, mode=None, cap=None, ansi):
     if mode == 'typing':
         # Typed insert (keyboard.write) -- length-capped (#7). Show the ceiling
         # beside the char count; a *truncated* one goes to render_typed_capped, so
         # here chars <= cap. No seq block (the cap annotation takes that room).
-        if compact:
-            head = "typed + sent" if sent else "typed"
-            return [cline([("OK", (BOLD, GREEN)),
-                           (f"  {head} ({chars:,} chars, max {cap:,})", ())], ansi)]
         what = "typed at the cursor + sent" if sent else "typed at the cursor"
         annot = f"{chars:,} chars (max {cap:,})"
         left = [("  ", ()), ("OK", (BOLD, GREEN)), (f"  {what}", ())]
@@ -465,10 +433,6 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
             sbot(ansi),
         ]
     what = "inserted at the cursor + sent" if sent else "inserted at the cursor"
-    if compact:
-        seq_part = f"seq {seq}, " if (seq is not None) else ""
-        tail = "inserted + sent" if sent else "inserted at the cursor"
-        return [cline([("OK", (BOLD, GREEN)), (f"  {tail} ({seq_part}{chars} chars)", ())], ansi)]
     row1 = _strip_row1_seq([("  ", ()), ("OK", (BOLD, GREEN)), (f"  {what}", ())],
                            seq, chars)
     return [
@@ -480,18 +444,11 @@ def render_ok_strip(seq, chars, sent, model_label, footer_keys, key_prefix,
 
 
 def render_typed_capped(cap, original_chars, paste_key, model_label, footer_keys,
-                        key_prefix, *, ansi, compact):
+                        key_prefix, *, ansi):
     """A typed insert that hit the #7 length cap. Benign success-with-notice, never
     red: the text WAS inserted (capped), the full transcript is kept in history and
     re-insertable via the clipboard hotkey (paste_key). Yellow CAPPED tag -- it is
     a successful insert with a heads-up, not a failure."""
-    if compact:
-        return [
-            cline([("CAPPED", (BOLD, YELLOW)),
-                   (f"  typed capped at {cap:,} (of {original_chars:,})", ())], ansi),
-            cline(f"   full text in history -- {paste_key} re-inserts it", ansi),
-            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
-        ]
     head = truncate_end(
         f"typed insert limited to {cap:,} chars (of {original_chars:,})", INNER - 10)
     hint = truncate_end(
@@ -506,14 +463,7 @@ def render_typed_capped(cap, original_chars, paste_key, model_label, footer_keys
     ]
 
 
-def render_waiting_strip(seq, chars, type_key, paste_key, key_prefix, *, ansi, compact):
-    if compact:
-        clead = f"{key_prefix} +  " if key_prefix else ""
-        return [
-            cline([("WAITING", (BOLD, GREEN)), (f"  kept -- not inserted ({chars} chars)", ())], ansi),
-            cline([(clead, ()), (type_key, (BOLD,)), (" type text   ", ()),
-                   (paste_key, (BOLD,)), (" paste", ())], ansi),
-        ]
+def render_waiting_strip(seq, chars, type_key, paste_key, key_prefix, *, ansi):
     row1 = _strip_row1_seq([("  ", ()), ("WAITING", (BOLD, GREEN)),
                             ("  kept -- not inserted yet", ())], seq, chars)
     lead = f"  {key_prefix} +  " if key_prefix else "  "
@@ -527,9 +477,7 @@ def render_waiting_strip(seq, chars, type_key, paste_key, key_prefix, *, ansi, c
     ]
 
 
-def render_cancelled_strip(*, ansi, compact):
-    if compact:
-        return [cline([("CANCELLED", (BOLD,)), ("  recording discarded", ())], ansi)]
+def render_cancelled_strip(*, ansi):
     return [
         *_strip_open(ansi),
         sline([("  ", ()), ("CANCELLED", (BOLD,)),
@@ -538,14 +486,8 @@ def render_cancelled_strip(*, ansi, compact):
     ]
 
 
-def render_saved_strip(duration, retry_key, *, ansi, compact):
+def render_saved_strip(duration, retry_key, *, ansi):
     dur = f"{duration:.0f}s"
-    if compact:
-        return [
-            cline([("SAVED", (BOLD, YELLOW)), ("  recording was still running", ())], ansi),
-            cline([(f"   audio saved ({dur}), not transcribed", ())], ansi),
-            cline([(f"   next start: {retry_key} transcribes it", ())], ansi),
-        ]
     return [
         *_strip_open(ansi),
         sline([("  ", ()), ("SAVED", (BOLD, YELLOW)),
@@ -580,22 +522,13 @@ _REASON_LINES = {
     "inconclusive": ("The recording came back empty",
                      "Might be silence, might be a hiccup -- worth a retry"),
 }
-_REASON_LINES_COMPACT = {
-    "no-connection": ("can't reach {P}", "Wi-Fi down again?"),
-    "service-error": ('{P} says "error"', "retry, wait, or switch model"),
-    "rate-limited": ("{P} rate limit", "wait a minute, then retry"),
-    "auth": ("{P} rejected the key", "typo? or key inactive?"),
-    "no-credit": ("{P} account out of credit", "top up in the {P} console"),
-    "inconclusive": ("the recording came back empty", "silence or a hiccup? retry"),
-}
 
 
-def _reason_pair(reason, provider, inconclusive, compact):
+def _reason_pair(reason, provider, inconclusive):
     """The (line1, line2) explanation for a FAILED reason, provider-filled, or None
     for an uncategorized failure (reason=None) -- then the panel omits the block.
     error_inconclusive wins over the category (the Soniox Live empty-lane case)."""
-    table = _REASON_LINES_COMPACT if compact else _REASON_LINES
-    pair = table.get("inconclusive" if inconclusive else reason)
+    pair = _REASON_LINES.get("inconclusive" if inconclusive else reason)
     if pair is None:
         return None
     p = provider or "Soniox"
@@ -604,29 +537,11 @@ def _reason_pair(reason, provider, inconclusive, compact):
 
 def render_transcription_failed(seq, retry_key, model_label, footer_keys,
                                 key_prefix, *, reason=None, provider=None,
-                                inconclusive=False, ansi, compact):
+                                inconclusive=False, ansi):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
-    pair = _reason_pair(reason, provider, inconclusive, compact)
+    pair = _reason_pair(reason, provider, inconclusive)
     is_auth = reason == "auth" and not inconclusive
     is_credits = reason == "no-credit" and not inconclusive   # #179
-    if compact:
-        out = [
-            cline([(LAMP + " FAILED", (BOLD, RED)),
-                   (f"  transcription failed{seq_part}", ())], ansi),
-            cline("   nothing was inserted", ansi),
-        ]
-        if pair:
-            out.append(cline([("   " + pair[0], (BOLD, CYAN))], ansi))
-            out.append(cline([("   " + pair[1], (CYAN,))], ansi))
-        out.append(cline([("WHAT NOW", (BOLD,))], ansi))
-        if is_auth:
-            out.append(cline("  fix the key in Settings, then restart", ansi))
-        elif is_credits:
-            out.append(cline(f"  top up your balance, then press {retry_key}", ansi))
-        else:
-            out.append(cline(f"  press {retry_key} to retry, or switch model", ansi))
-        out.append(cline([("model: ", ()), (model_label, (BOLD,))], ansi))
-        return out
     # Framed: the footer key line carries the sole Ctrl+Alt (its `R retry` /
     # `L model` anchor the bare letters used here) -- one Ctrl+Alt per box (#115).
     retry_letter = retry_key.rpartition('+')[2]
@@ -658,19 +573,8 @@ def render_transcription_failed(seq, retry_key, model_label, footer_keys,
 
 
 def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
-                         key_prefix, *, ansi, compact):
+                         key_prefix, *, ansi):
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
-    if compact:
-        clead = f"{key_prefix} +  " if key_prefix else ""
-        return [
-            cline([(LAMP + " FAILED", (BOLD, RED)),
-                   (f"  could not insert{seq_part}", ())], ansi),
-            cline([("   the transcript is kept", ())], ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline([(clead, ()), (type_key, (BOLD,)), (" type   ", ()),
-                   (paste_key, (BOLD,)), (" paste", ())], ansi),
-            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
-        ]
     return [
         dtop(ansi),
         _failed_top("FAILED", f"could not insert{seq_part} -- the transcript is kept", ansi),
@@ -684,17 +588,9 @@ def render_insert_failed(seq, type_key, paste_key, model_label, footer_keys,
     ]
 
 
-def render_selftest_failed(reason, action_lines, *, ansi, compact):
+def render_selftest_failed(reason, action_lines, *, ansi):
     if isinstance(action_lines, str):
         action_lines = (action_lines,)
-    if compact:
-        head, _, tail = reason.partition(" -- ")
-        out = [cline([(LAMP + " FAILED", (BOLD, RED)), ("  " + head, ())], ansi)]
-        if tail:
-            out.append(cline("   " + tail, ansi))
-        out.append(cline([("WHAT NOW", (BOLD,))], ansi))
-        out += [cline("  " + a, ansi) for a in action_lines]
-        return out
     lines = [
         dtop(ansi),
         _failed_top("FAILED", reason, ansi),
@@ -706,16 +602,8 @@ def render_selftest_failed(reason, action_lines, *, ansi, compact):
 
 
 def render_device_loss(duration, retry_key, model_label, footer_keys, key_prefix,
-                       *, ansi, compact):
+                       *, ansi):
     dur = f"{duration:.0f}s"
-    if compact:
-        return [
-            cline([(LAMP + " FAILED", (BOLD, RED)), ("  microphone lost", ())], ansi),
-            cline([(f"   recording ended, audio saved ({dur})", ())], ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline([(f"  reconnect the mic, then press {retry_key}", ())], ansi),
-            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
-        ]
     # Framed: the footer key line's `R retry` anchors the bare retry letter here.
     retry_letter = retry_key.rpartition('+')[2]
     return [
@@ -730,7 +618,7 @@ def render_device_loss(duration, retry_key, model_label, footer_keys, key_prefix
     ]
 
 
-def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi, compact):
+def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi):
     """The audio stream could not be opened on Ctrl+Alt+W (on_start_recording's
     `if not self.audio_recorder.start_recording():` branch in thoughtborne.py):
     no input device, or Windows denied microphone access. Replaces the two red log
@@ -738,15 +626,6 @@ def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi, compact):
     the hotkeys still work, so the footer is honest), but non-retry -- nothing was
     captured; the fix is external, then press W to record again (the footer's
     `W record` carries that)."""
-    if compact:
-        return [
-            cline([(LAMP + " FAILED", (BOLD, RED)), ("  microphone won't open", ())], ansi),
-            cline([("   nothing was recorded", ())], ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline([("   is a mic connected and selected?", ())], ansi),
-            cline([("   Windows: allow mic access (Privacy)", ())], ansi),
-            cline([("model: ", ()), (model_label, (BOLD,))], ansi),
-        ]
     return [
         dtop(ansi),
         _failed_top("FAILED", "the microphone could not be opened", ansi),
@@ -760,14 +639,7 @@ def render_mic_failed(model_label, footer_keys, key_prefix, *, ansi, compact):
     ]
 
 
-def render_hotkeys_failed(*, ansi, compact):
-    if compact:
-        return [
-            cline([(LAMP + " FAILED", (BOLD, RED)), ("  hotkeys not registered", ())], ansi),
-            cline([("   the tool cannot react to keys", ())], ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline([("  close any other Thoughtborne, then restart", ())], ansi),
-        ]
+def render_hotkeys_failed(*, ansi):
     return [
         dtop(ansi),
         _failed_top("FAILED", "hotkeys could not be registered", ansi),
@@ -778,18 +650,11 @@ def render_hotkeys_failed(*, ansi, compact):
     ]
 
 
-def render_hotkeys_partial(registered, expected, *, ansi, compact):
+def render_hotkeys_partial(registered, expected, *, ansi):
     """Some -- not all -- hotkeys registered (#166 honest verdict). A foreign app
     likely owns one combo. NOT red: the tool runs and most keys work, so this is a
     yellow advisory, not the total-loss FAILED panel (which stays red for 0/N)."""
     head = f"{registered} of {expected} hotkeys registered"
-    if compact:
-        return [
-            cline([(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW)),
-                   ("  " + f"{registered}/{expected}", ())], ansi),
-            cline("   another app likely owns a combo", ansi),
-            cline("   close it or rebind, then restart", ansi),
-        ]
     return [
         dtop(ansi),
         _tag_headline(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW), "  " + head, ansi),
@@ -800,19 +665,12 @@ def render_hotkeys_partial(registered, expected, *, ansi, compact):
     ]
 
 
-def render_already_running(*, ansi, compact):
+def render_already_running(*, ansi):
     """A second start found an instance already holding the hotkeys (#166). Calm,
     never red -- nothing is broken; the tool already runs elsewhere and this start
     closes itself. The wedged-instance hint (a first instance not answering the
     exit hotkey, #128) is a required DIM line so the user knows the escape hatch.
     Final wording is a later #160 voice concern; structure + non-red is the point."""
-    if compact:
-        return [
-            cline([("ALREADY RUNNING", (BOLD, CYAN)), ("  another window has it", ())], ansi),
-            cline("   nothing broken -- this one isn't needed", ansi),
-            cline("   (wedged? end it via Task Manager)", ansi),
-            cline("   closing ...", ansi),
-        ]
     return [
         dtop(ansi),
         dline([("  ", ()), ("ALREADY RUNNING", (BOLD, CYAN))], ansi),
@@ -827,20 +685,11 @@ def render_already_running(*, ansi, compact):
 
 
 def render_switch_failed(current_label, lineup, switch_key, missing=None,
-                         *, ansi, compact):
+                         *, ansi):
     """`missing`: the env-var names of the skipped entries (see switch_api). When
     present, the panel names them so the console user keeps the actionable info
     the file-only skip lines carry (#44/#109)."""
     miss_line = [("  missing: ", ()), (", ".join(missing), (BOLD,))] if missing else None
-    if compact:
-        out = [
-            cline([(LAMP + " FAILED", (BOLD, RED)), ("  no other API available", ())], ansi),
-            cline(f"   staying on {current_label}", ansi),
-            cline("  add the missing key(s) to .env, then restart", ansi),
-        ]
-        if miss_line:
-            out.append(cline(miss_line, ansi))
-        return out
     lines = [
         dtop(ansi),
         _failed_top("FAILED", "no other API available", ansi),
@@ -856,14 +705,7 @@ def render_switch_failed(current_label, lineup, switch_key, missing=None,
     return lines
 
 
-def render_switched_panel(new_label, lineup, switch_key, *, ansi, compact):
-    if compact:
-        return [
-            cline([("SWITCHED", (BOLD, CYAN)), ("  now transcribing with:", ())], ansi),
-            cline([("   ", ()), (new_label, (BOLD,))], ansi),
-            cline([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi),
-            *_compact_lineup(lineup, ansi),
-        ]
+def render_switched_panel(new_label, lineup, switch_key, *, ansi):
     return [
         dtop(ansi),
         dline([("  ", ()), ("SWITCHED", (BOLD, CYAN)),
@@ -875,23 +717,11 @@ def render_switched_panel(new_label, lineup, switch_key, *, ansi, compact):
 
 
 def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
-                           audio_path, retry_key, *, ansi, compact):
+                           audio_path, retry_key, *, ansi):
     dur = f"{duration:.0f}s"
     cause = "saved but not transcribed" if clean_exit else "rescued after a hard kill"
     head = f"a recording was {cause}"
     detail = f"from {when} ({dur})"
-
-    if compact:
-        full = f"a recording was {cause} -- {when} ({dur})"
-        wrapped = _wrap(full, COMPACT_MAX - 3, 3, first=COMPACT_MAX - len(LAMP) - 12)
-        out = [cline([(LAMP + " RECOVERED", (BOLD, YELLOW)), ("  " + wrapped[0], ())], ansi)]
-        out += [cline(w, ansi) for w in wrapped[1:]]
-        if hotkeys_ok:
-            out.append(cline(f"   press {retry_key} to transcribe it", ansi))
-        else:
-            out.append(cline("   audio is safe in the audio folder", ansi))
-            out.append(cline(f"   once hotkeys work, press {retry_key}", ansi))
-        return out
 
     lines = [
         dtop(ansi),
@@ -909,7 +739,7 @@ def render_recovered_panel(when, duration, clean_exit, hotkeys_ok,
     return lines
 
 
-def render_no_speech(open_key, *, ansi, compact):
+def render_no_speech(open_key, *, ansi):
     """A recording that transcribed to empty on every engine held no speech (#133).
     A deliberately calm yellow panel -- benign, not an error: no red, no WHAT-NOW
     zone, no retry hotkey (a retry cannot help, and the audio is kept in history).
@@ -919,14 +749,6 @@ def render_no_speech(open_key, *, ansi, compact):
     Mirrors the RECOVERED/SAVED yellow-lamp voice without offering an action."""
     head = "no speech found in this recording"
     detail = "the audio is kept in history -- a retry cannot help"
-    if compact:
-        return [
-            cline([(LAMP + " NO SPEECH", (BOLD, YELLOW)),
-                   ("  no speech in this recording", ())], ansi),
-            cline("   kept in history -- a retry cannot help", ansi),
-            cline("   talking? the mic may have sent silence", ansi),
-            cline(f"   listen to it: {open_key} opens history", ansi),
-        ]
     return [
         dtop(ansi),
         _tag_headline(LAMP + " NO SPEECH", (BOLD, YELLOW), "  " + head, ansi),
@@ -938,7 +760,7 @@ def render_no_speech(open_key, *, ansi, compact):
     ]
 
 
-def render_keyless_notice(settings_key, *, ansi, compact):
+def render_keyless_notice(settings_key, *, ansi):
     """A dictation / self-test / switch / retry hotkey was pressed while no API
     key is configured (#200 shop-window). Calm YELLOW, never red -- nothing is
     broken; the tool just needs a key first. `settings_key` is the live
@@ -946,13 +768,6 @@ def render_keyless_notice(settings_key, *, ansi, compact):
     guidance line. Reuses the SETUP NEEDED tag of the no-API panel: same
     situation (a key is needed), same calm colour."""
     step = f"enter an API key in Settings ({settings_key}), then restart"
-    if compact:
-        out = [cline([(LAMP + " SETUP NEEDED", (BOLD, YELLOW)),
-                      ("  no API key yet", ())], ansi)]
-        # Wrap so the combo (a long #55 override included) never busts COMPACT_MAX.
-        for i, seg in enumerate(_wrap(step, COMPACT_MAX - 3, 3)):
-            out.append(cline(("   " + seg) if i == 0 else seg, ansi))
-        return out
     return [
         dtop(ansi),
         _tag_headline(LAMP + " SETUP NEEDED", (BOLD, YELLOW),
@@ -963,27 +778,11 @@ def render_keyless_notice(settings_key, *, ansi, compact):
     ]
 
 
-def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
+def render_noapi_panel(missing, other_failures, env_dir, *, ansi):
     """No constructible API at startup. Tim's call (#109): yellow SETUP NEEDED,
     numbered steps, never red -- a missing first-run key is a setup step, not an
     error. `missing`: [(env_var, [api_slots])]; `other_failures`: [(slot, reason)]."""
     zone = "PROBLEMS" if other_failures else "MISSING"
-    if compact:
-        out = [
-            cline([(LAMP + " SETUP NEEDED", (BOLD, YELLOW)), ("  no API key yet", ())], ansi),
-            cline([("WHAT NOW", (BOLD,))], ansi),
-            cline("  Thoughtborne needs one service key", ansi),
-            cline("  (a one-time setup):", ansi),
-            cline("  1. .env.example lists where to sign up:", ansi),
-            cline("       GROQ_API_KEY    - free", ansi),
-            cline("       SONIOX_API_KEY  - prepaid, best German", ansi),
-            cline("  2. open Thoughtborne Settings (Start menu),", ansi),
-            cline("     or copy .env.example to .env", ansi),
-            cline("  3. paste your key, then restart", ansi),
-            cline([(zone, (BOLD,))], ansi),
-        ]
-        out += _noapi_zone_lines(missing, other_failures, ansi, compact=True)
-        return out
     lines = [
         dtop(ansi),
         _tag_headline(LAMP + " SETUP NEEDED", (BOLD, YELLOW),
@@ -999,87 +798,23 @@ def render_noapi_panel(missing, other_failures, env_dir, *, ansi, compact):
         dline("  3. Start Thoughtborne again (double-click Thoughtborne.bat)", ansi),
         dzone([(zone, (BOLD,))], ansi),
     ]
-    lines += _noapi_zone_lines(missing, other_failures, ansi, compact=False)
+    lines += _noapi_zone_lines(missing, other_failures, ansi)
     edge = truncate_path_middle(env_dir, 63 - len("folder: "))
     lines.append(dedge([(f"folder: {edge}", (DIM,))], ansi))
     return lines
 
 
-def _noapi_zone_lines(missing, other_failures, ansi, compact):
-    emit = cline if compact else dline
+def _noapi_zone_lines(missing, other_failures, ansi):
     lines = []
     varw = max((len(v) for v, _ in missing), default=0)   # align the "(needed" column
     for env_var, slots in missing:
         joined = ", ".join(slots)
-        name = env_var if compact else env_var.ljust(varw)
+        name = env_var.ljust(varw)
         if other_failures:
-            text = (f"  {env_var} missing  ({joined})" if compact
-                    else f"  {name} missing  (needed for: {joined})")
+            text = f"  {name} missing  (needed for: {joined})"
         else:
-            text = (f"  {env_var}  ({joined})" if compact
-                    else f"  {name}  (needed for: {joined})")
-        lines.append(emit([(text, (BOLD,))], ansi))
+            text = f"  {name}  (needed for: {joined})"
+        lines.append(dline([(text, (BOLD,))], ansi))
     for slot, reason in other_failures:
-        budget = COMPACT_MAX - 2 if compact else INNER - 4
-        lines.append(emit("  " + truncate_end(f"{slot} failed: {reason}", budget), ansi))
-    return lines
-
-
-# =====================================================================
-# Compact masthead + compact lineup
-# =====================================================================
-def _compact_lineup(lineup, ansi, pinned_label=None):
-    rows = []
-    for label, _desc, is_current, has_key in lineup:
-        marker = ">" if is_current else " "
-        codes = (BOLD,) if is_current else () if has_key else (DIM,)
-        segs = [(f" {marker} ", ()), (label, codes)]
-        if pinned_label is not None and has_key and label == pinned_label:  # #219, see _lineup_lines
-            segs.append((" (default)", (DIM,)))
-        rows.append(cline(segs, ansi))
-    return rows
-
-
-def _compact_keys(keys, ansi):
-    cells = list(zip(keys, KEY_ACTIONS))
-    rows = []
-    for i in range(0, len(cells), 2):
-        pair = cells[i:i + 2]
-        k0, a0 = pair[0]
-        segs = [(" ", ()), (k0, (BOLD,)), ("  " + a0, ())]
-        if len(pair) > 1:
-            k1, a1 = pair[1]
-            pad = 22 - (1 + len(k0) + 2 + len(a0))
-            segs.append((" " * max(1, pad), ()))
-            segs.append((k1, (BOLD,)))
-            segs.append(("  " + a1, ()))
-        rows.append(cline(segs, ansi))
-    return rows
-
-
-def _masthead_compact(lineup, keys, open_key, switch_key, start_key,
-                      guidance, with_wordmark, ansi, pinned_default=None):
-    lines = []
-    if with_wordmark:
-        # ANSI: WM_COMPACT carries the brand ACCENT; plain degrades to WM_PLAIN
-        # (its glyphs aren't in the plain table) and is never accented.
-        wm_seg = (WM_COMPACT, (ACCENT,)) if ansi else (WM_PLAIN, ())
-        lines.append(cline([wm_seg, ("  " + TAGLINE, ())], ansi))
-        lines.append("")
-    lines.append(cline([("READY", (BOLD, GREEN)),
-                        (f" -- press {start_key} and start talking", ())], ansi))
-    if with_wordmark:
-        lines.append("")
-    lines.append(cline([("MODEL", (BOLD,)), (f"  switch: {switch_key}", ())], ansi))
-    lines.extend(_compact_lineup(lineup, ansi, pinned_default))
-    if guidance:   # #200 keyless shop-window hint, calm YELLOW under the lineup
-        for i, seg in enumerate(_wrap(guidance, COMPACT_MAX - 2, 2)):
-            lines.append(cline([(("  " + seg) if i == 0 else seg, (YELLOW,))], ansi))
-    if with_wordmark:
-        lines.append("")
-    lines.append(cline([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
-    lines.extend(_compact_keys(keys, ansi))
-    if with_wordmark:
-        lines.append("")
-        lines.append(cline(f"history: press {open_key}", ansi))
+        lines.append(dline("  " + truncate_end(f"{slot} failed: {reason}", INNER - 4), ansi))
     return lines

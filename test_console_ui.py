@@ -11,16 +11,15 @@ hotkeys and carousel order.
 
 What each rendered block is checked for:
   1. framed: every SGR-stripped line is exactly 70 cells; corners are correct.
-  2. compact: nominal fixtures <= 46 cells, stress fixtures <= 76.
-  3. plain twin: ansi=False render is line-for-line the same length as the
+  2. plain twin: ansi=False render is line-for-line the same length as the
      SGR-stripped ansi=True render (frames stay aligned), carries no ESC, and
      is ASCII + the single allowed umlaut U-umlaut (the self-test hotkey).
-  4. ansi=True: every non-ASCII glyph is in the CP437 safe set.
-  5. red (SGR 31) appears only in error renderings.
-  6. KEYS grid anchored at columns 24/46; OK/WAITING seq block at column 41.
-  7. logo fold-in (#109): the active a5 masthead mark renders in ANSI and drops
+  3. ansi=True: every non-ASCII glyph is in the CP437 safe set.
+  4. red (SGR 31) appears only in error renderings.
+  5. KEYS grid anchored at columns 24/46; OK/WAITING seq block at column 41.
+  6. logo fold-in (#109): the active a5 masthead mark renders in ANSI and drops
      in the plain twin; every routine strip carries the monochrome bullet header
-     (with its plain 'o' twin) plus one headroom line, compact forms carry none.
+     (with its plain 'o' twin) plus one headroom line.
 """
 import re
 import sys
@@ -53,26 +52,21 @@ def _record(msg):
     failures.append(msg)
 
 
-def check_block(name, lines, *, ansi, compact, stress):
+def check_block(name, lines, *, ansi):
     """Generic per-block assertions (widths, corners, charset, red exclusivity)."""
     joined = "".join(lines)
     for i, ln in enumerate(lines):
         v = strip(ln)
         if len(v) > u.MAXCOL:
             _record(f"{name}[{i}] len {len(v)} > {u.MAXCOL}: {v!r}")
-        if compact:
-            limit = u.MAXCOL if stress else u.COMPACT_MAX
-            if len(v) > limit:
-                _record(f"{name}[{i}] compact len {len(v)} > {limit}: {v!r}")
-        else:
-            if v != "" and len(v) != u.W:
-                _record(f"{name}[{i}] framed len {len(v)} != {u.W}: {v!r}")
-                continue
-            if v:
-                corners_l = "╔╠╚║┌└│" if ansi else "+|"
-                corners_r = "╗╣╝║┐┘│" if ansi else "+|"
-                if v[0] not in corners_l or v[-1] not in corners_r:
-                    _record(f"{name}[{i}] bad frame edges: {v!r}")
+        if v != "" and len(v) != u.W:
+            _record(f"{name}[{i}] framed len {len(v)} != {u.W}: {v!r}")
+            continue
+        if v:
+            corners_l = "╔╠╚║┌└│" if ansi else "+|"
+            corners_r = "╗╣╝║┐┘│" if ansi else "+|"
+            if v[0] not in corners_l or v[-1] not in corners_r:
+                _record(f"{name}[{i}] bad frame edges: {v!r}")
         # charset
         if ansi:
             for ch in v:
@@ -100,8 +94,8 @@ def twin(name, fn, **kw):
     """The ansi=False render must be line-for-line length-equal to the SGR-
     stripped ansi=True render. Skipped for the wordmark masthead (the 3-row
     wordmark deliberately collapses to one plain line, changing the count)."""
-    a = fn(ansi=True, compact=False, **kw)
-    p = fn(ansi=False, compact=False, **kw)
+    a = fn(ansi=True, **kw)
+    p = fn(ansi=False, **kw)
     if len(a) != len(p):
         _record(f"{name}: plain line count {len(p)} != ansi {len(a)}")
         return
@@ -155,9 +149,8 @@ KEYS, KEY_PREFIX = keys_and_prefix()
 SWITCH = _fmt(HOTKEYS["switch_api"])       # full combo (switched/switch_failed panels)
 OPEN = _fmt(HOTKEYS["open_history"])
 # bare letters the masthead now receives (#115): Ctrl+Alt is established once on
-# the READY line, so MODEL and the compact history line carry only the letter.
+# the READY line, so MODEL carries only the letter.
 SWITCH_LETTER = HOTKEYS["switch_api"].rpartition("+")[2].capitalize()   # "L"
-OPEN_LETTER = HOTKEYS["open_history"].rpartition("+")[2].capitalize()   # "6"
 START = _fmt(HOTKEYS["start_recording"])
 RETRY = _fmt(HOTKEYS["retry_last_failed"])
 FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
@@ -174,20 +167,19 @@ PATHS = [  # four checkout depths, shallow to deep (console width stress)
 GUIDANCE = "To enable dictation, enter an API key in Settings (Ctrl+Alt+G)"
 
 
-def run(name, fn, kwargs, *, stress=False):
+def run(name, fn, kwargs):
     for ansi in (True, False):
-        for compact in (False, True):
-            lines = fn(ansi=ansi, compact=compact, **kwargs)
-            check_block(name, lines, ansi=ansi, compact=compact, stress=stress)
-            if SHOW and ansi and not compact:
-                shown.append((name, lines))
+        lines = fn(ansi=ansi, **kwargs)
+        check_block(name, lines, ansi=ansi)
+        if SHOW and ansi:
+            shown.append((name, lines))
 
 
 # ---- #109 logo fold-in: active a5 mark, bullet strip header, +1 headroom -----
 def check_logo_state():
     """Exercise the branding once it is switched on: the a5 mark in the masthead,
     the `• THOUGHTBORNE` / `o THOUGHTBORNE` header and its headroom on every
-    routine strip, and the compact forms left bare."""
+    routine strip."""
     if u.ACTIVE_LOGO_MARK is not u.LOGO_MARK_A5:
         _record("ACTIVE_LOGO_MARK is not the a5 mark")
     if u.ACTIVE_STRIP_HEADER != "THOUGHTBORNE":
@@ -205,8 +197,8 @@ def check_logo_state():
         ("saved", u.render_saved_strip, dict(duration=12.3, retry_key=RETRY)),
     ]
     for name, fn, kw in strips:
-        a = fn(ansi=True, compact=False, **kw)
-        p = fn(ansi=False, compact=False, **kw)
+        a = fn(ansi=True, **kw)
+        p = fn(ansi=False, **kw)
         if not strip(a[0]).startswith("┌── • THOUGHTBORNE "):
             _record(f"{name}: ANSI strip header missing the bullet: {strip(a[0])!r}")
         if not p[0].startswith("+-- o THOUGHTBORNE "):
@@ -215,17 +207,14 @@ def check_logo_state():
             _record(f"{name}: strip header border is not monochrome (carries SGR)")
         if strip(a[1])[1:-1].strip() or p[1][1:-1].strip():
             _record(f"{name}: headroom line not blank: {strip(a[1])!r} / {p[1]!r}")
-        c = fn(ansi=True, compact=True, **kw)
-        if any("THOUGHTBORNE" in strip(ln) for ln in c):
-            _record(f"{name}: compact form unexpectedly carries the header")
 
     # a5 disc: rendered beside the wordmark in ANSI, gone from the plain twin
     # (which collapses to WM_PLAIN).
     mkw = dict(lineup=lineup_for(DEFAULT_API), keys=KEYS, key_prefix=KEY_PREFIX,
-               history_path=PATHS[1] + r"\history", open_key=OPEN_LETTER, switch_key=SWITCH_LETTER,
+               history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
                start_key=START, logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True)
-    ma = u.render_masthead(ansi=True, compact=False, **mkw)
-    mp = u.render_masthead(ansi=False, compact=False, **mkw)
+    ma = u.render_masthead(ansi=True, **mkw)
+    mp = u.render_masthead(ansi=False, **mkw)
     mid = u.LOGO_MARK_A5[1]                       # "▄▀▀████" -- the unambiguous mark row
     if not any(mid in strip(ln) for ln in ma):
         _record("masthead: a5 mark not present in the ANSI render")
@@ -239,12 +228,12 @@ def check_logo_state():
 ACC = f"\x1b[{u.ACCENT}m"    # the accent SGR as it appears inline
 
 
-def _masthead(ansi, compact, *, logo=True, wordmark=True):
+def _masthead(ansi, *, logo=True, wordmark=True):
     return u.render_masthead(
         lineup_for(DEFAULT_API), KEYS, KEY_PREFIX, PATHS[1] + r"\history",
-        OPEN_LETTER, SWITCH_LETTER, START,
+        SWITCH_LETTER, START,
         logo_lines=(u.ACTIVE_LOGO_MARK if logo else None), with_wordmark=wordmark,
-        ansi=ansi, compact=compact)
+        ansi=ansi)
 
 
 def check_accent_state():
@@ -253,7 +242,7 @@ def check_accent_state():
     if "31" in u.ACCENT.split(";"):
         _record("ACCENT constant contains the red code (31) -- red must stay error-exclusive")
 
-    ma = _masthead(True, False)
+    ma = _masthead(True)
     wm_rows = [i for i, ln in enumerate(ma)
                if any(w in strip(ln) for w in u.WM)]        # the 3 mark+wordmark rows
     for i, ln in enumerate(ma):
@@ -263,32 +252,26 @@ def check_accent_state():
             _record(f"masthead accent: leaked onto non-wordmark line {i}: {strip(ln)!r}")
     if any(u.TAGLINE in strip(ln) and ACC in ln for ln in ma):
         _record("masthead accent: the tagline must not be accented")
-    if any("\x1b" in ln for ln in _masthead(False, False)):
+    if any("\x1b" in ln for ln in _masthead(False)):
         _record("masthead accent: plain masthead carries an escape sequence")
-
-    # compact masthead: WM_COMPACT accented in ANSI, never in plain
-    if not any(ACC in ln and u.WM_COMPACT in strip(ln) for ln in _masthead(True, True)):
-        _record("compact masthead: WM_COMPACT is not accented in ANSI")
-    if any("\x1b" in ln for ln in _masthead(False, True)):
-        _record("compact masthead: plain form carries an escape sequence")
 
     # accent is exclusive to the masthead wordmark/mark -- no strip/panel takes it
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     others = [
-        u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True, compact=False),
-        u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX, ansi=True, compact=False),
-        u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True, compact=False),
+        u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True),
+        u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX, ansi=True),
+        u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True),
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,
-                                      ansi=True, compact=False),
+                                      ansi=True),
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #159 reason block
                                       reason="no-connection", provider="Soniox",
-                                      ansi=True, compact=False),
+                                      ansi=True),
         u.render_transcription_failed(12, RETRY, model, FFOOTER, KEY_PREFIX,   # #179 credits block
                                       reason="no-credit", provider="Soniox",
-                                      ansi=True, compact=False),
-        u.render_mic_failed(model, FFOOTER, KEY_PREFIX, ansi=True, compact=False),   # #179
-        u.render_device_loss(12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False),
-        u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False),
+                                      ansi=True),
+        u.render_mic_failed(model, FFOOTER, KEY_PREFIX, ansi=True),   # #179
+        u.render_device_loss(12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True),
+        u.render_switched_panel(model, lu, SWITCH, ansi=True),
     ]
     for lines in others:
         if ACC in "".join(lines):
@@ -299,7 +282,7 @@ def check_masthead_layout():
     """#115 masthead: three framed spacers (before MODEL/KEYS/History), tagline
     centered under the wordmark, capitalised `History:` edge without the open
     hint, plain `KEYS` header."""
-    ma = [strip(ln) for ln in _masthead(True, False)]
+    ma = [strip(ln) for ln in _masthead(True)]
     blank = "║" + " " * u.INNER + "║"
     blanks = [i for i, s in enumerate(ma) if s == blank]
     if len(blanks) != 3:
@@ -344,54 +327,54 @@ def check_ctrl_alt_counts():
     carries no hotkey action). The strongest single pin of 'once per box'."""
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     cases = [
-        ("masthead", _masthead(True, False), 1),
-        ("ready", _masthead(True, False, logo=False, wordmark=False), 1),
+        ("masthead", _masthead(True), 1),
+        ("ready", _masthead(True, logo=False, wordmark=False), 1),
         ("rec", u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX,
-                                   ansi=True, compact=False), 1),
+                                   ansi=True), 1),
         ("ok", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
-                                 ansi=True, compact=False), 1),
+                                 ansi=True), 1),
         ("ok/typing", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
-                                        mode="typing", cap=4000, ansi=True, compact=False), 1),
+                                        mode="typing", cap=4000, ansi=True), 1),
         ("typed_capped", u.render_typed_capped(4000, 30818, "A", model, FOOTER, KEY_PREFIX,
-                                               ansi=True, compact=False), 1),
+                                               ansi=True), 1),
         ("waiting", u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX,
-                                           ansi=True, compact=False), 1),
-        ("cancelled", u.render_cancelled_strip(ansi=True, compact=False), 0),
-        ("saved", u.render_saved_strip(12.3, RETRY, ansi=True, compact=False), 1),
+                                           ansi=True), 1),
+        ("cancelled", u.render_cancelled_strip(ansi=True), 0),
+        ("saved", u.render_saved_strip(12.3, RETRY, ansi=True), 1),
         ("transcription_failed", u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True), 1),
         ("transcription_failed/reason", u.render_transcription_failed(   # #159 reason block: still 1
             12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-connection",
-            provider="Groq", ansi=True, compact=False), 1),
+            provider="Groq", ansi=True), 1),
         ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth -> Settings: still 1
             12, RETRY, model, FFOOTER, KEY_PREFIX, reason="auth",
-            provider="Soniox", ansi=True, compact=False), 1),
+            provider="Soniox", ansi=True), 1),
         ("transcription_failed/credits", u.render_transcription_failed(  # #179 no-credit: still 1
             12, RETRY, model, FFOOTER, KEY_PREFIX, reason="no-credit",
-            provider="Soniox", ansi=True, compact=False), 1),
+            provider="Soniox", ansi=True), 1),
         ("insert_failed", u.render_insert_failed(
-            12, "A", "D", model, FOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+            12, "A", "D", model, FOOTER, KEY_PREFIX, ansi=True), 1),
         ("device_loss", u.render_device_loss(
-            12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+            12.0, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True), 1),
         ("mic_failed", u.render_mic_failed(   # #179: footer carries the sole Ctrl+Alt
-            model, FFOOTER, KEY_PREFIX, ansi=True, compact=False), 1),
+            model, FFOOTER, KEY_PREFIX, ansi=True), 1),
         ("selftest_failed", u.render_selftest_failed(
             "self-test failed -- no transcription received",
             ("check your API key in Settings,", f"then see {LOG_FILE.name} for details"),
-            ansi=True, compact=False), 0),
-        ("hotkeys_failed", u.render_hotkeys_failed(ansi=True, compact=False), 0),
+            ansi=True), 0),
+        ("hotkeys_failed", u.render_hotkeys_failed(ansi=True), 0),
         ("switch_failed", u.render_switch_failed(
-            model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True, compact=False), 1),
-        ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False), 1),
+            model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True), 1),
+        ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True), 1),
         ("recovered", u.render_recovered_panel(
             "2026-07-11 03:14", 42, False, True, PATHS[3] + r"\history\audio", RETRY,
-            ansi=True, compact=False), 1),
+            ansi=True), 1),
         ("noapi", u.render_noapi_panel(
-            [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True, compact=False), 0),
-        ("no_speech", u.render_no_speech(OPEN, ansi=True, compact=False), 1),   # #159: open-history hint
-        ("already_running", u.render_already_running(ansi=True, compact=False), 0),   # #166: no hotkey embed
-        ("hotkeys_partial", u.render_hotkeys_partial(10, 11, ansi=True, compact=False), 0),   # #166
-        ("keyless", u.render_keyless_notice("Ctrl+Alt+G", ansi=True, compact=False), 1),   # #200
+            [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True), 0),
+        ("no_speech", u.render_no_speech(OPEN, ansi=True), 1),   # #159: open-history hint
+        ("already_running", u.render_already_running(ansi=True), 0),   # #166: no hotkey embed
+        ("hotkeys_partial", u.render_hotkeys_partial(10, 11, ansi=True), 0),   # #166
+        ("keyless", u.render_keyless_notice("Ctrl+Alt+G", ansi=True), 1),   # #200
     ]
     for name, lines, expected in cases:
         n = strip("".join(lines)).count("Ctrl+Alt")
@@ -408,7 +391,7 @@ def check_failed_reason_block():
 
     def render(**kw):
         return u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, compact=False, **kw)
+            12, RETRY, model, FFOOTER, KEY_PREFIX, ansi=True, **kw)
 
     # Every categorized reason renders a CYAN two-line block, never ACCENT.
     for reason in ("no-connection", "service-error", "rate-limited", "auth", "no-credit"):
@@ -492,8 +475,8 @@ def check_no_speech_open_key_width():
     long_open = "Ctrl+Shift+Alt+F12"   # a pathologically long #55 override
     for ansi in (True, False):
         check_block("no_speech_long_open",
-                    u.render_no_speech(long_open, ansi=ansi, compact=False),
-                    ansi=ansi, compact=False, stress=False)
+                    u.render_no_speech(long_open, ansi=ansi),
+                    ansi=ansi)
 
 
 def check_strip_structure():
@@ -502,10 +485,10 @@ def check_strip_structure():
     lead = f"  {KEY_PREFIX} +  "
     if len(lead) != 14:
         _record(f"strip lead is {len(lead)} cols, expected 14 (shipped Ctrl+Alt prefix)")
-    rec = u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True, compact=False)
+    rec = u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX, ansi=True)
     ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
-                           ansi=True, compact=False)
-    waiting = u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True, compact=False)
+                           ansi=True)
+    waiting = u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX, ansi=True)
     for name, lines in (("rec", rec), ("ok", ok), ("waiting", waiting)):
         joined = strip("".join(lines))
         for label in ("stop:", "or:", "insert:", "retry:"):
@@ -526,23 +509,6 @@ def check_strip_structure():
     if any(("model:" in s) and (f"{KEY_PREFIX} +" in s) for s in okj):
         _record("ok: model and keys are not split onto separate lines")
 
-    # compact: same label-free rule, one Ctrl+Alt lead where a key line exists
-    compacts = [
-        ("rec/compact", u.render_rec_strip("A", "D", "H", "Y", "X", KEY_PREFIX,
-                                           ansi=True, compact=True)),
-        ("waiting/compact", u.render_waiting_strip(12, 184, "A", "D", KEY_PREFIX,
-                                                   ansi=True, compact=True)),
-        ("insert_failed/compact", u.render_insert_failed(12, "A", "D", "Soniox Live", FOOTER,
-                                                         KEY_PREFIX, ansi=True, compact=True)),
-    ]
-    for name, lines in compacts:
-        joined = strip("".join(lines))
-        for label in ("stop:", "or:", "insert:", "insert it:", "retry:"):
-            if label in joined:
-                _record(f"{name}: stale lead-in label {label!r}")
-        if joined.count("Ctrl+Alt") != 1:
-            _record(f"{name}: expected one Ctrl+Alt lead, got {joined.count('Ctrl+Alt')}")
-
 
 # ---- #7 typed-insert cap: the OK/typing annotation + the CAPPED strip ---------
 def check_typed_cap_surfaces():
@@ -552,7 +518,7 @@ def check_typed_cap_surfaces():
     model = "Soniox Live"
 
     ok = u.render_ok_strip(12, 3990, False, model, FOOTER, KEY_PREFIX,
-                           mode="typing", cap=4000, ansi=True, compact=False)
+                           mode="typing", cap=4000, ansi=True)
     joined = strip("".join(ok))
     if "typed at the cursor" not in joined:
         _record("ok/typing: headline is not 'typed at the cursor'")
@@ -563,7 +529,7 @@ def check_typed_cap_surfaces():
         _record(f"ok/typing: the typed strip still carries a seq block: {row1!r}")
 
     cap = u.render_typed_capped(4000, 999999, "A", model, FOOTER, KEY_PREFIX,
-                                ansi=True, compact=False)
+                                ansi=True)
     joinedc = "".join(cap)
     codes = re.findall(r"\x1b\[([0-9;]+)m", joinedc)
     if not any("33" in c.split(";") for c in codes):
@@ -586,8 +552,7 @@ def check_prefix_none_widths():
     """An override can leave the effective hotkeys without a shared modifier lead
     (a bare F-key rebind, or mixed prefixes), so the app derives key_prefix=None --
     a framed path the shipped config never reaches. Guard the masthead KEYS grid
-    and a routine strip on it at full width. The compact/narrow-window layout of
-    long full combos is a separate concern, outside #55's display-only scope."""
+    and a routine strip on it at full width."""
     lineup = lineup_for(DEFAULT_API)
     # Ctrl+Alt+Ü is deliberate: the umlaut is override-only since #211/D-012, and this
     # synthetic fixture is the console's only remaining render coverage of the glyph.
@@ -598,7 +563,7 @@ def check_prefix_none_widths():
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
          dict(lineup=lineup, keys=mixed_keys, key_prefix=None,
-              history_path=PATHS[1] + r"\history", open_key="6", switch_key="L",
+              history_path=PATHS[1] + r"\history", switch_key="L",
               start_key="F9", with_wordmark=False)),
         ("ok_prefix_none", u.render_ok_strip,
          dict(seq=12, chars=184, sent=False, model_label="Soniox Live",
@@ -606,8 +571,8 @@ def check_prefix_none_widths():
     ]
     for name, fn, kw in fixtures:
         for ansi in (True, False):
-            check_block(name, fn(ansi=ansi, compact=False, **kw),
-                        ansi=ansi, compact=False, stress=False)
+            check_block(name, fn(ansi=ansi, **kw),
+                        ansi=ansi)
         twin(name, fn, **kw)
 
 
@@ -637,24 +602,21 @@ def check_keyless_lineup():
     for fname, lu in fixtures:
         renders = [
             ("masthead", _masthead_with(lu)),
-            ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=False)),
+            ("switched", u.render_switched_panel(model, lu, SWITCH, ansi=True)),
             ("switch_failed", u.render_switch_failed(
-                model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True, compact=False)),
-            ("masthead/compact", _masthead_with(lu, compact=True)),
-            ("switched/compact", u.render_switched_panel(model, lu, SWITCH, ansi=True, compact=True)),
+                model, lu, SWITCH, missing=["SONIOX_API_KEY"], ansi=True)),
         ]
         for rname, lines in renders:
             if "(default)" in strip("".join(lines)):
                 _record(f"{fname}/{rname}: renders a (default) tag with no pin active")
 
-    # Grey rule, checked positionally on the two lineup renderers (labels overlap
+    # Grey rule, checked positionally on the lineup renderer (labels overlap
     # as substrings -- "Soniox" is inside "Soniox Live" -- so zip by AVAILABLE_APIS
     # order rather than matching text). Groq-only: the two soniox rows dim, the two
     # groq rows not; groq-large is current and must never be dim.
     present = {"GROQ_API_KEY"}
     lu = lineup_keyed("groq-large", present)
-    for renderer, rows in (("_lineup_lines", u._lineup_lines(lu, True)),
-                           ("_compact_lineup", u._compact_lineup(lu, True))):
+    for renderer, rows in (("_lineup_lines", u._lineup_lines(lu, True)),):
         if len(rows) != len(AVAILABLE_APIS):
             _record(f"{renderer}: emitted {len(rows)} rows, expected {len(AVAILABLE_APIS)}")
             continue
@@ -683,33 +645,18 @@ def check_keyless_lineup():
             _record("keyless masthead: guidance line is not YELLOW (SGR 33)")
         if any("31" in c.split(";") for c in codes):
             _record("keyless masthead: guidance line carries red (SGR 31)")
-    # Same guidance in the compact masthead: it wraps to the narrow width, so
-    # gather every wrapped piece (each a contiguous run of guidance words) and
-    # assert each is YELLOW, never red -- and that the pieces reconstruct the text.
-    mac = _masthead_with(lu, guidance=GUIDANCE, compact=True)
-    gnorm = " ".join(GUIDANCE.split())
-    gseg = [ln for ln in mac
-            if strip(ln).strip() and " ".join(strip(ln).split()) in gnorm]
-    if " ".join(w for ln in gseg for w in strip(ln).split()) != gnorm:
-        _record("keyless masthead/compact: yellow guidance line missing or garbled")
-    for ln in gseg:
-        codesc = re.findall(r"\x1b\[([0-9;]+)m", ln)
-        if not any("33" in c.split(";") for c in codesc):
-            _record("keyless masthead/compact: guidance segment is not YELLOW (SGR 33)")
-        if any("31" in c.split(";") for c in codesc):
-            _record("keyless masthead/compact: guidance segment carries red (SGR 31)")
     # A keyed masthead (no guidance passed) must not sprout the line.
     keyed = _masthead_with(lineup_for(DEFAULT_API))
     if any("enter an API key in Settings" in strip(ln) for ln in keyed):
         _record("keyed masthead: guidance line shown without a keyless start")
 
 
-def _masthead_with(lineup, *, guidance=None, compact=False, pinned_default=None):
+def _masthead_with(lineup, *, guidance=None, pinned_default=None):
     """A masthead render for the #200/#219 checks (ANSI), wordmark on, given lineup."""
     return u.render_masthead(
-        lineup, KEYS, KEY_PREFIX, PATHS[1] + r"\history", OPEN_LETTER, SWITCH_LETTER,
+        lineup, KEYS, KEY_PREFIX, PATHS[1] + r"\history", SWITCH_LETTER,
         START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
-        pinned_default=pinned_default, ansi=True, compact=compact)
+        pinned_default=pinned_default, ansi=True)
 
 
 def check_pinned_default_tag():
@@ -730,7 +677,7 @@ def check_pinned_default_tag():
     lu = lineup_for("soniox-live")               # all keyed; current = soniox-live
     pin = API_DISPLAY["groq"]["label"]           # pin a different engine
     ma = _masthead_with(lu, pinned_default=pin)
-    check_block("masthead/pinned", ma, ansi=True, compact=False, stress=False)
+    check_block("masthead/pinned", ma, ansi=True)
     tag_rows = [ln for ln in ma if TAG in strip(ln)]
     if len(tag_rows) != 1:
         _record(f"pinned masthead: {len(tag_rows)} rows carry the tag, expected 1")
@@ -755,18 +702,12 @@ def check_pinned_default_tag():
     if TAG in strip("".join(ma)):
         _record("keyless pinned masthead: a greyed row still shows (default)")
 
-    # (D) compact masthead carries the tag on the pinned row, dim, within COMPACT_MAX.
+    # (D) plain twin: ASCII tag present on the pinned row, no ESC.
     lu = lineup_for("soniox-live")
-    mac = _masthead_with(lu, pinned_default=API_DISPLAY["groq"]["label"], compact=True)
-    check_block("masthead/pinned/compact", mac, ansi=True, compact=True, stress=False)
-    if not any(TAG in strip(ln) and DIM_TAG in ln for ln in mac):
-        _record("pinned compact masthead: dim (default) tag missing")
-
-    # (E) plain twin: ASCII tag present on the pinned row, no ESC.
     mplain = u.render_masthead(
-        lu, KEYS, KEY_PREFIX, PATHS[1] + r"\history", OPEN_LETTER, SWITCH_LETTER,
+        lu, KEYS, KEY_PREFIX, PATHS[1] + r"\history", SWITCH_LETTER,
         START, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
-        pinned_default=API_DISPLAY["groq"]["label"], ansi=False, compact=False)
+        pinned_default=API_DISPLAY["groq"]["label"], ansi=False)
     prow = next((ln for ln in mplain if API_DISPLAY["groq"]["label"] in ln), None)
     if prow is None or TAG not in prow or "\x1b" in prow:
         _record("pinned masthead plain twin: ASCII (default) tag missing or ESC present")
@@ -800,16 +741,16 @@ def main():
         for path in PATHS:
             run("masthead", u.render_masthead, dict(
                 lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=path + r"\history",
-                open_key=OPEN_LETTER, switch_key=SWITCH_LETTER, start_key=START,
+                switch_key=SWITCH_LETTER, start_key=START,
                 with_wordmark=True))
         # masthead with the active a5 mark beside the wordmark (as the app wires it)
         run("masthead_logo", u.render_masthead, dict(
             lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=PATHS[1] + r"\history",
-            open_key=OPEN_LETTER, switch_key=SWITCH_LETTER, start_key=START,
+            switch_key=SWITCH_LETTER, start_key=START,
             logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
         run("ready", u.render_masthead, dict(
             lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX, history_path=PATHS[1] + r"\history",
-            open_key=OPEN_LETTER, switch_key=SWITCH_LETTER, start_key=START, with_wordmark=False))
+            switch_key=SWITCH_LETTER, start_key=START, with_wordmark=False))
 
         run("rec", u.render_rec_strip,
             dict(type_key="A", paste_key="D", send_key="H", keep_key="Y", cancel_key="X",
@@ -838,11 +779,9 @@ def main():
                 for sent in (False, True):
                     run("ok", u.render_ok_strip, dict(
                         seq=seq, chars=chars, sent=sent, model_label=model, footer_keys=FOOTER,
-                        key_prefix=KEY_PREFIX),
-                        stress=(seq == 99999 or chars == 99999))
+                        key_prefix=KEY_PREFIX))
                 run("waiting", u.render_waiting_strip, dict(
-                    seq=seq, chars=chars, type_key="A", paste_key="D", key_prefix=KEY_PREFIX),
-                    stress=(seq == 99999 or chars == 99999))
+                    seq=seq, chars=chars, type_key="A", paste_key="D", key_prefix=KEY_PREFIX))
 
         # #7 typed insert: the cap annotation beside the char count (mode='typing',
         # chars <= cap), and the yellow CAPPED strip for a truncated one.
@@ -854,29 +793,25 @@ def main():
         for original_chars in (4001, 30818, 999999):
             run("typed_capped", u.render_typed_capped, dict(
                 cap=4000, original_chars=original_chars, paste_key="A", model_label=model,
-                footer_keys=FOOTER, key_prefix=KEY_PREFIX),
-                stress=(original_chars == 999999))
+                footer_keys=FOOTER, key_prefix=KEY_PREFIX))
 
         for seq in (None, 12, 99999):
             # #159: one FAILED render per reason (incl. the None catch-all that omits
-            # the block) x both provider tokens, through the full ansi x compact matrix.
+            # the block) x both provider tokens, in both ansi states.
             for reason in (None, "no-connection", "service-error", "rate-limited", "auth", "no-credit"):
                 for provider in ("Soniox", "Groq"):
                     run("transcription_failed", u.render_transcription_failed, dict(
                         seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
-                        key_prefix=KEY_PREFIX, reason=reason, provider=provider),
-                        stress=(seq == 99999))
+                        key_prefix=KEY_PREFIX, reason=reason, provider=provider))
             # inconclusive (Soniox-Live async file lane empty + errored): the flag wins
             # over the category, so the "came back empty" message shows.
             run("transcription_failed", u.render_transcription_failed, dict(
                 seq=seq, retry_key=RETRY, model_label=model, footer_keys=FFOOTER,
                 key_prefix=KEY_PREFIX, reason="service-error", provider="Soniox",
-                inconclusive=True),
-                stress=(seq == 99999))
+                inconclusive=True))
             run("insert_failed", u.render_insert_failed, dict(
                 seq=seq, type_key="A", paste_key="D", model_label=model, footer_keys=FOOTER,
-                key_prefix=KEY_PREFIX),
-                stress=(seq == 99999))
+                key_prefix=KEY_PREFIX))
 
         for clean in (True, False):
             for hk in (True, False):
@@ -886,11 +821,11 @@ def main():
 
     # #200 keyless shop-window (api-independent): the masthead with every lineup
     # row greyed + a yellow guidance line, and the calm keyless notice a hotkey
-    # press raises. run() sweeps ansi x compact; check_block enforces width,
+    # press raises. run() sweeps both ansi states; check_block enforces width,
     # charset, the plain twin, and (both being yellow) red-exclusivity.
     run("masthead_keyless", u.render_masthead, dict(
         lineup=lineup_keyed(None, set()), keys=KEYS, key_prefix=KEY_PREFIX,
-        history_path=PATHS[1] + r"\history", open_key=OPEN_LETTER,
+        history_path=PATHS[1] + r"\history",
         switch_key=SWITCH_LETTER, start_key=START, guidance=GUIDANCE, with_wordmark=True))
     run("keyless", u.render_keyless_notice, dict(settings_key="Ctrl+Alt+G"))
     twin("keyless", u.render_keyless_notice, settings_key="Ctrl+Alt+G")
@@ -902,7 +837,7 @@ def main():
     # Single-instance guard + honest hotkey verdict (#166), both api-independent:
     # the calm ALREADY RUNNING notice (CYAN, never red) and the partial-
     # registration advisory (YELLOW, never red -- most keys still work). run()
-    # sweeps ansi x compact and check_block enforces "not red" on both.
+    # sweeps both ansi states and check_block enforces "not red" on both.
     run("already_running", u.render_already_running, {})
     run("hotkeys_partial", u.render_hotkeys_partial, dict(registered=10, expected=11))
 
@@ -914,12 +849,12 @@ def main():
     run("noapi", u.render_noapi_panel, dict(
         missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"])],
         other_failures=[("groq", "ConnectionError: [Errno 11001] getaddrinfo failed for api.groq.com")],
-        env_dir=PATHS[3]), stress=True)
+        env_dir=PATHS[3]))
 
     # ---- structural twin checks (skip the wordmark masthead) -----------------
     lineup = lineup_for(DEFAULT_API)
     twin("ready", u.render_masthead, lineup=lineup, keys=KEYS, key_prefix=KEY_PREFIX,
-         history_path=PATHS[1] + r"\history", open_key=OPEN_LETTER, switch_key=SWITCH_LETTER,
+         history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
          start_key=START, with_wordmark=False)
     twin("ok", u.render_ok_strip, seq=12, chars=184, sent=False,
          model_label="Groq Whisper Large v3", footer_keys=FOOTER, key_prefix=KEY_PREFIX)
@@ -958,7 +893,7 @@ def main():
     if "settings (gear)" not in last or last[46] != "G":
         _record(f"KEYS grid: 'G settings (gear)' not bottom-right: {last!r}")
     ok = u.render_ok_strip(12, 184, False, "Soniox Live", FOOTER, KEY_PREFIX,
-                           ansi=True, compact=False)
+                           ansi=True)
     row1 = strip(ok[2])   # top border, +1 headroom line, then the OK row (#109 fold-in)
     if not row1[u.SEQCOL:].lstrip().startswith("seq 12"):
         _record(f"OK strip seq anchor {u.SEQCOL} broken: {row1!r}")
