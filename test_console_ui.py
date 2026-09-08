@@ -179,24 +179,23 @@ PASTE = combo_for(DEFAULT_HOTKEYS, "stop_recording_clipboard")
 OPEN = combo_for(DEFAULT_HOTKEYS, "open_history")
 START = combo_for(DEFAULT_HOTKEYS, "start_recording")
 RETRY = combo_for(DEFAULT_HOTKEYS, "retry_last_failed")
-# The #115 footer order, which is deliberately NOT the canonical one (D-019):
-# the app owns it in thoughtborne._footer_actions, and this driver cannot import
-# the app -- hence the one copy in the ladder. check_app_derives_no_key below
-# reads that order out of the app's source and holds this copy against it.
-FOOTER_ACTIONS = ["start_recording", "open_history", "switch_api", "exit_program"]
-FOOTER_ACTIONS_RETRY = ["start_recording", "retry_last_failed", "switch_api",
-                        "exit_program"]
 
 
 def footer_for(scheme, retry=False):
     """The app's _footer_keys(), rebuilt: [(action_name, display_combo)] in the
-    #115 footer order -- record . history/retry . model . quit."""
-    names = FOOTER_ACTIONS_RETRY if retry else FOOTER_ACTIONS
+    #115 footer order the renderer itself owns since #290 -- record .
+    history/retry . model . quit."""
+    names = u.FOOTER_ACTIONS_RETRY if retry else u.FOOTER_ACTIONS
     return [(n, combo_for(scheme, n)) for n in names]
 
 
 FOOTER = footer_for(DEFAULT_HOTKEYS)
 FFOOTER = footer_for(DEFAULT_HOTKEYS, retry=True)
+# The two panels whose retry prose comes out of the footer (#290): the plain
+# footer carries open_history in that slot, so they must be rendered with the
+# retry one -- the ladder renders what the app renders, and G3b below pins that
+# the app really hands it to them.
+_RETRY_FOOTER = {"render_transcription_failed", "render_device_loss"}
 
 PATHS = [  # four checkout depths, shallow to deep (console width stress)
     r"C:\thoughtborne",
@@ -302,16 +301,15 @@ def check_accent_state():
         u.render_rec_strip(REC_STOPS, ansi=True),
         u.render_ok_strip(12, 184, False, model, FOOTER, ansi=True),
         u.render_waiting_strip(12, 184, WAIT_STOPS, ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER,
-                                      ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER,   # #159 reason block
+        u.render_transcription_failed(12, model, FFOOTER, ansi=True),
+        u.render_transcription_failed(12, model, FFOOTER,   # #159 reason block
                                       reason="no-connection", provider="Soniox",
                                       ansi=True),
-        u.render_transcription_failed(12, RETRY, model, FFOOTER,   # #179 credits block
+        u.render_transcription_failed(12, model, FFOOTER,   # #179 credits block
                                       reason="no-credit", provider="Soniox",
                                       ansi=True),
         u.render_mic_failed(model, FFOOTER, ansi=True),   # #179
-        u.render_device_loss(12.0, RETRY, model, FFOOTER, ansi=True),
+        u.render_device_loss(12.0, model, FFOOTER, ansi=True),
         u.render_switched_panel(model, lu, SWITCH, ansi=True),
     ]
     for lines in others:
@@ -402,20 +400,20 @@ def check_ctrl_alt_counts():
         ("saved", u.render_saved_strip(12.3, RETRY, ansi=True), 1),
         # retry prose + switch prose + the footer's lead
         ("transcription_failed", u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, ansi=True), 3),
+            12, model, FFOOTER, ansi=True), 3),
         ("transcription_failed/reason", u.render_transcription_failed(   # #159 reason block adds none
-            12, RETRY, model, FFOOTER, reason="no-connection",
+            12, model, FFOOTER, reason="no-connection",
             provider="Groq", ansi=True), 3),
         ("transcription_failed/auth", u.render_transcription_failed(     # #159 auth names no key at all
-            12, RETRY, model, FFOOTER, reason="auth",
+            12, model, FFOOTER, reason="auth",
             provider="Soniox", ansi=True), 1),
         ("transcription_failed/credits", u.render_transcription_failed(  # #179 top-up prose + lead
-            12, RETRY, model, FFOOTER, reason="no-credit",
+            12, model, FFOOTER, reason="no-credit",
             provider="Soniox", ansi=True), 2),
         ("insert_failed", u.render_insert_failed(
             12, WAIT_STOPS, model, FOOTER, ansi=True), 2),
         ("device_loss", u.render_device_loss(   # WHAT-NOW prose + the footer's lead
-            12.0, RETRY, model, FFOOTER, ansi=True), 2),
+            12.0, model, FFOOTER, ansi=True), 2),
         ("mic_failed", u.render_mic_failed(   # #179: footer carries the sole Ctrl+Alt
             model, FFOOTER, ansi=True), 1),
         ("selftest_failed", u.render_selftest_failed(
@@ -451,7 +449,7 @@ def check_failed_reason_block():
 
     def render(**kw):
         return u.render_transcription_failed(
-            12, RETRY, model, FFOOTER, ansi=True, **kw)
+            12, model, FFOOTER, ansi=True, **kw)
 
     # Every categorized reason renders a CYAN two-line block, never ACCENT.
     for reason in ("no-connection", "service-error", "rate-limited", "auth", "no-credit"):
@@ -626,6 +624,23 @@ def check_key_tables_and_budgets():
     if not set(u.KEY_WORDS) <= set(DEFAULT_HOTKEYS):
         _record(f"KEY_WORDS carries unknown action names: "
                 f"{set(u.KEY_WORDS) - set(DEFAULT_HOTKEYS)}")
+    # The footer's four actions live here now (#290): each must carry a word, or
+    # the footer raises mid-render instead of showing a key.
+    footer_names = set(u.FOOTER_ACTIONS) | set(u.FOOTER_ACTIONS_RETRY)
+    if not footer_names <= set(u.KEY_WORDS):
+        _record(f"FOOTER_ACTIONS names without a KEY_WORDS entry: "
+                f"{footer_names - set(u.KEY_WORDS)}")
+    # ...and their sequence is the #115 reading order, pinned as a value. Not the
+    # second copy D-019 forbids: nothing here BUILDS a footer from these literals
+    # -- footer_for reads console_ui's own tuples, so a reorder still reaches every
+    # surface at once. The pin only makes the ladder say so instead of agreeing
+    # with itself, exactly as KEY_BUDGET below is pinned against its derivation.
+    if (tuple(u.FOOTER_ACTIONS), tuple(u.FOOTER_ACTIONS_RETRY)) != (
+            ("start_recording", "open_history", "switch_api", "exit_program"),
+            ("start_recording", "retry_last_failed", "switch_api", "exit_program")):
+        _record(f"the #115 footer reading order moved -- record . history/retry . "
+                f"model . quit is a D-019 decision, not a refactor: "
+                f"{tuple(u.FOOTER_ACTIONS)} / {tuple(u.FOOTER_ACTIONS_RETRY)}")
 
     # Derived values, pinned: a copy change that moves them must be a decision.
     if u.KEY_BUDGET != 13:
@@ -883,7 +898,7 @@ def check_footer_schemes():
             ("insert_failed", "insert_failed", u.render_insert_failed,
              dict(seq=12, stops=stops, model_label=model, footer=f), [stops, f]),
             ("device_loss", "device_loss", u.render_device_loss,
-             dict(duration=12.0, retry_key=r, model_label=model, footer=ff), [ff]),
+             dict(duration=12.0, model_label=model, footer=ff), [ff]),
             ("saved", "saved", u.render_saved_strip,
              dict(duration=12.3, retry_key=r), []),
             ("recovered", "recovered", u.render_recovered_panel,
@@ -892,15 +907,15 @@ def check_footer_schemes():
                   retry_key=r), []),
             ("waiting", "waiting", u.render_waiting_strip,
              dict(seq=12, chars=184, stops=stops), [stops]),
-            # REC keeps its own 3/2 flow split rather than the shared key-line
-            # helper, so only its width/twin come from here -- its key tokens are
-            # pinned in check_strip_pairs.
+            # REC renders the shared key-line helper with a 3/2 split, so the
+            # generic key-list check below (which builds the one-line form) does
+            # not apply -- its key tokens are pinned in check_strip_pairs.
             ("rec", "rec", u.render_rec_strip, dict(stops=rec_stops), []),
         ]
         for reason in (None, *u._REASON_LINES):
             surfaces.append((f"failed/{reason}", "transcription_failed",
                              u.render_transcription_failed,
-                             dict(seq=12, retry_key=r, model_label=model, footer=ff,
+                             dict(seq=12, model_label=model, footer=ff,
                                   reason=reason, provider="Soniox"), [ff]))
         for label, red, fn, kw, key_lists in surfaces:
             name = f"{label} [{sname}]"
@@ -979,48 +994,29 @@ def _is_handover(node):
             and node.func.attr in _HANDOVERS)
 
 
-def _footer_order_from_app(tree):
-    """The #115 footer order as `thoughtborne._footer_actions` returns it:
-    (plain, retry) action names. This is what holds the ladder's literal copy
-    (FOOTER_ACTIONS above) honest -- so an order this cannot read is recorded as
-    a violation rather than skipped: an unread order is an unchecked copy."""
+def _check_footer_order_from_console_ui(tree):
+    """`thoughtborne._footer_keys` takes its four action names from
+    console_ui.FOOTER_ACTIONS / _RETRY (#290) -- the module that renders the
+    footer owns its order. An order written down here would be the second copy
+    D-019 forbids, and no rendering check could see it: the fixtures build their
+    footers from those same constants, so both sides would simply agree on
+    nothing."""
     fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-               and n.name == "_footer_actions"), None)
+               and n.name == "_footer_keys"), None)
     if fn is None:
-        _record("thoughtborne.py: _footer_actions is gone -- the ladder's copy of the "
-                "#115 footer order has nothing left to be held against")
-        return None, None
-    assigned = {}
-    for node in ast.walk(fn):
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)):
-            assigned.setdefault(node.targets[0].id, []).append(node.value)
-
-    def resolve(node):
-        """One list element as (name without retry, name with retry), or None:
-        a literal, a local assigned exactly once, or the `retry` conditional the
-        history/retry slot has always been."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value, node.value
-        if isinstance(node, ast.Name):
-            values = assigned.get(node.id, [])
-            return resolve(values[0]) if len(values) == 1 else None
-        if (isinstance(node, ast.IfExp) and isinstance(node.test, ast.Name)
-                and node.test.id == "retry"):
-            plain, retry = resolve(node.orelse), resolve(node.body)
-            return (plain[0], retry[1]) if plain and retry else None
-        return None
-
-    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
-    elements = returns[0].value.elts if (
-        len(returns) == 1 and isinstance(returns[0].value, ast.List)) else None
-    resolved = [resolve(e) for e in elements] if elements is not None else [None]
-    if any(r is None for r in resolved):
-        _record(f"thoughtborne.py:{fn.lineno}: _footer_actions no longer reads as one "
-                f"list of action names -- teach this check its new shape, or the "
-                f"ladder's copy of the footer order goes unchecked")
-        return None, None
-    return [r[0] for r in resolved], [r[1] for r in resolved]
+        _record("thoughtborne.py: _footer_keys is gone -- the footer order has no "
+                "checked path from console_ui onto the surfaces left (D-019)")
+        return
+    read = {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name) and n.value.id == "console_ui"}
+    literal = any(isinstance(n, (ast.List, ast.Tuple))
+                  and any(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                          for e in n.elts)
+                  for n in ast.walk(fn))
+    if read != {"FOOTER_ACTIONS", "FOOTER_ACTIONS_RETRY"} or literal:
+        _record(f"thoughtborne.py:{fn.lineno}: _footer_keys no longer reads its four "
+                f"action names from console_ui.FOOTER_ACTIONS/_RETRY -- an order "
+                f"written down here is the second copy D-019 forbids")
 
 
 def _check_pairs_iterates_hotkeys(tree):
@@ -1050,7 +1046,7 @@ def _check_pairs_iterates_hotkeys(tree):
 def check_app_derives_no_key():
     """The app half of the pair contract, read as source: `thoughtborne.py`
     derives no key of its own (D-019), hands its pairs out in the canonical order
-    unreordered, and the footer order the fixtures copy is the one it returns. The
+    unreordered, and takes the footer's four action names from console_ui. The
     ladder cannot import the app off Windows, so this parses it -- an AST, never a
     substring, so the same names in a comment or docstring cannot trip it."""
     tree = ast.parse(_APP.read_text(encoding="utf-8"), filename=str(_APP))
@@ -1100,6 +1096,24 @@ def check_app_derives_no_key():
             for pname, arg in bound.items():
                 if not (pname.endswith("_key") or pname in ("keys", "stops", "footer")):
                     continue
+                # G3b (#290): the two panels that read their retry combo out of
+                # the footer must be handed the RETRY one -- with the plain
+                # footer their core sentence would name no key at all. G4 moved
+                # the order out of the app; this reads the app for the one thing
+                # the move leaves it responsible for.
+                if pname == "footer" and node.func.attr in _RETRY_FOOTER:
+                    call = arg
+                    if isinstance(arg, ast.Name):
+                        values = assigned.get(arg.id, [])
+                        call = values[0] if len(values) == 1 else None
+                    passed = [*getattr(call, "args", []),
+                              *(k.value for k in getattr(call, "keywords", [])
+                                if k.arg == "retry")]
+                    if not any(isinstance(v, ast.Constant) and v.value is True
+                               for v in passed):
+                        _record(f"thoughtborne.py:{node.lineno}: {node.func.attr} is "
+                                f"not handed _footer_keys(retry=True) -- its retry "
+                                f"sentence would name no key (#290)")
                 if _is_handover(arg):
                     continue
                 if isinstance(arg, ast.Name):
@@ -1110,13 +1124,9 @@ def check_app_derives_no_key():
                         f"is not one of self._show/_pairs/_footer_keys -- the app hands "
                         f"full combos and the renderer decides (D-019)")
 
-    # G4: the #115 footer order the fixtures build on is the app's own, read out
-    # of _footer_actions -- the ladder's one literal copy of an order (D-019).
-    plain, retry = _footer_order_from_app(tree)
-    if plain is not None and (plain, retry) != (FOOTER_ACTIONS, FOOTER_ACTIONS_RETRY):
-        _record(f"thoughtborne.py: _footer_actions lists {plain!r} / {retry!r}, the "
-                f"ladder copies {FOOTER_ACTIONS!r} / {FOOTER_ACTIONS_RETRY!r} -- every "
-                f"footer fixture would pin an order the app no longer has")
+    # G4: the #115 footer order lives in console_ui since #290, and the app reads
+    # it from there rather than writing one of its own (D-019).
+    _check_footer_order_from_console_ui(tree)
 
     # G5: the canonical order reaches the surfaces by iteration -- _pairs adds no
     # order of its own between HOTKEYS and the renderers (D-019).
@@ -1137,7 +1147,7 @@ _STRESS_KEY_ACTION = {"switch_key": "switch_api", "start_key": "start_recording"
                       "paste_key": "stop_recording_clipboard",
                       "retry_key": "retry_last_failed", "open_key": "open_history",
                       "settings_key": "open_settings"}
-_STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS, "footer": FOOTER_ACTIONS}
+_STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS}
 _STRESS_SWEEP = {"reason": (None, *u._REASON_LINES), "inconclusive": (False, True),
                  "hotkeys_ok": (False, True), "clean_exit": (False, True),
                  "sent": (False, True), "mode": (None, "typing")}
@@ -1199,7 +1209,7 @@ def _stress_kwargs(fn, scheme):
         elif pname.endswith("_key") and pname in _STRESS_KEY_ACTION:
             base[pname] = combo_for(scheme, _STRESS_KEY_ACTION[pname])
         elif pname == "footer":
-            base[pname] = footer_for(scheme)
+            base[pname] = footer_for(scheme, retry=name in _RETRY_FOOTER)
         elif pname in _STRESS_PAIRS:
             base[pname] = pairs_for(scheme, _STRESS_PAIRS[pname])
         elif pname == "guidance":            # keyless masthead: with and without
@@ -1455,8 +1465,26 @@ def check_engine_has_key():
         _record(f"API_KEY_ENV covers {set(API_KEY_ENV)} != AVAILABLE_APIS {set(AVAILABLE_APIS)}")
 
 
+def _fail_report():
+    """The failure half of main's report -- also the early exit below (#290)."""
+    print(f"FAIL: {len(failures)} violation(s)")
+    for f in failures[:60]:
+        print("  " + f)
+    return 1
+
+
 # ---- the parameter matrix ----------------------------------------------------
 def main():
+    # The static key tables speak before anything renders, and stop the run when
+    # they are broken (#290). A footer action without a KEY_WORDS entry is a
+    # KeyError inside the very first footer below, so a guard that only recorded
+    # -- or ran later -- would be decoration: the traceback would end the run
+    # before its message was ever printed. Everything this pass reads is a table
+    # the renderings below consume, so there is nothing left to measure anyway.
+    check_key_tables_and_budgets()
+    if failures:
+        return _fail_report()
+
     for api in AVAILABLE_APIS:
         model = API_DISPLAY[api]["label"]
         lineup = lineup_for(api)
@@ -1487,7 +1515,7 @@ def main():
         run("switch_failed", u.render_switch_failed,   # empty branch (non-key skips)
             dict(current_label=model, lineup=lineup, switch_key=SWITCH, missing=[]))
         run("device_loss", u.render_device_loss,
-            dict(duration=12.0, retry_key=RETRY, model_label=model, footer=FFOOTER))
+            dict(duration=12.0, model_label=model, footer=FFOOTER))
         run("mic_failed", u.render_mic_failed,   # #179: audio stream would not open
             dict(model_label=model, footer=FFOOTER))
         run("selftest_failed", u.render_selftest_failed, dict(   # mirrors the app copy (thoughtborne.py)
@@ -1520,12 +1548,12 @@ def main():
             for reason in (None, "no-connection", "service-error", "rate-limited", "auth", "no-credit"):
                 for provider in ("Soniox", "Groq"):
                     run("transcription_failed", u.render_transcription_failed, dict(
-                        seq=seq, retry_key=RETRY, model_label=model, footer=FFOOTER,
+                        seq=seq, model_label=model, footer=FFOOTER,
                         reason=reason, provider=provider))
             # inconclusive (Soniox-Live async file lane empty + errored): the flag wins
             # over the category, so the "came back empty" message shows.
             run("transcription_failed", u.render_transcription_failed, dict(
-                seq=seq, retry_key=RETRY, model_label=model, footer=FFOOTER,
+                seq=seq, model_label=model, footer=FFOOTER,
                 reason="service-error", provider="Soniox", inconclusive=True))
             run("insert_failed", u.render_insert_failed, dict(
                 seq=seq, stops=WAIT_STOPS, model_label=model, footer=FOOTER))
@@ -1582,12 +1610,12 @@ def main():
          mode="typing", cap=4000)
     twin("typed_capped", u.render_typed_capped, cap=4000, original_chars=30818,
          paste_key=PASTE, model_label="Soniox Live", footer=FOOTER)
-    twin("transcription_failed", u.render_transcription_failed, seq=12, retry_key=RETRY,
+    twin("transcription_failed", u.render_transcription_failed, seq=12,
          model_label="Soniox Live", footer=FFOOTER)
-    twin("transcription_failed/reason", u.render_transcription_failed, seq=12, retry_key=RETRY,
+    twin("transcription_failed/reason", u.render_transcription_failed, seq=12,
          model_label="Soniox Live", footer=FFOOTER,
          reason="no-connection", provider="Soniox")
-    twin("transcription_failed/credits", u.render_transcription_failed, seq=12, retry_key=RETRY,
+    twin("transcription_failed/credits", u.render_transcription_failed, seq=12,
          model_label="Soniox Live", footer=FFOOTER,
          reason="no-credit", provider="Soniox")
     twin("mic_failed", u.render_mic_failed, model_label="Soniox Live",
@@ -1635,8 +1663,8 @@ def main():
     check_strip_structure()
     check_typed_cap_surfaces()
 
-    # ---- D-019 pair contract: key tables, cell geometry, the two strips ------
-    check_key_tables_and_budgets()
+    # ---- D-019 pair contract: the schemes and the two strips ----------------
+    # (the key tables and cell geometry ran first, above)
     check_grid_schemes()
     check_strip_pairs()
 
@@ -1665,10 +1693,7 @@ def main():
             print()
 
     if failures:
-        print(f"FAIL: {len(failures)} violation(s)")
-        for f in failures[:60]:
-            print("  " + f)
-        return 1
+        return _fail_report()
     print("OK: all console_ui screens pass width/charset/twin/anchor checks")
     return 0
 

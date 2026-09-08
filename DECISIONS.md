@@ -35,7 +35,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
 | D-017 | API keys come from the install directory's `.env` only | Active |
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
-| D-019 | One canonical hotkey order, and one display grammar for keys | Active |
+| D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
 | D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
 
 ---
@@ -1350,9 +1350,10 @@ name, and the settings app's Hotkeys tab, the registration log's `Registered:`
 lines and the README twins' tables all follow by iteration — the tables held
 there by a drift guard in `test_hotkey_overrides.py`. The one deliberate
 exception is the four-key footer line, which keeps its #115 reading order (record
-· history/retry · model · quit) in `thoughtborne._footer_actions`: it reads as a
-sentence, not a grid, and has read that way since #115. It selects four actions
-by name; it is not a second copy of the twelve-action order.
+· history/retry · model · quit) in `console_ui.FOOTER_ACTIONS` /
+`FOOTER_ACTIONS_RETRY`: it reads as a sentence, not a grid, and has read that way
+since #115. It selects four actions by name; it is not a second copy of the
+twelve-action order.
 
 Before this, four different orders lived in the code (console grid, settings
 tab, README tables, registration log), one of them positionally coupled to a
@@ -1394,6 +1395,29 @@ as the default, and the README's own "`Ctrl+Alt+Y` … insert later with `A` or
   keys came from: letters derived first, the lead decided later — under the
   settings app's own F-keys preset the REC strip read `F10 type   F10 paste
   F10 paste+Enter`, one letter standing for three different actions.
+
+**2026-09-08 addendum (#290).** The footer's own order moves from the app to the
+module that renders it: `console_ui.FOOTER_ACTIONS` / `FOOTER_ACTIONS_RETRY` now
+name the four actions, and `thoughtborne._footer_keys` reads them from there. The
+module already owned the footer's *words* (`KEY_WORDS`); owning the *order* beside
+them removes the second copy the ladder had to keep (it cannot import the app off
+Windows) together with the source reader that held that copy honest — about fifty
+test lines, replaced by a short guard that the app writes no order of its own. So
+where this entry named `thoughtborne._footer_actions` as the order's home — and
+the renderer's own docstring said the app owned it — both now name `console_ui`;
+the app supplies the combos. The ladder pins those two tuples against their
+literals the way it pins `KEY_BUDGET` — a value pin, not a second producer:
+nothing builds a footer from it, it only turns a reorder red instead of letting it
+quietly re-read every surface. Nothing about the order itself, the display
+grammar or any rendering changes — the change was measured byte-identical across
+every surface. In the same step the two panels that name the retry combo in prose,
+`render_transcription_failed` and `render_device_loss`, read it out of the footer
+they are handed, exactly as the switch combo already was: no fallback key enters
+the renderer, and the precondition — that these two take the retry footer — is
+pinned by the ladder rather than trusted. Maintainer okay 2026-09-08 in #290
+(comment 5586850375: "purely under-the-hood, not outward-visible — your call, keep
+the code simple"). Not a supersede — the do-not-reintroduce clause against a second
+copy of the action order stands, and now bites on the app side.
 
 Accepted edge: two *different* combos that share their final key and are both
 over budget shorten to the same `[...]+<key>` token. Reachable only with 14-cell

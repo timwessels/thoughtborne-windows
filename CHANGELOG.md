@@ -116,6 +116,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Nothing on screen changed; the console renderer carries three copies less (#290).** Three
+  leftovers the #272 review measured and left lying. The REC strip held its own copy of the rule
+  that decides between the one-line key list and the aligned cells — the same rule the footers, the
+  WAITING strip and the INSERT FAILED panel already share, differing only in the strip's 3/2 line
+  break, which is now an argument rather than a second implementation. The four-key footer order
+  (record · history/retry · model · quit) moved from the app into `console_ui`, next to the words it
+  is rendered with, which let the test ladder drop both its literal copy of that order and the
+  source reader that held the copy honest. And the two panels that name the retry key in a sentence
+  *and* list it in their footer stop being handed it twice: they read it out of the footer, the way
+  the switch key already was. The whole change was proven against the renderer as it stood before
+  it — 4,386 renderings of every view, across all sixteen modifier subsets, three key widths, mixed
+  schemes and both colour states, byte for byte identical. D-019 records the one sentence that moved
+  with it: `console_ui` owns the footer's order, the app supplies the combinations.
+
 - **Both published screenshots retaken on the current build (#288).** The terminal shot (READMEs
   and the website) still showed the pre-#272 console — `switch: L`, bare keys without the
   `Ctrl+Alt +` lead, the old key order and *keep for later* — and the settings shot (READMEs) the

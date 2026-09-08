@@ -7,12 +7,12 @@ seq/chars) arrive as parameters -- so it renders and is width-verified without
 a running Windows tool (see test_console_ui.py).
 
 Every key-bearing surface receives `(action_name, display_combo)` pairs (in the
-canonical config.DEFAULT_HOTKEYS order, D-019; the footers in the app's #115
-order); this module holds the labels and the cell geometry and decides what to
-show -- the bare key under a shared modifier lead, the full combo without one,
-`[...]+<key>` past the key-column budget. Prose is the one place a key is never
-bare: a sentence always names the full combo, since a bare `R` in one reads as
-"type R".
+canonical config.DEFAULT_HOTKEYS order, D-019; the footers in this module's own
+#115 order, FOOTER_ACTIONS); this module holds the labels and the cell geometry
+and decides what to show -- the bare key under a shared modifier lead, the full
+combo without one, `[...]+<key>` past the key-column budget. Prose is the one
+place a key is never bare: a sentence always names the full combo, since a bare
+`R` in one reads as "type R".
 
 Two frame classes carry the visual hierarchy (variant B grammar):
   - main panel   (double frame ╔═╗) for orientation moments: startup, errors,
@@ -125,6 +125,15 @@ KEY_WORDS = {    # strips and footers, short form
     "open_history": "history",
     "exit_program": "quit",
 }
+# The four actions the footer lists, in the #115 reading order (record .
+# history/retry . model . quit) -- deliberately NOT the canonical D-019 order:
+# the footer line reads as a sentence, not a grid, and has read that way since
+# #115. It selects four actions by name; it is not a second copy of the twelve-
+# action order. The app supplies the combos for these names (D-019, #290).
+FOOTER_ACTIONS = ("start_recording", "open_history", "switch_api", "exit_program")
+FOOTER_ACTIONS_RETRY = ("start_recording", "retry_last_failed", "switch_api",
+                        "exit_program")
+
 ELLIPSIS = "[...]"   # ASCII on purpose: survives CP437 and the plain twin 1:1
 
 SEQCOL = 41  # column where the OK/WAITING strip's seq/chars block starts
@@ -386,30 +395,43 @@ def _keys_grid_lines(pairs, key_prefix, ansi):
     return _cell_rows(cells, key_prefix, dline, ansi, columns=columns)
 
 
-def _key_lines(pairs, emit, ansi):
+def _key_lines(pairs, emit, ansi, split=None):
     """One key list (#272 rules 3/4): the #115 flow line under a shared lead while
     it fits the frame, aligned cells with full combos otherwise. pairs:
     [(action_name, display_combo)] in the order the list reads, words from
-    KEY_WORDS. The lead is derived from exactly these combos, so a key can never
-    be shown bare without the lead that anchors it (D-019); the cell form is also
-    the honest fallback for a lead that would not fit."""
+    KEY_WORDS. `split` breaks the flow form after that many cells and puts the
+    rest on a continuation line indented to the lead's width (the REC strip's 3/2
+    reading rhythm) -- the helper knows only "break after n cells", nothing about
+    that strip; None keeps the list on one line. EVERY flow line is measured, so a
+    split whose second line would not fit falls back together with the first. The
+    lead is derived from exactly these combos, so a key can never be shown bare
+    without the lead that anchors it (D-019); the cell form is also the honest
+    fallback for a lead that would not fit."""
     cells = [(c, KEY_WORDS[n]) for n, c in pairs]
     prefix = _display_prefix([c for _, c in pairs])
     if prefix is not None:
-        lead = f"  {prefix} +  "
+        lead = f"  {prefix} +  "                          # 14 cols for "Ctrl+Alt"
         flow = [(_bare(c, prefix), w) for c, w in cells]
-        if _flow_width(lead, flow) <= INNER:
-            return [_flow_line(lead, flow, emit, ansi)]
+        rows = ([(lead, flow)] if split is None
+                else [(lead, flow[:split]), (" " * len(lead), flow[split:])])
+        if max(_flow_width(ld, fl) for ld, fl in rows) <= INNER:
+            return [_flow_line(ld, fl, emit, ansi) for ld, fl in rows]
     return _cell_rows(cells, None, emit, ansi)
 
 
 def _footer_lines(model_label, footer, emit, ansi):
     """The action footer (#115): the model on its own line, then the box's key
-    list. footer: [(action_name, display_combo)] in the #115 footer order (record
-    . history/retry . model . quit) -- the app owns that order, this module owns
-    the words. `emit` is dline or sline (double vs single frame)."""
+    list. footer: [(action_name, display_combo)] in the #115 footer order of
+    FOOTER_ACTIONS above -- this module owns the order and the words, the app
+    supplies the combos. `emit` is dline or sline (double vs single frame)."""
     return [emit([("  model: ", ()), (model_label, (BOLD,))], ansi),
             *_key_lines(footer, emit, ansi)]
+
+
+def _footer_key(footer, name):
+    """The display combo the footer carries for `name`, or None -- the one way a
+    panel names a key it also lists (D-019: no fallback key in the renderer)."""
+    return next((c for n, c in footer if n == name), None)
 
 
 def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
@@ -540,30 +562,16 @@ def _strip_row1_seq(left_segs, seq, chars):
 
 def render_rec_strip(stops, *, ansi):
     """stops: the five (action_name, display_combo) stop pairs in canonical order
-    (paste, paste+Enter, keep only, type, cancel). Under a shared lead, and while
-    both flow lines fit the frame, the #115 form with bare keys in a 3/2 split;
-    otherwise aligned two-column cells with full combos (the `[...]` rule). The
-    fallback is unreachable with canonical combos and today's words (widest case:
-    67 of 68 cells) -- it guards copy growth, and the honest form when it does
-    trigger is the no-lead one."""
-    prefix = _display_prefix([c for _, c in stops])
-    head = sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi)
-    if prefix is not None:
-        lead = f"  {prefix} +  "                          # 14 cols for "Ctrl+Alt"
-        row1 = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops[:3]]
-        row2 = [(_bare(c, prefix), KEY_WORDS[n]) for n, c in stops[3:]]
-        if max(_flow_width(lead, row1), _flow_width(" " * len(lead), row2)) <= INNER:
-            return [
-                *_strip_open(ansi),
-                head,
-                _flow_line(lead, row1, sline, ansi),
-                _flow_line(" " * len(lead), row2, sline, ansi),
-                sbot(ansi),
-            ]
+    (paste, paste+Enter, keep only, type, cancel). The #115 key list in a 3/2
+    split -- the strip's own reading rhythm, hence an argument to _key_lines and
+    not a second copy of the flow-or-cells rule. The cell fallback is unreachable
+    with canonical combos and today's words (widest case: 67 of 68 cells) -- it
+    guards copy growth, and the honest form when it does trigger is the no-lead
+    one."""
     return [
         *_strip_open(ansi),
-        head,
-        *_cell_rows([(c, KEY_WORDS[n]) for n, c in stops], None, sline, ansi),
+        sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
+        *_key_lines(stops, sline, ansi, split=3),
         sbot(ansi),
     ]
 
@@ -691,18 +699,23 @@ def _reason_pair(reason, provider, inconclusive):
     return pair[0].replace("{P}", p), pair[1].replace("{P}", p)
 
 
-def render_transcription_failed(seq, retry_key, model_label, footer,
+def render_transcription_failed(seq, model_label, footer,
                                 *, reason=None, provider=None,
                                 inconclusive=False, ansi):
+    """`footer`: the RETRY footer -- both keys this panel names in prose, retry
+    and switch, are read out of it by name; there is no fallback key in the
+    renderer (D-019). The app hands `_footer_keys(retry=True)` here, and the
+    ladder holds it to that (#290)."""
     seq_part = f" (seq {seq})" if (seq is not None and seq >= 0) else ""
     pair = _reason_pair(reason, provider, inconclusive)
     is_auth = reason == "auth" and not inconclusive
     is_credits = reason == "no-credit" and not inconclusive   # #179
     # Prose names the full combo (D-019): a bare letter in a sentence reads as
     # "type R". The lead below anchors the footer's own key list only, so Ctrl+Alt
-    # may well appear here and once more down there. The switch key comes out of
-    # the footer by name -- absent, the parenthetical is simply omitted.
-    switch_key = next((c for n, c in footer if n == "switch_api"), None)
+    # may well appear here and once more down there. Both keys come out of the
+    # footer by name; the switch one absent, the parenthetical is simply omitted.
+    retry_key = _footer_key(footer, "retry_last_failed")
+    switch_key = _footer_key(footer, "switch_api")
     lines = [
         dtop(ansi),
         _failed_top("FAILED", f"transcription failed{seq_part} -- nothing inserted", ansi),
@@ -765,8 +778,11 @@ def render_selftest_failed(reason, action_lines, *, ansi):
     return lines
 
 
-def render_device_loss(duration, retry_key, model_label, footer, *, ansi):
+def render_device_loss(duration, model_label, footer, *, ansi):
+    """`footer`: the RETRY footer -- the WHAT-NOW sentence names the retry combo
+    it also lists, read out of the footer by name (D-019, #290)."""
     dur = f"{duration:.0f}s"
+    retry_key = _footer_key(footer, "retry_last_failed")
     return [
         dtop(ansi),
         _failed_top("FAILED", "microphone lost -- recording ended early", ansi),

@@ -2375,7 +2375,7 @@ class ThoughtborneApp:
             self._emit_block(
                 'device-loss',
                 lambda ansi: console_ui.render_device_loss(
-                    duration, retry_key, self.transcriber.get_name(),
+                    duration, self.transcriber.get_name(),
                     self._footer_keys(retry=True), ansi=ansi))
         except Exception as e:
             kept = (f" Partial audio kept for next-start recovery: {sidecar.path}"
@@ -2454,16 +2454,12 @@ class ThoughtborneApp:
     def _footer_keys(self, retry=False):
         """The footer's [(action_name, display_combo)] pairs -- full combos, so the
         renderer derives the box's lead from exactly the keys the footer lists
-        (D-019); it decides whether they show bare or in full."""
-        return [(n, self._show(n)) for n in self._footer_actions(retry)]
-
-    def _footer_actions(self, retry=False):
-        """The four actions the footer lists, in the #115 footer order: record .
-        history/retry . model . quit. Deliberately not the canonical D-019 order --
-        the footer line has read this way since #115, and D-019 governs every
-        surface that does not carry an order of its own."""
-        tail = 'retry_last_failed' if retry else 'open_history'
-        return ['start_recording', tail, 'switch_api', 'exit_program']
+        (D-019); it decides whether they show bare or in full. The four actions
+        and their #115 reading order live in console_ui beside the words it
+        renders them with (#290); the app supplies the combos."""
+        names = (console_ui.FOOTER_ACTIONS_RETRY if retry
+                 else console_ui.FOOTER_ACTIONS)
+        return [(n, self._show(n)) for n in names]
 
     def _on_output_event(self, event, kind=None, seq=None, chars=None, sent=False,
                          reason=None, provider=None, inconclusive=False,
@@ -2486,7 +2482,6 @@ class ThoughtborneApp:
             # recording or self-test, both of which the keyless guards refuse
             # up front -- so self.transcriber is a real engine here.
             model = self.transcriber.get_name()
-            retry_key = self._show('retry_last_failed')
             # Negative sequence numbers are internal (immediate tasks: self-test,
             # insert-last) -- omit them from the user-facing strip.
             seq_shown = seq if (seq is not None and seq >= 0) else None
@@ -2530,7 +2525,7 @@ class ThoughtborneApp:
                 self._emit_block(
                     'transcription-failed',
                     lambda ansi: console_ui.render_transcription_failed(
-                        seq_shown, retry_key, model, self._footer_keys(retry=True),
+                        seq_shown, model, self._footer_keys(retry=True),
                         reason=reason, provider=provider, inconclusive=inconclusive,
                         ansi=ansi),
                     detail=f"seq={seq} reason={reason} provider={provider}")
