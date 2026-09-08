@@ -178,6 +178,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   restart performs the start), **D-001** (the #202 salvage path is unchanged), **D-004** /
   **D-009** (the mutex wait and the single-window guard untouched) and **D-008**.
 
+- **A rebound hotkey is now shown the way the tool actually reads it, however you wrote it
+  (#275).** The `hotkeys` block of `personal_settings.json` deliberately accepts several
+  spellings of the same combination — `control` for `ctrl`, `windows` for `win`, the
+  modifiers in any order, spaces around the `+` — but the tool kept whatever you typed, and
+  that showed. A single `"control+alt+p"` among the twelve actions was enough for the console
+  to conclude that the keys no longer share `Ctrl+Alt` and to spell every one of them out;
+  the same entry read `Control+Alt+P` on screen while the settings app showed a lowercase
+  `control`; and `"alt+ctrl+w"` on *record* — the shipped combination, written back to front —
+  was stored as a personal override of a setting it is identical to. Every combination is now
+  brought into one spelling on the way in (`ctrl`, `alt`, `shift`, `win`, in that order, then
+  the key), so the console keeps its `Ctrl+Alt` lead, both surfaces print the same
+  `Ctrl+Alt+P`, and a reordered default drops out of your settings file on its next save. The
+  umlaut key gains from it twice: written `ue` it is stored and shown as `ü` rather than
+  `Ue`, and binding it under both spellings at once is now caught as the collision it is —
+  before, the second registration simply failed at Windows with a line in the log. Behind it,
+  the three display formatters that had grown up in the tool, the settings app and the test
+  ladder are one function in `hotkey_parse.py`; nothing about the shipped keys changes.
+
 ## [1.1.0] - 2026-09-06
 
 The recommended release — it supersedes 1.0.0 in every respect. This block folds in the 1.1.0-rc2 candidate

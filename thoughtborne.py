@@ -54,7 +54,7 @@ from config import (
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
-from hotkey_parse import common_prefix
+from hotkey_parse import common_prefix, format_combo
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
@@ -1415,10 +1415,9 @@ class ThoughtborneApp:
     # ===== HOTKEY CALLBACKS =====
 
     def _format_hotkey(self, hotkey_str):
-        """Format hotkey string for display (e.g., 'ctrl+alt+w' -> 'Ctrl+Alt+W')"""
-        parts = hotkey_str.split('+')
-        formatted_parts = [p.capitalize() for p in parts]
-        return '+'.join(formatted_parts)
+        """Format a combo for display ('ctrl+alt+w' -> 'Ctrl+Alt+W'), through the
+        one formatter in hotkey_parse (#275)."""
+        return format_combo(hotkey_str)
 
     def _handle_mistrigger_during_recording(self) -> bool:
         """

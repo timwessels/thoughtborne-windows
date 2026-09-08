@@ -66,9 +66,11 @@ What is covered:
     unreadable file aborts the save instead of clobbering it (B1, chmod-guarded), and
     a non-UTF-8 (ANSI/cp1252) config file does not crash the readers and aborts the
     save byte-unchanged rather than destroying its vocabulary (B3).
-  - the pure hotkey helpers: normalize_combo, validate_combo, decode_key_event on
+  - the pure hotkey helpers: normalize_combo (the canonicalizer of #275, with its
+    never-raise fallback for the diff path), validate_combo, decode_key_event on
     synthetic Tk events, and the diff <-> apply_hotkey_overrides round-trip
-    (exercising BOTH bare-F-key and modifier-chord shapes plus the list shape).
+    (exercising BOTH bare-F-key and modifier-chord shapes plus the list shape,
+    and that an alias-spelled default diffs to nothing).
   - key_check.classify_http (pure), the empty-key short-circuit, a non-HTTP
     response decoding to UNREACHABLE rather than crashing (B2, localhost socket), a
     malformed key (embedded newline / non-latin-1 glyph) rejected as INVALID without
@@ -483,6 +485,16 @@ def check_hotkey_helpers():
     check(sio.normalize_combo("Ctrl + Alt + P") == "ctrl+alt+p", "normalize_combo spaces/case")
     check(sio.normalize_combo(" F9 ") == "f9", "normalize_combo bare f-key")
     check(sio.normalize_combo("CTRL+ALT+Ü") == "ctrl+alt+ü", "normalize_combo umlaut")
+    # #275: it is the one canonicalizer now, so aliases, modifier order and the
+    # umlaut alias collapse here exactly as they do in apply_hotkey_overrides
+    check(sio.normalize_combo("Control + Alt + P") == "ctrl+alt+p", "normalize_combo alias")
+    check(sio.normalize_combo("alt+ctrl+w") == "ctrl+alt+w", "normalize_combo modifier order")
+    check(sio.normalize_combo("ctrl+alt+ue") == "ctrl+alt+ü", "normalize_combo umlaut alias")
+    # ... and it sits in the diff path, where it must never raise: an unparseable
+    # combo falls back to comparing as its plain lowercase self
+    check(sio.normalize_combo("Ctrl + Alt") == "ctrl+alt", "normalize_combo fallback (no key)")
+    check(sio.normalize_combo("ctrl+alt+a+b") == "ctrl+alt+a+b",
+          "normalize_combo fallback (two keys)")
 
     for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12", "ctrl+alt+ü"):
         ok, msg = sio.validate_combo(good)
@@ -521,6 +533,14 @@ def check_hotkey_helpers():
     # the Ctrl+Alt preset equals the defaults -> an empty diff (no frozen copy)
     check(sio.hotkeys_diff_vs_default(sio.preset_ctrl_alt(), config.DEFAULT_HOTKEYS) == {},
           "default scheme should diff to {}")
+
+    # #275: an alias-spelled or reordered *default* is the default, so it drops
+    # out of the diff instead of being frozen into personal_settings.json as an
+    # override that only looks different.
+    aliased = sio.preset_ctrl_alt()
+    aliased["start_recording"] = "ALT + Control + W"
+    check(sio.hotkeys_diff_vs_default(aliased, config.DEFAULT_HOTKEYS) == {},
+          "an aliased spelling of a default should not diff")
 
     # #211: PRESET_FKEYS is a SECOND hard-coded default source -- its housekeeping
     # keys are documented as identical to the shipped Ctrl+Alt scheme, so they must

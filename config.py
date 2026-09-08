@@ -19,7 +19,8 @@ from pathlib import Path
 # runtime. hotkey_parse imports nothing Windows-bound, so config stays importable
 # off-Windows (the test drivers depend on that).
 from hotkey_parse import (
-    parse_hotkey_lexical, classify_key, HotkeyParseError, KEY_INVALID,
+    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
+    KEY_INVALID,
 )
 
 # Import-time warnings, collected instead of logged (#206): at `import config` no
@@ -523,12 +524,15 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                     f"keeping default")
                 ok = False
                 break
-            # Canonicalize: lowercased and inner spaces dropped ('Ctrl + Alt + P'
-            # -> 'ctrl+alt+p'), matching the defaults' shape. The registrar strips
-            # per part regardless, but the string-level prefix comparison in
-            # _keys_grid_data / _prefix_for and _format_hotkey split on '+' and
-            # would otherwise see stray-space parts like ' alt '.
-            norm.append('+'.join(p.strip() for p in c.lower().split('+')))
+            # One spelling for every effective combo (#272/#275): modifiers in
+            # the fixed order ctrl, alt, shift, win, aliases and case collapsed,
+            # inner spaces dropped, 'ue' written as the 'ü' it binds. The
+            # registrar strips and parses either way -- this is for everything
+            # that compares or shows the string: the shared-prefix detection of
+            # the console lead, the display formatter, the settings app's diff
+            # against the defaults, and the duplicate check below, which now
+            # sees 'ue' and 'ü' as the one key they are.
+            norm.append(canonical_combo(c))
         if not ok:
             continue
 

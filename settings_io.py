@@ -50,7 +50,8 @@ from pathlib import Path
 
 import config
 from hotkey_parse import (
-    parse_hotkey_lexical, classify_key, HotkeyParseError, KEY_INVALID,
+    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
+    KEY_INVALID,
 )
 
 # ---- Tk event.state modifier bits (decode_key_event) -----------------------
@@ -662,10 +663,17 @@ def hotkeys_diff_vs_default(effective: dict, default: dict) -> dict:
 # hotkey combo helpers (pure; wrap hotkey_parse)
 # =============================================================================
 def normalize_combo(raw: str) -> str:
-    """'Ctrl + Alt + P' -> 'ctrl+alt+p' -- the canonical form
-    apply_hotkey_overrides emits (lowercase, each part stripped, rejoined on
-    '+')."""
-    return "+".join(part.strip() for part in raw.lower().split("+"))
+    """'Control + Alt + P' -> 'ctrl+alt+p' -- the canonical form
+    apply_hotkey_overrides emits, from the one canonicalizer, so the diff
+    compares bindings and not notations.
+
+    Sits in the diff path (_norm_value -> hotkeys_diff_vs_default) and must not
+    raise there: an unparseable string falls back to the plain
+    lowercase-and-strip, which compares it against itself as before."""
+    try:
+        return canonical_combo(raw)
+    except HotkeyParseError:
+        return "+".join(part.strip() for part in raw.lower().split("+"))
 
 
 def _norm_value(value):

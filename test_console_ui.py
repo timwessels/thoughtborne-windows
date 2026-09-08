@@ -27,6 +27,7 @@ import sys
 import console_ui as u
 from config import (API_DISPLAY, API_KEY_ENV, AVAILABLE_APIS, DEFAULT_API,
                     HOTKEYS, LOG_FILE, engine_has_key)
+from hotkey_parse import format_combo
 
 SHOW = "--show" in sys.argv
 
@@ -122,10 +123,6 @@ def lineup_keyed(current, present):
              a == current, API_KEY_ENV[a] in present) for a in AVAILABLE_APIS]
 
 
-def _fmt(combo):
-    return "+".join(p.capitalize() for p in combo.split("+"))
-
-
 def keys_and_prefix():
     """The 12 key letters (KEY_ACTIONS order) plus the shared modifier prefix,
     exactly as the app derives them from config.HOTKEYS."""
@@ -139,20 +136,20 @@ def keys_and_prefix():
         combos.append(v[0] if isinstance(v, list) else v)
     prefixes = {c.rpartition("+")[0] for c in combos}
     if len(prefixes) == 1 and "" not in prefixes:
-        prefix = _fmt(prefixes.pop())
+        prefix = format_combo(prefixes.pop())
         letters = [c.rpartition("+")[2].capitalize() for c in combos]
         return letters, prefix
-    return [_fmt(c) for c in combos], None
+    return [format_combo(c) for c in combos], None
 
 
 KEYS, KEY_PREFIX = keys_and_prefix()
-SWITCH = _fmt(HOTKEYS["switch_api"])       # full combo (switched/switch_failed panels)
-OPEN = _fmt(HOTKEYS["open_history"])
+SWITCH = format_combo(HOTKEYS["switch_api"])       # full combo (switched/switch_failed panels)
+OPEN = format_combo(HOTKEYS["open_history"])
 # bare letters the masthead now receives (#115): Ctrl+Alt is established once on
 # the READY line, so MODEL carries only the letter.
 SWITCH_LETTER = HOTKEYS["switch_api"].rpartition("+")[2].capitalize()   # "L"
-START = _fmt(HOTKEYS["start_recording"])
-RETRY = _fmt(HOTKEYS["retry_last_failed"])
+START = format_combo(HOTKEYS["start_recording"])
+RETRY = format_combo(HOTKEYS["retry_last_failed"])
 FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
 FFOOTER = [("W", "record"), ("R", "retry"), ("L", "model"), ("4", "quit")]
 

@@ -9,6 +9,11 @@ genuinely layout/Windows-bound step (VkKeyScanW for special characters such as
 the German 'u-umlaut') stays in hotkey_manager; everything a user realistically
 rebinds to -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers --
 is resolvable here.
+
+Because every layer passes through here, this is also where a combo gets its one
+spelling (`canonical_combo`) and its one display form (`format_combo`,
+`first_combo`) -- the grammar the console, the settings app and the tests share
+(#272).
 """
 
 # ===== Win32 RegisterHotKey modifier flags (plain ints -- no ctypes/DLL) =====
@@ -106,6 +111,64 @@ def classify_key(key_token: str) -> str:
     if len(key_token) == 1 or key_token in _SPECIAL_ALIASES:
         return KEY_SPECIAL
     return KEY_INVALID
+
+
+# The one modifier order every stored and displayed combo is written in (#272).
+_CANONICAL_MODIFIERS = (
+    ('ctrl', MOD_CONTROL),
+    ('alt', MOD_ALT),
+    ('shift', MOD_SHIFT),
+    ('win', MOD_WIN),
+)
+
+# Canonical spelling of the multi-char key aliases. 'ue' stays acceptable input
+# (_SPECIAL_ALIASES above), but is stored and shown as the character it binds:
+# _resolve_vk_code maps both to one VK code, so two spellings of one key would
+# otherwise pass the duplicate check and collide at RegisterHotKey instead.
+_CANONICAL_KEYS = {'ue': 'ü'}
+
+
+def canonical_combo(hotkey_str: str) -> str:
+    """'Control + ALT+P' -> 'ctrl+alt+p': the one spelling of a combo (#272).
+
+    The modifiers are written back from the parsed flags in the fixed order
+    ctrl, alt, shift, win -- so aliases ('control', 'windows'), case, modifier
+    order and inner spaces all collapse -- then the key, with 'ue' spelled as
+    the 'ü' it binds. Raises HotkeyParseError exactly like parse_hotkey_lexical,
+    so callers keep their existing error paths.
+
+    With every effective combo canonical, common_prefix sees one spelling per
+    prefix, format_combo needs no name table, and a comparison against the
+    defaults compares bindings rather than notations.
+    """
+    modifiers, key = parse_hotkey_lexical(hotkey_str)
+    parts = [name for name, flag in _CANONICAL_MODIFIERS if modifiers & flag]
+    parts.append(_CANONICAL_KEYS.get(key, key))
+    return '+'.join(parts)
+
+
+def format_combo(combo: str) -> str:
+    """Display spelling of a canonical combo: 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
+
+    capitalize() per part is enough once the input is canonical (ctrl/alt/shift/
+    win, a letter, a digit, f1-f24, or 'ü'), and it formats a bare prefix
+    ('ctrl+alt' -> 'Ctrl+Alt') the same way. The one display formatter: console,
+    settings app and tests share it, so no surface invents a second spelling.
+    """
+    return '+'.join(part.capitalize() for part in combo.split('+'))
+
+
+def first_combo(value) -> str:
+    """The one combo a display surface shows for an action.
+
+    A binding is a combo string or, for the list-shaped actions
+    (cancel_recording, exit_program), a list of them -- of which every surface
+    has always shown the first. An empty list yields '': apply_hotkey_overrides
+    rejects one, and a display helper must not be the thing that raises.
+    """
+    if isinstance(value, list):
+        return value[0] if value else ''
+    return value
 
 
 def common_prefix(combos) -> "str | None":

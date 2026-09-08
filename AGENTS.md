@@ -59,7 +59,7 @@ The reliable check is the log heartbeat: the recording loop writes a `Recording 
 
 - **Never commit `.env`**, and never reproduce API keys in committed files, logs, or chat output.
 - **Hallucination-filter patterns** in `transcriber.py` (`_clean_groq_hallucinations`) are **data**, not prose. Never translate, paraphrase, or "improve" them.
-- **Umlaut hotkey support is live machinery, not dead code.** No shipped default uses `ü` (the self-test is `Ctrl+Alt+T`, D-012), but users still bind it through the `personal_settings.json` overrides — keep the `VkKeyScanW` path in `hotkey_manager.py`, the `KEY_SPECIAL` lane in `hotkey_parse.py`, the `udiaeresis` keysym in `settings_io.py`, and the `Ü` rendering in `thoughtborne_settings._pretty_one` (the console charset check allows that one glyph on purpose). Conversely, never move a shipped default onto a layout-resolved key: it has no static VK code, and registration fails off German QWERTZ.
+- **Umlaut hotkey support is live machinery, not dead code.** No shipped default uses `ü` (the self-test is `Ctrl+Alt+T`, D-012), but users still bind it through the `personal_settings.json` overrides — keep the `VkKeyScanW` path in `hotkey_manager.py`, the `KEY_SPECIAL` lane in `hotkey_parse.py`, the `udiaeresis` keysym in `settings_io.py`, and the `ue` → `ü` spelling in `hotkey_parse.canonical_combo`, which `format_combo` renders as `Ü` for every surface (the console charset check allows that one glyph on purpose). Conversely, never move a shipped default onto a layout-resolved key: it has no static VK code, and registration fails off German QWERTZ.
 - **Folders starting with `_`** (e.g. `_research/`, `_backups/`) are gitignored, local-only workspaces of whoever owns the checkout. Never auto-delete, never "clean up", never remove duplicates. Deletion only on explicit instruction.
 - **Be conservative with working code.** Do not refactor or rewrite without a stated reason — "clean code is a feature" (`VISION.md`) justifies keeping code legible *while changing it for a reason*, not standalone rewrites. Direction and ambition live in `VISION.md`; this rule caps code churn, it is not a feature freeze.
 
@@ -70,7 +70,7 @@ The reliable check is the log heartbeat: the recording loop writes a `Recording 
   - `audio_handler.py` — capture, the stall guards, the retry-marker files.
   - `transcriber.py` — the four engines and the transcript cleanup.
   - `output_handler.py` — text insertion: the typed and clipboard routes, plus the send-after-insert flag.
-  - `hotkey_manager.py` — Win32 hotkey registration; `hotkey_parse.py` — the ctypes-free lexical layer it shares with `config`.
+  - `hotkey_manager.py` — Win32 hotkey registration; `hotkey_parse.py` — the ctypes-free lexical layer it shares with `config`, plus the one canonical combo spelling (`canonical_combo`) and its display form (`format_combo`, `first_combo`).
   - `ptt_detector.py` — the push-to-talk gesture state machine, Win32-decoupled.
   - `config.py` — constants, the `.env` and `personal_settings.json` loading with the hotkey/engine overrides, the legacy-archive migration.
   - `console_ui.py` — the console renderer, pure stdlib.

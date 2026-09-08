@@ -80,7 +80,7 @@ import settings_io
 import settings_strings as strings
 import settings_theme
 import settings_visibility
-from hotkey_parse import parse_hotkey_lexical
+from hotkey_parse import format_combo, parse_hotkey_lexical
 from key_check import KeyStatus
 
 _T_IMPORTS = time.perf_counter()
@@ -1258,20 +1258,11 @@ class SettingsApp:
 
     @staticmethod
     def _pretty_one(combo):
-        names = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift", "win": "Win"}
-        out = []
-        for part in combo.split("+"):
-            if part in names:
-                out.append(names[part])
-            elif len(part) >= 2 and part[0] == "f" and part[1:].isdigit():
-                out.append("F" + part[1:])
-            elif part == "ü":
-                out.append("Ü")
-            elif len(part) == 1:
-                out.append(part.upper())
-            else:
-                out.append(part)
-        return "+".join(out)
+        # The one display formatter (#275); hotkeys_state is canonical, having
+        # come through apply_hotkey_overrides, so capitalizing per part is the
+        # whole grammar -- 'ctrl+alt+ü' -> 'Ctrl+Alt+Ü', 'ctrl+alt+f10' ->
+        # 'Ctrl+Alt+F10'.
+        return format_combo(combo)
 
     def _render_combo_label(self, name):
         # A re-render sets only text + foreground + font; the chip's box (card tint,
