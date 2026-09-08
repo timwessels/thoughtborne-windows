@@ -101,6 +101,11 @@ What is covered:
     no flag -> the plain dialog; the shared key-presence predicate and the read_env
     seam (a readable keyed .env -> plain, an ANSI .env -> wizard, matching
     _had_stored_key).
+  - the "every save restarts" invariant (#271, D-014): the retired save-action
+    resolver and its btn.save / btn.save_close strings stay gone, and the two places
+    the invariant lives are pinned on thoughtborne_settings.py's syntax tree -- _save
+    calls _restart_and_relaunch and never destroys the window itself, and both rails
+    name btn.save_restart.
 
 Hands-on gates (a separate test issue, not reachable here): the real Tk state-bit
 values in decode_key_event, and the live "Test key" round-trip against real keys.
@@ -734,9 +739,12 @@ def check_i18n():
               f"i18n: missing action.{action} string")
 
     # t() fallback chain: direct lookup, unknown-lang -> EN, missing key -> the key
-    check(sstr.t("btn.save", "de") == sstr._DE["btn.save"], "t(): DE lookup wrong")
-    check(sstr.t("btn.save", "en") == sstr._EN["btn.save"], "t(): EN lookup wrong")
-    check(sstr.t("btn.save", "fr") == sstr._EN["btn.save"],
+    # (btn.back as the probe: present in both tables with DIFFERENT values, so the
+    # unknown-lang assert cannot pass on a fallback that returned the DE string --
+    # which is why lang.de / lang.en, verbatim-identical in both tables, are no probe.)
+    check(sstr.t("btn.back", "de") == sstr._DE["btn.back"], "t(): DE lookup wrong")
+    check(sstr.t("btn.back", "en") == sstr._EN["btn.back"], "t(): EN lookup wrong")
+    check(sstr.t("btn.back", "fr") == sstr._EN["btn.back"],
           "t(): unknown lang should fall back to EN")
     check(sstr.t("no.such.key", "de") == "no.such.key",
           "t(): a missing key should fall back to the key itself")
@@ -1820,46 +1828,88 @@ def check_mode_flip_wiring():
           "move-free so a programmatic set never counts as a pick (D-002)")
 
 
-# ---- save-action decision (#202) ---------------------------------------------
-def check_save_action():
-    """resolve_save_action across the 4 combinations of (first_run, has_key). Each
-    token maps 1:1 to a btn.* key and to _save's behavior; the decision is pure so the
-    whole table is off-Windows tested (the GUI is hands-on). Since #223 (D-014) the
-    settings window opens only from a running tool, so the surface has no tool_running
-    axis and no 'save_start' -- a key always means a restart."""
-    R = sio.resolve_save_action
-    table = [
-        # first_run, has_key -> token
-        (True,  True,  "save_restart"),   # wizard, keyed -> restart (running tool: #200 shop window / spawned wizard)
-        (True,  False, "save_close"),     # wizard, keyless -> close (no keyless relaunch loop)
-        (False, True,  "save_restart"),   # everyday, keyed -> restart
-        (False, False, "save"),           # everyday, keyless -> plain save
-    ]
-    seen = set()
-    for first_run, has_key, expected in table:
-        got = R(first_run=first_run, has_key=has_key)
-        check(got == expected,
-              f"save_action(first_run={first_run}, has_key={has_key}) -> {got!r}, "
-              f"expected {expected!r}")
-        seen.add(got)
-    # The token space is exactly the three btn.* keys the app can render.
-    check(seen == {"save", "save_close", "save_restart"},
-          f"save_action produced an unexpected token set: {sorted(seen)}")
-    # A key present is a RESTART regardless of mode (the window opens only from a
-    # running tool now, so a keyed save is always a restart).
-    check(R(first_run=True, has_key=True) == "save_restart"
-          and R(first_run=False, has_key=True) == "save_restart",
-          "a keyed save must resolve to save_restart in BOTH modes")
-    # Every token has its btn.* string in both languages (the label the rail sets is
-    # 'btn.' + token).
-    for tok in ("save", "save_close", "save_restart"):
-        check(f"btn.{tok}" in sstr._EN and f"btn.{tok}" in sstr._DE,
-              f"btn.{tok} is missing a string in EN or DE")
-    # Regression guard: the strings retired with the standalone lane stay gone (#223,
-    # D-014) -- the unreachable 'save_start' button and the removed footer line pair.
-    for dead in ("btn.save_start", "footer.next_start", "footer.restart"):
+# ---- every save restarts (#271) ----------------------------------------------
+def check_save_always_restarts():
+    """The invariant that replaced the save-action table: every save restarts -- wizard
+    or everyday, keyed or keyless (#271, D-014). Nothing pure is left to decide, so
+    this guards the retirement (the resolver and its two branch strings gone) and pins
+    the two places the invariant now lives, statically on thoughtborne_settings.py's
+    syntax tree -- which is what replaces the off-Windows coverage the removed resolver
+    used to carry (the GUI itself is hands-on only)."""
+    # The resolver is gone from settings_io -- not left returning a constant, which is
+    # exactly the residue D-014's step-1 doctrine forbids.
+    check(not hasattr(sio, "resolve_save_action"),
+          "settings_io.resolve_save_action is back -- #271 removed the save-action "
+          "branch outright, and a resolver with one answer is not a removal")
+    # The one surviving save label exists in both languages ...
+    check("btn.save_restart" in sstr._EN and "btn.save_restart" in sstr._DE,
+          "btn.save_restart is missing a string in EN or DE")
+    # ... and the strings of the retired branches stay gone: btn.save / btn.save_close
+    # with #271's keyless-close branch, the other three with the #223 standalone lane.
+    for dead in ("btn.save", "btn.save_close",
+                 "btn.save_start", "footer.next_start", "footer.restart"):
         check(dead not in sstr._EN and dead not in sstr._DE,
-              f"{dead} must be gone from both string tables (#223)")
+              f"{dead} must be gone from both string tables (#271 / #223, D-014)")
+
+    # The wiring: _save ends in the restart and never in a bare window destroy, and
+    # both rails name the one label.
+    methods = _settings_app_methods("save-wiring")
+    if not methods:
+        return
+    save = methods.get("_save")
+    if save is None:
+        failures.append("save-wiring: SettingsApp._save not found -- the save path was "
+                        "renamed and this guard no longer guards anything")
+        return
+    check(_calls_to(save, "_restart_and_relaunch"),
+          "save-wiring: _save never calls _restart_and_relaunch -- a save that does not "
+          "restart defers every saved hotkey to the user's next manual start with "
+          "nothing on screen saying so (#271, D-002)")
+    # ... and every completed save REACHES it. The check above only asks whether the
+    # call appears somewhere, which a save that returns before it would satisfy too --
+    # the shape the retired keyless branch had (write, then done). What pins the reach
+    # is the top level of _save: its statement sequence runs straight through to the
+    # restart, and every abort sits inside a branch below it (the declined no-key
+    # dialog, the declined hotkey warning, the write failure -- each one leaves the
+    # window open on purpose and is no completed save). So the tail is the restart
+    # call, which owns the window from there on (freeze the rail, wait the tool out,
+    # relaunch, destroy), and nothing at that level returns before reaching it.
+    tail = save.body[-1]
+    tail_call = tail.value if isinstance(tail, ast.Expr) else None
+    check(isinstance(tail_call, ast.Call)
+          and getattr(tail_call.func, "attr", None) == "_restart_and_relaunch",
+          "save-wiring: _save does not END in _restart_and_relaunch -- a statement "
+          "standing after it, or in its place, is a completed save that skips the "
+          "restart and defers the user's saved hotkeys to their next manual start "
+          "(#271, D-002)")
+    check(not [st for st in save.body if isinstance(st, ast.Return)],
+          "save-wiring: _save returns from its top level -- that is a completed save "
+          "walking past the restart, and the call further down would still look wired "
+          "(#271, D-002). Aborts belong inside their branch, where the window stays "
+          "open; the top-level sequence has to end in _restart_and_relaunch")
+    # _save has no nested def, so an ast.walk over it is exact.
+    destroys = [n for n in ast.walk(save)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "destroy"
+                and isinstance(n.func.value, ast.Attribute)
+                and n.func.value.attr == "root"]
+    check(not destroys,
+          "save-wiring: _save destroys the window itself -- the keyless close branch is "
+          "back (#271). Every exit from a completed save belongs to "
+          "_restart_and_relaunch; the early returns (a declined dialog, a write "
+          "failure) leave the window open on purpose and destroy nothing")
+    for name in ("update_rail", "_render_rail"):
+        rail = methods.get(name)
+        if rail is None:
+            failures.append(f"save-wiring: SettingsApp.{name} not found -- the rail "
+                            "renderer was renamed and this guard no longer guards it")
+            continue
+        labels = {n.value for n in ast.walk(rail)
+                  if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        check("btn.save_restart" in labels,
+              f"save-wiring: {name} does not name btn.save_restart -- the two rails "
+              "carry the label literally, one each, so nothing but this pins them "
+              "together (#271)")
 
 
 # ---- first-run mode decision (#163) ------------------------------------------
@@ -1943,7 +1993,7 @@ def main():
     check_ptt_wiring()
     check_lang_gate_wiring()
     check_mode_flip_wiring()
-    check_save_action()
+    check_save_always_restarts()
 
     if SHOW:
         _show()

@@ -40,9 +40,7 @@ _EN = {
     "lang.en": "English",
     "btn.back": "Back",
     "btn.next": "Next",
-    "btn.save": "Save",
     "btn.cancel": "Cancel",
-    "btn.save_close": "Save & close",
     "btn.save_restart": "Save & restart",
     "btn.restarting": "Restarting…",
 
@@ -314,9 +312,10 @@ _EN = {
     "dlg.nokey.title": "No API key",
     "dlg.nokey.body": (
         "No API key is entered, and none was found on this PC — Thoughtborne can't "
-        "transcribe without one. Your hotkeys and preferences will still be saved. "
-        "You can add a key any time — reopen settings from the running tool with "
-        "Ctrl+Alt+G. Save and close now?"),
+        "transcribe without one. Your hotkeys and preferences will still be saved, and "
+        "Thoughtborne restarts so they take effect — as long as no key is entered, "
+        "this setup window opens again afterwards. You can add a key any time — reopen "
+        "settings from the running tool with Ctrl+Alt+G. Save and restart now?"),
     "dlg.hotkeywarn.title": "Hotkey problems",
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
@@ -366,9 +365,7 @@ _DE = {
     "lang.en": "English",
     "btn.back": "Zurück",
     "btn.next": "Weiter",
-    "btn.save": "Speichern",
     "btn.cancel": "Abbrechen",
-    "btn.save_close": "Speichern & schließen",
     "btn.save_restart": "Speichern & neu starten",
     "btn.restarting": "Wird neu gestartet…",
 
@@ -660,9 +657,10 @@ _DE = {
     "dlg.nokey.body": (
         "Es ist kein API-Key eingetragen, und es wurde keiner gefunden — ohne Key "
         "kann Thoughtborne nicht transkribieren. Deine Hotkeys und Einstellungen "
-        "werden trotzdem gespeichert. Einen Key kannst du jederzeit ergänzen — öffne "
-        "die Einstellungen aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und "
-        "schließen?"),
+        "werden trotzdem gespeichert, und Thoughtborne startet neu, damit sie greifen "
+        "— solange kein Key eingetragen ist, öffnet sich diese Einrichtung danach "
+        "wieder. Einen Key kannst du jederzeit ergänzen — öffne die Einstellungen "
+        "aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und neu starten?"),
     "dlg.hotkeywarn.title": "Hotkey-Probleme",
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "

@@ -628,35 +628,6 @@ def resolve_ptt_save_signal(*, enabled_now, enabled_loaded):
     return bool(enabled_now)
 
 
-def resolve_save_action(*, first_run, has_key):
-    """The rail's save action for the current window state -- one of
-    'save' / 'save_close' / 'save_restart'. Each token maps 1:1 to a `btn.<token>`
-    string key AND to how `_save` behaves after the write. Pure, so the whole table is
-    off-Windows tested (the GUI is hands-on only).
-
-    Since #223 (D-014) the settings window opens ONLY from a running tool (Ctrl+Alt+G
-    or the tool-spawned --first-run wizard, the keyless #200 shop window included) and
-    a tool quit closes the window (#222), so "the tool is running" is an invariant
-    here, not a probe. A key present therefore always means a RESTART: write the
-    signal, wait for the D-004 mutex to free, relaunch (the #202 handshake). Without a
-    key there is never a restart -- relaunching a keyless tool would just re-open the
-    shop window plus another wizard (#200 auto-launch), a window loop -- so a keyless
-    wizard save just closes and a keyless everyday save plain-saves. `has_key` counts a
-    stored key, and a blank field never clobbers one, so the keyless rows are rare.
-
-    The old `tool_running` parameter is gone with the standalone lane: the label sites
-    no longer probe liveness, and the unreachable 'save_start' token retires with it.
-    The crash-while-open case (tool died unclean, window still up) degrades cleanly
-    through _restart_and_relaunch's own liveness poll plus the tool's startup
-    stale-signal clear -- see the caller / D-014.
-    """
-    if has_key:
-        return "save_restart"
-    if first_run:
-        return "save_close"
-    return "save"
-
-
 def _example_block_comment(example_path, block):
     """The `_comment` lead of `block` in the example file, or None. Best-effort
     (the example is optional docs, not user data), mirroring _managed_skeleton: an

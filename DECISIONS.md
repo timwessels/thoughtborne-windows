@@ -30,7 +30,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-011 | Uninstaller keeps user data by default; the silent lane can never delete it | Active |
 | D-012 | The self-test default is `Ctrl+Alt+T`; the umlaut lane stays for overrides | Active |
 | D-013 | In-place updates are replace-only; orphaned files from an older release survive | Active |
-| D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated. Retires D-005 |
+| D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated; extended 2026-09-07 (#271) — every save restarts, the keyless close branch is gone. Retires D-005 |
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
 | D-017 | API keys come from the install directory's `.env` only | Active |
@@ -1094,10 +1094,37 @@ the remembered display language (the window says so until the file is fixed). No
 supersede -- the mechanism is refined, the decision and its promises stand.
 Settled via issue #239.
 
+**2026-09-07 addendum (#271).** Every save restarts -- the last exception is gone. The
+save paths still carried a pre-#202 branch: with no API key present a save merely closed
+the window (`settings_io.resolve_save_action` -> `save_close` in the wizard, `save` in the
+everyday dialog), on the premise that relaunching a keyless tool would only re-open the
+shop window plus another wizard, "a window loop". The premise was wrong twice. Pickup is
+start-based (D-002), so the keyless branch silently deferred every saved hotkey to the
+user's next manual start with nothing on screen saying so -- a maintainer install lost a
+changed switch-model hotkey exactly that way. And what it dodged is not a loop: a keyless
+relaunch re-opens Setup exactly once, the #200/#144 keyless-start rule doing its job. Now
+Save writes the files and performs the #202 restart in every case -- wizard or everyday,
+keyed or keyless; the rail reads "Save & restart" in both modes, and the no-key dialog
+says so ("Save and restart now?") instead of promising a close. `resolve_save_action` and
+the `btn.save` / `btn.save_close` strings are removed rather than left as a resolver
+returning a constant. That a keyless save comes back with Setup open again is intended and
+was confirmed as such: while no key is entered the tool cannot be used at all, so being
+shown Setup on every keyless start -- the restart's included -- is the behaviour, not a
+symptom. Considered and rejected: suppressing the wizard on that one relaunch, via a
+`--restarted-by-settings` launch argument forwarded through `Thoughtborne.bat` and read by
+the tool. It would spare a single re-open at the price of a three-file cross-process
+contract, to hide a rule the tool wants -- recorded here so it is not re-proposed as a
+"fix". Not a supersede: the one-unit doctrine is unchanged, one of its save paths simply
+stopped making an exception. Respects D-002 (pickup stays start-based -- the restart
+performs the start), D-001 (the #202 salvage path is reused unchanged), D-004 and D-009
+(the mutex wait and the single-window guard untouched) and D-008 (engine memory and the
+save signals untouched). Settled via issue #271.
+
 Do not reintroduce: an unsaved-changes flag; a discard / "are you sure" prompt on close;
 a close handler that does anything but destroy the window; a pass-through `_on_close`
-wrapper that only forwards to `destroy`; or a language toggle that is persisted only at
-Save time.
+wrapper that only forwards to `destroy`; a language toggle that is persisted only at
+Save time; a keyless save that only closes instead of restarting; or a launch argument
+that suppresses the first-run wizard for the settings app's own relaunch.
 
 Respects D-002 -- `settings_io` stays the only writer of `.env` / `personal_settings.json`,
 and the ui.language-only write is the existing surgical merge with hotkeys/defaults left

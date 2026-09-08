@@ -158,6 +158,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   developer opt-out `THOUGHTBORNE_ALLOW_SECOND_INSTANCE` keeps its documented `.env` route
   through the same reader (D-004); the installer's own variables are unaffected.
 
+- **A save without an API key restarts Thoughtborne too, so a hotkey changed in the setup
+  wizard takes effect right away (#271, D-014).** On a fresh keyless install the tool comes
+  up as its shop window and opens the setup wizard; changing a hotkey there and pressing
+  Save wrote the files and simply closed the window. The new hotkey was stored but stayed
+  inert until the next manual start of the tool, and nothing on screen said so — the button
+  read *Save & close* and the confirmation ended on "Save and close now?", both of which
+  read as "done". The branch behind it existed to avoid the setup window re-opening after
+  the restart, on the premise that this would be a window loop; it is not one, it is the
+  keyless-start rule (#200/#144) doing its job exactly once, with the just-saved settings on
+  screen. **Every save now restarts** — wizard or everyday, with a key or without: the
+  button reads **Save & restart** / „Speichern & neu starten" in both modes, and the no-key
+  confirmation says what will happen instead of promising a close (the tool restarts and
+  comes back to setup until a key is entered). The decision helper
+  `settings_io.resolve_save_action` and the `btn.save` / `btn.save_close` strings retire
+  with the branch rather than lingering as a resolver with one answer; `test_settings_io.py`
+  guards them gone and pins the save path to the restart, so the invariant is machine-checked
+  where the removed helper used to be. Respects **D-002** (pickup stays start-based — the
+  restart performs the start), **D-001** (the #202 salvage path is unchanged), **D-004** /
+  **D-009** (the mutex wait and the single-window guard untouched) and **D-008**.
+
 ## [1.1.0] - 2026-09-06
 
 The recommended release — it supersedes 1.0.0 in every respect. This block folds in the 1.1.0-rc2 candidate
