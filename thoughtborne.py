@@ -2782,9 +2782,7 @@ class ThoughtborneApp:
                 'startup',
                 lambda ansi: console_ui.render_masthead(
                     lineup, keys, str(HISTORY_FOLDER),
-                    # bare letter: Ctrl+Alt is established once on the READY line
-                    # (#115); the MODEL header takes the full combo in #276.
-                    self._key_letter('switch_api'),
+                    self._show('switch_api'),
                     self._show('start_recording'),
                     guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,

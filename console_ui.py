@@ -405,7 +405,9 @@ def render_masthead(lineup, keys, history_path,
                     guidance=None, with_wordmark=True, logo_lines=None,
                     pinned_default=None, *, ansi):
     """`keys`: the twelve (action_name, display_combo) pairs in canonical order;
-    the KEYS grid's lead is derived from exactly those combos (D-019)."""
+    the shared lead of exactly those combos heads the KEYS zone and its grid
+    (D-019, #276). `switch_key` and `start_key` are full display combos -- the
+    form the switched panels have always taken."""
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, ansi))
@@ -422,8 +424,14 @@ def render_masthead(lineup, keys, history_path,
         lines.extend(_guidance_lines(guidance, ansi))
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before KEYS
-    lines.append(dzone([("KEYS", (BOLD,))], ansi))       # #115: plain, Ctrl+Alt hint dropped
     key_prefix = _display_prefix([c for _, c in keys])
+    # #276: with a shared lead the header anchors the bare keys right below it
+    # (the open plus is deliberate); a mixed scheme keeps a plain header over the
+    # full combos.
+    head = [("KEYS", (BOLD,))]
+    if key_prefix is not None:
+        head.append((f"  {key_prefix} +", ()))
+    lines.append(dzone(head, ansi))
     lines.extend(_keys_grid_lines(keys, key_prefix, ansi))
     if with_wordmark:
         lines.append(dline("", ansi))                    # spacer before History edge

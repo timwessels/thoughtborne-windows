@@ -17,9 +17,10 @@ What each rendered block is checked for:
   3. ansi=True: every non-ASCII glyph is in the CP437 safe set.
   4. red (SGR 31) appears only in error renderings.
   5. KEYS grid anchored at columns 24/46 and reading W A D / Y H X / R L 6 /
-     G T 4; OK/WAITING seq block at column 41. Every key fixture is built from
-     config.DEFAULT_HOTKEYS with the app's own helpers (D-019), so no copy of
-     the canonical action order lives here.
+     G T 4, beneath the headers of #276 (the shared Ctrl+Alt lead, and the MODEL
+     header in the SWITCHED panel's one form); OK/WAITING seq block at column 41.
+     Every key fixture is built from config.DEFAULT_HOTKEYS with the app's own
+     helpers (D-019), so no copy of the canonical action order lives here.
   6. logo fold-in (#109): the active a5 masthead mark renders in ANSI and drops
      in the plain twin; every routine strip carries the monochrome bullet header
      (with its plain 'o' twin) plus one headroom line.
@@ -136,8 +137,14 @@ def pairs_for(scheme, names=None):
     Built on the pristine DEFAULT_HOTKEYS rather than the effective HOTKEYS: the
     anchor assertions below assume the shipped scheme, and a checkout with its
     own personal_settings.json override must not break the ladder."""
-    return [(n, format_combo(first_combo(scheme[n])))
+    return [(n, combo_for(scheme, n))
             for n in scheme if names is None or n in names]
+
+
+def combo_for(scheme, name):
+    """One display combo out of a scheme -- pairs_for for a single action, so a
+    fixture's switch_key/start_key come from the very scheme it renders."""
+    return format_combo(first_combo(scheme[name]))
 
 
 PAIRS = pairs_for(DEFAULT_HOTKEYS)
@@ -151,11 +158,9 @@ WAIT_ACTIONS = {"stop_recording_clipboard", "stop_recording_keyboard"}
 REC_STOPS = pairs_for(DEFAULT_HOTKEYS, REC_ACTIONS)
 WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
 
-SWITCH = format_combo(DEFAULT_HOTKEYS["switch_api"])   # full combo (switched/switch_failed)
+# the one MODEL header form (#276): masthead, switched and switch_failed alike
+SWITCH = format_combo(DEFAULT_HOTKEYS["switch_api"])
 OPEN = format_combo(DEFAULT_HOTKEYS["open_history"])
-# bare letters the masthead now receives (#115): Ctrl+Alt is established once on
-# the READY line, so MODEL carries only the letter.
-SWITCH_LETTER = DEFAULT_HOTKEYS["switch_api"].rpartition("+")[2].capitalize()   # "L"
 START = format_combo(DEFAULT_HOTKEYS["start_recording"])
 RETRY = format_combo(DEFAULT_HOTKEYS["retry_last_failed"])
 FOOTER = [("W", "record"), ("6", "history"), ("L", "model"), ("4", "quit")]   # #115 order
@@ -214,7 +219,7 @@ def check_logo_state():
     # a5 disc: rendered beside the wordmark in ANSI, gone from the plain twin
     # (which collapses to WM_PLAIN).
     mkw = dict(lineup=lineup_for(DEFAULT_API), keys=PAIRS,
-               history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
+               history_path=PATHS[1] + r"\history", switch_key=SWITCH,
                start_key=START, logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True)
     ma = u.render_masthead(ansi=True, **mkw)
     mp = u.render_masthead(ansi=False, **mkw)
@@ -231,10 +236,12 @@ def check_logo_state():
 ACC = f"\x1b[{u.ACCENT}m"    # the accent SGR as it appears inline
 
 
-def _masthead(ansi, *, logo=True, wordmark=True):
+def _masthead(ansi, *, logo=True, wordmark=True, scheme=DEFAULT_HOTKEYS):
+    """A masthead off one hotkey scheme -- grid, switch and start combo all
+    derived from it, so a fixture can never render two schemes at once."""
     return u.render_masthead(
-        lineup_for(DEFAULT_API), PAIRS, PATHS[1] + r"\history",
-        SWITCH_LETTER, START,
+        lineup_for(DEFAULT_API), pairs_for(scheme), PATHS[1] + r"\history",
+        combo_for(scheme, "switch_api"), combo_for(scheme, "start_recording"),
         logo_lines=(u.ACTIVE_LOGO_MARK if logo else None), with_wordmark=wordmark,
         ansi=ansi)
 
@@ -284,7 +291,7 @@ def check_accent_state():
 def check_masthead_layout():
     """#115 masthead: three framed spacers (before MODEL/KEYS/History), tagline
     centered under the wordmark, capitalised `History:` edge without the open
-    hint, plain `KEYS` header."""
+    hint -- plus the #276 header grammar (the KEYS lead, the one MODEL form)."""
     ma = [strip(ln) for ln in _masthead(True)]
     blank = "║" + " " * u.INNER + "║"
     blanks = [i for i, s in enumerate(ma) if s == blank]
@@ -313,10 +320,24 @@ def check_masthead_layout():
     if got != expected:
         _record(f"masthead layout: tagline indent {got} != derived {expected}")
 
-    # KEYS header is plain (no 'all are Ctrl+Alt' hint)
+    # #276: the KEYS header carries the shared lead the grid's bare keys hang
+    # from -- and only then; a mixed scheme (one bare F-key) leaves it plain.
     kline = next((s for s in ma if s.startswith("╠══ KEYS")), "")
-    if "all are" in kline:
-        _record(f"masthead layout: KEYS header still carries a prefix hint: {kline!r}")
+    if not kline.startswith("╠══ KEYS  Ctrl+Alt + ═"):
+        _record(f"masthead layout: KEYS header lacks the Ctrl+Alt lead: {kline!r}")
+    mixed = [strip(ln) for ln in _masthead(
+        True, scheme=dict(DEFAULT_HOTKEYS, start_recording="f9"))]
+    kmixed = next((s for s in mixed if s.startswith("╠══ KEYS")), "")
+    if not kmixed.startswith("╠══ KEYS ═"):
+        _record(f"masthead layout: mixed-scheme KEYS header is not plain: {kmixed!r}")
+
+    # #276: one MODEL header form -- the masthead's is the SWITCHED panel's line
+    mzone = next((s for s in ma if s.startswith("╠══ MODEL")), "")
+    switched = [strip(ln) for ln in u.render_switched_panel(
+        API_DISPLAY[DEFAULT_API]["label"], lineup_for(DEFAULT_API), SWITCH, ansi=True)]
+    szone = next((s for s in switched if s.startswith("╠══ MODEL")), "")
+    if mzone != szone:
+        _record(f"masthead layout: MODEL header {mzone!r} != SWITCHED panel's {szone!r}")
     # History edge: capitalised, no open/lowercase-history hint
     edge = ma[-1]
     if not edge.startswith("╚═ History: "):
@@ -326,12 +347,17 @@ def check_masthead_layout():
 
 
 def check_ctrl_alt_counts():
-    """The core #115 rule: exactly one Ctrl+Alt per framed box (0 where the box
-    carries no hotkey action). The strongest single pin of 'once per box'."""
+    """The #115 rule as #276 re-scoped it: exactly one Ctrl+Alt per strip and
+    event panel (0 where the box carries no hotkey action) -- one lead per key
+    list, next to the keys it anchors. The masthead is the orientation surface
+    and spells the modifier out: READY line, MODEL header, KEYS lead, plus the
+    keyless guidance line."""
     model, lu = "Soniox Live", lineup_for(DEFAULT_API)
     cases = [
-        ("masthead", _masthead(True), 1),
-        ("ready", _masthead(True, logo=False, wordmark=False), 1),
+        ("masthead", _masthead(True), 3),
+        ("ready", _masthead(True, logo=False, wordmark=False), 3),
+        ("masthead/keyless", _masthead_with(lineup_keyed(None, set()),
+                                            guidance=GUIDANCE), 4),
         ("rec", u.render_rec_strip(REC_STOPS, ansi=True), 1),
         ("ok", u.render_ok_strip(12, 184, False, model, FOOTER, KEY_PREFIX,
                                  ansi=True), 1),
@@ -623,10 +649,14 @@ def check_grid_schemes():
         """Render a whole masthead on `scheme` (framed, both ansi states, twin),
         then return its grid rows -- asserting the row count and that every row
         puts its cells at the same columns: the uniform cell width, read off the
-        render rather than restated from the formula."""
+        render rather than restated from the formula. READY line and MODEL header
+        come from the same scheme, so (d) is also the width check for the widest
+        headers a legal scheme can produce."""
         pairs = pairs_for(scheme)
         kw = dict(lineup=lineup, keys=pairs, history_path=PATHS[1] + r"\history",
-                  switch_key="L", start_key="F9", with_wordmark=False)
+                  switch_key=combo_for(scheme, "switch_api"),
+                  start_key=combo_for(scheme, "start_recording"),
+                  with_wordmark=False)
         for ansi in (True, False):
             check_block(name, u.render_masthead(ansi=ansi, **kw), ansi=ansi)
         twin(name, u.render_masthead, **kw)
@@ -742,15 +772,17 @@ def check_prefix_none_widths():
     # Ctrl+Alt+Ü is deliberate: the umlaut is override-only since #211/D-012, and this
     # synthetic fixture is the console's only remaining render coverage of the glyph.
     # Ctrl+Shift+F12 (14 cells) is over the key-column budget and renders `[...]+F12`.
-    mixed = pairs_for(dict(DEFAULT_HOTKEYS, start_recording="f9",
-                           retry_last_failed="ctrl+shift+f12",
-                           test_transcription="ctrl+alt+ü"))
+    scheme = dict(DEFAULT_HOTKEYS, start_recording="f9",
+                  retry_last_failed="ctrl+shift+f12",
+                  test_transcription="ctrl+alt+ü")
     bare_footer = [("F9", "record"), ("F6", "history"), ("F10", "model"), ("F4", "quit")]
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
-         dict(lineup=lineup, keys=mixed,
-              history_path=PATHS[1] + r"\history", switch_key="L",
-              start_key="F9", with_wordmark=False)),
+         dict(lineup=lineup, keys=pairs_for(scheme),
+              history_path=PATHS[1] + r"\history",
+              switch_key=combo_for(scheme, "switch_api"),
+              start_key=combo_for(scheme, "start_recording"),
+              with_wordmark=False)),
         ("ok_prefix_none", u.render_ok_strip,
          dict(seq=12, chars=184, sent=False, model_label="Soniox Live",
               footer_keys=bare_footer, key_prefix=None)),
@@ -840,7 +872,7 @@ def check_keyless_lineup():
 def _masthead_with(lineup, *, guidance=None, pinned_default=None):
     """A masthead render for the #200/#219 checks (ANSI), wordmark on, given lineup."""
     return u.render_masthead(
-        lineup, PAIRS, PATHS[1] + r"\history", SWITCH_LETTER,
+        lineup, PAIRS, PATHS[1] + r"\history", SWITCH,
         START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
         pinned_default=pinned_default, ansi=True)
 
@@ -891,7 +923,7 @@ def check_pinned_default_tag():
     # (D) plain twin: ASCII tag present on the pinned row, no ESC.
     lu = lineup_for("soniox-live")
     mplain = u.render_masthead(
-        lu, PAIRS, PATHS[1] + r"\history", SWITCH_LETTER,
+        lu, PAIRS, PATHS[1] + r"\history", SWITCH,
         START, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
         pinned_default=API_DISPLAY["groq"]["label"], ansi=False)
     prow = next((ln for ln in mplain if API_DISPLAY["groq"]["label"] in ln), None)
@@ -927,16 +959,16 @@ def main():
         for path in PATHS:
             run("masthead", u.render_masthead, dict(
                 lineup=lineup, keys=PAIRS, history_path=path + r"\history",
-                switch_key=SWITCH_LETTER, start_key=START,
+                switch_key=SWITCH, start_key=START,
                 with_wordmark=True))
         # masthead with the active a5 mark beside the wordmark (as the app wires it)
         run("masthead_logo", u.render_masthead, dict(
             lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
-            switch_key=SWITCH_LETTER, start_key=START,
+            switch_key=SWITCH, start_key=START,
             logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
         run("ready", u.render_masthead, dict(
             lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
-            switch_key=SWITCH_LETTER, start_key=START, with_wordmark=False))
+            switch_key=SWITCH, start_key=START, with_wordmark=False))
 
         run("rec", u.render_rec_strip, dict(stops=REC_STOPS))
         run("cancelled", u.render_cancelled_strip, {})
@@ -1010,7 +1042,7 @@ def main():
     run("masthead_keyless", u.render_masthead, dict(
         lineup=lineup_keyed(None, set()), keys=PAIRS,
         history_path=PATHS[1] + r"\history",
-        switch_key=SWITCH_LETTER, start_key=START, guidance=GUIDANCE, with_wordmark=True))
+        switch_key=SWITCH, start_key=START, guidance=GUIDANCE, with_wordmark=True))
     run("keyless", u.render_keyless_notice, dict(settings_key="Ctrl+Alt+G"))
     twin("keyless", u.render_keyless_notice, settings_key="Ctrl+Alt+G")
 
@@ -1038,7 +1070,7 @@ def main():
     # ---- structural twin checks (skip the wordmark masthead) -----------------
     lineup = lineup_for(DEFAULT_API)
     twin("ready", u.render_masthead, lineup=lineup, keys=PAIRS,
-         history_path=PATHS[1] + r"\history", switch_key=SWITCH_LETTER,
+         history_path=PATHS[1] + r"\history", switch_key=SWITCH,
          start_key=START, with_wordmark=False)
     twin("rec", u.render_rec_strip, stops=REC_STOPS)
     twin("waiting", u.render_waiting_strip, seq=12, chars=184, stops=WAIT_STOPS)

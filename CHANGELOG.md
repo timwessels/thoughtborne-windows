@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The console masthead now says which keys to hold (#276).** On a fresh install the
+  `KEYS` grid listed bare letters under a plain `KEYS` header and the `MODEL` header read
+  `switch: L` — the only place the box spelled out *Ctrl+Alt* was the READY line two zones
+  above, so a newcomer had to infer that every letter in the grid meant Ctrl+Alt plus that
+  letter, and was left unsure what to press. The zone header now carries the shared lead,
+  `KEYS  Ctrl+Alt + `, directly over the keys it completes — whenever all twelve share one
+  modifier prefix; under a mixed scheme it stays plain over the two-column grid of full
+  combos. The `MODEL` header shows the configured switch combination in full, `switch:
+  Ctrl+Alt+L`, the same line the SWITCHED panel has always shown: with the settings app's
+  F-keys preset it used to read `switch: F8` for a hotkey that is `Ctrl+F8`. The masthead
+  thereby names Ctrl+Alt up to three times (four with the keyless guidance line), which is
+  the point — it is the orientation surface; the strips and event panels keep showing it
+  once, next to the keys it anchors.
 - **One hotkey order everywhere, and the console's key surfaces rebuilt on it (#274,
   D-019).** Four different action orders lived in the code — console grid, settings
   tab, README tables, registration log — and the grid put the fallback typing key `H`
