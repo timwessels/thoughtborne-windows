@@ -60,6 +60,14 @@ limits of a green run are listed under *What it does not cover*.
   `none` when the image supports neither.
 - `settings-shot-checklist.md` -- what the settings-window screenshot is graded
   against, and the exact `SETTINGS-SHOT.txt` answer format. See *Settings-window lane*.
+- `shots-in-sandbox.ps1` -- the **screenshot lane** (#288), a sibling of
+  `verify-in-sandbox.ps1` with a different job: it photographs the **current
+  working tree** (staged as a `git archive` `src.zip`), not the published
+  release. It is not wired into `run-sandbox.ps1`: point a gitignored
+  `*.local.wsb` at it, then drive it through its command-file loop
+  (`cmd\NNN.txt` -> `NNN.done`: `shot`, `hotkey`, `click`, `relaunch`, ...) so a
+  retake costs seconds, not a boot. The run recipe lives in the script header;
+  throwaway tooling, not part of any gate.
 
 ## The throwaway API key (required)
 
