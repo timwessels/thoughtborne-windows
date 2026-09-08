@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The website stops calling Soniox the default (#270).** The cost section still labelled the
+  $0.12-per-hour figure *The Soniox default* and measured the quality bar *against the paid Soniox
+  default* — the last public trace of a wording #270 withdrew everywhere else, and on a page that
+  never dissolved it into *the real-time default (Soniox Live)*, so it read as a statement about
+  which engine Thoughtborne starts on. Which engine a start lands on is the settings app's
+  *Startup & windows* business (D-008 stands, untouched). The figure's label now says what the box
+  is actually about — *Soniox is the paid path* / *Soniox ist der bezahlte Pfad*, in the shape its
+  two neighbors already use — and the honest note below measures the bar against *the paid Soniox
+  engine*. Wording only, DE and EN twins in lockstep.
+
 - **One hotkey order everywhere, and the console says which keys to hold (#274, #276,
   D-019).** Four different action orders lived in the code — the console's `KEYS` grid, the
   settings app's Hotkeys tab, the README tables, the registration log — and the grid put the
