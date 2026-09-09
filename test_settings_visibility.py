@@ -111,6 +111,20 @@ tab strip that does not fit, it squeezes every tab and clips each label with no 
 anywhere. The width part needs a font from `settings_theme.FAMILY_CHAIN` to mean
 anything and says so instead of failing when the box has none.
 
+An eighth, `test_empty_label_sweep_with_display`, generalizes that version line
+into a guard for its whole class (#299): once the app is built, no widget that
+carries text and is actually placed may be blank, save the four in `ALLOW_EMPTY`
+that stay empty until an event fills them. 27 of the roughly 142 text elements are
+built empty and filled only out of `render_all`, whose nine render paths can each
+drop out on their own and leave a gap that raises nothing -- which is what #281
+was. It sweeps the everyday dialog and the wizard (the surface a new user meets
+first, built exactly once in the whole ladder before this), each as `__init__`
+leaves it and again after a language switch, and carries two dead guards of its
+own: the walk must reach at least as many text widgets as the language registry
+holds, and every `ALLOW_EMPTY` entry must still name something that really is
+blank. The tab labels and the window title are checked with it, since neither
+lives in the widget tree the walk can see.
+
 Since #240 the same module also owns the settings app's whole `[SETTINGS]` log lane, and
 this driver owns its checks: `format_settings_line` (asserted BYTE-IDENTICAL to the
 literal f-strings the startup and focus-existing lines used to be, so no consumer -- the
@@ -729,6 +743,206 @@ def test_tab_layout_with_display():
             root.destroy()
         except Exception:
             pass
+
+
+# The display elements that are legitimately blank in the resting state, each with the
+# reason it may be. The table is the point of the sweep below rather than its price:
+# something that stays empty until an event fills it has to say so once, here, where the
+# next reader finds it -- otherwise it is indistinguishable from a gap on the page.
+ALLOW_EMPTY = {
+    "_indicators['groq']":   "key verdict: blank until 'Test key' has run",
+    "_indicators['soniox']": "key verdict: blank until 'Test key' has run",
+    "_soniox_balance_note":  "#179 balance hint: only under a green Soniox verdict",
+    "capture_lbl":           "hotkey-capture feedback: only while/after a capture",
+}
+
+
+def _widget_names(app):
+    """Tk path -> the app attribute a widget is reachable under, so a failure can name
+    `machine_version_lbl` instead of `.!notebook.!frame4.!label7` -- for the quarter
+    of the tree that hangs on an attribute; the rest is named by Tk path and tab
+    page, which still finds it in seconds. The five bookkeeping
+    registries are skipped on purpose: they hold the SAME widgets a second time and,
+    being assigned after the speaking single attributes, would otherwise overwrite every
+    name with an anonymous `_wrap_labels[10]` (vars() keeps insertion order)."""
+    import tkinter as tk
+    bookkeeping = {"_wrap_labels", "_text_widgets", "_link_widgets",
+                   "_tab_canvases", "_tab_frames"}
+    names = {}
+    for attr, value in vars(app).items():
+        if attr in bookkeeping:
+            continue
+        if isinstance(value, tk.Misc):
+            names[str(value)] = attr
+        elif isinstance(value, dict):
+            for key, widget in value.items():
+                if isinstance(widget, tk.Misc):
+                    names[str(widget)] = f"{attr}[{key!r}]"
+        elif isinstance(value, (list, tuple)):
+            for i, widget in enumerate(value):
+                if isinstance(widget, tk.Misc):
+                    names[str(widget)] = f"{attr}[{i}]"
+    return names
+
+
+def _sweep_empty_text(app, root, tab_map, where):
+    """Walk one built window and record a failure per PLACED text-bearing widget that
+    is blank and that ALLOW_EMPTY does not explain. Returns (text widgets seen, the
+    ALLOW_EMPTY names that really were blank); the caller uses both as dead guards on
+    the sweep itself."""
+    import tkinter as tk
+    names = _widget_names(app)
+    seen = 0
+    blanks = []
+
+    def walk(widget, tab):
+        nonlocal seen
+        tab = tab_map.get(str(widget), tab)
+        try:
+            carries_text = "text" in widget.keys()
+        except tk.TclError:
+            carries_text = False
+        if carries_text:
+            seen += 1
+            try:
+                text = str(widget.cget("text"))
+                # Unplaced is not on the page: a blank there is invisible and harmless
+                # (warn_strip's resting state), and only pack/grid/place put it up.
+                placed = widget.winfo_manager() != ""
+            except tk.TclError:
+                text, placed = "", False
+            if placed and text.strip() == "":
+                blanks.append((names.get(str(widget)), tab, widget))
+        for child in widget.winfo_children():
+            walk(child, tab)
+
+    walk(root, None)
+
+    allowed = []
+    for name, tab, widget in blanks:
+        if name in ALLOW_EMPTY:
+            allowed.append(name)
+            continue
+        ident = repr(name) if name else (
+            f"an unnamed {widget.winfo_class()} at {str(widget)!r}")
+        page = f"on the {tab} page" if tab else "outside the tab pages"
+        failures.append(
+            f"[{where}] {ident} stands {page} carrying no text -- either the render "
+            "path that fills it out of render_all is gone (the #281 fault: a blank gap "
+            "on the page, no exception raised, nothing else red), or it is meant to "
+            "stay blank until an event fills it and belongs in ALLOW_EMPTY with its "
+            "reason")
+    return seen, allowed
+
+
+def test_empty_label_sweep_with_display():
+    # The version-line check above, generalized to its whole class (#299). 27 of the
+    # app's ~142 text elements are built empty and filled only out of render_all, and
+    # before this lane exactly one of them was asserted. Each of the nine render paths
+    # render_all calls can drop out on its own, and every one leaves the same signature
+    # #281 had: a blank gap on the page, no exception, a green ladder. So after the app
+    # is built, no PLACED widget carrying text may be blank -- except the ALLOW_EMPTY
+    # entries, which stay blank until an event fills them.
+    #
+    # The sweep says nothing about wording, position or size; it only asks whether an
+    # element standing on the page says anything at all. That is what lets it be this
+    # broad without going falsely red -- and what it cannot see is a filled but WRONG
+    # text, which is check_string_keys' half in test_settings_io.py.
+    #
+    # Two windows carry the four passes: the everyday dialog and the wizard -- the
+    # surface a new user meets first, built exactly once in the whole ladder before
+    # this and looked at only for the absence of the reset button. Each is swept as
+    # __init__ leaves it (English, D-015) and again after a language switch through
+    # render_all, the re-render path #281 broke. Read-only: no _on_lang, so nothing is
+    # written, and config.SCRIPT_DIR points at a tempdir carrying a fixture .env, so
+    # the surface cannot depend on the maintainer's own keys or settings file.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped empty-label sweep: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped empty-label sweep: no display)")
+        return
+
+    try:
+        import config
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped empty-label sweep: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _script_dir, _log_file = config.SCRIPT_DIR, config.LOG_FILE
+    win = root                  # the display probe becomes the first mode's window
+    matched = set()
+    try:
+        ts.messagebox.showerror = lambda *a, **k: None
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            config.SCRIPT_DIR = tmp
+            config.LOG_FILE = tmp / "thoughtborne.log"
+            (tmp / ".env").write_text(
+                "GROQ_API_KEY=gsk_fixture\nSONIOX_API_KEY=fixture\n", encoding="utf-8")
+            for mode in ("settings", "firstrun"):
+                if win is None:
+                    win = tk.Tk()
+                ts._size_window(win)
+                app = ts.SettingsApp(win, first_run=(mode == "firstrun"))
+                win.update()
+                tab_map = {str(frame): key
+                           for frame, key in zip(app._tab_frames, ts._TAB_KEYS)}
+                for lang in ("en", "de"):
+                    if app.lang != lang:
+                        app.lang = lang
+                        app.lang_var.set(lang)
+                        app.render_all()   # no _on_lang: this lane must not write files
+                        win.update()
+                    where = f"{mode}/{lang}"
+                    seen, allowed = _sweep_empty_text(app, win, tab_map, where)
+                    matched.update(allowed)
+                    # Dead guard on the sweep: every registered widget is in the tree
+                    # and carries text, so a walk that stopped walking -- and would
+                    # pass vacuously -- cannot reach the registry's own count.
+                    check(seen >= len(app._text_widgets),
+                          f"[{where}] the sweep found {seen} text widgets, fewer than "
+                          f"the {len(app._text_widgets)} the language registry alone "
+                          "holds -- the walk no longer reaches the whole window")
+                    # The tab labels live outside the widget tree, on the notebook,
+                    # and render_all fills them from _TAB_KEYS like any other string.
+                    for i in range(len(app.notebook.tabs())):
+                        check(str(app.notebook.tab(i, "text")).strip() != "",
+                              f"[{where}] notebook page {i} carries no tab label -- "
+                              "the same fill going missing where the walk cannot see")
+                    check(str(win.title()).strip() != "",
+                          f"[{where}] the window carries no title -- D-009's "
+                          "focus-existing remedy matches an open window on it")
+                    if SHOW:
+                        print(f"    {where}: {seen} text widgets, "
+                              f"{len(allowed)} explained blanks")
+                win.destroy()
+                win = None
+        # ... and the allowlist stays honest: an entry naming nothing blank any more
+        # was renamed away or now fills itself, and silently licenses a future gap.
+        stale = sorted(set(ALLOW_EMPTY) - matched)
+        check(not stale,
+              f"ALLOW_EMPTY still excuses {stale}, but no pass found those elements "
+              "blank -- they were renamed, removed or now fill themselves, so the "
+              "entry licenses nothing and belongs out of the table")
+    finally:
+        config.SCRIPT_DIR, config.LOG_FILE = _script_dir, _log_file
+        ts.messagebox.showerror = _showerror
+        if win is not None:
+            try:
+                win.destroy()
+            except Exception:
+                pass
 
 
 def test_maximize_restore_with_display():
@@ -1724,6 +1938,7 @@ def main():
     test_log_sink_source_guards()
     test_storm_guards_with_display()
     test_tab_layout_with_display()
+    test_empty_label_sweep_with_display()
     test_maximize_restore_with_display()
     test_verdict_wrap_with_display()
     test_language_toggle_gate_with_display()
@@ -1745,7 +1960,8 @@ def main():
           "the pre-#240 literals, error block, never-raise sweep, guarded append) with "
           "its source guards, and (with a display) the auto-hide grid idempotency, "
           "wrap-deferral invariant, the #281 six-tab layout with its version line and "
-          "strip width, the #216 maximize->restore content-vanish guard, the #231 "
+          "strip width, the #299 empty-text sweep over both modes and "
+          "languages, the #216 maximize->restore content-vanish guard, the #231 "
           "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
           "with its confirmation gate, the #291 read-failure dialog on both save "
           "paths with .env left untouched, and the #240 callback / pre-mainloop "

@@ -85,6 +85,14 @@ What is covered:
     _render_indicator's verdict table (a static source check -- a missing row is a
     KeyError inside the render, i.e. a dead "Test key" button) and a test.<value>
     string in both languages.
+  - every string key the app hands a widget exists in the table (#299): the sinks
+    are derived from thoughtborne_settings' own signatures (a parameter named
+    `key` or `*_key`), their literal arguments collected off the syntax tree and
+    each looked up the way check_verdict_coverage looks up its four. t() falls
+    back to the KEY ITSELF on purpose, so a typo neither raises nor blanks the
+    widget -- the dotted key name simply stands on the page, which no other check
+    on either side of the ladder can see. A planted probe module proves per run
+    that the collector still reads all three of its sites.
   - settings_strings i18n (#144): the DE and EN tables carry the identical key set
     (a missing translation fails here, not silently at runtime), every value is a
     non-empty string, the t() lang -> EN -> key-itself fallback chain, the
@@ -143,6 +151,7 @@ Hands-on gates (a separate test issue, not reachable here): the real Tk state-bi
 values in decode_key_event, and the live "Test key" round-trip against real keys.
 """
 import ast
+import inspect
 import json
 import logging
 import os
@@ -1094,6 +1103,139 @@ def check_verdict_coverage():
               f"the verdict table never names {key!r} -- the string exists but no "
               "verdict renders it")
 
+
+# A synthetic module carrying one real and three unknown string keys, planted at each
+# of the three sites the collector reads: a sink derived from its own signature, a
+# strings.t() call and _TAB_KEYS. check_string_keys runs it every time as the proof
+# that the collector still detects -- the #289 idiom, since a guard that quietly stops
+# finding anything is indistinguishable from a clean app.
+_KEY_PROBE_SRC = '''
+_TAB_KEYS = ("probe.tab",)
+
+
+class SettingsApp:
+    def _prose(self, parent, key, surface=""):
+        pass
+
+    def _build(self, parent):
+        self._prose(parent, "btn.back")
+        self._prose(parent, "probe.prose")
+        strings.t("probe.t", self.lang)
+'''
+
+
+def _collect_string_keys(src, prefix):
+    """Every string-key LITERAL the settings app hands a text sink, as (key, line,
+    sink). The sinks are DERIVED from the app's own signatures instead of being listed
+    here: a parameter named `key` or `*_key` is one, so a helper added later is covered
+    without anyone remembering this guard, and a renamed argument cannot leave the
+    guard silently reading the wrong position. `t`'s own position comes from
+    settings_strings.t. A key argument counts as a literal when it is a string constant
+    or a conditional between two of them ("app.title.firstrun" if first_run else
+    "app.title.settings"); anything computed -- an f-string, a dict lookup -- is out of
+    reach, so this is a floor on what is checked, not a census of every key."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        failures.append(f"{prefix}: could not parse the source: {e}")
+        return []
+
+    def key_params(fn, offset):
+        # offset 1 for a method: the bound call site passes no self.
+        return {a.arg: i - offset
+                for i, a in enumerate(fn.args.posonlyargs + fn.args.args)
+                if a.arg == "key" or a.arg.endswith("_key")}
+
+    sinks = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef):
+                    params = key_params(item, 1)
+                    if params:
+                        sinks[item.name] = params
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            params = key_params(node, 0)
+            if params:
+                sinks[node.name] = params
+    t_params = list(inspect.signature(sstr.t).parameters)
+    sinks.setdefault("t", {"key": t_params.index("key")})
+
+    def literals(node):
+        # Only dotted literals are keys: every table entry carries a dot, and `key`
+        # is the commonest parameter name in a tkinter app -- a bind helper handed
+        # "<Return>" must not be read as a string key and go falsely red.
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and "." in node.value:
+            return [(node.value, node.lineno)]
+        if isinstance(node, ast.IfExp):
+            return literals(node.body) + literals(node.orelse)
+        return []
+
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+            params = sinks.get(name)
+            if not params:
+                continue
+            by_index = {i: p for p, i in params.items()}
+            for i, arg in enumerate(node.args):
+                if i in by_index:
+                    found += [(k, ln, f"{name}({by_index[i]}=)")
+                              for k, ln in literals(arg)]
+            for kw in node.keywords:
+                if kw.arg in params:
+                    found += [(k, ln, f"{name}({kw.arg}=)")
+                              for k, ln in literals(kw.value)]
+        elif isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_TAB_KEYS" for t in node.targets):
+            # render_all pushes every _TAB_KEYS entry through t() for the tab strip.
+            for element in getattr(node.value, "elts", []):
+                found += [(k, ln, "_TAB_KEYS") for k, ln in literals(element)]
+    return found, sinks
+
+
+def check_string_keys():
+    # What check_verdict_coverage does for one string family, for every text sink in
+    # the app (#299). t() falls back to the KEY ITSELF on purpose (a missing string is
+    # never a crash), so a mistyped key neither raises nor leaves the widget blank: the
+    # dotted key name is what stands on the page, non-empty -- invisible to the
+    # empty-text sweep in test_settings_visibility.py and to everything else the ladder
+    # has. Static, on the syntax tree, since thoughtborne_settings imports tkinter at
+    # module level and cannot be imported here.
+    src = (config.SCRIPT_DIR / "thoughtborne_settings.py").read_text(encoding="utf-8")
+    found, sinks = _collect_string_keys(src, "string-key guard")
+    check(found, "the string-key guard read no key literal at all out of "
+                 "thoughtborne_settings.py -- it is passing vacuously")
+    # Deriving the sinks from the signatures means a renamed `key` parameter drops
+    # that helper's whole family from the guard without a sound; the helpers the
+    # app is known to speak through are pinned, so the drop is loud instead.
+    missing = sorted({"t", "_reg", "_prose", "_section", "_card", "_link", "_tab_link"}
+                     - set(sinks))
+    check(not missing,
+          f"the string-key guard no longer derives {missing} as text sinks -- a "
+          "`key`/`*_key` parameter was renamed, so every key that helper is handed "
+          "goes unchecked; name it `key` again, or widen this list on purpose")
+    for key, lineno, sink in found:
+        # Both tables, the idiom check_verdict_coverage uses; EN carries the decision
+        # because t() falls back there, and check_i18n holds DE to the same key set.
+        check(all(sstr.t(key, lang) != key for lang in ("en", "de")),
+              f"thoughtborne_settings.py:{lineno}: {sink} is handed {key!r}, a key no "
+              f"string table has -- t() falls back to the key itself, so '{key}' is "
+              "what stands on the page where a sentence belongs")
+
+    # The per-run proof that the collector still detects, with its control: the three
+    # planted unknown keys must come back and be rejected, the real one must not.
+    seen = {key for key, _, _ in _collect_string_keys(_KEY_PROBE_SRC, "string-key probe")[0]}
+    check(seen == {"btn.back", "probe.prose", "probe.t", "probe.tab"},
+          f"the collector no longer reads all three planted sites, only {sorted(seen)} "
+          "-- a derived method sink, a strings.t() call and _TAB_KEYS were planted, and "
+          "a collector that misses one of them can go green on a typo instead")
+    check(sorted(k for k in seen if sstr.t(k, "en") == k)
+          == ["probe.prose", "probe.t", "probe.tab"],
+          "the table lookup no longer separates a planted unknown key from a real one")
 
 # ---- settings_strings i18n (#144) --------------------------------------------
 def check_i18n():
@@ -2693,6 +2835,7 @@ def main():
     check_key_check_strip()
     check_key_check_user_agent()
     check_verdict_coverage()
+    check_string_keys()
     check_i18n()
     check_preselect()
     check_engine_keyed()

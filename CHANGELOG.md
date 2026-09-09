@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The test ladder now measures the seam between the app and what it renders (#299).** The
+  ladder tests the pure modules from fixtures and reads the app as source where it cannot import
+  it — a principle that holds up: the four mutations the September code review found surviving
+  are all caught today. But what a fixture hands a renderer is a *claim* about the app, and a
+  claim goes stale without going red. #281 (a new settings label built empty, filled by
+  `render_all`, looked at by no test) and #295 (five fixtures pinning a footer the app never
+  passes) were that one fault in its two directions — and measured on the same tree, the ladder
+  caught a display element being *introduced* yet not one going *silent*: with the value
+  classified and the renderer dropping it, all twenty drivers stayed green. Four guards close
+  that, each a generalization of something the ladder already did. `test_console_ui.py` compares
+  every parameter of every `console_ui.render_*` call in `thoughtborne.py` — the app half read as
+  an AST, the fixture half recorded during the driver's own run — in both directions, plus the
+  literal stop-action sets per strip; and the stress tables gain a *visible* classification, so a
+  value a surface must show has to appear in the rendering rather than merely leave every line at
+  70 cells. `test_settings_visibility.py` sweeps the built settings window and the wizard in both
+  languages and fails on any placed widget that carries no text, save four that are blank until
+  an event fills them and say so in a table. `test_settings_io.py` reads every string key the
+  settings app hands a text sink off its syntax tree and looks each up the way the verdict table
+  already was — `t()` falls back to the key itself on purpose, so a typo puts
+  `machine.install.headnig` on the page, non-empty and invisible to everything else. Each guard
+  was proven by its mutation and each is green on the unchanged code; none of them catches a
+  value that is shown but wrong, which stays with the review.
+
 - **A sixth tab in the settings app: the *Machine room* (#281).** The window kept sending you to
   `.env` and to `personal_settings.json` *in the Thoughtborne folder* without ever showing where
   that folder is — the maintainer went looking for his own `personal_settings.json` — and it

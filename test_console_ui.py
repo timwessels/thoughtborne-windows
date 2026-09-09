@@ -32,8 +32,15 @@ What each rendered block is checked for:
      key of its own and hands its pairs out in the canonical order unreordered,
      and a stress sweep over every legal combo length proves no framed line can
      leave 70 cells.
+  9. the app <-> fixture seam in both directions (#299): every parameter the app
+     hands a renderer is one the fixtures render, every parameter the fixtures
+     set is one the app passes (#295), and both sides name the same stop actions.
+ 10. pass-through (#299): a parameter the stress tables classify as visible must
+     show its value in the rendering -- a surface can go silent (#281) with every
+     framed line still exactly 70 cells wide.
 """
 import ast
+import functools
 import inspect
 import itertools
 import re
@@ -1143,6 +1150,149 @@ def check_app_derives_no_key():
     _check_pairs_iterates_hotkeys(tree)
 
 
+# ---- #299 the app <-> fixture seam, measured in both directions -------------
+# Which parameters the fixtures actually hand each renderer, recorded while this
+# driver runs. There is no static way to know: the fixtures pass `**kwargs`
+# dicts and the stress sweep builds its arguments from the tables below.
+_FIXTURE_ARGS = {}
+_UNWRAPPED = {}
+# The stop actions each strip offers, as the app spells them out at its call
+# sites -- against REC_ACTIONS/WAIT_ACTIONS above, which is what the ladder
+# renders. Two copies of one set: exactly the shape #295 had for the footer
+# before #290 moved FOOTER_ACTIONS into console_ui and left both sides reading
+# the one list. A renderer taking `stops` and missing here is a hard failure.
+_APP_STOPS = {"render_rec_strip": REC_ACTIONS,
+              "render_waiting_strip": WAIT_ACTIONS,
+              "render_insert_failed": WAIT_ACTIONS}
+
+
+def _arg_shim(name, fn):
+    """One recording wrapper. It delegates unchanged and keeps the wrapped
+    signature (`functools.wraps`), so `fn.__name__` in the stress tables and
+    every `inspect.signature` below read exactly as before. `ansi` is left out:
+    both sides always pass it, and it selects styling, not content."""
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def shim(*a, **kw):
+        try:
+            bound = sig.bind(*a, **kw).arguments
+        except TypeError:
+            bound = {}          # the real call below raises on it anyway
+        _FIXTURE_ARGS.setdefault(name, set()).update(
+            p for p in bound if p != "ansi")
+        return fn(*a, **kw)
+    return shim
+
+
+def _install_arg_recorder():
+    """Put the shims on the module, so a fixture reaching for `u.render_x` gets
+    the recording one. Must run before the first fixture renders."""
+    if _UNWRAPPED:
+        return              # already on -- never wrap a shim in a shim
+    for name in [n for n in dir(u) if n.startswith("render_")]:
+        fn = getattr(u, name)
+        _UNWRAPPED[name] = fn
+        setattr(u, name, _arg_shim(name, fn))
+
+
+def _remove_arg_recorder():
+    """Hand the module back untouched -- `python -m pytest` collects the other
+    drivers in the same process (#242)."""
+    for name, fn in _UNWRAPPED.items():
+        setattr(u, name, fn)
+    _UNWRAPPED.clear()
+
+
+def _app_call_sites(tree):
+    """Every `console_ui.render_*(...)` in the app as {renderer: [(node, bound)]},
+    `bound` mapping parameter name to the argument's AST -- positional arguments
+    resolved through the renderer's own signature, the way `_stress_kwargs` fills
+    one. Today all 22 call sites are direct `console_ui.render_*` calls; a call
+    behind an indirection would not be seen, which is why G1/G2 above stay the
+    hard net for the key half."""
+    sites = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "console_ui"
+                and node.func.attr.startswith("render_")):
+            continue
+        target = getattr(u, node.func.attr, None)
+        if target is None:
+            continue        # check_app_derives_no_key records this one already
+        params = list(inspect.signature(target).parameters)
+        bound = {params[i]: a for i, a in enumerate(node.args) if i < len(params)}
+        bound.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
+        sites.setdefault(node.func.attr, []).append((node, bound))
+    return sites
+
+
+def _check_stop_actions(name, node, arg):
+    """One call site's stop actions against the set the ladder renders."""
+    want = _APP_STOPS.get(name)
+    if want is None:
+        _record(f"thoughtborne.py:{node.lineno}: {name} is handed `stops`, but the "
+                f"ladder holds no action set for it -- add one beside REC_ACTIONS/"
+                f"WAIT_ACTIONS, or the strip offers stops nothing here measures")
+        return
+    if not (isinstance(arg, ast.Call) and getattr(arg.func, "attr", None) == "_pairs"
+            and arg.args and isinstance(arg.args[0], (ast.List, ast.Tuple))):
+        _record(f"thoughtborne.py:{node.lineno}: {name}'s `stops` is no longer a "
+                f"literal self._pairs([...]) list -- the ladder cannot read which "
+                f"actions the strip offers, so its own set stops meaning anything")
+        return
+    got = {e.value for e in arg.args[0].elts if isinstance(e, ast.Constant)}
+    if got != want:
+        _record(f"thoughtborne.py:{node.lineno}: {name} offers stops {sorted(got)}, "
+                f"the ladder renders {sorted(want)} -- the strip under test is not "
+                f"the one shipped (#295)")
+
+
+def check_app_call_sites():
+    """The seam #281 and #295 sit on: the ladder renders what the fixtures say,
+    the user sees what the app passes, and until now only the key-bearing
+    parameters held the two together (`check_app_derives_no_key` above, D-019).
+    This compares the whole parameter set of every renderer in both directions --
+    the app half read as an AST (it cannot be imported off Windows), the fixture
+    half recorded during this very run -- plus the stop actions per call site.
+
+    A parameter only the app passes leaves the ladder measuring nothing about how
+    it renders; a parameter only the fixtures set means the ladder pins a surface
+    the app never produces, which is what #295 was. Runs last in `main`, when
+    everything above has rendered and the recording is complete.
+
+    Of the two directions, the fixture-only one is the catch: the stress sweep hands
+    every classified parameter to every renderer, so the app-only direction can fire
+    only once `_stress_kwargs` has already refused the parameter -- its gain is one
+    clear line beside the sweep's twenty repeats, not a detection of its own.
+    """
+    tree = ast.parse(_APP.read_text(encoding="utf-8"), filename=str(_APP))
+    sites = _app_call_sites(tree)
+
+    for name in sorted(set(sites) | set(_FIXTURE_ARGS)):
+        if name not in sites:
+            _record(f"{name} has no call site in thoughtborne.py -- the ladder "
+                    f"renders a surface the app never shows")
+            continue
+        app = {p for _, bound in sites[name] for p in bound} - {"ansi"}
+        fixture = _FIXTURE_ARGS.get(name, set())
+        for p in sorted(app - fixture):
+            _record(f"thoughtborne.py hands {name} a `{p}` no fixture ever sets -- "
+                    f"the ladder measures nothing about how it renders")
+        for p in sorted(fixture - app):
+            _record(f"fixtures set {name}'s `{p}`, the app passes it at none of its "
+                    f"call sites -- the ladder pins a surface the app cannot "
+                    f"produce (#295)")
+
+    for name, calls in sorted(sites.items()):
+        for node, bound in calls:
+            if "stops" in bound:
+                _check_stop_actions(name, node, bound["stops"])
+
+    _remove_arg_recorder()
+
+
 # ---- D-019 the stress check: no framed line ever leaves 70 cells (#277) ------
 _MODS = [n for n, _ in hp._CANONICAL_MODIFIERS]
 _STRESS_PREFIXES = [_MODS[:i] for i in range(len(_MODS) + 1)]
@@ -1162,13 +1312,13 @@ _STRESS_SWEEP = {"reason": (None, *u._REASON_LINES), "inconclusive": (False, Tru
                  "hotkeys_ok": (False, True), "clean_exit": (False, True),
                  "sent": (False, True), "mode": (None, "typing")}
 _STRESS_NEUTRAL = {
-    "seq": 99999, "chars": 99999, "model_label": "Groq Whisper Large v3",
+    "seq": 99999, "chars": 88888, "model_label": "Groq Whisper Large v3",
     "cap": 4000, "original_chars": 999999, "duration": 42.0,
     "when": "2026-07-11 03:14", "audio_path": PATHS[3] + r"\history\audio",
     "history_path": PATHS[3] + r"\history", "lineup": lineup_for(DEFAULT_API),
     "with_wordmark": False, "logo_lines": None, "pinned_default": None,
     "provider": "Soniox", "registered": 10, "expected": 11,
-    "current_label": "Soniox Live", "new_label": "Soniox Live",
+    "current_label": "Engine Under Test", "new_label": "Engine Under Test",
     "other_failures": [], "env_dir": PATHS[3],
     "action_lines": ("check your API key in Settings,", "then see the log"),
 }
@@ -1177,6 +1327,34 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
     ("render_switch_failed", "missing"): ["SONIOX_API_KEY"],
     ("render_noapi_panel", "missing"): [("SONIOX_API_KEY", ["soniox-live", "soniox"])],
 }
+# #299: which of those values must reach the screen. The tables above say what a
+# parameter is worth as a width fixture; this says the surface has to show it, so
+# a renderer that stops printing a value goes red instead of staying 70 cells
+# wide and silent (#281). Two families are derived rather than listed, so a new
+# parameter is covered the day it appears: everything filled from
+# _STRESS_KEY_ACTION (a key a surface is handed is a key it shows, D-019) and
+# every `*_label` (a display name by construction). What is left is per-surface,
+# because the same name is not visible everywhere -- `seq` reaches the FAILED,
+# INSERT and WAITING lines while the OK strip drops it in the typing branch, and
+# a path or a duration is reformatted or shortened before it is shown. A visible
+# value has to be DISTINCT from everything else on its surface, or the wrong one
+# satisfies the check: `chars` is not `seq`, and the two engine labels are not
+# names the lineup beside them already prints.
+_STRESS_VISIBLE = {
+    ("render_hotkeys_partial", "registered"), ("render_hotkeys_partial", "expected"),
+    ("render_insert_failed", "seq"), ("render_transcription_failed", "seq"),
+    ("render_waiting_strip", "seq"), ("render_waiting_strip", "chars"),
+    ("render_noapi_panel", "env_dir"), ("render_recovered_panel", "when"),
+    ("render_selftest_failed", "reason"),
+}
+_VISIBLE_SEEN = set()      # one message per parameter, not one per sweep rung
+_VISIBLE_CHECKED = set()   # every pair a sweep call actually carried
+
+
+def _is_stress_visible(rname, pname):
+    """Whether this renderer must show this parameter's value -- see the table."""
+    return (pname in _STRESS_KEY_ACTION or pname.endswith("_label")
+            or (rname, pname) in _STRESS_VISIBLE)
 
 
 def _stress_scheme(mods, keys, mixed):
@@ -1272,9 +1450,39 @@ def check_stress_widths():
     elif len(line) != u.W:
         _record(f"saved strip at {MAX_COMBO}: framed len {len(line)} != {u.W}: {line!r}")
 
+    # The visible table stays honest: a pair no sweep call carried names a renderer
+    # or parameter that was mistyped or renamed away, and checks nothing.
+    stale = sorted(p for p in _STRESS_VISIBLE if p not in _VISIBLE_CHECKED)
+    if stale:
+        _record(f"stress: _STRESS_VISIBLE names {stale}, which no sweep call carried -- "
+                f"a renderer or parameter mistyped or renamed away, so the entry "
+                f"asserts nothing")
+
+
+def _stress_visibility(tag, rname, kw, lines):
+    """#281's fault class as an assertion: a value classified as visible has to
+    appear in the SGR-stripped rendering. The width sweep beside it cannot see
+    this -- a surface that stops printing a value keeps every line at 70 cells."""
+    text = None
+    for pname, value in kw.items():
+        if value is None or not _is_stress_visible(rname, pname):
+            continue
+        _VISIBLE_CHECKED.add((rname, pname))
+        if (rname, pname) in _VISIBLE_SEEN:
+            continue
+        if text is None:
+            text = strip("\n".join(lines))
+        if str(value) not in text:
+            _VISIBLE_SEEN.add((rname, pname))
+            _record(f"stress {tag}: {rname}.{pname} is classified as visible, but "
+                    f"its value {str(value)!r} appears nowhere in the rendering -- "
+                    f"the surface went silent while every line still holds 70 "
+                    f"cells (#281)")
+
 
 def _stress_widths(name, fn, kw):
     a, pl = fn(ansi=True, **kw), fn(ansi=False, **kw)
+    _stress_visibility(name, fn.__name__, kw, a)
     for i, ln in enumerate(a):
         v = strip(ln)
         if v and len(v) != u.W:
@@ -1495,6 +1703,12 @@ def main():
     if failures:
         return _fail_report()
 
+    # From here on every render call is recorded, parameter names only:
+    # check_app_call_sites at the end compares that against the app's own call
+    # sites (#299). It goes on before the first fixture and comes off in that
+    # check -- nothing renders afterwards.
+    _install_arg_recorder()
+
     for api in AVAILABLE_APIS:
         model = API_DISPLAY[api]["label"]
         lineup = lineup_for(api)
@@ -1694,6 +1908,10 @@ def main():
     # ---- #219 dim (default) tag on the fixed-pin engine ----------------------
     check_pinned_default_tag()
 
+    # ---- #299 the app <-> fixture seam, both ways ---------------------------
+    # Last, so the recording above covers every fixture and the stress sweep.
+    check_app_call_sites()
+
     # ---- report -------------------------------------------------------------
     if SHOW:
         for name, lines in shown:
@@ -1709,8 +1927,13 @@ def main():
 
 
 def test_all():
-    """The pytest entry point (#242): the whole driver as one collected test."""
-    assert main() == 0
+    """The pytest entry point (#242): the whole driver as one collected test. The
+    recorder comes off on every path -- a red run returns before the check that
+    normally removes it, and the other drivers share this process."""
+    try:
+        assert main() == 0
+    finally:
+        _remove_arg_recorder()
 
 
 if __name__ == "__main__":
