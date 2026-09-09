@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The console masthead says which version is running (#297).** The startup screen carried the
+  wordmark and the tagline and never the one thing a bug report starts with. The tagline now sits
+  flush with the start of the wordmark and the version flush with its right edge, the two of them
+  bracketing the block above — dim, never in the brand accent, and dropped whole rather than
+  shortened when it does not fit, because a cut-off version number is a false statement. An
+  installed copy reads `v1.1.0` and nothing else: it is an immutable release snapshot, so the
+  number is exact there. A *checkout* — the maintainer's live copy, any clone — keeps showing the
+  last released number while the code moves under it, so it additionally names the commit it points
+  at (`v1.1.0+aa8f43a`), read from the `.git` beside the script with the standard library alone and
+  no `git` call at startup. That `.git` is the gate, and it separates the two delivery paths exactly
+  rather than by guesswork: the release ZIP is a `git archive` and never carries one.
+  `thoughtborne.log` gains the precision the columns after the tagline cannot hold —
+  `Thoughtborne version: 1.1.0 (checkout aa8f43a, last moved 2026-09-08 20:48)`, the timestamp being
+  when this working copy last moved, which for a copy following a release pointer is exactly "when
+  did my launcher last pull". Anything unreadable, over-long or foreign to `[A-Za-z0-9.+_-]` shows
+  nothing and costs no start.
+
 - **The test ladder now measures the seam between the app and what it renders (#299).** The
   ladder tests the pure modules from fixtures and reads the app as source where it cannot import
   it — a principle that holds up: the four mutations the September code review found surviving

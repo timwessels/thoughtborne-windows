@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 
 # Pure, ctypes-free hotkey lexical layer (#55): shared with hotkey_manager so a
@@ -86,6 +87,139 @@ def read_version(path=None):
 
 
 VERSION = read_version()
+
+# ===== CHECKOUT STATE: the commit a clone is running (#297) =====
+# The version above only moves on a release commit (RELEASING.md), which is exact
+# for an installed copy -- an immutable release snapshot -- and stale in a checkout,
+# where the code keeps moving under the last released number. So a checkout names
+# the commit it points at as well. The gate is the `.git` beside the script, which
+# separates the two delivery paths exactly rather than by guesswork: an install
+# comes out of `git archive` and build-release-zip.sh asserts no `.git` reaches the
+# ZIP. Read with the standard library alone -- a `git` subprocess at startup is not
+# worth the seconds it can cost on a cold Windows box, and the known limit that
+# comes with it is named here: the id says which commit the checkout points at, not
+# whether files were edited since. A dirty marker would need a real `git status`.
+# Only the `.git` NEXT TO the script is read, never one in a parent directory --
+# #238's lesson, where an install nested in another code tree inherited that tree's
+# state. Fail-open like read_version(): any problem yields no suffix, never an
+# exception, and never an IMPORT_WARNINGS entry -- this display is cosmetic.
+_GIT_SHA_LEN = 7
+_HEX = set("0123456789abcdef")
+
+
+def _git_dir(script_dir):
+    """The repository directory beside `script_dir`, or None."""
+    g = Path(script_dir) / ".git"
+    if g.is_file():                     # worktree/submodule: a "gitdir: <path>" line
+        text = g.read_text(encoding="utf-8").strip()
+        if not text.startswith("gitdir:"):
+            return None
+        g = Path(text.split(":", 1)[1].strip())
+        if not g.is_absolute():
+            g = Path(script_dir) / g
+    return g if g.is_dir() else None
+
+
+def _head_commit(git_dir):
+    """The short commit HEAD resolves to: a loose ref, packed-refs, or a detached
+    HEAD carrying the sha itself."""
+    head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        if not ref.startswith("refs/") or ".." in ref:   # git writes refs/... only
+            return None
+        loose = git_dir / ref
+        if loose.is_file():
+            sha = loose.read_text(encoding="utf-8").strip()
+        else:
+            sha = None
+            packed = git_dir / "packed-refs"
+            if packed.is_file():
+                for line in packed.read_text(encoding="utf-8").splitlines():
+                    if line[:1] in ("#", "^") or not line.strip():
+                        continue
+                    parts = line.split(None, 1)
+                    if len(parts) == 2 and parts[1].strip() == ref:
+                        sha = parts[0].strip()
+                        break
+            if sha is None:
+                return None
+    else:
+        sha = head
+    sha = sha.lower()               # one spelling, validated and shown
+    if len(sha) < _GIT_SHA_LEN or any(c not in _HEX for c in sha):
+        return None
+    return sha[:_GIT_SHA_LEN]
+
+
+def _head_moved(git_dir):
+    """When this working copy last moved, from the reflog's final entry
+    (`<old> <new> <name> <mail> <unix-ts> <tz>\\t<action>`).
+
+    The reflog is plain text in every clone, where the commit's own date sits in a
+    packfile that reading would mean reimplementing. It answers the question a
+    checkout following the release pointer actually has -- "when did my launcher
+    last pull" -- not when the code was written. Formatted in the reader's local
+    time zone rather than the offset written beside it (the same machine, either way).
+    """
+    p = git_dir / "logs" / "HEAD"
+    if not p.is_file():
+        return None
+    with p.open("rb") as f:                     # only the last line matters
+        try:
+            f.seek(-4096, 2)
+        except OSError:
+            f.seek(0)
+        tail = f.read().decode("utf-8", "replace")
+    lines = [ln for ln in tail.splitlines() if ln.strip()]
+    if not lines:
+        return None
+    left = lines[-1].split("\t", 1)[0].split()
+    if len(left) < 2 or not left[-2].isdigit():
+        return None
+    ts = int(left[-2])
+    if not 0 < ts < 4102444800:                 # up to 2100, against junk
+        return None
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def read_checkout_state(script_dir=None):
+    """(short commit, "YYYY-MM-DD HH:MM" of the last HEAD move) -- each None on any
+    problem, and (None, None) where there is no `.git` at all. Never raises.
+
+    `script_dir` exists for the tests; production reads SCRIPT_DIR.
+    """
+    _failed = (OSError, UnicodeDecodeError, ValueError, IndexError)
+    try:
+        g = _git_dir(SCRIPT_DIR if script_dir is None else script_dir)
+        if g is None:
+            return None, None
+        try:
+            sha = _head_commit(g)
+        except _failed:
+            sha = None
+        try:
+            moved = _head_moved(g)
+        except _failed:
+            moved = None
+        return sha, moved
+    except _failed:
+        return None, None
+
+
+CHECKOUT_COMMIT, CHECKOUT_MOVED = read_checkout_state()
+
+# Two forms of one fact, split by who reads them (#297): the masthead is a glance
+# surface with a hard budget -- the columns the tagline leaves -- so it carries the
+# version and the id and nothing more; the log line has no budget and is where a
+# bug report looks, so the timestamp lives only there. "unknown" stays here rather
+# than at the log call, so a version that could not be read has one shape even when
+# a commit id exists beside it.
+VERSION_DISPLAY = None if not VERSION else (
+    f"v{VERSION}+{CHECKOUT_COMMIT}" if CHECKOUT_COMMIT else f"v{VERSION}")
+VERSION_LOG = (VERSION or "unknown") + (
+    "" if not CHECKOUT_COMMIT else " (checkout {}{})".format(
+        CHECKOUT_COMMIT, f", last moved {CHECKOUT_MOVED}" if CHECKOUT_MOVED else ""))
 
 # ===== .env: the ONE key source (#238, #269 / D-017) =====
 # Thoughtborne's API keys come from the .env in its install directory and from

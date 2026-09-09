@@ -38,6 +38,10 @@ What each rendered block is checked for:
  10. pass-through (#299): a parameter the stress tables classify as visible must
      show its value in the rendering -- a surface can go silent (#281) with every
      framed line still exactly 70 cells wide.
+ 11. the masthead's version token (#297): the tagline flush with the start of the
+     wordmark, the token dim and flush with its right edge, dropped whole --
+     never shortened -- when it is over budget or carries a character outside
+     [A-Za-z0-9.+_-].
 """
 import ast
 import functools
@@ -216,6 +220,18 @@ PATHS = [  # four checkout depths, shallow to deep (console width stress)
 # from the live open-settings combo; here the shipped Ctrl+Alt+G).
 GUIDANCE = "To enable dictation, enter an API key in Settings (Ctrl+Alt+G)"
 
+# #297 masthead version token: the two forms that ship (an installed copy, a
+# checkout), the longest one the geometry still holds, one column past it, and one
+# that would fit but carries a character outside the class -- the plain twin is
+# ASCII, so a `ü` in pyproject.toml has to leave no trace. The budget is derived
+# from the wordmark and the tagline, never typed out.
+VER_BUDGET = len(u.WM[0]) - len(u.TAGLINE) - 1
+VER_RELEASE = "v1.1.0"
+VER_CHECKOUT = "v1.1.0+aa8f43a"
+VER_MAX = "v" + "9" * (VER_BUDGET - 1)
+VER_OVER = VER_MAX + "9"
+VER_JUNK = "v1.1.0ü"
+
 
 def run(name, fn, kwargs):
     for ansi in (True, False):
@@ -275,14 +291,17 @@ def check_logo_state():
 ACC = f"\x1b[{u.ACCENT}m"    # the accent SGR as it appears inline
 
 
-def _masthead(ansi, *, logo=True, wordmark=True, scheme=DEFAULT_HOTKEYS):
+def _masthead(ansi, *, logo=True, wordmark=True, scheme=DEFAULT_HOTKEYS,
+              version=VER_CHECKOUT):
     """A masthead off one hotkey scheme -- grid, switch and start combo all
-    derived from it, so a fixture can never render two schemes at once."""
+    derived from it, so a fixture can never render two schemes at once. The
+    version defaults to the form the maintainer's own copy shows (#297), so every
+    check built on this helper sees the token."""
     return u.render_masthead(
         lineup_for(DEFAULT_API), pairs_for(scheme), PATHS[1] + r"\history",
         combo_for(scheme, "switch_api"), combo_for(scheme, "start_recording"),
         logo_lines=(u.ACTIVE_LOGO_MARK if logo else None), with_wordmark=wordmark,
-        ansi=ansi)
+        version=version, ansi=ansi)
 
 
 def check_accent_state():
@@ -301,6 +320,14 @@ def check_accent_state():
             _record(f"masthead accent: leaked onto non-wordmark line {i}: {strip(ln)!r}")
     if any(u.TAGLINE in strip(ln) and ACC in ln for ln in ma):
         _record("masthead accent: the tagline must not be accented")
+    # #297: the version shares that row and takes the same rule -- dim, never the
+    # brand accent (the leak sweep above covers the accent half; this pins the
+    # styling it does carry, and that there is a token at all).
+    vrow = next((ln for ln in ma if VER_CHECKOUT in strip(ln)), None)
+    if vrow is None:
+        _record("masthead accent: no version token on the rendered masthead")
+    elif f"\x1b[{u.DIM}m{VER_CHECKOUT}" not in vrow:
+        _record(f"masthead accent: the version token is not dim: {strip(vrow)!r}")
     if any("\x1b" in ln for ln in _masthead(False)):
         _record("masthead accent: plain masthead carries an escape sequence")
 
@@ -328,8 +355,9 @@ def check_accent_state():
 
 def check_masthead_layout():
     """#115 masthead: three framed spacers (before MODEL/KEYS/History), tagline
-    centered under the wordmark, capitalised `History:` edge without the open
-    hint -- plus the #276 header grammar (the KEYS lead, the one MODEL form)."""
+    flush with the wordmark and the version flush with its right edge (#297),
+    capitalised `History:` edge without the open hint -- plus the #276 header
+    grammar (the KEYS lead, the one MODEL form)."""
     ma = [strip(ln) for ln in _masthead(True)]
     blank = "║" + " " * u.INNER + "║"
     blanks = [i for i, s in enumerate(ma) if s == blank]
@@ -351,12 +379,67 @@ def check_masthead_layout():
     gap = 4
     indent = max(0, (u.INNER - (markw + gap + len(u.WM[0]))) // 2)
     wm_offset = indent + markw + gap
-    expected = wm_offset + (len(u.WM[0]) - len(u.TAGLINE)) // 2
     tag = next((s for s in ma if u.TAGLINE in s), "")
     inner = tag[1:-1]
     got = len(inner) - len(inner.lstrip(" "))
-    if got != expected:
-        _record(f"masthead layout: tagline indent {got} != derived {expected}")
+    if got != wm_offset:
+        _record(f"masthead layout: tagline indent {got} != wordmark offset {wm_offset}")
+
+    # #297: the version brackets the wordmark block from the other side -- its
+    # right edge on the wordmark's last column, at least one space clear of the
+    # tagline, derived from the same geometry rather than from the literal column.
+    # The longest token the budget holds must still make that edge; the shipped
+    # forms sit well inside it.
+    edge = wm_offset + len(u.WM[0]) - 1
+    for token in (VER_RELEASE, VER_CHECKOUT, VER_MAX):
+        row = next((strip(ln)[1:-1] for ln in _masthead(True, version=token)
+                    if u.TAGLINE in strip(ln)), "")
+        if token not in row:
+            _record(f"masthead layout: version {token!r} missing from the tagline "
+                    f"row: {row!r}")
+            continue
+        right = len(row.rstrip(" ")) - 1
+        if right != edge:
+            _record(f"masthead layout: version right edge {right} != wordmark "
+                    f"edge {edge} ({token!r})")
+        space = right - len(token) + 1 - (wm_offset + len(u.TAGLINE))
+        if space < 1:
+            _record(f"masthead layout: version crowds the tagline (gap {space})")
+
+    # Dropped whole, never shortened -- the row then ends where the tagline ends,
+    # with nothing behind it. Two ways in, and the second is why this is checked
+    # here and not only through the charset lanes: a token one column over budget,
+    # and a token that would fit but carries a character outside the class.
+    for label, token in (("over-budget", VER_OVER), ("out-of-charset", VER_JUNK)):
+        row = next((strip(ln)[1:-1] for ln in _masthead(True, version=token)
+                    if u.TAGLINE in strip(ln)), "")
+        if len(row.rstrip(" ")) - 1 != wm_offset + len(u.TAGLINE) - 1:
+            _record(f"masthead layout: an {label} version was not dropped "
+                    f"whole: {row!r}")
+
+    # The markless branch (fixture-only -- the app always hands the a5 mark)
+    # shares that row, so pin its two edges against its own rendered wordmark
+    # rather than against a second copy of the renderer's arithmetic.
+    nomark = [strip(ln)[1:-1] for ln in _masthead(True, logo=False)]
+    wrow = next((s for s in nomark if u.WM[0] in s), "")
+    ntag = next((s for s in nomark if u.TAGLINE in s), "")
+    edges = (len(ntag) - len(ntag.lstrip(" ")), len(ntag.rstrip(" ")) - 1)
+    want = (len(wrow) - len(wrow.lstrip(" ")), len(wrow.rstrip(" ")) - 1)
+    if edges != want:
+        _record(f"masthead layout (no mark): tagline/version edges {edges} != the "
+                f"wordmark's {want}: {ntag!r}")
+
+    # The plain twin has no right edge to align on, so it carries the token on its
+    # one centered line -- the check is that it carries it at all, at the longest
+    # length too. That the two forms share one budget is arithmetic nobody wrote
+    # down (WM_PLAIN, INNER or WM would each shift it); a plain budget one column
+    # too small drops the token here alone, where no width breaks and nothing says so.
+    for token in (VER_CHECKOUT, VER_MAX):
+        ptag = next((s for s in _masthead(False, version=token)
+                     if u.TAGLINE in s), "")
+        if token not in ptag:
+            _record(f"masthead layout: plain twin lost the version token "
+                    f"{token!r}: {ptag!r}")
 
     # #276: the KEYS header carries the shared lead the grid's bare keys hang
     # from -- and only then; a mixed scheme (one bare F-key) leaves it plain.
@@ -1317,6 +1400,7 @@ _STRESS_NEUTRAL = {
     "when": "2026-07-11 03:14", "audio_path": PATHS[3] + r"\history\audio",
     "history_path": PATHS[3] + r"\history", "lineup": lineup_for(DEFAULT_API),
     "with_wordmark": False, "logo_lines": None, "pinned_default": None,
+    "version": "v9.9.9+abcdef1",
     "provider": "Soniox", "registered": 10, "expected": 11,
     "current_label": "Engine Under Test", "new_label": "Engine Under Test",
     "other_failures": [], "env_dir": PATHS[3],
@@ -1339,7 +1423,12 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
 # a path or a duration is reformatted or shortened before it is shown. A visible
 # value has to be DISTINCT from everything else on its surface, or the wrong one
 # satisfies the check: `chars` is not `seq`, and the two engine labels are not
-# names the lineup beside them already prints.
+# names the lineup beside them already prints. Two absences are deliberate:
+# `render_ok_strip`'s `seq`, which the typing branch drops, and
+# `render_masthead`'s `version` (#297) -- the sweep renders the terse form
+# (`with_wordmark: False`, load-bearing here, since the wordmark's plain twin
+# collapses to a different line count), which has no row to carry the token.
+# check_masthead_layout pins that one instead, on the column it must end on.
 _STRESS_VISIBLE = {
     ("render_hotkeys_partial", "registered"), ("render_hotkeys_partial", "expected"),
     ("render_insert_failed", "seq"), ("render_transcription_failed", "seq"),
@@ -1716,13 +1805,23 @@ def main():
         for path in PATHS:
             run("masthead", u.render_masthead, dict(
                 lineup=lineup, keys=PAIRS, history_path=path + r"\history",
-                switch_key=SWITCH, start_key=START,
+                switch_key=SWITCH, start_key=START, version=VER_RELEASE,
                 with_wordmark=True))
         # masthead with the active a5 mark beside the wordmark (as the app wires it)
         run("masthead_logo", u.render_masthead, dict(
             lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
-            switch_key=SWITCH, start_key=START,
+            switch_key=SWITCH, start_key=START, version=VER_CHECKOUT,
             logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
+        # #297 the version token at its edges: the longest that still fits, one
+        # column past it (dropped whole), one carrying a character outside the
+        # class -- which the charset lanes above catch the moment it is rendered
+        # rather than dropped -- and a broken install with none at all.
+        for label, ver in (("max", VER_MAX), ("over", VER_OVER),
+                           ("junk", VER_JUNK), ("none", None)):
+            run(f"masthead_version/{label}", u.render_masthead, dict(
+                lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
+                switch_key=SWITCH, start_key=START, version=ver,
+                logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
         run("ready", u.render_masthead, dict(
             lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
             switch_key=SWITCH, start_key=START, with_wordmark=False))

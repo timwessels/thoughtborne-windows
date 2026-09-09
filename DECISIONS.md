@@ -37,6 +37,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
 | D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
+| D-021 | A checkout names its commit; an installed copy shows the release number alone | Active |
 
 ---
 
@@ -1522,3 +1523,52 @@ D-008 (precedence and the memory-write rules untouched), D-011 (the
 keep-by-default line and the opt-in shape), D-014 (one lane, one exit; the
 confirmation guards an action, not a close) and D-015 (English is the shipped
 language the reset writes).
+
+---
+
+## D-021 — A checkout names its commit; an installed copy shows the release number alone
+
+Decided 2026-09-09 (#297).
+
+The console masthead says which version is running. What it says depends on how
+the copy was delivered, and both halves of that are contestable.
+
+- **A checkout adds the short commit id, and no date.** The version string moves
+  only on a release commit (RELEASING.md), which makes it exact for an installed
+  copy — an immutable release snapshot — and stale in any checkout, where the
+  code keeps moving under the last released number. So a checkout shows
+  `v1.1.0+aa8f43a`. A date was weighed and dropped: its resolution is one day, so
+  a copy that moves several times in a day — the normal case on a batch-run day —
+  would show the same string for every one of those states, while the id
+  identifies exactly one and is the thing a bug report needs. It is also the
+  conventional form (SemVer build metadata, `git describe`). The honest
+  counter-argument: the question this display really answers is "am I running the
+  current state, or did the launcher skip an update?", and a hex id is the least
+  legible possible answer to it. That question stays answerable because the id
+  changes visibly whenever the checkout moves.
+- **The gate is the `.git` beside the script, not a heuristic.** It separates the
+  two delivery paths exactly: an install comes out of `git archive` (D-006) and
+  `build-release-zip.sh` asserts no `.git` reaches the ZIP, so an installed user
+  sees a clean release number and nothing else, and a clone sees the state it
+  actually runs. Only the `.git` next to the script is read, never one in a parent
+  directory (D-017's neighbour lesson from #238).
+- **No `git` at startup.** Everything is read from the files with the standard
+  library — `HEAD`, the ref, `packed-refs`, the reflog — and any problem yields no
+  suffix, never an exception. The named cost of that: the id says which commit the
+  checkout points at, not whether files were edited since. A dirty marker would
+  need a real `git status`, and a subprocess on a cold Windows box is not worth it.
+- **Dropped whole rather than shortened, and split by reader.** A cut-off version
+  number is a false statement, so a token over the 21 columns after the tagline is
+  left out entirely — `config.read_version`'s "nothing rather than a guess" in the
+  geometry. `thoughtborne.log` carries what does not fit there, including when the
+  working copy last moved, because that is where a bug report looks.
+
+Do not reintroduce: a date in the masthead (one-day resolution cannot separate two
+states of the same batch-run day), a `git` subprocess at startup, a truncated
+version token, the suffix on an installed copy, or a second masthead layout for
+the case where no version can be read.
+
+Respects D-006 (the ZIP is a `git archive`, which is what makes the gate exact),
+D-018 (one console form: the version-less masthead keeps the same layout instead
+of falling back to a centered tagline) and D-019 (the token is no key: it carries
+no combo and changes no order).

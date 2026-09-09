@@ -50,10 +50,20 @@ broken file still lets `import config` through, and, as the point of the exercis
 that the regex stays character-identical to the one `setup.ps1` uses for the
 Installed-apps `DisplayVersion`: two answers about one file that must not drift.
 
+Beside it since #297 sits the other thing nobody edits and everything depends on:
+the `.git` folder a checkout carries and an installed copy does not, which is what
+tells the two apart when the masthead says which state is running. It is read with
+the stdlib alone, in every shape git writes it, and the only correct behaviour on
+anything else -- a torn reflog, a `ref:` pointing outside `refs/`, no `.git` at all
+-- is to yield None and cost nothing, so it is checked exactly like the readers
+above: against tempdir layouts, and once more through a real `import config`.
+
 The Soniox constructor lane needs `groq` (transcriber's only third-party import off
-Windows) and skips cleanly without it; the `.env` lanes need nothing beyond the
-stdlib and always run. Starting the real tool with a broken file and reading the
-resulting thoughtborne.log line stays hands-on (Windows-only start).
+Windows) and skips cleanly without it, and the checkout lane's one assertion against
+the real repository skips where there is no `.git` to read (an exported tree); the
+`.env` lanes need nothing beyond the stdlib and always run. Starting the real tool
+with a broken file and reading the resulting thoughtborne.log line stays hands-on
+(Windows-only start).
 
     python3 test_config_loading.py          # verify, exit non-zero on any violation
     python3 test_config_loading.py --show   # also print each fixture's warnings
@@ -66,6 +76,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import config
@@ -1083,6 +1094,210 @@ def test_version_import_subprocess():
 
 
 # ======================================================================
+# The checkout lane: the `.git` beside the script, read with the stdlib (#297)
+# ======================================================================
+
+# The reflog timestamp is formatted in the reader's local time zone, so the
+# expectation is derived the same way rather than written out -- CI runs in UTC.
+_TS = 1757356080
+_WHEN = datetime.fromtimestamp(_TS).strftime("%Y-%m-%d %H:%M")
+_SHA = b"aa8f43a1c0ffee00d15ea5e0000000000badc0de"
+_SHORT = "aa8f43a"
+_REFLOG = (b"0" * 40 + b" " + _SHA + b" Tim Wessels <t@example.com> "
+           + str(_TS).encode() + b" +0200\tcheckout: moving from x to main\n")
+
+
+def _write_tree(root, files):
+    """Write one fixture layout: {relative path: bytes}, directories as needed.
+    A path the dict does not name is a file the layout simply does not have."""
+    for rel, raw in files.items():
+        p = Path(root) / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(raw)
+
+
+def test_checkout_reader(d):
+    """`config.read_checkout_state` against hand-built `.git` layouts.
+
+    Every shape git itself writes has to resolve -- a loose ref, a packed one, a
+    detached HEAD, a `.git` file pointing elsewhere -- and every other shape has to
+    yield None rather than raise, because this display is cosmetic and must never
+    cost a start. The two halves fail independently in both directions: an
+    unreadable reflog still leaves the commit, an unreadable HEAD still leaves the
+    timestamp. A linked worktree is the one shape git writes that the reader gives
+    up on -- its branch ref lives in the main gitdir, so it names no commit and
+    reads like an install; pinned here so the giving-up stays a decision. Two cases
+    are about where the reader may look: a `ref:` value outside `refs/` is never
+    followed (git writes nothing else there, and following one would read a foreign
+    file), and a `.git` in a PARENT directory is not this checkout's -- #238's
+    lesson, where an install nested in another code tree inherited that tree's
+    state. Each of those puts a sha-looking file at the foreign target, so the case
+    goes red when the guard goes instead of passing on the target's shape.
+    """
+    loose = {".git/HEAD": b"ref: refs/heads/main\n",
+             ".git/refs/heads/main": _SHA + b"\n",
+             ".git/logs/HEAD": _REFLOG}
+    cases = [
+        ("loose ref + reflog", loose, (_SHORT, _WHEN)),
+        ("detached HEAD", {".git/HEAD": _SHA + b"\n"}, (_SHORT, None)),
+        # git writes its shas lowercase; the reader shows what it validated.
+        ("detached HEAD, uppercase", {".git/HEAD": _SHA.upper() + b"\n"},
+         (_SHORT, None)),
+        ("packed-refs", {".git/HEAD": b"ref: refs/heads/main\n",
+                         ".git/packed-refs": (b"# pack-refs with: peeled fully-peeled sorted\n"
+                                              + _SHA + b" refs/heads/main\n"
+                                              + b"^" + b"0" * 40 + b"\n")},
+         (_SHORT, None)),
+        ("packed-refs without the ref",
+         {".git/HEAD": b"ref: refs/heads/main\n",
+          ".git/packed-refs": _SHA + b" refs/heads/other\n"}, (None, None)),
+        ("unborn branch", {".git/HEAD": b"ref: refs/heads/main\n"}, (None, None)),
+        (".git file, relative gitdir",
+         {".git": b"gitdir: real-git\n", "real-git/HEAD": _SHA + b"\n"}, (_SHORT, None)),
+        # As `git worktree add` writes it: HEAD and the reflog in the worktree's
+        # own gitdir, the branch ref one `commondir` hop away in the main one.
+        ("linked worktree",
+         {".git": b"gitdir: gitmain/worktrees/side\n",
+          "gitmain/refs/heads/side": _SHA + b"\n",
+          "gitmain/worktrees/side/HEAD": b"ref: refs/heads/side\n",
+          "gitmain/worktrees/side/commondir": b"../..\n",
+          "gitmain/worktrees/side/logs/HEAD": _REFLOG}, (None, _WHEN)),
+        (".git file with junk", {".git": b"not a gitdir line\n"}, (None, None)),
+        ("no .git", {}, (None, None)),
+        (".git without HEAD", {".git/config": b"[core]\n"}, (None, None)),
+        ("HEAD junk", {".git/HEAD": b"\x01\x02 not a ref\n"}, (None, None)),
+        ("HEAD sha too short", {".git/HEAD": b"aa8f43\n"}, (None, None)),
+        ("crlf throughout", {".git/HEAD": b"ref: refs/heads/main\r\n",
+                             ".git/refs/heads/main": _SHA + b"\r\n",
+                             ".git/logs/HEAD": _REFLOG.replace(b"\n", b"\r\n")},
+         (_SHORT, _WHEN)),
+        ("undecodable HEAD",
+         {".git/HEAD": "ref: refs/heads/main\n".encode("utf-16")}, (None, None)),
+        ("undecodable HEAD, intact reflog",
+         {".git/HEAD": "ref: refs/heads/main\n".encode("utf-16"),
+          ".git/logs/HEAD": _REFLOG}, (None, _WHEN)),
+        ("empty reflog", dict(loose, **{".git/logs/HEAD": b""}), (_SHORT, None)),
+        ("reflog junk in the timestamp field",
+         dict(loose, **{".git/logs/HEAD": b"0 1 Tim <t@e> nine +0200\tcheckout\n"}),
+         (_SHORT, None)),
+        ("reflog timestamp out of range",
+         dict(loose, **{".git/logs/HEAD": b"0 1 Tim <t@e> 99999999999 +0200\tcheckout\n"}),
+         (_SHORT, None)),
+        ("reflog cut mid-line",
+         dict(loose, **{".git/logs/HEAD": _REFLOG + b"0 1 Tim Wessels <t@e> 17629"}),
+         (_SHORT, None)),
+        ("no logs/ at all", {k: v for k, v in loose.items() if "logs" not in k},
+         (_SHORT, None)),
+        ("ref: outside refs/", {".git/HEAD": b"ref: objects/evil\n",
+                                ".git/objects/evil": _SHA + b"\n"}, (None, None)),
+        ("ref: with a .. traversal",
+         {".git/HEAD": b"ref: refs/../sneaky\n", ".git/refs/heads/main": _SHA + b"\n",
+          ".git/sneaky": _SHA + b"\n"}, (None, None)),
+    ]
+    root = Path(d) / "checkout"
+    for label, files, expected in cases:
+        shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True)
+        _write_tree(root, files)
+        got = config.read_checkout_state(root)
+        if SHOW:
+            print(f"    {label}: -> {got!r}")
+        check(got == expected,
+              f".git [{label}]: read_checkout_state -> {got!r}, expected {expected!r}")
+
+    # An absolute gitdir: written after the tree exists, so the path is real.
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True)
+    real = Path(d) / "elsewhere"
+    _write_tree(real, {"HEAD": _SHA + b"\n"})
+    (root / ".git").write_text(f"gitdir: {real}\n", encoding="utf-8")
+    got = config.read_checkout_state(root)
+    check(got == (_SHORT, None),
+          f".git [file, absolute gitdir]: read_checkout_state -> {got!r}")
+
+    # A .git one level up belongs to the tree around the install, not to it.
+    shutil.rmtree(root, ignore_errors=True)
+    nested = root / "thoughtborne"
+    nested.mkdir(parents=True)
+    _write_tree(root, loose)
+    got = config.read_checkout_state(nested)
+    check(got == (None, None),
+          f".git [in the parent directory]: read_checkout_state -> {got!r}, and an "
+          f"install nested in another code tree must never report that tree's state")
+    shutil.rmtree(root, ignore_errors=True)
+
+    # The checkout this driver runs in, when it is one: a real repository has to
+    # resolve, or the reader works on fixtures alone. An exported tree has no
+    # `.git` and skips -- run_tests.py counts the note.
+    here = Path(__file__).resolve().parent
+    if (here / ".git").exists():
+        sha, _moved = config.read_checkout_state(here)
+        check(isinstance(sha, str) and len(sha) == 7
+              and all(c in "0123456789abcdef" for c in sha),
+              f"this checkout's own .git yields {sha!r}, not a short commit id")
+    else:
+        print("    (skipped the real-repository case: no .git beside this driver)")
+
+
+def test_checkout_import_subprocess():
+    """The two display strings as a fresh interpreter builds them, which is the
+    acceptance clause: an installed copy (no `.git`) shows the release version and
+    nothing more, a checkout adds the commit it points at, and the log line carries
+    the precision the masthead has no room for. A broken or absent `.git` is as
+    cosmetic as an unreadable version -- exit 0, and no import warning either."""
+    probe = ("import config;"
+             "print('DISPLAY', config.VERSION_DISPLAY or '-');"
+             "print('LOG', config.VERSION_LOG);"
+             "print('WARNINGS', len(config.IMPORT_WARNINGS))")
+    checkout = {".git/HEAD": b"ref: refs/heads/main\n",
+                ".git/refs/heads/main": _SHA + b"\n",
+                ".git/logs/HEAD": _REFLOG}
+    cases = [
+        ("checkout", b'[project]\nversion = "9.8.7"\n', checkout,
+         f"v9.8.7+{_SHORT}", f"9.8.7 (checkout {_SHORT}, last moved {_WHEN})"),
+        ("installed copy", b'[project]\nversion = "9.8.7"\n', {}, "v9.8.7", "9.8.7"),
+        ("broken .git", b'[project]\nversion = "9.8.7"\n',
+         {".git/HEAD": b"garbage\n"}, "v9.8.7", "9.8.7"),
+        ("checkout, no version", None, checkout,
+         "-", f"unknown (checkout {_SHORT}, last moved {_WHEN})"),
+    ]
+    tmp = tempfile.mkdtemp(prefix="tb_config_checkout_")
+    try:
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        for label, raw, files, want_display, want_log in cases:
+            root = Path(tmp) / "tree"
+            shutil.rmtree(root, ignore_errors=True)
+            root.mkdir(parents=True)
+            _copy_config_into(root)
+            if raw is not None:
+                (root / "pyproject.toml").write_bytes(raw)
+            _write_tree(root, files)
+            proc = subprocess.run([sys.executable, "-c", probe], cwd=root, env=env,
+                                  capture_output=True, text=True, timeout=120)
+            if proc.returncode != 0:
+                failures.append(
+                    f"checkout [{label}]: `import config` exited {proc.returncode} -- "
+                    f"an unreadable checkout state must never cost a start: "
+                    f"{proc.stderr.strip()[-300:]}")
+                continue
+            reported = dict(line.split(" ", 1)
+                            for line in proc.stdout.split("\n") if " " in line)
+            if SHOW:
+                print(f"    {label}: {reported}")
+            check(reported.get("DISPLAY") == want_display,
+                  f"checkout [{label}]: config.VERSION_DISPLAY is "
+                  f"{reported.get('DISPLAY')!r}, expected {want_display!r}")
+            check(reported.get("LOG") == want_log,
+                  f"checkout [{label}]: config.VERSION_LOG is "
+                  f"{reported.get('LOG')!r}, expected {want_log!r}")
+            check(reported.get("WARNINGS") == "0",
+                  f"checkout [{label}]: a missing or broken .git is cosmetic and must "
+                  f"not add an import warning (got {reported.get('WARNINGS')})")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ======================================================================
 # The consumer lane: both Soniox constructors survive a dropped vocabulary
 # ======================================================================
 
@@ -1145,6 +1360,7 @@ TEMPDIR_CASES = [
     test_vocabulary_shape,
     test_never_raises,
     test_version_reader,
+    test_checkout_reader,
 ]
 PLAIN_CASES = [
     test_import_subprocess,
@@ -1157,6 +1373,7 @@ PLAIN_CASES = [
     test_env_example_ascii,
     test_version_drift_guard,
     test_version_import_subprocess,
+    test_checkout_import_subprocess,
     test_soniox_constructors,
 ]
 
@@ -1192,8 +1409,9 @@ def main():
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "
           f"route, a broken file warned about instead of fatal; pyproject.toml: the "
-          f"version reader's fail-open rules and its regex twin in setup.ps1; plus the "
-          f"warning replay and the static guards)")
+          f"version reader's fail-open rules and its regex twin in setup.ps1, plus the "
+          f"checkout state read from a `.git` beside the script, fail-open in every "
+          f"shape it comes in; plus the warning replay and the static guards)")
     return 0
 
 

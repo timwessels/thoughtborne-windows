@@ -446,14 +446,15 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 def render_masthead(lineup, keys, history_path,
                     switch_key, start_key,
                     guidance=None, with_wordmark=True, logo_lines=None,
-                    pinned_default=None, *, ansi):
+                    pinned_default=None, version=None, *, ansi):
     """`keys`: the twelve (action_name, display_combo) pairs in canonical order;
     the shared lead of exactly those combos heads the KEYS zone and its grid
     (D-019, #276). `switch_key` and `start_key` are full display combos -- the
-    form the switched panels have always taken."""
+    form the switched panels have always taken. `version` is the finished display
+    string (#297); this module renders it verbatim and builds none of it."""
     lines = [dtop(ansi)]
     if with_wordmark:
-        lines.extend(_masthead_wordmark(logo_lines, ansi))
+        lines.extend(_masthead_wordmark(logo_lines, version, ansi))
         lines.append(dsep(ansi))
     lines.append(dline([("  ", ()), ("READY", (BOLD, GREEN)),
                         (f" -- press {start_key} and start talking", ())], ansi))
@@ -484,11 +485,35 @@ def render_masthead(lineup, keys, history_path,
     return lines
 
 
-def _masthead_wordmark(logo_lines, ansi):
+# The characters a version may consist of (#297) -- a set literal rather than a
+# regex, since this module imports nothing.
+_VERSION_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.+_-")
+
+
+def _version_token(version, budget):
+    """The version as it may be shown, or "" -- dropped whole, never shortened.
+
+    A cut-off version number would be a false statement, so one over budget is
+    left out entirely: config.read_version's rule (show nothing rather than a
+    guess), carried into the geometry. The character class keeps this module's
+    charset promise where it is made -- the version is the one rendered value
+    that comes out of a file rather than out of the tables above.
+    """
+    if not version or len(version) > budget:
+        return ""
+    return version if all(c in _VERSION_CHARS for c in version) else ""
+
+
+def _masthead_wordmark(logo_lines, version, ansi):
     if not ansi:
         # Plain twin: the 3-row wordmark collapses to one centered ASCII line
-        # (wordmark + tagline); any mark drops with it (no # cluster).
+        # (wordmark + tagline); any mark drops with it (no # cluster). There is no
+        # right edge to hang the version on here, so it trails the tagline and the
+        # whole line is re-centered -- the one translation this form allows.
         wm = WM_PLAIN + "  " + TAGLINE
+        token = _version_token(version, INNER - len(wm) - 2)
+        if token:
+            wm += "  " + token
         pad = (INNER - len(wm)) // 2
         return [dline(" " * pad + wm, ansi)]
     # ANSI: mark + wordmark carry the brand ACCENT (indent/gap stay unstyled, so
@@ -510,9 +535,17 @@ def _masthead_wordmark(logo_lines, ansi):
         wm_offset = 11
         for i in range(3):
             rows.append(dline([(" " * 11, ()), (WM[i], (ACCENT,))], ansi))
-    # tagline centered under the 47-col wordmark block (derived from wm_offset,
-    # not hardcoded), never accented
-    rows.append(dline(" " * (wm_offset + (len(WM[0]) - len(TAGLINE)) // 2) + TAGLINE, ansi))
+    # The two of them bracket the wordmark block (#297): the tagline flush with
+    # its first column, the version dim and flush with its last, both derived
+    # from wm_offset and the wordmark width rather than hardcoded. Neither is
+    # accented. No version leaves the right side empty -- one layout form, not a
+    # second one that re-centers (D-018).
+    token = _version_token(version, len(WM[0]) - len(TAGLINE) - 1)
+    segs = [(" " * wm_offset + TAGLINE, ())]
+    if token:
+        segs.append((" " * (len(WM[0]) - len(TAGLINE) - len(token)), ()))
+        segs.append((token, (DIM,)))
+    rows.append(dline(segs, ansi))
     return rows
 
 

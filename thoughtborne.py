@@ -45,7 +45,7 @@ from config import (
     LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     LOG_CONSOLE_QUEUE_MAX, FILE_ONLY,
     HOTKEYS, STATUS_UPDATE_INTERVAL, MAX_PARALLEL_TRANSCRIPTIONS,
-    SCRIPT_DIR, VERSION,
+    SCRIPT_DIR, VERSION_DISPLAY, VERSION_LOG,
     DEFAULT_API, DEFAULT_API_IS_EXPLICIT, AVAILABLE_APIS, API_DISPLAY, ENGINE_TOKENS,
     engine_has_key, ALLOW_SECOND_INSTANCE,
     ARCHIVE_FOLDER, HISTORY_FOLDER,
@@ -565,10 +565,12 @@ class ThoughtborneApp:
         logger.info(f"Python Version: {sys.version}", extra=FILE_ONLY)
         logger.info(f"Working directory: {os.getcwd()}", extra=FILE_ONLY)
         logger.info(f"Script directory: {SCRIPT_DIR}", extra=FILE_ONLY)
-        # The version a bug report arrives with (#268/#281). File-only like the rest
-        # of this wall -- the console masthead stays as it is. 'unknown' rather than
-        # a dropped line: in a log, "could not be read" is itself the information.
-        logger.info(f"Thoughtborne version: {VERSION or 'unknown'}", extra=FILE_ONLY)
+        # The version a bug report arrives with (#268/#281), in the full precision
+        # the masthead has no room for: in a checkout the commit it points
+        # at and when it last moved (#297). File-only like the rest of this wall.
+        # 'unknown' rather than a dropped line: in a log, "could not be read" is
+        # itself the information -- config.VERSION_LOG carries that shape.
+        logger.info(f"Thoughtborne version: {VERSION_LOG}", extra=FILE_ONLY)
 
         # Initialize components
         try:
@@ -2753,6 +2755,7 @@ class ThoughtborneApp:
                     guidance=guidance, with_wordmark=True,
                     logo_lines=console_ui.ACTIVE_LOGO_MARK,
                     pinned_default=pinned_default,
+                    version=VERSION_DISPLAY,
                     ansi=ansi))
         else:
             # No READY invitation after a shortfall -- the tool keeps running
