@@ -1180,8 +1180,10 @@ whole. The *pixel mark* — `console_ui.LOGO_MARK_A5`, the 7×6 half-block glyph
 the console masthead — is the app: the website favicon since v1.1.0, and now
 every Windows surface. `assets/logo/thoughtborne.ico` is the one app-icon file:
 `setup.ps1` points the Start-menu shortcut and the Installed-apps `DisplayIcon`
-at it, and the settings window loads it through `iconbitmap(default=...)`, so its
-title bar, taskbar button and Alt+Tab entry stop showing Tk's feather.
+at it, and the settings window loads it through `iconbitmap` — in both Tk's
+class-wide and its window-specific form, the second added for the taskbar
+button (#296) — so its title bar, taskbar button and Alt+Tab entry stop showing
+Tk's feather.
 
 - **Why the pixel mark.** The program *is* the console; its masthead is what the
   user looks at every day. An icon that shows something else is a second identity

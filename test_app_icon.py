@@ -21,6 +21,12 @@ spec D-016 states:
   - the two consumers -- setup.ps1 (shortcut + DisplayIcon) and the settings
     window -- and the release must-have list name that file.
 
+One case sits outside that spec: *how* the settings window sets the icon (#296).
+`default=` reaches only the window class; the taskbar button reads the window's own
+icon. So the two iconbitmap calls are not duplicates of each other, and neither may
+sit in the try that guards the other -- a fact only the source can be held to
+off-Windows, which is why this driver reads it.
+
     python3 test_app_icon.py           # verify, exit non-zero on failure
     python3 test_app_icon.py --show    # also print each frame as ASCII art
 
@@ -28,6 +34,7 @@ Pure stdlib (struct, zlib), Python 3.10+, off-Windows. The PNG decoder covers wh
 the generator writes (8-bit RGBA, non-interlaced) and says so if it meets anything
 else. Sibling of test_deps_sync.py: a CASES list, PASS/FAIL print, non-zero exit.
 """
+import ast
 import re
 import struct
 import sys
@@ -258,6 +265,75 @@ def test_consumers_name_the_file():
     assert "assets/logo/thoughtborne.ico" in release, "build-release-zip.sh must-have list lacks the icon"
 
 
+def test_settings_window_sets_both_icon_forms():
+    """Both of Tk's icon routes, neither inside the other's guard, plus the repeat (#296).
+
+    Read as an AST rather than as substrings, so a mention in a comment or a docstring
+    cannot stand in for a call."""
+    path = REPO / "thoughtborne_settings.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    def is_iconbitmap(node):
+        # wm_iconbitmap is the same tkinter method under its other name.
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("iconbitmap", "wm_iconbitmap"))
+
+    def form_of(node):
+        """"class" for the default= route, "window" for the bitmap one, None for a read."""
+        if any(kw.arg == "default" for kw in node.keywords):
+            return "class"
+        if node.args or any(kw.arg == "bitmap" for kw in node.keywords):
+            return "window"
+        return None
+
+    found = []   # (call, the try statements guarding it, innermost first)
+
+    def walk(node, guards):
+        """Collect every iconbitmap call with the try: bodies it runs inside.
+
+        Only bodies, and only try statements that have an except: a handler, an else
+        or a finally is not covered by its own try, and a try/finally catches nothing."""
+        if is_iconbitmap(node):
+            found.append((node, guards))
+        if isinstance(node, ast.Try):
+            inner = (node, *guards) if node.handlers else guards
+            for stmt in node.body:
+                walk(stmt, inner)
+            for stmt in [*node.handlers, *node.orelse, *node.finalbody]:
+                walk(stmt, guards)
+            return
+        for child in ast.iter_child_nodes(node):
+            walk(child, guards)
+
+    walk(tree, ())
+    class_form = [(n, g) for n, g in found if form_of(n) == "class"]
+    window_form = [(n, g) for n, g in found if form_of(n) == "window"]
+    assert class_form, ("no iconbitmap(default=...) call -- that is the class icon, the "
+                        "process-wide one any window carrying none of its own falls back to")
+    assert window_form, ("no window-specific iconbitmap(path) call -- that is the one Tk turns "
+                         "into WM_SETICON, and the only one the taskbar button reads (#296). It "
+                         "writes elsewhere than the default= form, so it is not a duplicate of "
+                         "it and must not be tidied away")
+    assert all(g for _, g in class_form + window_form), \
+        "an iconbitmap call sits outside a try/except -- off Windows it raises and costs the launch"
+    for _, outer in class_form:
+        for _, inner in window_form:
+            assert outer[0] not in inner and inner[0] not in outer, \
+                ("an iconbitmap call runs inside the try that guards the other form -- off "
+                 "Windows the -default form raises, and the rest of that try's body, the "
+                 "window-specific call included, never runs (#296)")
+
+    assert [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr in ("after_idle", "after")
+            and any(isinstance(a, ast.Name) and a.id == "_set_window_icon"
+                    for a in ast.walk(n))], \
+        ("no after/after_idle call hands the window icon back to the running loop -- that "
+         "repeat is what keeps the taskbar button off the timing of the shell reaching the "
+         "process mid-construction (#296). Repeating it another way is a fair change, but "
+         "then this guard is rewritten, not dropped")
+
+
 CASES = [
     test_accent_is_rgb,
     test_directory,
@@ -265,6 +341,7 @@ CASES = [
     test_frames_match_mark,
     test_bitmap_masks_agree_with_alpha,
     test_consumers_name_the_file,
+    test_settings_window_sets_both_icon_forms,
 ]
 
 
@@ -284,7 +361,8 @@ def main():
         print(f"\nFAIL: {len(failures)}/{len(CASES)} case(s) failed")
         return 1
     print(f"\nOK: all {len(CASES)} app-icon cases pass -- {len(SIZES)} frames pixel-identical to "
-          "console_ui.LOGO_MARK_A5 on its tile, bitmap masks sound, consumers name the file")
+          "console_ui.LOGO_MARK_A5 on its tile, bitmap masks sound, consumers name the file, "
+          "settings window sets both icon forms")
     return 0
 
 

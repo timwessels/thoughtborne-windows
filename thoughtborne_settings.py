@@ -153,15 +153,32 @@ _APP_ICON = config.SCRIPT_DIR / "assets" / "logo" / "thoughtborne.ico"
 def _set_window_icon(root) -> None:
     """Give the window the app icon (D-016): title bar, taskbar button, Alt+Tab.
 
-    `default=` sets it for every toplevel this process opens; without it Tk shows its
-    own feather. Call it only once the window is realized (after an update_idletasks):
-    applied to an unrealized window, Tk hands Windows just the 32 px frame and the
-    title bar gets a blurred scale-down instead of the crisp 16 px frame (verified on
-    Tk 8.6.12, 2026-09-07). Off-Windows this is a silent no-op that never costs a
+    Two calls, deliberately (#296): they write to different places and reach different
+    consumers. `default=` sets the *class* icon -- the process-wide one any window that
+    carries none of its own falls back to, and what Tk otherwise fills with its feather;
+    but on a window Tk has already mapped it rewrites that class icon and tells the
+    window itself nothing, so the shell's taskbar button keeps the feather it captured
+    when the window appeared. The window-specific call is the one that reaches the
+    button: Tk turns it into WM_SETICON with the exact 16 and 32 px frames. So neither
+    is a duplicate of the other, and `default=` stays: it is what D-016 shipped and what
+    the title bar and Alt+Tab have read correctly ever since. Each call needs its own
+    guard -- off Windows the `-default` form raises, and a shared one would skip the
+    other.
+
+    Call it only once the window is realized (after an update_idletasks) -- that rule is
+    the `default=` path's: applied to an unrealized window it registers Tk's window class
+    from the 32 px frame alone, and the title bar gets a blurred scale-down instead of
+    the crisp 16 px one (verified on Tk 8.6.12, 2026-09-07). The window-specific call has
+    no such precondition; it forces its own wrapper. Idempotent, so __init__ can repeat
+    it from the running loop. Off-Windows every call is a silent no-op that never costs a
     launch: X11 Tk knows neither the `default=` form nor the .ico format, and the
     try/except swallows the TclError."""
     try:
-        root.iconbitmap(default=str(_APP_ICON))
+        root.iconbitmap(default=str(_APP_ICON))   # the process-wide class icon
+    except Exception:
+        pass
+    try:
+        root.iconbitmap(str(_APP_ICON))           # this window: WM_SETICON (#296)
     except Exception:
         pass
 
@@ -253,6 +270,13 @@ class SettingsApp:
         self._column_px = self.theme.column_px()
         _enable_dark_title_bar(root)   # OS-drawn bar joins the dark page (no-op off-Windows)
         _set_window_icon(root)         # realized by the line above, so both icon sizes land (D-016)
+        # Once more from the running loop (#296): while __init__ builds the window the
+        # process pumps no messages, so the shell can create the taskbar button before
+        # this window can answer for its icon. The call is idempotent and self-guarded.
+        try:
+            root.after_idle(_set_window_icon, root)
+        except Exception:
+            pass
 
         # Re-render registries: simple text-bearing widgets and link widgets.
         self._text_widgets = []     # (widget, string-key)

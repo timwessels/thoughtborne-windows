@@ -337,6 +337,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The settings window's taskbar button carries the app icon right away (#296).** Since the icon
+  arrived (D-016), the title bar and the Alt+Tab entry showed the pixel mark while the taskbar
+  button kept Tk's blue feather — until you switched the language, which changes the window's
+  caption and makes the shell look again. Walking through the tabs never did. The cause is a seam
+  in Tk: it registers its toplevel window class on the first map, carrying its own feather, and by
+  the time the app sets its icon that map has happened — so `iconbitmap(default=…)` rewrites the
+  *class* icon and tells the window itself nothing. Title bar and Alt+Tab read the class icon when
+  they paint and so looked right; the shell had already captured the feather for its button and
+  was never told otherwise. The window now also gets the icon in Tk's window-specific form, which
+  reaches Windows as `WM_SETICON` carrying the exact 16 and 32 px frames, and gets it once more
+  from the running loop, so the button does not depend on the shell reaching the process while the
+  window is still being built. The `default=` call stays: it writes somewhere else — the window
+  *class*, the process-wide icon any window carrying none of its own falls back to — and it is
+  what the title bar and Alt+Tab have been reading correctly since D-016, so the second call is
+  not a duplicate of it. Checked on real Windows, where the bug lives: a Sandbox run's full-screen
+  shot shows the mark on the taskbar button, in the same lane whose earlier shot documented the
+  feather. The off-Windows ladder cannot see a taskbar button; it pins that both forms are there,
+  each in its own guard, so the second cannot be tidied away.
+
 - **A `.env` the app cannot read no longer makes it deny that your key exists (#294).** Saving with
   both key fields empty asks first, and that question said *no API key is entered, and none was
   found on this PC*. It said so just as confidently when there **is** a `.env` sitting right next to
