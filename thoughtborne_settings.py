@@ -1510,9 +1510,10 @@ class SettingsApp:
         # The version line is a format string ({version}) -> _prose_dyn, filled by
         # _render_machine_page. Built unconditionally so render_all always finds it,
         # packed only when the version could be read: an unreadable pyproject.toml
-        # shows NOTHING here rather than "None" (config.read_version is fail-open).
+        # shows NOTHING here rather than "None" (config.read_version is fail-open,
+        # and VERSION_DISPLAY is None exactly then).
         self.machine_version_lbl = self._prose_dyn(f)
-        if config.VERSION:
+        if config.VERSION_DISPLAY:
             self.machine_version_lbl.pack(fill="x", pady=(sp(2), sp(6)))
 
         self._prose(f, "machine.folder.body").pack(fill="x", pady=(0, sp(4)))
@@ -1566,14 +1567,16 @@ class SettingsApp:
         return outer
 
     def _render_machine_page(self):
-        # The version line, from config.VERSION -- a format string, so it is not
-        # _reg-istered and render_all would otherwise leave it in the old language
-        # (or blind-t() it into a raw '{version}'). Never filled when the version
-        # could not be read; the label is then unpacked as well.
-        if config.VERSION:
+        # The version line, from config.VERSION_DISPLAY -- the very string the console
+        # masthead is handed (#297, #302), so both surfaces answer "which version is
+        # this" out of one fact and one procedure rather than two. A format string, so
+        # it is not _reg-istered and render_all would otherwise leave it in the old
+        # language (or blind-t() it into a raw '{version}'). Never filled when the
+        # version could not be read; the label is then unpacked as well.
+        if config.VERSION_DISPLAY:
             self.machine_version_lbl.config(
                 text=strings.t("machine.version.body", self.lang).format(
-                    version=config.VERSION))
+                    version=config.VERSION_DISPLAY))
 
     # ---- done / closing tab ----
     def _build_done_tab(self):

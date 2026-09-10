@@ -722,7 +722,7 @@ _DE = {
     # ---- machine room tab ----
     "machine.tab": "Maschinenraum",
     "machine.install.heading": "Diese Installation",
-    "machine.version.body": "Installiert ist Thoughtborne {version}.",
+    "machine.version.body": "Hier läuft Thoughtborne {version}.",
     "machine.folder.body": (
         "Thoughtborne liegt in einem einzigen Ordner — das Programm selbst, deine "
         "zwei Einstellungsdateien, das Log und jede Aufnahme unter history/:"),

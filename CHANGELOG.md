@@ -54,9 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that folder is — the maintainer went looking for his own `personal_settings.json` — and it
   answered none of the questions a tool raises about itself: which version is this, how do I update,
   is anything updating behind my back, which files are mine to edit, under what license does this
-  run. One page now answers all of them. It opens with *You are running Thoughtborne X.Y.Z*, read
+  run. One page now answers all of them. It opens with *You are running Thoughtborne vX.Y.Z*, read
   from `pyproject.toml` — the repo's only version string — with the same line-anchored expression
-  `setup.ps1` already uses for the *Installed apps* entry, so the two cannot drift apart; a
+  `setup.ps1` already uses for the *Installed apps* entry, so the two numbers cannot drift apart; a
   `pyproject.toml` that cannot be read shows nothing at all rather than a guess, and never costs a
   start. Under it stands the install folder's own path with a button that opens it in Explorer, and
   then the two files in there that are yours: `.env` for the API keys — where the tab can now say
@@ -155,6 +155,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silent off Windows.
 
 ### Changed
+
+- **The settings window shows the version the console shows (#302).** The *Machine room* tab
+  opened with the bare release number while the masthead, since #297, additionally names the
+  commit a checkout points at — so on a clone the tool answered *which version is this* two ways
+  depending on where you looked. The window now prints the identical string the masthead is
+  handed: `v1.1.0` on an installed copy, `v1.1.0+709de1f` in a checkout, and nothing at all where
+  `pyproject.toml` cannot be read — one fact, one procedure, no second implementation of it. It
+  costs neither a file operation nor a millisecond of startup, because `config` reads the `.git`
+  beside the script at every settings-window start already and threw the answer away. Installed
+  users see the change too, as `1.1.0` becoming `v1.1.0` — the mark the console, the git tag and
+  the release page all carry, with D-021's `.git` gate keeping the commit suffix off an installed
+  copy. The long form stays where it belongs: `thoughtborne.log` alone carries the timestamp, in
+  English prose that has no business inside a German window. The German sentence follows its
+  English twin in the same pass — it said what is *installed* where the English said what is
+  *running*, and a number whose whole job is to name the running state settles which of the two is
+  right: *Hier läuft Thoughtborne v1.1.0.* One limit stands knowingly: the window reads `.git` at
+  its own start and the tool at its own, so a checkout that moves while the tool runs can have the
+  two name different commits — each true about a different thing, the folder and the running
+  process. In the test ladder the one check that looked at this line was repaired rather than
+  joined by a new one: it asked for `config.VERSION`, which is a substring of the display form, so
+  it was green before this change, after it, and on its reversal alike.
 
 - **Sharing the German page now shows a German card.** Both pages pointed at the same social
   preview image, whose subline is English — so a link to thoughtborne.app shared into a chat

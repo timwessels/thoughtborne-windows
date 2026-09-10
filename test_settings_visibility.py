@@ -102,14 +102,16 @@ state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has ent
 (they are `zip`ped, and `zip` drops a surplus on either side silently -- a page or a
 label would just vanish), `_tab_canvases` must stay index-parallel to `_tab_frames`
 (#180, or the mouse wheel scrolls the wrong page), and the machine-room version line
-must carry `config.VERSION` -- it is built empty and filled only out of `render_all`,
-so a dropped call leaves a blank gap on the page that no other check notices (where
-`pyproject.toml` cannot be read the same check demands the opposite: an empty line, not
-a guess). The fourth is the width: at the MINIMUM window size, in both languages, the
-notebook must get at least the width it asks for -- clam neither wraps nor scrolls a
-tab strip that does not fit, it squeezes every tab and clips each label with no error
-anywhere. The width part needs a font from `settings_theme.FAMILY_CHAIN` to mean
-anything and says so instead of failing when the box has none.
+must carry `config.VERSION_DISPLAY` -- the string the console masthead is handed, so
+both name the version out of one fact and one procedure, not two (#302). It is built
+empty and filled only out of `render_all`, so a dropped call leaves a blank gap on the
+page that no other check notices (where `pyproject.toml` cannot be read the same check
+demands the opposite: an empty line, not a guess). The fourth is the width: at the
+MINIMUM window size, in both languages, the notebook must get at least the width it
+asks for -- clam neither wraps nor scrolls a tab strip that does not fit, it squeezes
+every tab and clips each label with no error anywhere. The width part needs a font from
+`settings_theme.FAMILY_CHAIN` to mean anything and says so instead of failing when the
+box has none.
 
 An eighth, `test_empty_label_sweep_with_display`, generalizes that version line
 into a guard for its whole class (#299): once the app is built, no widget that
@@ -700,21 +702,28 @@ def test_tab_layout_with_display():
               "tab frames -- _tab_canvases is no longer index-parallel (#180) and the "
               "mouse wheel would scroll the wrong page")
 
-        # The tab's headline promise: it names the installed version. The label is
-        # BUILT empty and filled only by _render_machine_page out of render_all, so a
-        # dropped call leaves a blank gap on the page that every other check here
-        # still passes. Both worlds are asserted -- an unreadable pyproject.toml
-        # (config.VERSION None) must show nothing rather than a guess.
+        # The tab's headline promise: it names the running version in the very string
+        # the console masthead is handed (#302). Not `config.VERSION`, which is how
+        # this check read for #281 -- the bare number is a substring of the display
+        # form, so that spelling stayed green whichever of the two the app rendered.
+        # The label is BUILT empty and filled only by _render_machine_page out of
+        # render_all, so a dropped call leaves a blank gap on the page that every other
+        # check here still passes. Both worlds are asserted -- an unreadable
+        # pyproject.toml (config.VERSION_DISPLAY None) must show nothing rather than a
+        # guess.
         vtext = app.machine_version_lbl.cget("text")
-        if config.VERSION:
-            check(config.VERSION in vtext,
+        if config.VERSION_DISPLAY:
+            check(config.VERSION_DISPLAY in vtext,
                   f"the machine-room version line reads {vtext!r} and does not carry "
-                  f"config.VERSION ({config.VERSION!r}) -- render_all no longer fills "
-                  "it and the tab shows a blank gap where the version belongs (#281)")
+                  f"config.VERSION_DISPLAY ({config.VERSION_DISPLAY!r}) -- either the "
+                  "window no longer carries what the masthead is handed, or render_all "
+                  "no longer fills the line and the tab shows a blank gap where the "
+                  "version belongs (#281, #302)")
         else:
             check(vtext == "",
-                  f"config.VERSION is None (pyproject.toml unreadable) but the version "
-                  f"line reads {vtext!r} -- an unreadable version must show nothing")
+                  f"config.VERSION_DISPLAY is None (pyproject.toml unreadable) but the "
+                  f"version line reads {vtext!r} -- an unreadable version must show "
+                  "nothing")
 
         family = settings_theme._pick_family(root)
         if family not in settings_theme.FAMILY_CHAIN:
