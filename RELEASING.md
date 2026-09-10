@@ -31,8 +31,9 @@ casually.
 - The off-Windows test ladder is green (`python3 run_tests.py`), and the `Tests`
   workflow is green on `main` — CI runs the same ladder
   ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
-- You have decided the version `X.Y.Z` (semver; the first asset-carrying release
-  was v1.1.0-rc2, #104).
+- You have decided the version `X.Y.Z` (semver, with pre-releases spelled the
+  PEP 440 way — see step 1; the first asset-carrying release was the tag
+  `v1.1.0-rc2`, #104, which predates that rule).
 
 ## The ritual
 
@@ -44,12 +45,17 @@ The tag must point at a commit that *already* carries the bumped version and the
 finalized CHANGELOG — otherwise the shipped ZIP lags behind its own tag.
 
 - `pyproject.toml`: set `version = "X.Y.Z"` (the single version string in the
-  repo — there is no `__version__` in any `.py`).
+  repo — there is no `__version__` in any `.py`). Spell a pre-release the
+  PEP 440 way, without a separator — `1.1.0rc2`, not `1.1.0-rc2`: a `--dev`
+  build appends `+dev.<sha>`, which leaves the number itself eight columns in
+  the console masthead, and an over-long one is dropped from that screen
+  entirely rather than truncated (D-021 — the log, the settings window and the
+  Apps list still name it).
 - `uv.lock`: the lockfile carries the project's own version too (the
   `[[package]] name = "thoughtborne"` entry). `uv lock` updates it — that works
   off-Windows and offline, since the lockfile is already complete — or edit the
-  one `version = ...` line by hand (PEP 440 spelling: `1.1.0rc2`, `1.1.0`). A
-  forgotten self-pin ships a ZIP whose lockfile still names the previous version.
+  one `version = ...` line by hand, to the same string. A forgotten self-pin
+  ships a ZIP whose lockfile still names the previous version.
 - `CHANGELOG.md`: insert a `## [X.Y.Z] - YYYY-MM-DD` heading above the current
   entries, moving everything under `## [Unreleased]` beneath it and leaving
   `## [Unreleased]` empty above it (Keep a Changelog).
@@ -94,8 +100,10 @@ same ZIP and then stamps `<version>+dev.<short sha of the ref's commit>` into th
 test build can never sit where step 4 uploads from. It answers "what does the next
 version's install actually look like" without a tag: point `THOUGHTBORNE_ZIP` at
 the built ZIP and run `setup.ps1`, and the installed copy reports
-`vX.Y.Z+dev.<sha>` wherever it reports a version (D-021). A `--dev` build is a test
-build, never a release asset, and is never published (#306).
+`vX.Y.Z+dev.<sha>` wherever it reports a version (D-021) — the console masthead
+excepted when the stamped number outgrows it (step 1), which the build warns
+about. A `--dev` build is a test build, never a release asset, and is never
+published (#306).
 
 ### 4. Create the GitHub release with both assets
 
