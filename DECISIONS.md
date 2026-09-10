@@ -37,7 +37,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
 | D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
-| D-021 | A checkout names its commit; an installed copy shows the release number alone | Active |
+| D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
 
 ---
 
@@ -1565,8 +1565,35 @@ the copy was delivered, and both halves of that are contestable.
 
 Do not reintroduce: a date in the masthead (one-day resolution cannot separate two
 states of the same batch-run day), a `git` subprocess at startup, a truncated
-version token, the suffix on an installed copy, or a second masthead layout for
-the case where no version can be read.
+version token, a suffix an installed copy assembles at startup -- widening the
+`.git` search to a parent directory is how that would come back, and a suffix that
+travels inside the files is not that (see the addendum) -- or a second masthead
+layout for the case where no version can be read.
+
+**2026-09-10 addendum (#306).** A third state joins the two above, and it is why
+the "Do not reintroduce" line now names the suffix by its *source* rather than by
+its shape. A maintainer can build an installable ZIP from an unpublished state
+(`build-release-zip.sh --dev`), which stamps `<version>+dev.<short sha>` into the
+`pyproject.toml` and the `uv.lock` it ships. A copy installed from such a ZIP is an
+installed copy by every gate this entry names — there is no `.git` beside it — and
+it still shows a suffix, because the suffix is part of the version string it was
+built with. That is the whole distinction: the checkout suffix is assembled at
+startup from the `.git` next to the script; the dev suffix travels with the files,
+so every reader that shows a version shows it without knowing anything new. The
+three read:
+
+| Shown | Means |
+| --- | --- |
+| `v1.1.0` | installed from a published release |
+| `v1.1.0+dev.50854a6` | installed like a release, from an unpublished state |
+| `v1.1.0+50854a6` | running out of a checkout |
+
+Nothing about the released path moves. A release is built without the flag, so its
+`pyproject.toml` carries the bare number and an installed user still sees `v1.1.0`
+and nothing else; the stamp exists only inside a `dist/dev/` artifact that is never
+published (D-006's asset contract is untouched) and never in the tree, because
+`git archive` reads the ref, not the working copy. Not a supersede — the entry's
+rule stands, and this names the one delivery path it did not yet distinguish.
 
 Respects D-006 (the ZIP is a `git archive`, which is what makes the gate exact),
 D-018 (one console form: the version-less masthead keeps the same layout instead

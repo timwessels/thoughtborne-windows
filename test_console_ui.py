@@ -220,14 +220,21 @@ PATHS = [  # four checkout depths, shallow to deep (console width stress)
 # from the live open-settings combo; here the shipped Ctrl+Alt+G).
 GUIDANCE = "To enable dictation, enter an API key in Settings (Ctrl+Alt+G)"
 
-# #297 masthead version token: the two forms that ship (an installed copy, a
-# checkout), the longest one the geometry still holds, one column past it, and one
-# that would fit but carries a character outside the class -- the plain twin is
-# ASCII, so a `ü` in pyproject.toml has to leave no trace. The budget is derived
-# from the wordmark and the tagline, never typed out.
+# #297 masthead version token: the three forms that ship (an installed release, a
+# dev build stamped into the ZIP at build time, a checkout), the longest one the
+# geometry still holds, one column past it, and one that would fit but carries a
+# character outside the class -- the plain twin is ASCII, so a `ü` in
+# pyproject.toml has to leave no trace. The budget is derived from the wordmark
+# and the tagline, never typed out.
 VER_BUDGET = len(u.WM[0]) - len(u.TAGLINE) - 1
 VER_RELEASE = "v1.1.0"
 VER_CHECKOUT = "v1.1.0+aa8f43a"
+VER_DEV = "v1.1.0+dev.50854a6"      # #306: a test build, stamped into the ZIP
+# The widest that form can grow to -- spelled out rather than derived, which is the
+# whole point: VER_MAX shrinks along with the budget, so only a literal worst case
+# catches a wordmark or tagline change that starts dropping the longest version the
+# tool actually ships (which the renderer drops WHOLE, so nothing else says so).
+VER_DEV_MAX = "v10.20.30+dev.50854a6"
 VER_MAX = "v" + "9" * (VER_BUDGET - 1)
 VER_OVER = VER_MAX + "9"
 VER_JUNK = "v1.1.0ü"
@@ -390,8 +397,14 @@ def check_masthead_layout():
     # tagline, derived from the same geometry rather than from the literal column.
     # The longest token the budget holds must still make that edge; the shipped
     # forms sit well inside it.
+    # #306: the longest form the tool can ship has to make that edge too. Asserted
+    # against the budget by name, so a shrunk budget fails here saying WHY rather
+    # than only showing a missing token below.
+    if len(VER_DEV_MAX) > VER_BUDGET:
+        _record(f"masthead layout: the version budget ({VER_BUDGET}) no longer holds "
+                f"the longest shipped form {VER_DEV_MAX!r} ({len(VER_DEV_MAX)} cols)")
     edge = wm_offset + len(u.WM[0]) - 1
-    for token in (VER_RELEASE, VER_CHECKOUT, VER_MAX):
+    for token in (VER_RELEASE, VER_CHECKOUT, VER_DEV, VER_DEV_MAX, VER_MAX):
         row = next((strip(ln)[1:-1] for ln in _masthead(True, version=token)
                     if u.TAGLINE in strip(ln)), "")
         if token not in row:
@@ -434,7 +447,7 @@ def check_masthead_layout():
     # length too. That the two forms share one budget is arithmetic nobody wrote
     # down (WM_PLAIN, INNER or WM would each shift it); a plain budget one column
     # too small drops the token here alone, where no width breaks and nothing says so.
-    for token in (VER_CHECKOUT, VER_MAX):
+    for token in (VER_CHECKOUT, VER_DEV_MAX, VER_MAX):
         ptag = next((s for s in _masthead(False, version=token)
                      if u.TAGLINE in s), "")
         if token not in ptag:
@@ -1812,11 +1825,14 @@ def main():
             lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",
             switch_key=SWITCH, start_key=START, version=VER_CHECKOUT,
             logo_lines=u.ACTIVE_LOGO_MARK, with_wordmark=True))
-        # #297 the version token at its edges: the longest that still fits, one
-        # column past it (dropped whole), one carrying a character outside the
-        # class -- which the charset lanes above catch the moment it is rendered
-        # rather than dropped -- and a broken install with none at all.
-        for label, ver in (("max", VER_MAX), ("over", VER_OVER),
+        # #297 the version token at its edges: the dev form a #306 test build
+        # carries (rendered here so the charset and width lanes see the string an
+        # installed dev copy actually shows; its geometry is asserted by name in
+        # check_masthead_layout), the longest that still fits, one column past it
+        # (dropped whole), one carrying a character outside the class -- which the
+        # charset lanes above catch the moment it is rendered rather than dropped
+        # -- and a broken install with none at all.
+        for label, ver in (("dev", VER_DEV), ("max", VER_MAX), ("over", VER_OVER),
                            ("junk", VER_JUNK), ("none", None)):
             run(f"masthead_version/{label}", u.render_masthead, dict(
                 lineup=lineup, keys=PAIRS, history_path=PATHS[1] + r"\history",

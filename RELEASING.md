@@ -88,6 +88,15 @@ git show vX.Y.Z:setup.ps1 > dist/setup.ps1
 
 Do not proceed to step 4 unless the verification passes.
 
+**Not part of the ritual —** `bash build-release-zip.sh --dev [ref]` builds the
+same ZIP and then stamps `<version>+dev.<short sha of the ref's commit>` into the
+`pyproject.toml` and `uv.lock` inside it, writing both assets to `dist/dev/` so a
+test build can never sit where step 4 uploads from. It answers "what does the next
+version's install actually look like" without a tag: point `THOUGHTBORNE_ZIP` at
+the built ZIP and run `setup.ps1`, and the installed copy reports
+`vX.Y.Z+dev.<sha>` wherever it reports a version (D-021). A `--dev` build is a test
+build, never a release asset, and is never published (#306).
+
 ### 4. Create the GitHub release with both assets
 
 Write the release notes the way v1.1.0-rc2 did (`gh release view v1.1.0-rc2`):

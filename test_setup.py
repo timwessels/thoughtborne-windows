@@ -6,10 +6,11 @@ STATIC check: it reads the shipped installer scripts as text/bytes and asserts
 their structure and hard invariants. It does NOT execute PowerShell (pwsh is not
 available on the Linux dev box), so real behavior -- the execution-policy bypass
 on a Restricted client, the uv bootstrap and `uv sync`, the ZIP fetch/extract/
-strip, the actual DryRun *output*, shortcut creation and the "Run as
-administrator" verb, the guard actually refusing -- is out of reach here and
-belongs to the hands-on / Windows-Sandbox `test` issue (see sandbox/). This
-guard is a drift alarm for the invariants, not a correctness proof.
+strip (from a release URL or, since #306, from a local THOUGHTBORNE_ZIP), the
+actual DryRun *output*, shortcut creation and the "Run as administrator" verb,
+the guard actually refusing -- is out of reach here and belongs to the
+hands-on / Windows-Sandbox `test` issue (see sandbox/). This guard is a drift
+alarm for the invariants, not a correctness proof.
 
     python3 test_setup.py           # verify, exit non-zero on failure
     python3 test_setup.py --show    # also print the parsed denylist + shortcuts
@@ -152,6 +153,97 @@ def test_dryrun_present():
     # The gated side effects must actually exist to be gated.
     assert "DownloadFile" in text, "no download step to gate"
     assert re.search(r"&\s*\$uv\s+sync", text), "no 'uv sync' step to gate"
+
+
+def test_local_zip_lane_has_no_download_fallback():
+    """#306: with THOUGHTBORNE_ZIP set, setup.ps1 stages that local file instead of
+    a release asset. The one failure mode this must not have is a quiet
+    fall-through to the download -- it would turn a test build into a release
+    install, and you would not notice, because you are looking at the very install
+    you built it to look at. Five static statements, all over the comment-free
+    code so a comment naming a construct can never satisfy them; that the lane
+    WORKS is not among them, and no PowerShell runs here."""
+    lines = ps_code_lines("setup.ps1")
+    code = "\n".join(lines)
+    # The env var by its exact name: THOUGHTBORNE_ZIP_PATH would satisfy a
+    # substring test while THOUGHTBORNE_ZIP, the name every reader of this feature
+    # sets, silently installed the release. ${env:...} is the same read.
+    env_read = re.compile(r"\$\{?env:THOUGHTBORNE_ZIP\}?(?!\w)")
+    assert env_read.search(code), "setup.ps1 reads no THOUGHTBORNE_ZIP"
+    assert "$zipPath = $localZip" in code, \
+        "the local ZIP is validated but never staged -- $zipPath is not set from it"
+
+    # 1) $localZip is assigned exactly ONCE, and that one assignment reads the env
+    #    var -- so for the rest of the function its truthiness IS "THOUGHTBORNE_ZIP
+    #    was set". That is what turns 2)-4) from descriptions into proofs: a guard
+    #    rewritten to warn and null the variable satisfies every one of them and
+    #    quietly installs the release, which is the failure mode above. Written by
+    #    NAME rather than by the one spelling, because PowerShell has more ways to
+    #    empty a variable than the sigil form: a scope prefix, a ${...} form, a
+    #    compound operator, localZip as the first target of a list assignment, and
+    #    the *-Variable cmdlets (and their sv/clv/rv/nv aliases, and the Variable:
+    #    provider), which write it with no sigil in sight -- each of those was
+    #    measured to blank the variable in Windows PowerShell 5.1.
+    assign = re.compile(
+        r"\$(?:\w+:)?\{?localZip\}?(?:[ \t]*,[ \t]*\$[^\s,=]+)*"
+        r"[ \t]*(?:[-+*/%]|\?\?)?=(?!=)"
+        r"|(?:(?:Set|Clear|Remove|New)-Variable|\b(?:sv|clv|rv|nv)\b|Variable:)"
+        r"[^\n]*\blocalZip\b")
+    assigns = [ln.strip() for ln in lines if assign.search(ln)]
+    assert len(assign.findall(code)) == 1 and len(assigns) == 1, \
+        f"$localZip is written {len(assign.findall(code))} times, expected once " \
+        f"(its definition): {assigns} -- a second write puts a set " \
+        "THOUGHTBORNE_ZIP back on the release download with every other check here " \
+        "still green"
+    assert env_read.search(assigns[0]), \
+        f"$localZip is not assigned from $env:THOUGHTBORNE_ZIP: {assigns[0]!r} -- its " \
+        "truthiness no longer means 'the maintainer asked for a local ZIP'"
+
+    # 2) One download call site, so 3) can speak about exclusivity at all.
+    dl = re.findall(r"WebClient\)\.DownloadFile\(", code)
+    assert len(dl) == 1, \
+        f"expected exactly one download call site, found {len(dl)} -- the local-ZIP " \
+        "lane can only be proven exclusive against a single one"
+
+    # 3) Every release URL is formed inside the  if (-not $localZip)  gate. With 1)
+    #    holding, no later edit can reach a release URL from the local lane. The cut
+    #    is the fork's own 4-space closing brace (the inner latest/tag branches
+    #    close at 8).
+    m = re.search(r"if \(-not \$localZip\) \{(.*?)\n    \}", code, re.S)
+    assert m, "the release URL is not gated on  if (-not $localZip)"
+    urls_total = len(re.findall(r"\$zipUrl\s*=(?!=)", code))
+    urls_gated = len(re.findall(r"\$zipUrl\s*=(?!=)", m.group(1)))
+    assert urls_total and urls_total == urls_gated, \
+        f"{urls_total - urls_gated} of {urls_total} $zipUrl assignments sit outside " \
+        "the  if (-not $localZip)  gate -- a set THOUGHTBORNE_ZIP could still fetch " \
+        "the release"
+
+    # 4) Every set-but-unusable branch ENDS the run: LASTEXITCODE and a return, and
+    #    no reach for the download. Dropping the return would leave the run walking
+    #    on into the fetch with a path it has just called unusable.
+    guards = [i for i in range(len(code)) if code.startswith("ERROR: THOUGHTBORNE_ZIP", i)]
+    assert guards, "no  ERROR: THOUGHTBORNE_ZIP  branch found -- a bad path is silent"
+    for i in guards:
+        end = code.index("\n        }", i)
+        branch = code[i:end]
+        first = branch.splitlines()[0]
+        assert "$Global:LASTEXITCODE = 1" in branch, \
+            f"a THOUGHTBORNE_ZIP guard does not set LASTEXITCODE: {first!r}"
+        assert re.search(r"(?m)^\s*return\s*$", branch), \
+            f"a THOUGHTBORNE_ZIP guard does not return -- the run would continue to " \
+            f"the release download: {first!r}"
+        assert "$zipUrl" not in branch and "DownloadFile" not in branch, \
+            f"a THOUGHTBORNE_ZIP guard reaches for the release download: {first!r}"
+
+    # 5) The block sits ahead of the uv bootstrap -- the first thing this run writes
+    #    anywhere (into the user profile). "Nothing partially written" is the
+    #    promise a bad path is answered with; a mistyped path that costs a uv
+    #    install has already broken it.
+    uv_bootstrap = code.find("Invoke-RestMethod -Uri 'https://astral.sh/uv/install.ps1'")
+    assert uv_bootstrap > 0, "the uv bootstrap is no longer recognizable here"
+    assert max(guards) < uv_bootstrap, \
+        "a THOUGHTBORNE_ZIP guard sits after the uv bootstrap -- a mistyped path " \
+        "would cost a uv install before anything tells the maintainer it is wrong"
 
 
 def test_shortcuts():
@@ -1111,6 +1203,7 @@ CASES = [
     test_fingerprint_refusal_present,
     test_running_instance_guard_present,
     test_dryrun_present,
+    test_local_zip_lane_has_no_download_fallback,
     test_shortcuts,
     test_handoff_starts_tool,
     test_no_secret_collection,

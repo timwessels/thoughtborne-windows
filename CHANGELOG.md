@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Install the current checkout the way a user installs a release (#306).** Everything that
+  exists only on the install path — the Start-menu shortcut, the Installed-apps entry with its
+  icon and version, an in-place update over an existing install — could be looked at only by
+  publishing a release first, because `setup.ps1` fetched `thoughtborne.zip` from a release URL
+  and from nowhere else. It now also stages a local file: `THOUGHTBORNE_ZIP` names an absolute
+  path to a ZIP, and everything after it — strip-if-present, the denylist copy, `uv sync`, the
+  shortcut, the registry entry, the hand-off start — is the run a released install gets. There is
+  no silent fallback: a path that still carries the quotes `set VAR="..."` leaves in it, or is
+  relative, names no file, is not named `.zip` (`Expand-Archive` accepts no other extension, and
+  would say so only deep in the extract) or cannot be read ends the run with a message of its own
+  before the run has written anything, the uv bootstrap included, because a quiet fall-through to
+  the release download would turn a test build into a release install without saying so. The run
+  names its source in the parameter block and where it used to say `Downloading Thoughtborne ...`,
+  under `-DryRun` too, and a `THOUGHTBORNE_VERSION` left over from an earlier test is reported as
+  ignored rather than silently outranked. The other half is `build-release-zip.sh --dev`, which
+  builds the same `git archive` ZIP and stamps `<version>+dev.<short sha>` into the
+  `pyproject.toml` and the `uv.lock` inside it — both, because a lockfile still naming the old
+  version is the trap `RELEASING.md` already warns about — so such an install reads
+  `v1.1.0+dev.50854a6` in the masthead, in `thoughtborne.log`, in the settings window and in the
+  Apps list, and is never mistaken for the v1.1.0 it replaced. Without the flag the script builds
+  the asset it always did, byte for byte the raw `git archive`; dev assets go to `dist/dev/`,
+  where the publish command cannot reach them, and are never published. The builder also says the
+  two things a `git archive` cannot: that uncommitted changes are not in the build, and that a
+  version has grown too long for the console masthead to show at all.
 - **The console masthead says which version is running (#297).** The startup screen carried the
   wordmark and the tagline and never the one thing a bug report starts with. The tagline now sits
   flush with the start of the wordmark and the version flush with its right edge, the two of them

@@ -48,7 +48,9 @@ install directory whose only correct behaviour on a broken file is to yield None
 cost nothing. Its lane checks the parsing rules against tempdir fixtures, that a
 broken file still lets `import config` through, and, as the point of the exercise,
 that the regex stays character-identical to the one `setup.ps1` uses for the
-Installed-apps `DisplayVersion`: two answers about one file that must not drift.
+Installed-apps `DisplayVersion` and to the one `build-release-zip.sh --dev` stamps
+with: two answers and, since #306, one writer, all about one file, none of which
+may drift.
 
 Beside it since #297 sits the other thing nobody edits and everything depends on:
 the `.git` folder a checkout carries and an installed copy does not, which is what
@@ -1031,8 +1033,11 @@ def test_version_drift_guard():
     Installed-apps `DisplayVersion` (its Get-InstalledVersion), read out of the same
     installed `pyproject.toml`. Two readers of one fact drift silently -- a `[tool.x]`
     table gaining a `version =` line would move one and not the other -- so the
-    pattern is pinned character for character in both. Read as text; no PowerShell
-    runs here."""
+    pattern is pinned character for character in both. Since #306 there is also a
+    WRITER: `build-release-zip.sh --dev` stamps `+dev.<sha>` onto that same line. If
+    its expression drifts, the stamp lands on a line neither reader reads and the
+    dev install reports the bare release number -- silently the very thing #306
+    exists to prevent. Read as text; no PowerShell and no bash run here."""
     check(_VERSION_PATTERN in config._VERSION_RE.pattern,
           f"config._VERSION_RE is {config._VERSION_RE.pattern!r}, which no longer "
           f"contains setup.ps1's pattern {_VERSION_PATTERN!r}")
@@ -1046,6 +1051,15 @@ def test_version_drift_guard():
           "setup.ps1 no longer matches the version with "
           f"{_VERSION_PATTERN!r} -- it and config.read_version must read "
           "pyproject.toml the same way")
+    builder = Path(__file__).resolve().parent / "build-release-zip.sh"
+    try:
+        bsrc = builder.read_text(encoding="utf-8")
+    except OSError as e:
+        failures.append(f"could not read build-release-zip.sh: {type(e).__name__}: {e}")
+        return
+    check(_VERSION_PATTERN in bsrc,
+          "build-release-zip.sh --dev no longer stamps the version with "
+          f"{_VERSION_PATTERN!r} -- the stamp would land on a line neither reader reads")
 
 
 def test_version_import_subprocess():
@@ -1409,7 +1423,8 @@ def main():
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "
           f"route, a broken file warned about instead of fatal; pyproject.toml: the "
-          f"version reader's fail-open rules and its regex twin in setup.ps1, plus the "
+          f"version reader's fail-open rules, its regex twin in setup.ps1 and the "
+          f"--dev stamp that writes the same line, plus the "
           f"checkout state read from a `.git` beside the script, fail-open in every "
           f"shape it comes in; plus the warning replay and the static guards)")
     return 0

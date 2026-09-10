@@ -276,12 +276,82 @@ function Install-Thoughtborne {
     $installDir = if ($env:THOUGHTBORNE_INSTALL_DIR) { $env:THOUGHTBORNE_INSTALL_DIR } `
                   else { Join-Path $env:LOCALAPPDATA 'Programs\Thoughtborne' }
     $version = if ($env:THOUGHTBORNE_VERSION) { $env:THOUGHTBORNE_VERSION } else { 'latest' }
+    # THOUGHTBORNE_ZIP (#306): an absolute path to a locally built thoughtborne.zip,
+    # staged instead of a release asset -- the maintainer lane that installs an
+    # unpublished state (build-release-zip.sh --dev, RELEASING.md). Set means set:
+    # nothing below falls back to the release download, because a quiet
+    # fall-through would turn a test build into a release install.
+    $localZip = $env:THOUGHTBORNE_ZIP
 
     Write-Host "Thoughtborne setup"
     Write-Host ("  install dir: {0}" -f $installDir)
-    Write-Host ("  version:     {0}" -f $version)
+    if ($localZip) {
+        # The release tag plays no part on this lane, so printing it would state
+        # something untrue about the install; the ZIP carries its own version.
+        Write-Host ("  local zip:   {0}" -f $localZip)
+        if ($env:THOUGHTBORNE_VERSION) {
+            Write-Host ("  note:        THOUGHTBORNE_VERSION ({0}) is ignored on this lane" -f $env:THOUGHTBORNE_VERSION)
+        }
+    } else {
+        Write-Host ("  version:     {0}" -f $version)
+    }
     if ($DryRun) { Write-Host "  mode:        dry-run (no changes will be made)" }
     Write-Host ""
+
+    # Validated up here because step 4's uv bootstrap is the first thing this run
+    # writes anywhere (into the user profile), and a mistyped path must cost none of
+    # it. Steps 2 and 3 write nothing either, so the only requirement on this block
+    # is that it sits ahead of step 4.
+    if ($localZip) {
+        # First, because a character no path may hold makes every [System.IO.Path]
+        # call below THROW rather than answer, and the run would end on the outer
+        # catch's raw framework text ("Illegales Zeichen im Pfad." -- localized, and
+        # naming a method nobody typed) instead of on a message about the variable
+        # that was set. Quotes are how such a character gets in:  cmd's
+        # set THOUGHTBORNE_ZIP="C:\..."  keeps them IN the value. The quote is named
+        # beside the framework's own list because PowerShell 7 returns a nearly empty
+        # one, while a quote is no part of a Windows path either way. Nothing is
+        # trimmed off here: this lane installs the file that was named, or none.
+        if (($localZip.IndexOfAny([System.IO.Path]::GetInvalidPathChars()) -ge 0) -or $localZip.Contains('"')) {
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP contains a character no path can hold: '{0}'" -f $localZip)
+            Write-Host '       Quotes are the usual cause: cmd keeps them in the value, so set it'
+            Write-Host '       without them (set THOUGHTBORNE_ZIP=C:\path\to\thoughtborne.zip).'
+            $Global:LASTEXITCODE = 1
+            return
+        }
+        if (-not [System.IO.Path]::IsPathRooted($localZip)) {
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP must be an absolute path: '{0}'" -f $localZip)
+            $Global:LASTEXITCODE = 1
+            return
+        }
+        # -PathType Leaf: a plain Test-Path is true for a directory too, which would
+        # then fail deep inside Expand-Archive instead of here.
+        if (-not (Test-Path -LiteralPath $localZip -PathType Leaf)) {
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP does not name a file: '{0}'" -f $localZip)
+            Write-Host "       Clear it to install from the published release instead."
+            $Global:LASTEXITCODE = 1
+            return
+        }
+        # Expand-Archive (Windows PowerShell 5.1) reads '.zip' and refuses every other
+        # extension by name, so a differently named copy of a perfectly good ZIP would
+        # fail in the extract -- past the uv bootstrap, which is the late failure this
+        # whole block exists to prevent. The comparison is case-insensitive ('.ZIP' is
+        # fine); it judges the name, not the contents, which Expand-Archive does too.
+        if ([System.IO.Path]::GetExtension($localZip) -ne '.zip') {
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP must name a .zip file: '{0}'" -f $localZip)
+            Write-Host "       Expand-Archive accepts no other extension."
+            $Global:LASTEXITCODE = 1
+            return
+        }
+        # Present but unreadable (a lock, an ACL) answers only to an open attempt.
+        try {
+            [System.IO.File]::OpenRead($localZip).Dispose()
+        } catch {
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP cannot be read: {0}" -f $_.Exception.Message)
+            $Global:LASTEXITCODE = 1
+            return
+        }
+    }
 
     # 2) Fingerprint / refuse guard (before any write). A missing OR empty dir is a
     #    fresh install (an empty dir has nothing to destroy) -- proceed. A non-empty
@@ -399,11 +469,15 @@ function Install-Thoughtborne {
     # 5) Fetch the code snapshot (temp-staged so an aborted/corrupt download never
     #    touches the live install) and copy it in under the data denylist. Asset
     #    names (setup.ps1 / thoughtborne.zip) are fixed by the release ritual
-    #    (RELEASING.md, D-006).
-    if ($version -eq 'latest') {
-        $zipUrl = 'https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip'
-    } else {
-        $zipUrl = "https://github.com/timwessels/thoughtborne-windows/releases/download/$version/thoughtborne.zip"
+    #    (RELEASING.md, D-006). With THOUGHTBORNE_ZIP set, no release URL is formed
+    #    at all (#306) -- the local file is a source beside the release, never a
+    #    rewrite of it.
+    if (-not $localZip) {
+        if ($version -eq 'latest') {
+            $zipUrl = 'https://github.com/timwessels/thoughtborne-windows/releases/latest/download/thoughtborne.zip'
+        } else {
+            $zipUrl = "https://github.com/timwessels/thoughtborne-windows/releases/download/$version/thoughtborne.zip"
+        }
     }
 
     # In-place update self-overwrite guard (#157, D-007). On the update lane the
@@ -418,7 +492,11 @@ function Install-Thoughtborne {
     if (Test-SameDir $PSScriptRoot $installDir) { $excludeCopy = @('setup.bat') }
 
     if ($DryRun) {
-        Write-Host ("[dry-run] would download: {0}" -f $zipUrl)
+        if ($localZip) {
+            Write-Host ("[dry-run] would install from local ZIP: {0}" -f $localZip)
+        } else {
+            Write-Host ("[dry-run] would download: {0}" -f $zipUrl)
+        }
         Write-Host ("[dry-run] would extract, strip any single wrapper folder, and copy into: {0}" -f $installDir)
         if ($excludeCopy.Count -gt 0) {
             Write-Host "[dry-run] in-place update: would keep the running setup.bat (not self-overwritten, #157)"
@@ -427,15 +505,22 @@ function Install-Thoughtborne {
     } else {
         $tempDir = Join-Path $env:TEMP ('thoughtborne-setup-' + [guid]::NewGuid().ToString())
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        $zipPath = Join-Path $tempDir 'thoughtborne.zip'
-        Write-Host "Downloading Thoughtborne ..."
-        try {
-            (New-Object System.Net.WebClient).DownloadFile($zipUrl, $zipPath)
-        } catch {
-            Write-Host ("ERROR: download failed: {0}" -f $_.Exception.Message)
-            Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-            $Global:LASTEXITCODE = 1
-            return
+        if ($localZip) {
+            # Read straight from the maintainer's file -- Expand-Archive only reads
+            # it, so there is nothing to stage into the temp dir but the extract.
+            $zipPath = $localZip
+            Write-Host ("Installing from local ZIP: {0}" -f $zipPath)
+        } else {
+            $zipPath = Join-Path $tempDir 'thoughtborne.zip'
+            Write-Host "Downloading Thoughtborne ..."
+            try {
+                (New-Object System.Net.WebClient).DownloadFile($zipUrl, $zipPath)
+            } catch {
+                Write-Host ("ERROR: download failed: {0}" -f $_.Exception.Message)
+                Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                $Global:LASTEXITCODE = 1
+                return
+            }
         }
         $extractDir = Join-Path $tempDir 'extracted'
         try {
