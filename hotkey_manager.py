@@ -8,11 +8,20 @@ WH_KEYBOARD_LL hook used by the keyboard library.
 Also provides is_key_pressed() using GetAsyncKeyState as a hook-free
 replacement for keyboard.is_pressed().
 
+One kind of hotkey does not go through RegisterHotKey at all: a mouse button
+(#308), which the API accepts and then never fires for. Those are filed into a
+polled lane instead -- register() sorts them there, a poll thread in
+thoughtborne.py reads their key state through is_vk_pressed() and posts the hit
+back here via post_hotkey(), so the pump dispatches it and the callback runs on
+this thread like every other one.
+
 Public API:
     HotkeyManager:
         register(hotkey_str, callback, name="") -> int
         start() -> bool
         stop()
+        mouse_bindings() -> [(vk, hotkey_id)]      # the polled lane (#308)
+        post_hotkey(hotkey_id) -> bool             # deliver a polled hit
 
     is_key_pressed(key_name: str) -> bool
 """
@@ -29,7 +38,7 @@ import threading
 # hotkey_manager.MOD_* / MODIFIER_MAP / VK_MAP keeps working unchanged.
 from hotkey_parse import (
     MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT,
-    MODIFIER_MAP, VK_MAP, HotkeyParseError, parse_hotkey_lexical,
+    MODIFIER_MAP, VK_MAP, HotkeyParseError, parse_hotkey_lexical, mouse_vk,
 )
 
 # The module's public surface, spelled out so the re-exports above read as the
@@ -69,7 +78,15 @@ UnregisterHotKey.argtypes = [ctypes.wintypes.HWND, ctypes.c_int]
 UnregisterHotKey.restype = ctypes.wintypes.BOOL
 
 GetMessageW = user32.GetMessageW
+
 PostThreadMessageW = user32.PostThreadMessageW
+# Spelled out like every other function in this block: the thread id is a DWORD
+# and wParam is pointer-wide, so a hotkey id posted from the polled lane (#308)
+# cannot be silently truncated, and post_hotkey's return value is a real BOOL.
+PostThreadMessageW.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.UINT,
+                               ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+PostThreadMessageW.restype = ctypes.wintypes.BOOL
+
 GetAsyncKeyState = user32.GetAsyncKeyState
 GetAsyncKeyState.argtypes = [ctypes.c_int]
 GetAsyncKeyState.restype = ctypes.c_short
@@ -230,8 +247,13 @@ class HotkeyManager:
     """
 
     def __init__(self):
-        self._registrations = []  # List of (hotkey_id, hotkey_str, callback, name)
-        self._hotkey_map = {}     # hotkey_id -> (callback, name)
+        self._registrations = []        # keyboard: (hotkey_id, hotkey_str, callback, name)
+        self._mouse_registrations = []  # polled:   (hotkey_id, hotkey_str, callback, name, vk)
+        # hotkey_id -> (callback, name), for BOTH kinds: the pump must not be able
+        # to tell a polled hit from a reserved one, which is what keeps every
+        # callback running where and how it runs today.
+        self._hotkey_map = {}
+        self._registered_ids = []  # ids RegisterHotKey actually took (#308)
         self._thread = None
         self._thread_id = None    # Win32 thread ID for PostThreadMessageW
         self._started = threading.Event()
@@ -239,22 +261,38 @@ class HotkeyManager:
 
     @property
     def expected_count(self) -> int:
-        """How many hotkeys were queued for registration (#109 startup summary)."""
+        """How many hotkeys were queued for RegisterHotKey (#109 startup summary).
+
+        Mouse combos are deliberately not in it (#308): they hold no reservation,
+        so counting them would make the summary answer a question nobody asked --
+        "did the exclusive reservations succeed"."""
         return len(self._registrations)
 
     @property
     def registered_count(self) -> int:
-        """How many hotkeys actually registered -- start() populates the map, so
+        """How many hotkeys actually registered -- start() fills the id list, so
         a per-key 1409 loss (another app owns the combo) shows as a shortfall
         against expected_count without changing start()'s return value (#61)."""
-        return len(self._hotkey_map)
+        return len(self._registered_ids)
+
+    @property
+    def listening_count(self) -> int:
+        """Mouse combos filed into the polled lane (#308). Reported beside the
+        registered count, never added to it: listening is not a reservation."""
+        return len(self._mouse_registrations)
 
     def register(self, hotkey_str: str, callback, name: str = "") -> int:
         """
         Register a hotkey. Must be called before start().
 
+        A bare mouse combo goes into the polled lane instead of the
+        RegisterHotKey one (#308); everything else is unchanged. The lane is
+        decided by hotkey_parse.mouse_vk, which never raises, so this method
+        stays unable to raise -- _register_hotkeys calls it in an unguarded loop
+        before the listener thread exists.
+
         Args:
-            hotkey_str: Hotkey string (e.g. 'ctrl+alt+w')
+            hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', or 'xbutton1')
             callback: Function to call when hotkey is pressed
             name: Optional name for logging
 
@@ -263,8 +301,44 @@ class HotkeyManager:
         """
         hotkey_id = self._next_id
         self._next_id += 1
-        self._registrations.append((hotkey_id, hotkey_str, callback, name))
+        vk = mouse_vk(hotkey_str)
+        if vk is not None:
+            self._mouse_registrations.append(
+                (hotkey_id, hotkey_str, callback, name, vk))
+        else:
+            self._registrations.append((hotkey_id, hotkey_str, callback, name))
         return hotkey_id
+
+    def mouse_bindings(self) -> list:
+        """[(vk, hotkey_id)] for the polled lane -- what the poll thread watches."""
+        return [(vk, hotkey_id)
+                for hotkey_id, _str, _cb, _name, vk in self._mouse_registrations]
+
+    def post_hotkey(self, hotkey_id: int) -> bool:
+        """Deliver a polled (mouse) hit to the listener thread as a WM_HOTKEY (#308).
+
+        The pump dispatches by id and GetMessageW(hwnd=None) is what retrieves a
+        thread message, so the callback runs on the listener thread exactly like a
+        RegisterHotKey hit -- same thread, same serialization, same error
+        handling. False when there is no listener thread (before start(), after
+        stop()): the caller is a poll thread that can outlive either end, and a
+        hit with nowhere to go is a no-op, never an error. Outliving stop() is
+        the normal case rather than the edge: on the Ctrl+C/Ctrl+Break path the
+        app's `running` flag is never cleared -- thoughtborne.py sets it in
+        stop_program alone, and KeyboardInterrupt goes straight to run()'s
+        finally -- so the poller keeps ticking through the whole of cleanup().
+        It still needs no lock, because every way this ends is harmless: once
+        the stop() that joins has run, both _thread and _thread_id are None and
+        the check below catches it; a stop() landing between that check and the
+        post sends to a thread id that no longer exists, which returns 0 and is
+        gone; and a message that does arrive sits behind the WM_QUIT stop()
+        already posted, in a queue nobody drains. A lock in a 100 Hz path to
+        serialize that would be the worse trade.
+        """
+        thread_id = self._thread_id
+        if thread_id is None or self._thread is None:
+            return False
+        return bool(PostThreadMessageW(thread_id, WM_HOTKEY, hotkey_id, 0))
 
     def start(self) -> bool:
         """
@@ -339,6 +413,7 @@ class HotkeyManager:
                 success = RegisterHotKey(None, hotkey_id, modifiers, vk_code)
                 if success:
                     self._hotkey_map[hotkey_id] = (callback, name)
+                    self._registered_ids.append(hotkey_id)
                     logger.info(f"  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})", extra={'file_only': True})
                     registered_count += 1
                 else:
@@ -351,6 +426,19 @@ class HotkeyManager:
                 logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}", extra={'file_only': True})
 
         logger.info(f"Hotkey registration complete: {registered_count}/{len(self._registrations)} successful", extra={'file_only': True})
+
+        # Mouse combos are LISTENING, not registered (#308): no reservation
+        # exists for them, a poll thread on its own 10 ms clock reads their key
+        # state and posts the hit here. They go into the dispatch map but never
+        # into _registered_ids -- there is nothing to unregister and nothing that
+        # counts as a successful reservation. Filed before _started.set(), so a
+        # click the instant start() returns already dispatches. The line is the
+        # one trace a user who binds by hand gets on every start, and it says out
+        # loud that the button stays shared with every other program.
+        for hotkey_id, hotkey_str, callback, name, vk in self._mouse_registrations:
+            self._hotkey_map[hotkey_id] = (callback, name)
+            logger.info(f"  Listening (mouse, not exclusive): {hotkey_str} -> {name} "
+                        f"(id={hotkey_id}, vk=0x{vk:02X})", extra={'file_only': True})
 
         # Signal that registration is done
         self._started.set()
@@ -379,8 +467,11 @@ class HotkeyManager:
                     except Exception as e:
                         logger.error(f"Error in hotkey callback '{name}': {e}", exc_info=True)
 
-        # Unregister all hotkeys
-        for hotkey_id in self._hotkey_map:
+        # Unregister all hotkeys. Only the ids RegisterHotKey actually took (#308)
+        # -- a polled mouse id was never reserved, so unregistering it would be a
+        # meaningless call and would make the count below lie.
+        for hotkey_id in self._registered_ids:
             UnregisterHotKey(None, hotkey_id)
-        logger.info(f"All hotkeys unregistered ({len(self._hotkey_map)} total)", extra={'file_only': True})
+        logger.info(f"All hotkeys unregistered ({len(self._registered_ids)} total)", extra={'file_only': True})
+        self._registered_ids.clear()
         self._hotkey_map.clear()

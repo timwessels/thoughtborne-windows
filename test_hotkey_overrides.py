@@ -14,7 +14,10 @@ Layer A -- `hotkey_parse` (the ctypes-free lexical layer): the static VK map
 `canonical_combo`, `format_combo`, `first_combo` (#275), including the guard
 that both shipped schemes (`DEFAULT_HOTKEYS` and `settings_io.PRESET_FKEYS`) are
 written canonically themselves -- and the drift guard that keeps the README
-twins' `## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019).
+twins' `## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019). Since
+#308 it also covers the three mouse buttons: their own classification, their
+display spelling, the lane `mouse_vk` sorts them into, and the couplings that
+keep them out of `VK_MAP`.
 
 Layer B -- `config.apply_hotkey_overrides` (the pure production loader config
 calls verbatim): partial override by action name, warn-and-keep-default on every
@@ -24,10 +27,15 @@ decision), duplicate detection on the *effective* set with case/modifier-order
 normalization -- which after #275 also catches the 'ue'/'ü' pair, one key under
 two spellings -- and the guarantees that the defaults dict is never mutated and
 that their order, the canonical action order every surface follows (D-019),
-survives the one loader it passes through.
+survives the one loader it passes through. The bare-only rule for mouse buttons
+(#308) is asserted here against BOTH acceptance authorities at once -- this
+loader and `settings_io.validate_combo` -- since one rule refused on one path and
+accepted on the other is exactly the drift `hotkey_parse.combo_rejection` exists
+to prevent.
 
-The did-the-key-actually-fire check is hands-on (RegisterHotKey needs Windows)
-and is tracked in a separate `test` issue.
+Whether a key really fires needs Windows (RegisterHotKey) or a mouse
+(GetAsyncKeyState on the button), so it is not reachable from here at all; that
+half is verified in daily use.
 """
 import copy
 import logging
@@ -134,6 +142,13 @@ def test_classify_key():
     assert hp.classify_key('ue') == hp.KEY_SPECIAL    # known alias
     assert hp.classify_key('foo') == hp.KEY_INVALID   # multi-char non-key
     assert hp.classify_key('') == hp.KEY_INVALID      # empty token (e.g. 'ctrl+alt+')
+    # #308: the mouse buttons are their own outcome, never STATIC -- see
+    # test_mouse_lane for why that distinction is load-bearing.
+    assert hp.classify_key('mbutton') == hp.KEY_MOUSE
+    assert hp.classify_key('xbutton1') == hp.KEY_MOUSE
+    assert hp.classify_key('xbutton2') == hp.KEY_MOUSE
+    assert hp.classify_key('xbutton3') == hp.KEY_INVALID  # the table is exact,
+    assert hp.classify_key('button1') == hp.KEY_INVALID   # not a prefix match
 
 
 def test_canonical_combo():
@@ -150,6 +165,11 @@ def test_canonical_combo():
     # same VK); the character is the stored spelling.
     assert hp.canonical_combo('ctrl+alt+ue') == 'ctrl+alt+ü'
     assert hp.canonical_combo('CTRL+ALT+Ü') == 'ctrl+alt+ü'
+    # A mouse token is already its own canonical spelling (#308): no alias, so
+    # only case and spacing collapse.
+    assert hp.canonical_combo('XBUTTON1') == 'xbutton1'
+    assert hp.canonical_combo(' XButton1 ') == 'xbutton1'
+    assert hp.canonical_combo('MButton') == 'mbutton'
     # unparseable input raises exactly like parse_hotkey_lexical, so callers keep
     # their existing error paths
     for bad in ('ctrl+alt', 'ctrl+alt+a+b'):
@@ -167,6 +187,12 @@ def test_format_and_first_combo():
     assert hp.format_combo('ctrl+alt+ü') == 'Ctrl+Alt+Ü'
     assert hp.format_combo('f9') == 'F9'
     assert hp.format_combo('ctrl+alt') == 'Ctrl+Alt'   # a bare prefix formats too
+    # #308: the three tokens capitalize() would print as 'Xbutton1'. The name
+    # table is keys only -- every modifier still goes through capitalize().
+    assert hp.format_combo('mbutton') == 'MButton'
+    assert hp.format_combo('xbutton1') == 'XButton1'
+    assert hp.format_combo('xbutton2') == 'XButton2'
+    assert hp.format_combo('ctrl+alt+shift+win+w') == 'Ctrl+Alt+Shift+Win+W'
     # The widest combo any surface can be handed, now that the aliases collapse:
     # 22 cells, not the 29 of 'Control+Alt+Shift+Windows+F24' -- the layout budget
     # of the later display steps rests on this.
@@ -177,6 +203,35 @@ def test_format_and_first_combo():
     assert hp.first_combo('ctrl+alt+w') == 'ctrl+alt+w'
     assert hp.first_combo(['ctrl+alt+x', 'ctrl+alt+q']) == 'ctrl+alt+x'
     assert hp.first_combo([]) == ''
+
+
+def test_mouse_lane():
+    """#308: which lane a combo takes, and the couplings that keep it there."""
+    # A bare mouse combo yields its VK; everything else yields None and goes to
+    # RegisterHotKey. Never raises -- register() calls this unguarded, before the
+    # listener thread exists.
+    assert hp.mouse_vk('mbutton') == 0x04
+    assert hp.mouse_vk('xbutton1') == 0x05
+    assert hp.mouse_vk(' XButton2 ') == 0x06
+    assert hp.mouse_vk('ctrl+alt+w') is None
+    assert hp.mouse_vk('f9') is None
+    assert hp.mouse_vk('ctrl+xbutton1') is None   # refused shape -> keyboard lane,
+    assert hp.mouse_vk('ctrl+alt') is None        # unparseable -> no raise either
+
+    for token, vk in hp.MOUSE_VK_MAP.items():
+        # Out of VK_MAP on purpose, and this is the assertion that says why:
+        # _resolve_vk_code would hand the token to RegisterHotKey, which returns
+        # TRUE for a mouse VK and then never fires; hotkey_manager's VK_KEY_MAP
+        # would inherit it into is_key_pressed; and test_console_ui derives its
+        # width ceiling MAX_COMBO from VK_MAP, so an entry there would make the
+        # stress sweep demand that the illegal 'Ctrl+Alt+Shift+Win+XButton1' fit
+        # every framed line.
+        assert token not in hp.VK_MAP, f"{token} leaked into VK_MAP"
+        # The D-012 guard below asks `== KEY_STATIC` of every shipped default. It
+        # must keep biting for a mouse token, which is why KEY_MOUSE is a fourth
+        # outcome rather than a flavour of STATIC.
+        assert hp.classify_key(token) != hp.KEY_STATIC
+        assert 0x04 <= vk <= 0x06
 
 
 def test_common_prefix():
@@ -307,6 +362,9 @@ def test_shipped_defaults_are_static():
     # #211 / D-012: no shipped default may sit on a key without a static VK code --
     # those are resolved against the ACTIVE layout at startup and fail off QWERTZ.
     # Guards against the self-test (or any default) regressing onto the umlaut.
+    # A mouse token (#308) must fail this too, for a stronger reason than the
+    # layout one -- it is not registrable at all -- so never widen the comparison
+    # to accept KEY_MOUSE; test_mouse_lane pins the other half of that.
     for action, value in DEFAULT_HOTKEYS.items():
         for combo in (value if isinstance(value, list) else [value]):
             _mods, key = hp.parse_hotkey_lexical(combo)
@@ -379,6 +437,49 @@ def test_umlaut_alias_collides_with_literal():
     assert any('collides' in w for w in warns), warns
 
 
+def test_mouse_is_bare_only():
+    """#308: a mouse button binds bare or not at all -- on BOTH acceptance paths.
+
+    Asserted as a pair per combo so the JSON lane and the settings app cannot
+    drift: they share one rule (hotkey_parse.combo_rejection), and a test that
+    exercised only one of them would not notice a second copy growing."""
+    for bad in ('ctrl+xbutton1', 'shift+mbutton', 'win+xbutton2', 'alt+mbutton',
+                'ctrl+alt+shift+win+xbutton1'):
+        eff, warns = run({'start_recording': bad})
+        only_changed(eff, {})
+        assert any('mouse button' in w for w in warns), (bad, warns)
+        ok, msg = settings_io.validate_combo(bad)
+        assert not ok and 'mouse button' in msg, (bad, ok, msg)
+    # ... and the bare forms pass both, in every spelling.
+    for good in ('xbutton1', 'XBUTTON2', ' MButton '):
+        ok, msg = settings_io.validate_combo(good)
+        assert ok and msg == "", (good, ok, msg)
+    # The other rejection reason still reads the same on the settings app's side,
+    # which is the surface that shows it: "Not a usable combo ({detail})".
+    ok, msg = settings_io.validate_combo('ctrl+alt+nope')
+    assert not ok and msg == "unrecognized key 'nope'", msg
+
+
+def test_mouse_override_round_trip():
+    # A hand-written binding arrives canonical and warning-free, in both value
+    # shapes, and beside a keyboard combo in a list-shaped action.
+    eff, warns = run({'start_recording': 'XButton1'})
+    only_changed(eff, {'start_recording': 'xbutton1'})
+    assert warns == [], warns
+    eff, warns = run({'exit_program': ['ctrl+alt+4', 'mbutton']})
+    only_changed(eff, {'exit_program': ['ctrl+alt+4', 'mbutton']})
+    assert warns == [], warns
+    # Two actions on one button collide like any other duplicate -- the pair
+    # (mods, key) the detection compares is spelling-independent here too.
+    eff, warns = run({'start_recording': 'xbutton1', 'switch_api': 'XBUTTON1'})
+    only_changed(eff, {})
+    assert sum('collides' in w for w in warns) >= 2, warns
+    # Two DIFFERENT buttons on two actions is not a collision.
+    eff, warns = run({'start_recording': 'xbutton1', 'switch_api': 'xbutton2'})
+    only_changed(eff, {'start_recording': 'xbutton1', 'switch_api': 'xbutton2'})
+    assert warns == [], warns
+
+
 CASES = [
     test_vk_map_fkeys_and_statics,
     test_parse_modifiers_and_key,
@@ -387,6 +488,7 @@ CASES = [
     test_classify_key,
     test_canonical_combo,
     test_format_and_first_combo,
+    test_mouse_lane,
     test_shipped_defaults_are_static,
     test_shipped_combos_are_canonical,
     test_readme_hotkey_tables_match_defaults,
@@ -406,6 +508,8 @@ CASES = [
     test_duplicate_within_same_action_list,
     test_duplicate_case_and_order_normalized,
     test_free_then_reuse_no_false_collision,
+    test_mouse_is_bare_only,
+    test_mouse_override_round_trip,
 ]
 
 

@@ -4,8 +4,9 @@ Thoughtborne -- hotkey-driven voice-to-text for Windows.
 
 Entry point of the tool. It wires together:
 - the global Win32 hotkeys (RegisterHotKey, event-driven, so they survive
-  sleep/wake) and the optional push-to-talk gesture (ptt_detector), polled
-  from the recording loop;
+  sleep/wake), the mouse buttons bindable beside them (mouse_detector, polled on
+  their own clock because RegisterHotKey never fires for one) and the optional
+  push-to-talk gesture (ptt_detector), polled from the recording loop;
 - audio capture with its stall guards and crash-safety sidecar (audio_handler);
 - the four transcription engines (transcriber): Soniox Live, streamed while
   you speak; the Soniox upload model; Groq Whisper Large V3 Turbo and V3;
@@ -52,11 +53,13 @@ from config import (
     migrate_legacy_archives, replay_import_warnings,
     PTT_ENABLED, PTT_TRIGGER_VK, PTT_INSERT,
     PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S,
+    MOUSE_POLL_INTERVAL_S,
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
 from hotkey_parse import first_combo, format_combo
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
+from mouse_detector import MouseEdgeDetector
 from audio_handler import (
     AudioRecorder, recover_partial_files,
     write_retry_marker, recover_salvaged_recordings,
@@ -675,6 +678,12 @@ class ThoughtborneApp:
 
         # Hotkey manager (initialized in _register_hotkeys)
         self.hotkey_manager = None
+
+        # Mouse hotkeys (#308): the press-edge detector over whatever mouse
+        # combos the effective hotkeys hold, built at the end of
+        # _register_hotkeys. Stays None when none is bound -- and then no poll
+        # thread is started either, so the feature costs nothing at all.
+        self._mouse = None
 
         # Push-to-talk (#66): opt-in, DEFAULT OFF. The detector is a pure state
         # machine fed a Win32 keyboard snapshot from the recording loop thread;
@@ -2212,6 +2221,46 @@ class ThoughtborneApp:
                 if self.processing_counter > 0:
                     self._ticker(f"[STATUS] Active processing: {self.processing_counter}")
 
+    def mouse_hotkey_thread(self):
+        """Poll the configured mouse hotkeys on their own 10 ms clock (#308).
+
+        Its own thread rather than the recording loop, for two reasons. Cadence:
+        the loop is paced by the audio chunk while a recording runs (~64 ms), and
+        stretches toward the stall timeout in a degraded state -- which is exactly
+        the state a stop or cancel is pressed in. Independence: a mouse-bound
+        stop, cancel or exit dying together with the audio path, while every
+        keyboard hotkey keeps working, is the wrong failure mode for a dictation
+        tool (VISION principle #1). Push-to-talk lives in the recording loop
+        because its work must execute there (see _ptt_start_recording); this lane
+        executes nothing -- it reads key states and posts a message -- so it never
+        needed that thread. Do not move it back.
+
+        A hit is posted to the listener thread, where every hotkey callback
+        already runs, serialized, unchanged. Started only when a mouse combo is
+        configured; a daemon on `while self.running`, so it ends with the program
+        and needs no lifecycle of its own. The mouse VKs are deliberately absent
+        from _PTT_FOREIGN_VKS, so a click here cannot disarm a push-to-talk
+        gesture: the two mechanisms do not know each other.
+        """
+        detector, watched = self._mouse, self._mouse.watched_vks
+        logger.info(f"Mouse hotkey poll started ({len(watched)} button(s), "
+                    f"{MOUSE_POLL_INTERVAL_S * 1000:.0f} ms)", extra=FILE_ONLY)
+        while self.running:
+            try:
+                readings = {vk: is_vk_pressed(vk) for vk in watched}
+                for hotkey_id in detector.tick(readings):
+                    if not self.hotkey_manager.post_hotkey(hotkey_id):
+                        logger.debug(f"Mouse hit id={hotkey_id} dropped: no listener thread")
+            except Exception as e:
+                # Same philosophy as the PTT guard in the recording loop: a broken
+                # lane degrades to "mouse hotkeys off" and takes nothing else down.
+                # Here that is simply the end of its own thread.
+                logger.error(f"Mouse hotkey poll failed, mouse hotkeys are off: {e}",
+                             exc_info=True)
+                return
+            time.sleep(MOUSE_POLL_INTERVAL_S)
+        logger.info("Mouse hotkey poll stopped", extra=FILE_ONLY)
+
     def recording_loop_thread(self):
         """Separate thread for audio recording loop"""
         logger.info("Recording loop thread STARTED", extra=FILE_ONLY)
@@ -2613,6 +2662,16 @@ class ThoughtborneApp:
             logger.error("Failed to start HotkeyManager", extra=FILE_ONLY)  # FAILED panel is the surface
             return False
 
+        # Arm the polled lane (#308). Built only after start() returned, so the
+        # listener thread that receives the hits exists before the first poll --
+        # and started only when something is actually bound, which is why a user
+        # with no mouse hotkey has no extra thread rather than an idle one.
+        mouse_bindings = self.hotkey_manager.mouse_bindings()
+        self._mouse = MouseEdgeDetector(mouse_bindings) if mouse_bindings else None
+        if self._mouse is not None:
+            threading.Thread(target=self.mouse_hotkey_thread, daemon=True,
+                             name="MouseHotkeys").start()
+
         # File log keeps the full per-key wall (file-only); the console gets one
         # dim summary, or a visible WARNING when some keys were lost to another app
         # (#61/#109). The greppable success line (AGENTS heartbeat) and the True
@@ -2622,12 +2681,25 @@ class ThoughtborneApp:
         registered = self.hotkey_manager.registered_count
         expected = self.hotkey_manager.expected_count
         summary = f"hotkeys: {registered}/{expected} registered -- full log: {LOG_FILE.name}"
-        if registered == expected:
+        full_house = registered == expected
+        if full_house:
             logger.info("All hotkeys registered successfully via RegisterHotKey", extra=FILE_ONLY)
             logger.info(summary)
-            return True
-        logger.warning(summary)
-        return False
+        else:
+            logger.warning(summary)
+        # A mouse combo is listening, not registered (#308), and says so on a line
+        # of its own rather than as a clause in the one above. Two reasons, and
+        # the second is the hard one: that line is the #166 grep contract, so it
+        # now stays byte-identical for everyone rather than only for users without
+        # a mouse hotkey -- and the console is built for 72 columns (D-018), which
+        # the clause blew past (65 columns with the HH:MM:SS prefix, 86 with it).
+        # Printed only when something listens; three buttons is the ceiling, so
+        # this line cannot pass 52 columns however many are bound. The per-key
+        # `Listening (mouse, not exclusive)` wall stays file-only.
+        listening = self.hotkey_manager.listening_count
+        if listening:
+            logger.info(f"mouse hotkeys: {listening} listening (not exclusive)")
+        return full_house
 
     def run(self):
         """Main application loop"""

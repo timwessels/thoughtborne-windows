@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mouse buttons can be bound to any action, by hand in `personal_settings.json` (#308).** The
+  wheel click and the two thumb buttons — `mbutton`, `xbutton1`, `xbutton2` — now stand wherever a
+  keyboard combo stands: start, stop, cancel, exit, the engine switch, the self-test.
+  `RegisterHotKey`, the reservation every keyboard hotkey rides on, accepts a mouse button, reports
+  success and then never fires for it, so these are watched on a clock of their own instead and
+  handed to the same thread every hotkey callback has always run on — the callback never learns
+  which lane it arrived by. Two things follow, and neither is a rough edge waiting to be filed off.
+  A mouse button takes no modifier: `xbutton1` binds, `ctrl+alt+xbutton1` is refused on both paths
+  a hotkey can be accepted through, because the case this exists for is "this thumb button
+  dictates", and a held Shift in front of a button other programs react to anyway asks a question
+  with no good answer. And the button is never exclusively yours: there is no reservation to be
+  had, so the browser's Back, a game, a mouse driver's own macro all keep reacting to the same
+  click — pick a button you can spare. Some mouse software goes the other way and keeps a button
+  for itself before Windows ever sees it: an MX mouse under Logi Options+ was measured holding its
+  wheel click back while handing both thumb buttons through, where a plain wired mouse delivered
+  all three. Such a button takes a perfectly valid entry that then simply never fires — a property
+  of the mouse and its driver rather than anything this end can reach — and the per-start
+  `Listening (mouse …)` line in `thoughtborne.log` is the one place the binding shows at all.
+  The startup summary leaves the `n/m registered` line exactly as it was and adds one of its own —
+  `mouse hotkeys: 1 listening (not exclusive)` — only when something actually listens: listening is
+  not a reservation, and one number covering both would answer a question nobody asked. The settings window does not offer them yet; this is the `personal_settings.json`
+  route, in the same `hotkeys` block every other override lives in.
+
 - **Install the current checkout the way a user installs a release (#306).** Everything that
   exists only on the install path — the Start-menu shortcut, the Installed-apps entry with its
   icon and version, an in-place update over an existing install — could be looked at only by

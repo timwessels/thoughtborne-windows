@@ -50,8 +50,7 @@ from pathlib import Path
 
 import config
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
-    KEY_INVALID,
+    parse_hotkey_lexical, canonical_combo, combo_rejection, HotkeyParseError,
 )
 
 # ---- Tk event.state modifier bits (decode_key_event) -----------------------
@@ -778,20 +777,24 @@ def _norm_value(value):
 
 
 def validate_combo(raw: str) -> tuple:
-    """(ok, message). Parses via parse_hotkey_lexical + classify_key. ok=False
-    with a human message on an unparseable combo (no key / multiple keys) or a
-    KEY_INVALID key. Special keys (a single character like the umlaut) are
-    KEY_SPECIAL and accepted -- they resolve at runtime via VkKeyScanW, so
-    config-time acceptance matches runtime registrability."""
+    """(ok, message). Parses via parse_hotkey_lexical, then asks hotkey_parse's
+    combo_rejection whether the result may be bound. ok=False with a human
+    message on an unparseable combo (no key / multiple keys), an unrecognized
+    key, or a modifier in front of a mouse button (#308). A special key (a single
+    character like the umlaut) is accepted -- it resolves at runtime via
+    VkKeyScanW, so config-time acceptance matches runtime registrability.
+
+    The rejection rule itself lives in hotkey_parse because the JSON lane
+    (config.apply_hotkey_overrides) must refuse exactly the same combos as the
+    capture field here; the message is the detail the field shows."""
     if not isinstance(raw, str) or not raw.strip():
         return False, "empty combo"
     try:
-        _mods, key = parse_hotkey_lexical(raw)
+        mods, key = parse_hotkey_lexical(raw)
     except HotkeyParseError as e:
         return False, str(e)
-    if classify_key(key) == KEY_INVALID:
-        return False, f"unrecognized key '{key}'"
-    return True, ""
+    reason = combo_rejection(mods, key)
+    return (False, reason) if reason is not None else (True, "")
 
 
 # Tk keysyms that are themselves modifiers -- a keypress reporting one means only
