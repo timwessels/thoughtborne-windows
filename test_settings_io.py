@@ -853,22 +853,23 @@ def check_nokey_wiring():
 def check_hotkey_helpers():
     check(sio.normalize_combo("Ctrl + Alt + P") == "ctrl+alt+p", "normalize_combo spaces/case")
     check(sio.normalize_combo(" F9 ") == "f9", "normalize_combo bare f-key")
-    check(sio.normalize_combo("CTRL+ALT+Ü") == "ctrl+alt+ü", "normalize_combo umlaut")
-    # #275: it is the one canonicalizer now, so aliases, modifier order and the
-    # umlaut alias collapse here exactly as they do in apply_hotkey_overrides
+    # #275: it is the one canonicalizer now, so aliases and modifier order
+    # collapse here exactly as they do in apply_hotkey_overrides
     check(sio.normalize_combo("Control + Alt + P") == "ctrl+alt+p", "normalize_combo alias")
     check(sio.normalize_combo("alt+ctrl+w") == "ctrl+alt+w", "normalize_combo modifier order")
-    check(sio.normalize_combo("ctrl+alt+ue") == "ctrl+alt+ü", "normalize_combo umlaut alias")
     # ... and it sits in the diff path, where it must never raise: an unparseable
     # combo falls back to comparing as its plain lowercase self
     check(sio.normalize_combo("Ctrl + Alt") == "ctrl+alt", "normalize_combo fallback (no key)")
     check(sio.normalize_combo("ctrl+alt+a+b") == "ctrl+alt+a+b",
           "normalize_combo fallback (two keys)")
 
-    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12", "ctrl+alt+ü"):
+    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12"):
         ok, msg = sio.validate_combo(good)
         check(ok, f"validate_combo rejected a good combo {good!r}: {msg}")
-    for bad in ("", "   ", "ctrl+alt", "ctrl+alt+p+q", "ctrl+alt+notakey", "@#$"):
+    # D-023 (#317): no layout-resolved keys -- the umlaut and its old 'ue' alias
+    # are rejected like any other non-static key
+    for bad in ("", "   ", "ctrl+alt", "ctrl+alt+p+q", "ctrl+alt+notakey", "@#$",
+                "ctrl+alt+ü", "ctrl+alt+ue"):
         ok, _ = sio.validate_combo(bad)
         check(not ok, f"validate_combo accepted a bad combo {bad!r}")
 
@@ -877,7 +878,7 @@ def check_hotkey_helpers():
         ((C | A, "p", "\x10"), "ctrl+alt+p"),
         ((0, "F9", ""), "f9"),                    # bare F-key
         ((C | A, "6", ""), "ctrl+alt+6"),
-        ((C | A, "udiaeresis", ""), "ctrl+alt+ü"),  # umlaut is never filtered
+        ((C | A, "udiaeresis", ""), None),        # the ü lane is gone (D-023)
         ((C | A | S, "A", ""), "ctrl+alt+shift+a"),
         ((C | A, "at", "@"), None),               # AltGr-typed symbol -> filtered
         ((C | A, "Alt_L", ""), None),             # only modifiers down

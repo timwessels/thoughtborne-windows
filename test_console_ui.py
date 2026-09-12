@@ -13,7 +13,7 @@ What each rendered block is checked for:
   1. framed: every SGR-stripped line is exactly 70 cells; corners are correct.
   2. plain twin: ansi=False render is line-for-line the same length as the
      SGR-stripped ansi=True render (frames stay aligned), carries no ESC, and
-     is ASCII + the single allowed umlaut U-umlaut (the self-test hotkey).
+     is ASCII.
   3. ansi=True: every non-ASCII glyph is in the CP437 safe set.
   4. red (SGR 31) appears only in error renderings.
   5. KEYS grid anchored at columns 24/46 and reading W A D / Y H X / R L 6 /
@@ -64,10 +64,9 @@ _SGR = re.compile(r"\x1b\[[0-9;]*m")
 def strip(s):
     return _SGR.sub("", s)
 
-# CP437 safe set (terminal-constraints.md) + the U-umlaut, no longer a shipped
-# default since #211 but still bindable as a user override (D-012)
-# + U+2022 bullet (conhost best-fits it to 0x07; see charset-korrektur-bullet.md).
-SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▓▒░▀▄▌▐■Ü•")
+# CP437 safe set (terminal-constraints.md) + U+2022 bullet (conhost best-fits it
+# to 0x07; see charset-korrektur-bullet.md).
+SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▓▒░▀▄▌▐■•")
 
 RED_OK = {  # renderings allowed to carry red (error states)
     "transcription_failed", "insert_failed", "selftest_failed",
@@ -109,9 +108,7 @@ def check_block(name, lines, *, ansi, red_key=None):
             if "\x1b" in ln:
                 _record(f"{name}[{i}] plain line carries ESC: {ln!r}")
             for ch in ln:
-                # Ü is the one allowed non-ASCII glyph in the plain twin: override-only
-                # since #211/D-012 (no shipped default uses it), still render-covered.
-                if ord(ch) >= 128 and ch != "Ü":
+                if ord(ch) >= 128:
                     _record(f"{name}[{i}] plain non-ASCII {ch!r}: {ln!r}")
     # red exclusivity (only checkable on the styled ansi render)
     if ansi:
@@ -1651,12 +1648,9 @@ def check_prefix_none_widths():
     framed path the shipped config never reaches. Guard the masthead KEYS grid
     and a routine strip on it at full width."""
     lineup = lineup_for(DEFAULT_API)
-    # Ctrl+Alt+Ü is deliberate: the umlaut is override-only since #211/D-012, and this
-    # synthetic fixture is the console's only remaining render coverage of the glyph.
     # Ctrl+Shift+F12 (14 cells) is over the key-column budget and renders `[...]+F12`.
     scheme = dict(DEFAULT_HOTKEYS, start_recording="f9",
-                  retry_last_failed="ctrl+shift+f12",
-                  test_transcription="ctrl+alt+ü")
+                  retry_last_failed="ctrl+shift+f12")
     fixtures = [
         ("masthead_prefix_none", u.render_masthead,
          dict(lineup=lineup, keys=pairs_for(scheme),

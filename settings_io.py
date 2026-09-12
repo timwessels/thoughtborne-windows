@@ -780,9 +780,9 @@ def _norm_value(value):
 def validate_combo(raw: str) -> tuple:
     """(ok, message). Parses via parse_hotkey_lexical + classify_key. ok=False
     with a human message on an unparseable combo (no key / multiple keys) or a
-    KEY_INVALID key. Special keys (a single character like the umlaut) are
-    KEY_SPECIAL and accepted -- they resolve at runtime via VkKeyScanW, so
-    config-time acceptance matches runtime registrability."""
+    key outside the static set (letters, digits, F-keys) -- since D-023
+    classify_key knows only static and invalid, so config-time acceptance
+    matches runtime registrability."""
     if not isinstance(raw, str) or not raw.strip():
         return False, "empty combo"
     try:
@@ -802,32 +802,19 @@ _MODIFIER_KEYSYMS = frozenset({
     "ISO_Level3_Shift", "Caps_Lock", "Num_Lock", "Scroll_Lock", "Win_L", "Win_R",
 })
 
-# Tk keysym for the one German special key accepted as a hotkey key: 'ü'
-# (udiaeresis). No shipped default uses it since the self-test moved to
-# ctrl+alt+t (#211, D-012), but it stays offered so the capture widget can bind a
-# user override onto ctrl+alt+ü. The other umlauts / ß are deliberately NOT
-# offered here -- config.py's DEFAULT_HOTKEYS note and the personal_settings
-# example both warn that a non-ASCII hotkey key other than 'ü' can get typed into
-# some apps (N8), so the capture widget must not decode them into a bindable
-# combo. classify_key treats 'ü' as KEY_SPECIAL (resolved at runtime via
-# VkKeyScanW).
-_SPECIAL_KEYSYMS = {
-    "udiaeresis": "ü",
-}
-
 
 def _keysym_to_token(keysym: str):
     """Map a Tk keysym to a bindable key token, or None. ASCII letters -> lowercase
-    letter; digits -> the digit; 'F1'..'F24' -> 'f1'..'f24'; the German special
-    keys via _SPECIAL_KEYSYMS. Everything else (punctuation, AltGr-typed symbol
-    keysyms like 'at'/'EuroSign', unknown names) -> None."""
+    letter; digits -> the digit; 'F1'..'F24' -> 'f1'..'f24'. Everything else
+    (punctuation, non-ASCII letters, AltGr-typed symbol keysyms like
+    'at'/'EuroSign', unknown names) -> None."""
     if not keysym:
         return None
     if len(keysym) == 1:
         # .isascii() guards the single-char letter branch: if a Tk build ever reports
         # an umlaut as a raw 1-char keysym (instead of the named 'adiaeresis'), it
-        # must NOT become a bindable non-ASCII combo -- only 'ü' via the named
-        # 'udiaeresis' is allowed (N8, consistent with _SPECIAL_KEYSYMS).
+        # must NOT become a bindable non-ASCII combo (N8) -- and since D-023 no
+        # non-ASCII key is bindable at all.
         if keysym.isalpha() and keysym.isascii():
             return keysym.lower()
         if keysym.isdigit():
@@ -836,7 +823,7 @@ def _keysym_to_token(keysym: str):
     if keysym[0] in ("F", "f") and keysym[1:].isdigit():
         n = int(keysym[1:])
         return f"f{n}" if 1 <= n <= 24 else None
-    return _SPECIAL_KEYSYMS.get(keysym)
+    return None
 
 
 def decode_key_event(state_bits: int, keysym: str, char: str):
@@ -850,8 +837,7 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
     (reported as Control+Alt from the right-Alt key) types symbols like @ \\ { }
     [ ] | euro ~ -- whose keysyms are non-bindable names ('at', 'EuroSign', ...)
     that _keysym_to_token maps to None, so those presses decode to None. This is
-    the Tk-level equivalent of the project's AltGr filter; the umlaut 'ü'
-    (keysym 'udiaeresis') is mapped explicitly and is never filtered.
+    the Tk-level equivalent of the project's AltGr filter.
 
     `char` (the produced glyph) is part of the Tk event contract and accepted for
     interface completeness; the decode itself is keysym-driven."""

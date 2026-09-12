@@ -74,10 +74,6 @@ GetAsyncKeyState = user32.GetAsyncKeyState
 GetAsyncKeyState.argtypes = [ctypes.c_int]
 GetAsyncKeyState.restype = ctypes.c_short
 
-VkKeyScanW = user32.VkKeyScanW
-VkKeyScanW.argtypes = [ctypes.wintypes.WCHAR]
-VkKeyScanW.restype = ctypes.c_short
-
 GetCurrentThreadId = kernel32.GetCurrentThreadId
 
 # ===== VK Code Maps =====
@@ -126,44 +122,24 @@ def is_vk_pressed(vk: int) -> bool:
 
 def _resolve_vk_code(key_str: str) -> int:
     """
-    Resolve a key string to a VK code.
-
-    For standard keys (a-z, 0-9, f1-f24) uses the static VK_MAP.
-    For special characters (e.g. 'ue') uses VkKeyScanW for layout-aware resolution,
-    with a fallback to VK_OEM_4 (0xDB) for German QWERTZ.
+    Resolve a key string to a VK code via the static VK_MAP (letters, digits,
+    F-keys) -- the only key lane since D-023 removed the layout-resolved one.
 
     Args:
-        key_str: Key name (e.g. 'w', '4', 'ue')
+        key_str: Key name (e.g. 'w', '4', 'f9')
 
     Returns:
         VK code as integer
 
     Raises:
-        ValueError: If key cannot be resolved
+        ValueError: If the key is not in VK_MAP. Config-time validation
+            (classify_key) rejects such keys before registration, so this
+            guards hand-edited defaults rather than a normal path.
     """
-    # Check static map first
-    if key_str in VK_MAP:
+    try:
         return VK_MAP[key_str]
-
-    # Try VkKeyScanW for special characters (e.g. umlauts)
-    if len(key_str) == 1:
-        result = VkKeyScanW(key_str)
-        vk = result & 0xFF
-        if vk != 0xFF:
-            return vk
-
-    # Specific fallbacks for known special keys
-    if key_str in ('ü', 'ue'):
-        # Try runtime resolution first
-        result = VkKeyScanW('ü')
-        vk = result & 0xFF
-        if vk != 0xFF:
-            return vk
-        # Fallback: VK_OEM_4 (0xDB) - typically 'ü' on German QWERTZ
-        logger.warning("VkKeyScanW failed for 'ü', using fallback VK_OEM_4 (0xDB)")
-        return 0xDB
-
-    raise ValueError(f"Cannot resolve key '{key_str}' to VK code")
+    except KeyError:
+        raise ValueError(f"Cannot resolve key '{key_str}' to VK code") from None
 
 
 def _parse_hotkey(hotkey_str: str) -> tuple:
@@ -172,12 +148,11 @@ def _parse_hotkey(hotkey_str: str) -> tuple:
 
     Thin wrapper: the pure structural split (modifier/key validation, always
     setting MOD_NOREPEAT to prevent repeat when a key is held) lives in
-    hotkey_parse.parse_hotkey_lexical (#55); the one Windows-bound step
-    (_resolve_vk_code, VkKeyScanW for special characters) stays here.
+    hotkey_parse.parse_hotkey_lexical (#55); the VK lookup (_resolve_vk_code)
+    stays here.
 
     Args:
-        hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', 'ctrl+alt+4', or a user
-            override's special key 'ctrl+alt+ü')
+        hotkey_str: Hotkey string (e.g. 'ctrl+alt+w', 'ctrl+alt+4', 'f9')
 
     Returns:
         Tuple of (modifier_flags, vk_code)
@@ -206,12 +181,8 @@ def is_key_pressed(key_name: str) -> bool:
     key_lower = key_name.lower()
     vk = VK_KEY_MAP.get(key_lower)
     if vk is None:
-        # Try resolving as special character
-        try:
-            vk = _resolve_vk_code(key_lower)
-        except ValueError:
-            logger.warning(f"is_key_pressed: unknown key '{key_name}'")
-            return False
+        logger.warning(f"is_key_pressed: unknown key '{key_name}'")
+        return False
 
     state = GetAsyncKeyState(vk)
     return bool(state & 0x8000)

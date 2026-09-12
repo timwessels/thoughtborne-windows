@@ -4,11 +4,10 @@ Pure, ctypes-free hotkey lexical layer (#55).
 Shared by hotkey_manager (runtime RegisterHotKey resolution) and config
 (config-time override validation), so config-time acceptance equals runtime
 registrability. No Windows imports -> importable off-Windows, which keeps
-config import-safe for the test drivers (test_console_ui.py etc.). The one
-genuinely layout/Windows-bound step (VkKeyScanW for special characters such as
-the German 'u-umlaut') stays in hotkey_manager; everything a user realistically
-rebinds to -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers --
-is resolvable here.
+config import-safe for the test drivers (test_console_ui.py etc.). Every
+bindable key -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers
+-- resolves against the static VK_MAP here; there is no layout-resolved key
+lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one).
 
 Because every layer passes through here, this is also where a combo gets its one
 spelling (`canonical_combo`) and its one display form (`format_combo`,
@@ -46,11 +45,6 @@ for _i in range(10):
 # (bare 'f9') expressible, which RegisterHotKey supports.
 for _i in range(24):
     VK_MAP[f"f{_i + 1}"] = 0x70 + _i
-
-# Multi-char tokens the runtime resolver (_resolve_vk_code) still accepts as a
-# special key via its explicit fallback -- kept in lockstep so config-time
-# validation doesn't reject a combo the runtime would accept.
-_SPECIAL_ALIASES = {'ue'}
 
 
 class HotkeyParseError(ValueError):
@@ -93,24 +87,18 @@ def parse_hotkey_lexical(hotkey_str: str) -> tuple:
 
 # classify_key outcomes
 KEY_STATIC = "static"    # in VK_MAP -> definitely registrable, no Windows needed
-KEY_SPECIAL = "special"  # single char / known alias -> resolvable only at runtime (VkKeyScanW)
 KEY_INVALID = "invalid"  # cannot be a key at all -> reject
 
 
 def classify_key(key_token: str) -> str:
     """Classify a parsed key token for config-time validation.
 
-    STATIC keys (letters/digits/F-keys) are certainly registrable off-Windows.
-    SPECIAL keys (a single character like the umlaut, or a known alias) can only
-    be resolved at runtime via VkKeyScanW, so they are accepted at config-time
-    and, if truly unregistrable, fail loudly at RegisterHotKey (never a startup
-    abort). INVALID means it cannot be a key at all.
+    STATIC keys -- letters, digits and F-keys, which since D-023 are the whole
+    bindable set -- are certainly registrable off-Windows. Everything else is
+    INVALID: rejected at config time with a warning, the action keeping its
+    default.
     """
-    if key_token in VK_MAP:
-        return KEY_STATIC
-    if len(key_token) == 1 or key_token in _SPECIAL_ALIASES:
-        return KEY_SPECIAL
-    return KEY_INVALID
+    return KEY_STATIC if key_token in VK_MAP else KEY_INVALID
 
 
 # The one modifier order every stored and displayed combo is written in (#272).
@@ -121,21 +109,15 @@ _CANONICAL_MODIFIERS = (
     ('win', MOD_WIN),
 )
 
-# Canonical spelling of the multi-char key aliases. 'ue' stays acceptable input
-# (_SPECIAL_ALIASES above), but is stored and shown as the character it binds:
-# _resolve_vk_code maps both to one VK code, so two spellings of one key would
-# otherwise pass the duplicate check and collide at RegisterHotKey instead.
-_CANONICAL_KEYS = {'ue': 'ü'}
-
 
 def canonical_combo(hotkey_str: str) -> str:
     """'Control + ALT+P' -> 'ctrl+alt+p': the one spelling of a combo (#272).
 
     The modifiers are written back from the parsed flags in the fixed order
     ctrl, alt, shift, win -- so aliases ('control', 'windows'), case, modifier
-    order and inner spaces all collapse -- then the key, with 'ue' spelled as
-    the 'ü' it binds. Raises HotkeyParseError exactly like parse_hotkey_lexical,
-    so callers keep their existing error paths.
+    order and inner spaces all collapse -- then the key. Raises
+    HotkeyParseError exactly like parse_hotkey_lexical, so callers keep their
+    existing error paths.
 
     With every effective combo canonical, common_prefix sees one spelling per
     prefix, format_combo needs no name table, and a comparison against the
@@ -143,7 +125,7 @@ def canonical_combo(hotkey_str: str) -> str:
     """
     modifiers, key = parse_hotkey_lexical(hotkey_str)
     parts = [name for name, flag in _CANONICAL_MODIFIERS if modifiers & flag]
-    parts.append(_CANONICAL_KEYS.get(key, key))
+    parts.append(key)
     return '+'.join(parts)
 
 
@@ -151,7 +133,7 @@ def format_combo(combo: str) -> str:
     """Display spelling of a canonical combo: 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
 
     capitalize() per part is enough once the input is canonical (ctrl/alt/shift/
-    win, a letter, a digit, f1-f24, or 'ü'), and it formats a bare prefix
+    win, a letter, a digit, or f1-f24), and it formats a bare prefix
     ('ctrl+alt' -> 'Ctrl+Alt') the same way. The one display formatter: console,
     settings app and tests share it, so no surface invents a second spelling.
     """

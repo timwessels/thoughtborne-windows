@@ -199,8 +199,8 @@ _EN = {
     "hotkeys.custom.heading": "Individual actions",
     "hotkeys.custom.body": (
         "Click Change next to an action, then press the new combo. Letters, "
-        "digits, F1–F24 and the ü key work — F-keys also bare, everything else "
-        "with Ctrl and/or Alt."),
+        "digits and F1–F24 work — F-keys also bare, everything else with Ctrl "
+        "and/or Alt."),
     "hotkeys.col.action": "Action",
     "hotkeys.col.combo": "Shortcut",
     "hotkeys.capture_limit": (
@@ -210,7 +210,7 @@ _EN = {
     "btn.change_key": "Change…",
     "hotkeys.more_suffix": "(+{n} more)",
     "capture.prompt": "Press the combo … (Esc)",
-    "capture.unbindable": "This key can't be bound — use letters, digits, F1–F24 or ü.",
+    "capture.unbindable": "This key can't be bound — use letters, digits or F1–F24.",
     "capture.need_modifier": (
         "Letters and digits need Ctrl and/or Alt — only F-keys work bare."),
     "capture.invalid": "Not a usable combo ({detail}).",
@@ -629,8 +629,8 @@ _DE = {
     "hotkeys.custom.heading": "Einzelne Aktionen",
     "hotkeys.custom.body": (
         "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
-        "Buchstaben, Ziffern, F1–F24 und die ü-Taste funktionieren — F-Tasten auch "
-        "blank, alles andere mit Ctrl und/oder Alt."),
+        "Buchstaben, Ziffern und F1–F24 funktionieren — F-Tasten auch blank, "
+        "alles andere mit Ctrl und/oder Alt."),
     "hotkeys.col.action": "Aktion",
     "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
@@ -642,7 +642,7 @@ _DE = {
     "hotkeys.more_suffix": "(+{n} weitere)",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
-        "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern, F1–F24 oder ü "
+        "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern oder F1–F24 "
         "verwenden."),
     "capture.need_modifier": (
         "Buchstaben und Ziffern brauchen Ctrl und/oder Alt — nur F-Tasten gehen "

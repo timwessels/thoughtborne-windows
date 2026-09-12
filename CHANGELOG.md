@@ -370,6 +370,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The `ü` hotkey lane is gone — every bindable key is a letter, digit, or F-key now (#317,
+  D-023).** The hotkey system carried a second, layout-resolved key lane, a leftover of the old
+  `Ctrl+Alt+Ü` self-test default that moved to `Ctrl+Alt+T` in #211 (D-012). Since then no
+  shipped default used it; it survived as a user-override option for `ü` — and, less visibly, it
+  let *any* single character through config-time validation to a startup `VkKeyScanW` resolution.
+  With it lived the one failure class only this lane had: registration depending on the active
+  keyboard layout. Removed whole: the `VkKeyScanW` resolution with its `VK_OEM_4` fallback, the
+  `KEY_SPECIAL` classification and the `ue` alias, the `udiaeresis` capture decode in the settings
+  window, the `Ü` allowance in the console charset checks, and the "`ü` is still accepted" clauses
+  in the README twins, the example settings and the install guide. A `ctrl+alt+ü` (or `ue`, or any
+  other non-static key) override in `personal_settings.json` is now rejected like any unknown key
+  — one warning in `thoughtborne.log`, the action keeps its default, the tool always starts; the
+  settings window's capture field answers the keypress with "can't be bound", like ä/ö before it.
+  No migration, and no shipped default is affected.
+
 - **The site's *Updating* section is gone — updating is one line in the install box now (#292).**
   The section (added with #281's Machine-room work) was the only part of either page that led
   nowhere, and it pushed the closing call-to-action away from the end of the page. What it said

@@ -250,7 +250,7 @@ One-time detail: Windows first tucks a new tray icon into the overflow flyout (t
 
 - `DEFAULT_API` — the API at startup when neither a `defaults` override nor a remembered engine applies (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); overridable without editing code in the `defaults` block of `personal_settings.json` (above).
 - `LANGUAGE` — default `"de"`. English works (`"en"`), but the artifact filters and tuning target German — honest expectations ([VISION.md](VISION.md)).
-- `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Avoid special characters like `#` and non-ASCII letters: they can get typed into some apps, and they have no fixed key code, so they are resolved against your active keyboard layout at startup. Every shipped default is a plain letter, digit, or F-key; `ü` is still accepted if you want it.
+- `HOTKEYS` — the default key combinations. To change one, prefer the `hotkeys` block of `personal_settings.json` (above); `config.py` holds the defaults. Keys are letters, digits, and F-keys — they have fixed key codes on every layout. Anything else (special characters like `#`, non-ASCII letters) is rejected with a warning in `thoughtborne.log` and the default stays.
 
 More settings (parallel transcriptions, audio trimming, …) are documented as comments in `config.py` itself.
 

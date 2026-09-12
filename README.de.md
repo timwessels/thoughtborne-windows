@@ -250,7 +250,7 @@ Einmaliger Handgriff: Windows steckt ein neues Tray-Icon zunächst ins Überlauf
 
 - `DEFAULT_API` — die API beim Start, wenn weder eine `defaults`-Überschreibung noch eine gemerkte Engine greift (`"soniox-live"`, `"soniox"`, `"groq-large"`, `"groq"`); ohne Code-Änderung überschreibbar im `defaults`-Block der `personal_settings.json` (oben).
 - `LANGUAGE` — Default `"de"`. Englisch funktioniert (`"en"`), aber Artefakt-Filter und Tuning zielen auf Deutsch — ehrliche Erwartungen ([VISION.md](VISION.md)).
-- `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Sonderzeichen wie `#` und Nicht-ASCII-Buchstaben meiden: Sie können in manche Apps hineingetippt werden und haben keinen festen Tastencode, werden also beim Start gegen das aktive Tastaturlayout aufgelöst. Alle mitgelieferten Defaults sind einfache Buchstaben, Ziffern oder F-Tasten; `ü` wird weiterhin akzeptiert, wenn man es möchte.
+- `HOTKEYS` — die Standard-Tastenkombinationen. Zum Ändern besser den `hotkeys`-Block der `personal_settings.json` nutzen (oben); `config.py` hält die Defaults. Tasten sind Buchstaben, Ziffern und F-Tasten — sie haben auf jedem Layout feste Tastencodes. Alles andere (Sonderzeichen wie `#`, Nicht-ASCII-Buchstaben) wird mit einer Warnung in `thoughtborne.log` abgelehnt, und der Default bleibt.
 
 Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als Kommentare direkt in `config.py` dokumentiert.
 

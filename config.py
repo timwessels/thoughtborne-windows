@@ -700,12 +700,11 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                 break
             # One spelling for every effective combo (#272/#275): modifiers in
             # the fixed order ctrl, alt, shift, win, aliases and case collapsed,
-            # inner spaces dropped, 'ue' written as the 'ü' it binds. The
-            # registrar strips and parses either way -- this is for everything
-            # that compares or shows the string: the shared-prefix detection of
-            # the console lead, the display formatter, the settings app's diff
-            # against the defaults, and the duplicate check below, which now
-            # sees 'ue' and 'ü' as the one key they are.
+            # inner spaces dropped. The registrar strips and parses either way
+            # -- this is for everything that compares or shows the string: the
+            # shared-prefix detection of the console lead, the display
+            # formatter, the settings app's diff against the defaults, and the
+            # duplicate check below.
             norm.append(canonical_combo(c))
         if not ok:
             continue
@@ -999,13 +998,14 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 # ===== HOTKEYS =====
 # German QWERTZ keyboard layout consideration:
 # - 'y' key is where 'z' is on US keyboards
-# Note: Avoid special characters like '#' and non-ASCII letters like 'ä' or 'ü' in
-#       hotkeys. They can get typed into some apps by the keyboard module, and they
-#       have no static VK code -- registration must resolve them against the ACTIVE
-#       layout at startup (VkKeyScanW), which fails off German QWERTZ. Every shipped
-#       default therefore uses a statically mapped key (letter / digit / F-key); the
-#       self-test moved off the umlaut for exactly this reason (#211, D-012). The
-#       umlaut lane stays available for user overrides via personal_settings.json.
+# Note: The only bindable keys are letters, digits, and F-keys (hotkey_parse.VK_MAP)
+#       -- static VK codes, layout-independent. Special characters like '#' and
+#       non-ASCII letters like 'ä' or 'ü' can get typed into some apps, and having no
+#       static VK code they would have to be resolved against the ACTIVE layout at
+#       startup; they are rejected at config time with a log warning (the action keeps
+#       its default). The old layout-resolved override lane (VkKeyScanW) went with
+#       D-023 (#317); the self-test default had already moved off the umlaut in #211
+#       (D-012).
 # Dict order = THE canonical action order (D-019): every surface -- console grid,
 # strips, settings tab, registration log, README tables -- follows it by iteration.
 DEFAULT_HOTKEYS = {

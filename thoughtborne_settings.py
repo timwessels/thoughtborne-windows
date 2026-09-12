@@ -1287,7 +1287,7 @@ class SettingsApp:
     def _pretty_combo(self, value):
         # format_combo is the one display formatter (#275); hotkeys_state is
         # canonical, having come through apply_hotkey_overrides, so capitalizing
-        # per part is the whole grammar -- 'ctrl+alt+ü' -> 'Ctrl+Alt+Ü'.
+        # per part is the whole grammar -- 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
         combos = value if isinstance(value, list) else [value]
         if not combos:
             return ""

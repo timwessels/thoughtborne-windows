@@ -28,7 +28,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-009 | Settings app: one window, focus don't refuse; ignore extends to pending inserts | Active; focus remedy strengthened 2026-08-16 (#203); narrowed 2026-08-21 (#217) — the recording-active ignore is gone |
 | D-010 | Settings app leaves the native ttk theme for `clam` + an explicit style module | Active, partly reversed — the light-over-dark call reversed by the 2026-08-22 addendum (#228); the clam / single-source / WCAG mechanics stand |
 | D-011 | Uninstaller keeps user data by default; the silent lane can never delete it | Active |
-| D-012 | The self-test default is `Ctrl+Alt+T`; the umlaut lane stays for overrides | Active |
+| D-012 | The self-test default is `Ctrl+Alt+T`; the umlaut lane stays for overrides | Active; narrowed 2026-09-12 by D-023 (#317) — the override lane is removed, the static-default rule stands |
 | D-013 | In-place updates are replace-only; orphaned files from an older release survive | Active |
 | D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated; extended 2026-09-07 (#271) — every save restarts, the keyless close branch is gone. Retires D-005 |
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
@@ -38,6 +38,8 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
 | D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
 | D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
+| D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active |
+| D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 
 ---
 
@@ -960,6 +962,10 @@ an accident and quietly undone.
   settings app and console are all live: a user may still bind `ctrl+alt+ü` (or any
   single character) through the #55 override surface, by hand or in the settings app.
   That code has no shipped caller now, which makes it look deletable -- it is not.
+
+  *Superseded 2026-09-12 by D-023 (#317): the override lane is removed too, with
+  the maintainer's okay. Every statement in this entry about binding `ü` is
+  history from here on; the static-default rule stands.*
 - **Two hard-coded default sources, not one.** `config.DEFAULT_HOTKEYS` is the shipped
   scheme, and `settings_io.PRESET_FKEYS` is the alternative F-key preset whose four
   housekeeping actions (open_history / open_settings / test_transcription /
@@ -984,6 +990,10 @@ Do not reintroduce: a shipped default on a key without a static VK code (an umla
 removing the umlaut/special-key resolution as "dead code" because no default uses it;
 letting `PRESET_FKEYS`' housekeeping keys drift from `DEFAULT_HOTKEYS`; or a migration
 that rewrites a user's existing `test_transcription` override.
+
+*The "removing the umlaut/special-key resolution" clause is superseded 2026-09-12 by
+D-023 (#317) -- that removal happened, deliberately and with the maintainer's okay.
+The rest of this list stands.*
 
 Respects D-002 -- the default change flows through the settings app's existing
 diff-vs-default write; no new write surface, and a user's explicit pin is never
@@ -1602,7 +1612,7 @@ no combo and changes no order).
 
 ## D-022 — Mouse buttons are not hotkeys here; the supported route is an external remapper
 
-Decided 2026-09-13 (#308, reverting its implementation the day after it landed,
+Decided 2026-09-12 (#308, reverting its implementation hours after it landed,
 before any release carried it).
 
 The middle and thumb buttons briefly worked as hotkeys (`9a34a28` + `04ff12e`: a
@@ -1647,3 +1657,41 @@ Windows grows a reservation mechanism that fires for mouse VKs, or the F13–F24
 route stops working — that is a supersede discussion, not a re-implementation.
 The full implementation survives in git history at `04ff12e` and `9a34a28`,
 with the Win32 measurements in the issue.
+
+## D-023 — One kind of hotkey key: the layout-resolved `ü` lane is removed
+
+Decided 2026-09-12 (#317). Completes D-012, which moved the last shipped default
+off the umlaut and deliberately kept the machinery for user overrides; this entry
+removes that machinery too, with the maintainer's explicit okay of 2026-09-12 that
+D-012 and the AGENTS.md guardrail required.
+
+- **What went.** The second key lane, which existed for one offered key, `ü`: the
+  `VkKeyScanW` runtime resolution with its `VK_OEM_4` fallback in `hotkey_manager`,
+  the `KEY_SPECIAL` classification and the `'ue'` alias in `hotkey_parse`, the
+  `udiaeresis` keysym in the settings app's capture decoder, the `Ü` glyph
+  allowance in the console charset checks, and the "`ü` is still accepted" clauses
+  across the docs. The lane was in truth wider than its one offered key: *any*
+  single character (`#`, `ö`, punctuation) passed config-time validation and was
+  resolved through `VkKeyScanW` at startup. All of that is one rejection class now.
+- **Why.** One kind of key in the system instead of two, and the one failure class
+  only this lane had -- startup registration depending on the active keyboard
+  layout -- disappears with it. No shipped default has used the lane since #211
+  (D-012); the maintainer's own settings never bound it; the other umlauts and `ß`
+  were deliberately never offered (the N8 concern: non-ASCII hotkey keys can get
+  typed into some apps).
+- **Behavior now.** A `ü`/`ue` -- or any other non-static -- key in a
+  `personal_settings.json` override is rejected the way unknown keys always were:
+  one warning in `thoughtborne.log`, the action keeps its default, the tool always
+  starts. The capture widget decodes the ü keypress to None, exactly like ä/ö
+  before it; `validate_combo` reports the normal unrecognized-key message. No
+  migration -- nothing rewrites a user's file.
+- **What stands.** D-012's core -- the self-test on `Ctrl+Alt+T`, every shipped
+  default on a statically mapped key -- is untouched and remains test-guarded.
+  Superseded is only its "the special-key machinery stays" clause, and the
+  AGENTS.md guardrail built on it, visibly, by this entry.
+
+Do not reintroduce: a runtime- or layout-resolved key lane in any form -- no
+`VkKeyScanW` path, no special-key classification, no capture keysym exceptions.
+If a real need for a non-static hotkey key ever materializes, that is a supersede
+discussion citing this entry, not a quiet re-add; the implementation survives in
+git history (pre-#317).

@@ -21,8 +21,7 @@ calls verbatim): partial override by action name, warn-and-keep-default on every
 kind of bad entry, F-key names, list vs. string shapes (a string-default action
 stays a string, only already-list actions multi-bind -- the maintainer's #55
 decision), duplicate detection on the *effective* set with case/modifier-order
-normalization -- which after #275 also catches the 'ue'/'ü' pair, one key under
-two spellings -- and the guarantees that the defaults dict is never mutated and
+normalization, and the guarantees that the defaults dict is never mutated and
 that their order, the canonical action order every surface follows (D-019),
 survives the one loader it passes through.
 
@@ -47,14 +46,14 @@ from config import apply_hotkey_overrides, DEFAULT_HOTKEYS
 SHOW = "--show" in sys.argv
 
 # Own fixture mirroring the real HOTKEYS shape (str-default and list-default
-# actions, plus the umlaut and a digit key) -- NOT config.HOTKEYS, which the
-# repo's own personal_settings.json might already have overridden.
+# actions, plus a digit key) -- NOT config.HOTKEYS, which the repo's own
+# personal_settings.json might already have overridden.
 DEFAULTS = {
     'start_recording': 'ctrl+alt+w',
     'stop_recording_keyboard': 'ctrl+alt+a',
     'stop_recording_clipboard': 'ctrl+alt+d',
     'switch_api': 'ctrl+alt+l',
-    'test_transcription': 'ctrl+alt+ü',  # override lane, not a default (#211/D-012)
+    'test_transcription': 'ctrl+alt+t',
     'open_history': 'ctrl+alt+6',
     'cancel_recording': ['ctrl+alt+x'],
     'exit_program': ['ctrl+alt+4'],
@@ -130,8 +129,12 @@ def test_classify_key():
     assert hp.classify_key('w') == hp.KEY_STATIC
     assert hp.classify_key('f9') == hp.KEY_STATIC
     assert hp.classify_key('4') == hp.KEY_STATIC
-    assert hp.classify_key('ü') == hp.KEY_SPECIAL     # single char -> runtime resolve
-    assert hp.classify_key('ue') == hp.KEY_SPECIAL    # known alias
+    # D-023 (#317): with the layout-resolved lane gone there is no KEY_SPECIAL --
+    # 'ü', its old 'ue' alias and every other single character are plain invalid
+    # now, rejected with a warning like any unknown key.
+    assert hp.classify_key('ü') == hp.KEY_INVALID
+    assert hp.classify_key('ue') == hp.KEY_INVALID
+    assert hp.classify_key('#') == hp.KEY_INVALID
     assert hp.classify_key('foo') == hp.KEY_INVALID   # multi-char non-key
     assert hp.classify_key('') == hp.KEY_INVALID      # empty token (e.g. 'ctrl+alt+')
 
@@ -146,10 +149,6 @@ def test_canonical_combo():
     assert hp.canonical_combo('win+shift+alt+control+f24') == 'ctrl+alt+shift+win+f24'
     assert hp.canonical_combo(' F9 ') == 'f9'                    # bare key, no prefix
     assert hp.canonical_combo('CTRL+ALT+6') == 'ctrl+alt+6'
-    # 'ue' and the literal umlaut are one key (hotkey_manager resolves both to the
-    # same VK); the character is the stored spelling.
-    assert hp.canonical_combo('ctrl+alt+ue') == 'ctrl+alt+ü'
-    assert hp.canonical_combo('CTRL+ALT+Ü') == 'ctrl+alt+ü'
     # unparseable input raises exactly like parse_hotkey_lexical, so callers keep
     # their existing error paths
     for bad in ('ctrl+alt', 'ctrl+alt+a+b'):
@@ -164,7 +163,6 @@ def test_format_and_first_combo():
     assert hp.format_combo('ctrl+alt+w') == 'Ctrl+Alt+W'
     assert hp.format_combo('ctrl+alt+f10') == 'Ctrl+Alt+F10'
     assert hp.format_combo('ctrl+alt+6') == 'Ctrl+Alt+6'
-    assert hp.format_combo('ctrl+alt+ü') == 'Ctrl+Alt+Ü'
     assert hp.format_combo('f9') == 'F9'
     assert hp.format_combo('ctrl+alt') == 'Ctrl+Alt'   # a bare prefix formats too
     # The widest combo any surface can be handed, now that the aliases collapse:
@@ -363,20 +361,15 @@ def test_override_is_canonicalized():
     eff, warns = run({'start_recording': 'ALT + Control + W'})
     only_changed(eff, {})
     assert warns == [], warns
-    # The umlaut alias is stored as the character it binds.
-    eff, warns = run({'test_transcription': 'ctrl+alt+ue'})
-    only_changed(eff, {})   # == its own default 'ctrl+alt+ü'
-    assert warns == [], warns
 
 
-def test_umlaut_alias_collides_with_literal():
-    # 'ue' and 'ü' resolve to one VK code, so binding the alias onto another
-    # action's umlaut default is a collision -- invisible before the
-    # canonicalization, and reported by RegisterHotKey as a failed second
-    # registration instead (D-012's lane is live machinery).
-    eff, warns = run({'switch_api': 'ctrl+alt+ue'})
-    only_changed(eff, {})
-    assert any('collides' in w for w in warns), warns
+def test_umlaut_override_rejected():
+    # D-023 (#317): the umlaut and its old 'ue' alias are ignored exactly like
+    # any unknown key -- one warning, the default stays, never a failed start.
+    for combo in ('ctrl+alt+ü', 'ctrl+alt+ue'):
+        eff, warns = run({'test_transcription': combo})
+        only_changed(eff, {})
+        assert any('unrecognized key' in w for w in warns), (combo, warns)
 
 
 CASES = [
@@ -395,7 +388,7 @@ CASES = [
     test_value_shapes,
     test_inner_spaces_canonicalized,
     test_override_is_canonicalized,
-    test_umlaut_alias_collides_with_literal,
+    test_umlaut_override_rejected,
     test_unknown_action,
     test_comment_key_ignored,
     test_bad_combos_keep_default,
