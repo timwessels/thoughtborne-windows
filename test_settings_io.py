@@ -865,23 +865,12 @@ def check_hotkey_helpers():
     check(sio.normalize_combo("ctrl+alt+a+b") == "ctrl+alt+a+b",
           "normalize_combo fallback (two keys)")
 
-    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12", "ctrl+alt+ü",
-                 "mbutton", "xbutton1", "xbutton2"):
+    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12", "ctrl+alt+ü"):
         ok, msg = sio.validate_combo(good)
         check(ok, f"validate_combo rejected a good combo {good!r}: {msg}")
-    for bad in ("", "   ", "ctrl+alt", "ctrl+alt+p+q", "ctrl+alt+notakey", "@#$",
-                "ctrl+xbutton1", "shift+mbutton", "ctrl+alt+xbutton2"):
+    for bad in ("", "   ", "ctrl+alt", "ctrl+alt+p+q", "ctrl+alt+notakey", "@#$"):
         ok, _ = sio.validate_combo(bad)
         check(not ok, f"validate_combo accepted a bad combo {bad!r}")
-    # ... and a refused mouse combo says WHY, because that text is what the capture
-    # field shows in its detail slot. The rule itself lives one layer down, in
-    # hotkey_parse.combo_rejection, so the JSON lane refuses the identical set (#308).
-    ok, msg = sio.validate_combo("ctrl+xbutton1")
-    check(not ok and "mouse button" in msg and "modifier" in msg,
-          f"a modifier in front of a mouse button must be refused with the reason "
-          f"named, got {(ok, msg)!r}")
-    check(sio.normalize_combo("XButton1") == "xbutton1",
-          "normalize_combo mouse token")
 
     C, A, S = sio.TK_STATE_CONTROL, sio.TK_STATE_ALT, sio.TK_STATE_SHIFT
     cases = [
@@ -899,50 +888,6 @@ def check_hotkey_helpers():
         got = sio.decode_key_event(state, keysym, char)
         check(got == expected,
               f"decode_key_event({state:#x}, {keysym!r}) = {got!r}, expected {expected!r}")
-
-    # The mouse twin (#308). Two numberings on purpose: 4/5 are the thumb buttons
-    # Tk 8.6 reports (what the tool ships on), 8/9 the same two under Tk 9, which
-    # renumbered the extra buttons -- the interpreter's Tcl/Tk is uv's choice, not
-    # this repo's, so the field has to survive either.
-    mouse_cases = [
-        ((0, 2), "mbutton"),
-        ((0, 4), "xbutton1"),
-        ((0, 5), "xbutton2"),
-        ((0, 8), "xbutton1"),             # Tk 9 numbering, measured on 9.0.3
-        ((0, 9), "xbutton2"),
-        # The acceptance clause: held modifiers are IGNORED, so the field can only
-        # ever show the bare button -- never a form combo_rejection would refuse.
-        ((C | A | S, 4), "xbutton1"),
-        ((C, 2), "mbutton"),
-        ((0, 1), None),                   # left arms the field; never bindable
-        ((0, 3), None),                   # right stays out with it
-        ((0, 6), None),                   # X11 horizontal wheel: not a hotkey
-        ((0, 12), None),
-    ]
-    for (state, num), expected in mouse_cases:
-        got = sio.decode_mouse_event(state, num)
-        check(got == expected,
-              f"decode_mouse_event({state:#x}, {num}) = {got!r}, expected {expected!r}")
-    # Every token the decode can yield is one the grammar knows and accepts bare --
-    # a decode that produced a token hotkey_parse never heard of would put an
-    # unbindable combo into the field with nothing else going red.
-    for token in set(sio._MOUSE_BUTTONS.values()):
-        ok, msg = sio.validate_combo(token)
-        check(ok, f"decode_mouse_event can yield {token!r}, which validate_combo "
-                  f"refuses: {msg}")
-
-    # ... and a captured mouse button survives the D-002 round-trip: written as a
-    # diff, read back through the production loader, same binding -- in both value
-    # shapes, since a list-valued action (cancel_recording) keeps its list.
-    mouse_state = sio.preset_ctrl_alt()
-    mouse_state["start_recording"] = "xbutton1"
-    mouse_state["cancel_recording"] = ["mbutton"]
-    diff = sio.hotkeys_diff_vs_default(mouse_state, config.DEFAULT_HOTKEYS)
-    check(diff == {"start_recording": "xbutton1", "cancel_recording": ["mbutton"]},
-          f"the mouse bindings did not diff cleanly against the defaults: {diff}")
-    eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, diff)
-    check(eff == mouse_state and not warns,
-          f"mouse-binding round-trip mismatch (warns={warns})")
 
     # round-trip: the F-key preset diff, fed back through the production loader,
     # reproduces the preset -- exercising both the bare and the chord shapes.

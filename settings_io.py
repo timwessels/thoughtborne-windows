@@ -50,7 +50,8 @@ from pathlib import Path
 
 import config
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, combo_rejection, HotkeyParseError,
+    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
+    KEY_INVALID,
 )
 
 # ---- Tk event.state modifier bits (decode_key_event) -----------------------
@@ -777,24 +778,20 @@ def _norm_value(value):
 
 
 def validate_combo(raw: str) -> tuple:
-    """(ok, message). Parses via parse_hotkey_lexical, then asks hotkey_parse's
-    combo_rejection whether the result may be bound. ok=False with a human
-    message on an unparseable combo (no key / multiple keys), an unrecognized
-    key, or a modifier in front of a mouse button (#308). A special key (a single
-    character like the umlaut) is accepted -- it resolves at runtime via
-    VkKeyScanW, so config-time acceptance matches runtime registrability.
-
-    The rejection rule itself lives in hotkey_parse because the JSON lane
-    (config.apply_hotkey_overrides) must refuse exactly the same combos as the
-    capture field here; the message is the detail the field shows."""
+    """(ok, message). Parses via parse_hotkey_lexical + classify_key. ok=False
+    with a human message on an unparseable combo (no key / multiple keys) or a
+    KEY_INVALID key. Special keys (a single character like the umlaut) are
+    KEY_SPECIAL and accepted -- they resolve at runtime via VkKeyScanW, so
+    config-time acceptance matches runtime registrability."""
     if not isinstance(raw, str) or not raw.strip():
         return False, "empty combo"
     try:
-        mods, key = parse_hotkey_lexical(raw)
+        _mods, key = parse_hotkey_lexical(raw)
     except HotkeyParseError as e:
         return False, str(e)
-    reason = combo_rejection(mods, key)
-    return (False, reason) if reason is not None else (True, "")
+    if classify_key(key) == KEY_INVALID:
+        return False, f"unrecognized key '{key}'"
+    return True, ""
 
 
 # Tk keysyms that are themselves modifiers -- a keypress reporting one means only
@@ -872,45 +869,6 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
         parts.append("shift")
     parts.append(token)
     return "+".join(parts)
-
-
-# Tk button number -> key token (#308). On Windows with Tk 8.6 -- what the tool
-# ships on today -- Tk's pointer layer maps VK_MBUTTON / VK_XBUTTON1 /
-# VK_XBUTTON2 onto Button2Mask / Button4Mask / Button5Mask (win/tkWinPointer.c),
-# so 2, 4 and 5 are the wheel click and the two thumb buttons.
-#
-# 8 and 9 are the same two thumb buttons under Tk 9, which renumbered the extra
-# buttons: measured off-Windows on Tk 9.0.3, a <Button-4> binding still fires for
-# the thumb button but the event arrives carrying num 8 (Tk 8.6.14 carries 4).
-# X11 calls those numbers "back" and "forward" too, so the mapping holds either
-# way -- and the tool runs on whatever Tcl/Tk its interpreter brings, which is
-# uv's choice rather than this repo's. Whether Windows Tk 9 renumbers with X11
-# cannot be settled from here; carrying both keeps the field working if it does.
-#
-# Button 1 and 3 are deliberately absent: left is how the capture field is armed,
-# and binding either would make the machine unusable. Under X11 with Tk 8.6 the
-# numbers 4 and 5 are the wheel instead -- which costs the product nothing (the
-# app scrolls on <MouseWheel>, which X11 never sends there) and is what lets the
-# off-Windows test lane drive this path at all.
-_MOUSE_BUTTONS = {2: "mbutton",
-                  4: "xbutton1", 5: "xbutton2",
-                  8: "xbutton1", 9: "xbutton2"}
-
-
-def decode_mouse_event(state_bits: int, num: int):
-    """PURE decode of a Tk <Button> event into a combo string, or None for a
-    button that is not bindable. The mouse twin of decode_key_event, taking the
-    raw event fields as plain ints so it is unit-testable off-Windows.
-
-    The modifier bits in `state_bits` are accepted and IGNORED on purpose: a
-    mouse button is bindable only bare (hotkey_parse.combo_rejection is the rule,
-    for this path and the JSON one alike), so a Ctrl held while clicking the thumb
-    button still yields the bare 'xbutton1'. The field then shows XButton1 and
-    nothing else, and the user cannot arm a form the tool would refuse. The
-    parameter stays in the signature because the event carries it and the next
-    reader will ask -- and because "modifiers are ignored" is a rule worth
-    checking rather than inferring."""
-    return _MOUSE_BUTTONS.get(num)
 
 
 # =============================================================================

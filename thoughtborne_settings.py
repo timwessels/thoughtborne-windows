@@ -38,14 +38,6 @@ RUNNING tool already holds as a global hotkey cannot be captured here either --
 Windows RegisterHotKey consumes that keypress system-wide, so it fires the action
 instead of ever reaching the capture widget; capture a free combo, or stop the
 tool first.
-
-A mouse button (#308) is the exception to that last limit, in both directions:
-there is no reservation to swallow the press, so a button the running tool
-already listens to still reaches this window -- and fires its action in the tool
-at the same time, which is the non-exclusivity the notice dialog is about.
-Conversely a button the mouse's own driver software keeps for itself never
-arrives here at all, so it cannot be assigned through the UI -- only by hand in
-the JSON, where it becomes a valid entry that never fires.
 """
 
 import argparse
@@ -97,7 +89,7 @@ _T_IMPORTS = time.perf_counter()
 # colours (glyph + colour + text together; red stays for the rejected key) plus
 # the two surfaces the non-ttk widgets (tk.Label links, key chips) sit on. ----
 from settings_theme import (LINK_COLOR, TEXT_COLOR, GREEN, RED, GREY, AMBER,
-                            PAGE, CARD, LINE, ACCENT, MUTED)
+                            PAGE, CARD, ACCENT, MUTED)
 
 # CreateProcess flag exists only on Windows; 0 is a harmless no-op elsewhere so a
 # stray import off-Windows can't fail at module load.
@@ -212,19 +204,6 @@ def _enable_dark_title_bar(root) -> None:
         pass
 
 
-# The strip of screen no window of this app may grow or slide into: the taskbar
-# lives there, and a rail button or a dialog's only button under it is unreachable.
-# One number, because there is one question -- _size_window clamps the main
-# window's SIZE to it and the caveat notice clamps its POSITION to it.
-SCREEN_MARGIN_PX = 80
-
-# The caveat notice's text measure, in characters of the body font (#308): a notice
-# reads better in a shorter measure than the 100-char content column of the tabs.
-# Module-level because it is the dialog's only width bound -- the strut that pins it
-# and the wraplength of every paragraph in it both come from this one number.
-_NOTICE_MEASURE_CH = 62
-
-
 def _size_window(root: tk.Tk) -> None:
     """Size the window DPI-robustly and never larger than the screen.
 
@@ -248,8 +227,8 @@ def _size_window(root: tk.Tk) -> None:
             factor = max(root.winfo_fpixels("1i") / 96.0, 1.0)
         except Exception:
             factor = 1.0
-        max_w = max(root.winfo_screenwidth() - SCREEN_MARGIN_PX, 320)
-        max_h = max(root.winfo_screenheight() - SCREEN_MARGIN_PX, 320)
+        max_w = max(root.winfo_screenwidth() - 80, 320)
+        max_h = max(root.winfo_screenheight() - 80, 320)
         w = min(int(base_w * factor), max_w)
         h = min(int(base_h * factor), max_h)
         root.geometry(f"{w}x{h}")
@@ -728,24 +707,6 @@ class SettingsApp:
         self.root.bind_all("<MouseWheel>", self._on_mousewheel)
         for seq in ("<Prior>", "<Next>", "<Home>", "<End>"):
             self.root.bind_all(seq, self._on_scroll_key)
-
-        # Mouse-button capture (#308), on the WINDOW rather than on the key chip
-        # the issue named: Tk hands a <KeyPress> to the focus widget but a
-        # <Button> to the widget under the POINTER, and after a click on "Change…"
-        # the pointer sits on that button while the focus sits on the chip -- a
-        # middle click there would never reach a chip binding. The window's own
-        # bindtag is in every child's, so a press anywhere inside reaches this,
-        # and _on_capture_mouse ignores it unless a row is armed. bind, not
-        # bind_all: the caveat dialog is a window of its own, and a click in it
-        # must not read as a capture. Button-4/5 are the two thumb buttons on
-        # Windows (Tk maps VK_XBUTTON1/2 onto them) and, under Tk 8.6 on X11, the
-        # wheel -- deliberately NOT platform-gated, because being able to generate
-        # these off Windows is what lets the test ladder drive this path at all.
-        # Nothing in the app competes for them: it scrolls on <MouseWheel> only.
-        # Which button number the event then carries differs between Tk versions;
-        # settings_io.decode_mouse_event is where that is written down.
-        for seq in ("<Button-2>", "<Button-4>", "<Button-5>"):
-            self.root.bind(seq, self._on_capture_mouse, add="+")
 
     def _build_header(self):
         header = ttk.Frame(self.root, style="Header.TFrame",
@@ -1406,9 +1367,6 @@ class SettingsApp:
 
         # GUI modifier guard: a non-F-key needs Ctrl and/or Alt, else it would
         # globally steal a bare letter/digit from every app. F-keys pass bare.
-        # Keyboard-only, which is why it sits here and not in the shared chain
-        # below: a mouse button is bindable only bare (#308), so the guard has
-        # nothing to say about one -- and its message names letters and F-keys.
         parts = combo.split("+")
         key, mods = parts[-1], parts[:-1]
         is_fkey = len(key) >= 2 and key[0] == "f" and key[1:].isdigit()
@@ -1416,50 +1374,11 @@ class SettingsApp:
             self.capture_lbl.config(text=strings.t("capture.need_modifier", self.lang))
             return "break"
 
-        self._apply_captured_combo(name, combo)
-        return "break"
-
-    def _on_capture_mouse(self, event):
-        """A mouse button pressed anywhere in the window while a row is armed
-        (#308): capture it as a bare combo, then say what a mouse button cannot do.
-
-        Gated on `self._armed` rather than bound and unbound per arm -- one
-        binding that cannot leak. The decode ignores the event's modifier bits
-        (settings_io.decode_mouse_event), so a Ctrl held while clicking still
-        captures the bare button: the field can never show a form the tool would
-        refuse. The notice opens only on a True return, i.e. only when the button
-        really landed -- over a collision nothing was saved, and a notice saying
-        "the button is saved, but" would then be a lie."""
-        name = self._armed
-        if name is None:
-            return
-        combo = settings_io.decode_mouse_event(event.state, event.num)
-        if combo is None:
-            return                      # a button this app does not bind
-        if self._apply_captured_combo(name, combo):
-            self._show_mouse_caveat()
-
-    def _apply_captured_combo(self, name, combo):
-        """Everything a captured combo goes through once it is decoded -- validate,
-        collision-check, assign, re-render -- for the keyboard field and the mouse
-        binding alike. True only when the combo really landed in hotkeys_state.
-
-        Shared rather than copied because both capture sources have to REFUSE
-        identically: the collision check is the only thing standing between a
-        second binding of one combo and a start that drops one of the two actions
-        with a log warning, and two copies of it could drift without a sound. The
-        one acceptance rule itself is lower still, in hotkey_parse.combo_rejection,
-        which settings_io.validate_combo asks here and config.apply_hotkey_overrides
-        asks for the JSON lane (#308).
-
-        Disarms before it returns, which the mouse notice depends on: the dialog
-        takes the focus, and a still-armed row would see that as the
-        click-elsewhere of _on_capture_focusout."""
         ok, msg = settings_io.validate_combo(combo)
         if not ok:
             self.capture_lbl.config(
                 text=strings.t("capture.invalid", self.lang).format(detail=msg))
-            return False
+            return "break"
 
         # Collision: build the candidate state and let apply_hotkey_overrides --
         # the runtime acceptance authority -- judge it. A list-valued action gets
@@ -1475,7 +1394,7 @@ class SettingsApp:
             self.capture_lbl.config(
                 text=strings.t("capture.collision", self.lang).format(action=holder_disp))
             self._disarm()
-            return False
+            return "break"
 
         self.hotkeys_state[name] = candidate[name]
         self.capture_lbl.config(text="")
@@ -1484,7 +1403,7 @@ class SettingsApp:
         self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
-        return True
+        return "break"
 
     def _collision_holder(self, name, combo):
         """The other action whose binding shares combo's canonical form (display
@@ -1503,138 +1422,6 @@ class SettingsApp:
                 except Exception:
                     continue
         return None
-
-    def _show_mouse_caveat(self):
-        """The notice a captured mouse button earns, once per capture (#308).
-
-        A themed Toplevel, not a messagebox: what has to be said is a headline,
-        two short blocks and a closing line -- a messagebox can carry none of that
-        structure, and a grey warning box is the wrong register for "nice idea,
-        but". It is the app's FIRST window of its own, so the three things a
-        Toplevel does not inherit are done by hand: the page background (a
-        Toplevel is OS-grey until told otherwise), a width of its own, and the
-        two text registries, which outlive the dialog and must not collect its
-        widgets.
-
-        Width and height: the strut below pins the width, and the dialog is given
-        NO explicit size at all, so Tk keeps sizing it from its content. That is
-        what keeps the two clipping bugs of #218/#231 structurally impossible
-        here -- the first height measurement of a Tk window lies as soon as
-        anything re-wraps, and nothing here reads one.
-        """
-        sp = self.theme.sp
-        top = tk.Toplevel(self.root)
-        # Placed before it is ever painted: while withdrawn Tk still computes the
-        # requested size, which is what the centring below needs.
-        top.withdraw()
-        top.title(strings.t("dlg.mouse.title", self.lang))
-        # The background is the hairline, not the page: the body below insets by one
-        # pixel, so what shows around it is LINE -- the same colour Hair.TFrame rules
-        # the sections with. A notice painted PAGE on a PAGE page has no edge at all
-        # where nothing else draws one, and Windows itself draws only a very dark
-        # frame in dark mode, leaving the whole separation to the title bar. CARD
-        # would be the other candidate and is worse: the two cards inside the notice
-        # carry that colour themselves and would dissolve into it.
-        top.configure(background=LINE)
-        top.transient(self.root)
-        top.resizable(False, False)
-
-        # The registries are the app's, not the dialog's: render_all re-renders
-        # everything in _text_widgets and _push_wraps re-wraps everything in
-        # _wrap_labels, both long after this dialog is gone. Registering its
-        # labels is right (a language toggle re-renders them while it is open),
-        # so the mark is what keeps every capture from leaving a dead widget
-        # behind in two lists. Both helpers only append, so slicing from the mark
-        # is exact.
-        mark_text, mark_wrap = len(self._text_widgets), len(self._wrap_labels)
-
-        def _close(event=None):
-            if getattr(top, "_tb_closed", False):
-                return                  # button and <Escape> can both land
-            top._tb_closed = True
-            del self._text_widgets[mark_text:]
-            del self._wrap_labels[mark_wrap:]
-            try:
-                top.grab_release()
-            except tk.TclError:
-                pass
-            top.destroy()
-
-        body = ttk.Frame(top, padding=(sp(20), sp(16)))
-        # One physical pixel of the background all round -- a hairline stays a
-        # hairline at every scaling, so this one is deliberately not sp()-scaled.
-        body.pack(fill="both", expand=True, padx=1, pady=1)
-        # The width anchor, measured from the body font like theme.column_px() so it
-        # follows DPI and font size (_NOTICE_MEASURE_CH holds the measure). It is
-        # load-bearing twice over -- as this strut, and as the wraplength every label
-        # below is built with, without which each label would request its full
-        # single-line width (~1500 px here), take the dialog with it and then never
-        # wrap at all, since the wrap pass wraps a label to the width it was given.
-        try:
-            text_px = self.theme.body_font.measure("n" * _NOTICE_MEASURE_CH)
-        except Exception:
-            text_px = self.theme.sp(500)
-        ttk.Frame(body, width=text_px, height=1).pack(fill="x")
-        self._section(body, "dlg.mouse.heading", level="H2", pady=(0, sp(8)))
-        self._prose(body, "dlg.mouse.intro", wraplength=text_px).pack(fill="x")
-        # The two blocks that carry the substance sit in cards, the app's own form
-        # for "this is the caveat" (the F-key preset's IDE warning reads the same).
-        for head_key, body_key in (("dlg.mouse.catch.heading", "dlg.mouse.catch.body"),
-                                   ("dlg.mouse.rec.heading", "dlg.mouse.rec.body")):
-            card = self._card(body, head_key)
-            card.pack(fill="x", pady=(sp(14), 0))
-            self._prose(card, body_key, surface="Card.",
-                        wraplength=text_px - sp(34)).pack(fill="x")
-        self._prose(body, "dlg.mouse.closing", wraplength=text_px).pack(
-            fill="x", pady=(sp(16), 0))
-        btn = ttk.Button(body, command=_close)
-        self._reg(btn, "btn.mouse_ok")
-        btn.pack(anchor="e", pady=(sp(16), 0))
-
-        top.bind("<Escape>", _close)
-        top.bind("<Return>", _close)
-        top.protocol("WM_DELETE_WINDOW", _close)
-        top.update_idletasks()
-        try:
-            # Centred horizontally, a third down, on the parent's own frame -- and
-            # read from the REQUESTED size, the only size a withdrawn window has.
-            w, h = top.winfo_reqwidth(), top.winfo_reqheight()
-            x = self.root.winfo_rootx() + max(
-                (self.root.winfo_width() - w) // 2, 0)
-            y = self.root.winfo_rooty() + max(
-                (self.root.winfo_height() - h) // 3, 0)
-            # Kept on the screen as well as on the parent: the German text at 150 %
-            # scaling can end up taller than the window it is centred on, and the
-            # window itself is already clamped to the screen -- so centring alone
-            # would push the closing line and the button off the bottom edge. Clear
-            # of the same SCREEN_MARGIN_PX the main window keeps, since the edge the
-            # notice would slide under is the one the taskbar sits on, and its only
-            # button sits at its bottom right.
-            #
-            # That holds only while the notice FITS (#314). Here the constant clamps
-            # a POSITION, not a size the way it does for the main window, and this
-            # window is not resizable -- so once the notice is taller than the screen
-            # minus the margin, the second term is 0 and the clamp collapses to y = 0.
-            # Measured with the German text at 150 %, where the notice stands 806x780:
-            # on 1366x768 its button ends up at 755, inside the margin strip, on
-            # 1280x720 below the screen edge. Escape, Return and the title bar's X
-            # still close it; what goes missing is the exit the notice itself shows.
-            m = SCREEN_MARGIN_PX
-            x = min(max(x, 0), max(self.root.winfo_screenwidth() - w - m, 0))
-            y = min(max(y, 0), max(self.root.winfo_screenheight() - h - m, 0))
-            top.geometry(f"+{x}+{y}")
-        except tk.TclError:
-            pass                        # an unplaced dialog still reads fine
-        top.deiconify()
-        top.update_idletasks()
-        try:
-            top.grab_set()
-        except tk.TclError:
-            # Modal is the intent, not a requirement: a window that is not yet
-            # viewable would raise here, and a notice without a grab is still a
-            # notice.
-            pass
-        btn.focus_set()
 
     # ---- behavior tab ----
     def _build_behavior_tab(self):

@@ -8,9 +8,7 @@ config import-safe for the test drivers (test_console_ui.py etc.). The one
 genuinely layout/Windows-bound step (VkKeyScanW for special characters such as
 the German 'u-umlaut') stays in hotkey_manager; everything a user realistically
 rebinds to -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers --
-is resolvable here. The three mouse buttons (#308) are here too, in a map of
-their own: they are a token the grammar knows and RegisterHotKey cannot serve,
-so the lexical layer is also where a combo is told which lane it belongs to.
+is resolvable here.
 
 Because every layer passes through here, this is also where a combo gets its one
 spelling (`canonical_combo`) and its one display form (`format_combo`,
@@ -54,22 +52,6 @@ for _i in range(24):
 # validation doesn't reject a combo the runtime would accept.
 _SPECIAL_ALIASES = {'ue'}
 
-# Mouse buttons bindable as a hotkey key (#308) -> VK code, for the polled lane.
-# Deliberately NOT in VK_MAP: that map is what _resolve_vk_code hands to
-# RegisterHotKey, and RegisterHotKey *accepts* a mouse VK, returns TRUE and then
-# never fires for it (measured 2026-09-08) -- a key that looks registered and is
-# dead. These ride mouse_detector instead, polled on their own thread and
-# clock -- never the audio-paced recording loop -- which is also the stronger
-# reason no shipped default may sit on one: not merely layout-resolved like
-# the umlaut (D-012), simply not registrable at all.
-# Left and right button stay out on purpose: left is how the settings app's
-# capture field is armed, and binding either would make the machine unusable.
-MOUSE_VK_MAP = {
-    'mbutton': 0x04,    # VK_MBUTTON  -- wheel click
-    'xbutton1': 0x05,   # VK_XBUTTON1 -- thumb, Windows' "Back"
-    'xbutton2': 0x06,   # VK_XBUTTON2 -- thumb, "Forward"
-}
-
 
 class HotkeyParseError(ValueError):
     """A hotkey string that cannot be split into (modifiers, key).
@@ -112,7 +94,6 @@ def parse_hotkey_lexical(hotkey_str: str) -> tuple:
 # classify_key outcomes
 KEY_STATIC = "static"    # in VK_MAP -> definitely registrable, no Windows needed
 KEY_SPECIAL = "special"  # single char / known alias -> resolvable only at runtime (VkKeyScanW)
-KEY_MOUSE = "mouse"      # a mouse button -> bindable, but never via RegisterHotKey (#308)
 KEY_INVALID = "invalid"  # cannot be a key at all -> reject
 
 
@@ -123,61 +104,13 @@ def classify_key(key_token: str) -> str:
     SPECIAL keys (a single character like the umlaut, or a known alias) can only
     be resolved at runtime via VkKeyScanW, so they are accepted at config-time
     and, if truly unregistrable, fail loudly at RegisterHotKey (never a startup
-    abort). MOUSE keys are bindable but take a different lane entirely (#308):
-    a fourth outcome rather than a flavour of STATIC precisely so the D-012 guard
-    -- which asks `== KEY_STATIC` of every shipped default -- keeps failing for
-    one, since a shipped mouse default would be dead for every user.
-    INVALID means it cannot be a key at all.
+    abort). INVALID means it cannot be a key at all.
     """
     if key_token in VK_MAP:
         return KEY_STATIC
-    if key_token in MOUSE_VK_MAP:
-        return KEY_MOUSE
     if len(key_token) == 1 or key_token in _SPECIAL_ALIASES:
         return KEY_SPECIAL
     return KEY_INVALID
-
-
-def combo_rejection(modifiers: int, key_token: str) -> "str | None":
-    """The one reason a structurally parsed combo is still unbindable, or None.
-
-    parse_hotkey_lexical answers "is this shaped like a combo"; this answers "may
-    it be bound". Both acceptance authorities go through here --
-    config.apply_hotkey_overrides for the JSON lane and settings_io.validate_combo
-    for the settings app -- so a rule cannot hold on one path and leak on the
-    other. The returned text is the reason alone, without a subject: each caller
-    puts it into its own sentence (a log warning there, the capture field's
-    detail slot here).
-    """
-    kind = classify_key(key_token)
-    if kind == KEY_INVALID:
-        return f"unrecognized key '{key_token}'"
-    # A mouse button is bindable only bare (#308). The normal case is "this thumb
-    # button dictates"; a modifier in front of it would ask what a held Shift
-    # means for a button other programs keep reacting to anyway. MOD_NOREPEAT is
-    # set on every parse, so it is masked out rather than tested for.
-    if kind == KEY_MOUSE and (modifiers & ~MOD_NOREPEAT):
-        return f"'{key_token}' is a mouse button and takes no modifier"
-    return None
-
-
-def mouse_vk(hotkey_str: str):
-    """The VK code of a BARE mouse combo, or None for everything else (#308).
-
-    The one place that decides which lane a combo takes: a hit here means "poll
-    it", None means "hand it to RegisterHotKey". Fail-open by construction --
-    anything unparseable, and a mouse token still carrying a modifier (which both
-    acceptance layers refuse, so it cannot arrive from a validated config), falls
-    through to the keyboard lane and fails there the way it always has, with a
-    logged `FAILED: ... Parse error` rather than an exception out of registration.
-    """
-    try:
-        modifiers, key = parse_hotkey_lexical(hotkey_str)
-    except HotkeyParseError:
-        return None
-    if key in MOUSE_VK_MAP and not (modifiers & ~MOD_NOREPEAT):
-        return MOUSE_VK_MAP[key]
-    return None
 
 
 # The one modifier order every stored and displayed combo is written in (#272).
@@ -214,26 +147,15 @@ def canonical_combo(hotkey_str: str) -> str:
     return '+'.join(parts)
 
 
-# Display spelling of the key tokens capitalize() gets wrong -- it would print
-# 'Xbutton1' (#308). Modifiers and every other key still go through capitalize(),
-# so this stays a three-row exception inside the one formatter rather than a
-# second one (D-019). No modifier name collides with these three tokens, so the
-# lookup is safe on every part of a combo.
-_DISPLAY_KEYS = {'mbutton': 'MButton', 'xbutton1': 'XButton1', 'xbutton2': 'XButton2'}
-
-
 def format_combo(combo: str) -> str:
     """Display spelling of a canonical combo: 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
 
     capitalize() per part is enough once the input is canonical (ctrl/alt/shift/
     win, a letter, a digit, f1-f24, or 'ü'), and it formats a bare prefix
-    ('ctrl+alt' -> 'Ctrl+Alt') the same way; the mouse tokens are the one
-    exception, spelled out in _DISPLAY_KEYS above. The one display formatter:
-    console, settings app and tests share it, so no surface invents a second
-    spelling.
+    ('ctrl+alt' -> 'Ctrl+Alt') the same way. The one display formatter: console,
+    settings app and tests share it, so no surface invents a second spelling.
     """
-    return '+'.join(_DISPLAY_KEYS.get(part, part.capitalize())
-                    for part in combo.split('+'))
+    return '+'.join(part.capitalize() for part in combo.split('+'))
 
 
 def first_combo(value) -> str:

@@ -774,9 +774,7 @@ def check_key_tables_and_budgets():
                    ["ctrl+alt+w", "ctrl+shift+a"],        # mixed prefixes
                    ["f9", "ctrl+alt+a"],                  # a bare key mixed in
                    ["ctrl+alt+shift+win+f24"],            # a single long combo
-                   ["f9", "f10"],                         # bare keys only
-                   ["xbutton1", "ctrl+alt+a"],            # a mouse button mixed in
-                   ["xbutton1", "xbutton2"]):             # mouse buttons only (#308)
+                   ["f9", "f10"]):                        # bare keys only
         want = common_prefix(combos)
         want = format_combo(want) if want is not None else None
         got = u._display_prefix([format_combo(c) for c in combos])
@@ -942,11 +940,6 @@ FOOTER_SCHEMES = {
     # in check_footer_lead_fallback below.
     "four-modifier": {n: ("ctrl+alt+shift+win+u" if n == "exit_program"
                           else "ctrl+alt+shift+win+f24") for n in DEFAULT_HOTKEYS},
-    # Two mouse buttons among the shipped keys (#308): bare by grammar, so this is
-    # a mixed scheme, and it puts XButton1/MButton through every key-bearing
-    # surface including the prose lines.
-    "mouse": dict(DEFAULT_HOTKEYS, start_recording="xbutton1",
-                  stop_recording_clipboard="mbutton"),
 }
 # The prose each panel must spell out in full, per surface -- {r}/{s}/{p} are the
 # scheme's retry / switch / paste combos. Every one of these fits the guard budget
@@ -1402,12 +1395,8 @@ _MODS = [n for n, _ in hp._CANONICAL_MODIFIERS]
 _STRESS_PREFIXES = [_MODS[:i] for i in range(len(_MODS) + 1)]
 _NARROW_KEYS = [chr(ord("a") + i) for i in range(12)]        # 1 cell
 _WIDE_KEYS = [f"f{i}" for i in range(10, 22)]                # the widest static keys
-_MOUSE_KEYS = sorted(hp.MOUSE_VK_MAP)                        # bare-only keys (#308)
 # The longest combo a legal config can hold, derived from hotkey_parse rather
-# than pinned: every canonical modifier plus the widest key it maps. VK_MAP is
-# the right source precisely because the mouse tokens are NOT in it (#308): they
-# take no modifier, so 'Ctrl+Alt+Shift+Win+XButton1' is a combo no config can
-# hold and no surface should be asked to fit.
+# than pinned: every canonical modifier plus the widest key it maps.
 MAX_COMBO = format_combo(canonical_combo(
     "+".join(_MODS + [max(sorted(hp.VK_MAP), key=len)])))
 
@@ -1586,15 +1575,6 @@ def check_stress_widths():
                 for fn in renderers:
                     for kw in _stress_kwargs(fn, scheme):
                         _stress_widths(f"{fn.__name__} [{tag}]", fn, kw)
-    # Mouse buttons get their own rung rather than riding the prefix ladder:
-    # they are bare by grammar (#308), so feeding them through the loop above
-    # would measure 'ctrl+alt+xbutton1' -- a screen no config can produce. Their
-    # one legal shape is every action on a bare token.
-    mouse = _stress_scheme([], _MOUSE_KEYS, False)
-    for fn in renderers:
-        for kw in _stress_kwargs(fn, mouse):
-            _stress_widths(f"{fn.__name__} [mouse/bare]", fn, kw)
-
     # The ladder must actually reach the longest combo a config can hold.
     top = _stress_scheme(_MODS, _WIDE_KEYS, False)
     if len(combo_for(top, "start_recording")) != len(MAX_COMBO):
@@ -1860,60 +1840,6 @@ def _fail_report():
     return 1
 
 
-_HKM = Path(__file__).resolve().with_name("hotkey_manager.py")
-
-
-def check_registration_books_stay_apart():
-    """The two registration counts, read as source (#308). A mouse combo is
-    counted beside the reservations, never inside them, and its console line
-    appears only when something listens.
-
-    A static twin only because the ladder has no other reach (#309): the counts
-    live on `hotkey_manager`, which does `ctypes.WinDLL('user32')` at import and
-    cannot be imported off Windows, and neither can the app that prints them.
-    They are the one thing in this lane that can lie with no render changing."""
-    reads = {}
-    for node in ast.walk(ast.parse(_HKM.read_text(encoding="utf-8"), filename=str(_HKM))):
-        if isinstance(node, ast.FunctionDef) and node.name.endswith("_count"):
-            reads[node.name] = {a.attr for a in ast.walk(node)
-                                if isinstance(a, ast.Attribute)}
-    for prop, wanted, forbidden in (
-            ("expected_count", "_registrations", "_mouse_registrations"),
-            ("registered_count", "_registered_ids", "_hotkey_map"),
-            ("listening_count", "_mouse_registrations", "_registered_ids")):
-        got = reads.get(prop)
-        if got is None:
-            _record(f"hotkey_manager.py: {prop} is gone -- reservations and mouse "
-                    f"listeners are counted apart (#308)")
-        elif wanted not in got:
-            _record(f"hotkey_manager.py: {prop} no longer reads {wanted} -- "
-                    f"listening is not a reservation (#308)")
-        elif forbidden in got:
-            _record(f"hotkey_manager.py: {prop} reads {forbidden}, which mixes the "
-                    f"two books (#308)")
-
-    tree = ast.parse(_APP.read_text(encoding="utf-8"), filename=str(_APP))
-    summary_src, guarded = None, False
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "summary"):
-            summary_src = ast.unparse(node.value)
-        if (isinstance(node, ast.If) and "listening" in ast.unparse(node.test)
-                and any(isinstance(n, ast.Constant) and isinstance(n.value, str)
-                        and "mouse hotkeys" in n.value for n in ast.walk(node))):
-            guarded = True
-    if summary_src is None:
-        _record("thoughtborne.py: the `summary` startup line is gone (#166)")
-    elif "listening" in summary_src:
-        _record("thoughtborne.py: the n/m registered line carries a mouse clause "
-                "again -- it is the #166 grep contract, and it ran to 86 columns "
-                "against D-018's 72 (#308)")
-    if not guarded:
-        _record("thoughtborne.py: the `mouse hotkeys: ... listening` line is gone, "
-                "or no longer gated on a listener existing (#308)")
-
-
 # ---- the parameter matrix ----------------------------------------------------
 def main():
     # The static key tables speak before anything renders, and stop the run when
@@ -2132,7 +2058,6 @@ def main():
     check_footer_schemes()
     check_footer_lead_fallback()
     check_app_derives_no_key()
-    check_registration_books_stay_apart()
     check_stress_widths()
 
     # ---- #55 override edge: a scheme with no shared lead ---------------------

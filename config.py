@@ -20,7 +20,8 @@ from pathlib import Path
 # runtime. hotkey_parse imports nothing Windows-bound, so config stays importable
 # off-Windows (the test drivers depend on that).
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, combo_rejection, HotkeyParseError,
+    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
+    KEY_INVALID,
 )
 
 # Import-time warnings, collected instead of logged (#206): at `import config` no
@@ -684,22 +685,17 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                 ok = False
                 break
             try:
-                mods, key = parse_hotkey_lexical(c)
+                _mods, key = parse_hotkey_lexical(c)
             except HotkeyParseError as e:
                 warnings.append(
                     f"hotkeys.{action}: '{c}' is not a valid combo ({e}); "
                     f"keeping default")
                 ok = False
                 break
-            # Whether a structurally valid combo may be bound at all is one rule
-            # in hotkey_parse (#308), shared with the settings app's
-            # validate_combo -- an unrecognized key, or a modifier in front of a
-            # mouse button, cannot be refused on one path and accepted on the
-            # other.
-            reason = combo_rejection(mods, key)
-            if reason is not None:
+            if classify_key(key) == KEY_INVALID:
                 warnings.append(
-                    f"hotkeys.{action}: '{c}' -- {reason}; keeping default")
+                    f"hotkeys.{action}: '{c}' has an unrecognized key '{key}'; "
+                    f"keeping default")
                 ok = False
                 break
             # One spelling for every effective combo (#272/#275): modifiers in
@@ -798,14 +794,6 @@ PTT_RELEASE_TAIL_S = 0.15    # keep recording this long after release (anti-clip
 # offered for owner adaptability despite its Alt-menu-flash quirk.
 _PTT_TRIGGER_VK = {"lctrl": 0xA2, "rctrl": 0xA3, "lalt": 0xA4}
 PTT_TRIGGER_VK = _PTT_TRIGGER_VK[PTT_TRIGGER]
-
-# ===== MOUSE HOTKEYS (#308) =====
-# Poll interval for mouse-button hotkeys, which run on their own thread: 10 ms
-# against physical clicks of 30 ms and up. Deliberately NOT the recording loop's
-# tick -- that one is paced by the audio chunk while a recording runs (~64 ms,
-# CHUNK/RATE above) and stretches toward AUDIO_STALL_TIMEOUT_SECONDS in a degraded
-# state, which is exactly the state a stop or cancel is pressed in.
-MOUSE_POLL_INTERVAL_S = 0.01
 
 # Captured during the single personal_settings parse below, applied after the
 # HOTKEYS defaults are defined (#55). Stays None when the file/block is absent.
