@@ -472,12 +472,13 @@ def check_masthead_layout():
     szone = next((s for s in switched if s.startswith("╠══ MODEL")), "")
     if mzone != szone:
         _record(f"masthead layout: MODEL header {mzone!r} != SWITCHED panel's {szone!r}")
-    # History edge: capitalised, no open/lowercase-history hint
+    # History edge: capitalised, label first (#115). Anything re-added beside the
+    # path is caught elsewhere -- by the width (`dedge` does not shorten what it is
+    # handed), by the path token in _STRESS_VISIBLE, and, if it names a key, by the
+    # Ctrl+Alt counts.
     edge = ma[-1]
     if not edge.startswith("╚═ History: "):
         _record(f"masthead layout: History edge wrong: {edge!r}")
-    if "open:" in edge or "history:" in edge:
-        _record(f"masthead layout: History edge still has an open/lowercase hint: {edge!r}")
 
 
 def check_ctrl_alt_counts():
@@ -1406,23 +1407,29 @@ _STRESS_KEY_ACTION = {"switch_key": "switch_api", "start_key": "start_recording"
 _STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS}
 _STRESS_SWEEP = {"reason": (None, *u._REASON_LINES), "inconclusive": (False, True),
                  "hotkeys_ok": (False, True), "clean_exit": (False, True),
-                 "sent": (False, True), "mode": (None, "typing")}
+                 "sent": (False, True), "mode": (None, "typing"),
+                 # Both noapi shapes. The non-empty rung is the one a started app
+                 # can still reach since #200 (an all-keys-missing start returns to
+                 # the shop window), and the only one with a line for the zone.
+                 "other_failures": ([],
+                                    [("slot-under-test",
+                                      "ConnectionError: host not found")])}
 _STRESS_NEUTRAL = {
     "seq": 99999, "chars": 88888, "model_label": "Groq Whisper Large v3",
     "cap": 4000, "original_chars": 999999, "duration": 42.0,
-    "when": "2026-07-11 03:14", "audio_path": PATHS[3] + r"\history\audio",
-    "history_path": PATHS[3] + r"\history", "lineup": lineup_for(DEFAULT_API),
+    "when": "2026-07-11 03:14", "audio_path": PATHS[1] + r"\history\audio",
+    "history_path": PATHS[2] + r"\history", "lineup": lineup_for(DEFAULT_API),
     "with_wordmark": False, "logo_lines": None, "pinned_default": None,
     "version": "v9.9.9+abcdef1",
     "provider": "Soniox", "registered": 10, "expected": 11,
     "current_label": "Engine Under Test", "new_label": "Engine Under Test",
-    "other_failures": [], "env_dir": PATHS[3],
+    "env_dir": PATHS[3],
     "action_lines": ("check your API key in Settings,", "then see the log"),
 }
 _STRESS_OVERRIDE = {   # where one parameter name means two different things
     ("render_selftest_failed", "reason"): "self-test failed -- no transcription received",
     ("render_switch_failed", "missing"): ["SONIOX_API_KEY"],
-    ("render_noapi_panel", "missing"): [("SONIOX_API_KEY", ["soniox-live", "soniox"])],
+    ("render_noapi_panel", "missing"): [("KEY_UNDER_TEST", ["engine-under-test"])],
 }
 # #299: which of those values must reach the screen. The tables above say what a
 # parameter is worth as a width fixture; this says the surface has to show it, so
@@ -1436,18 +1443,36 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
 # a path or a duration is reformatted or shortened before it is shown. A visible
 # value has to be DISTINCT from everything else on its surface, or the wrong one
 # satisfies the check: `chars` is not `seq`, and the two engine labels are not
-# names the lineup beside them already prints. Two absences are deliberate:
+# names the lineup beside them already prints. Some entries need their fixture
+# for that, not just their name: the noapi panel prints GROQ_API_KEY and
+# SONIOX_API_KEY in its own standing copy, so the env var under test is a
+# synthetic one no static line can satisfy, and all three path edges shorten what
+# they are given, so their fixtures have to stay inside the edge budget --
+# `env_dir` sits exactly on its 55. Truncation is stressed where it is the point,
+# over the four checkout depths the matrix above renders. Two absences are
+# deliberate:
 # `render_ok_strip`'s `seq`, which the typing branch drops, and
 # `render_masthead`'s `version` (#297) -- the sweep renders the terse form
 # (`with_wordmark: False`, load-bearing here, since the wordmark's plain twin
 # collapses to a different line count), which has no row to carry the token.
 # check_masthead_layout pins that one instead, on the column it must end on.
+# Three more are deliberate and all of one shape: `render_recovered_panel`'s
+# `clean_exit` and `hotkeys_ok`, and `render_ok_strip`'s `sent`. A flag never
+# puts a value on a surface -- it picks one of two renderings, both of them
+# true -- so an entry here could only assert that the word `False` reaches the
+# screen. What a flag owes its surface is that its two branches differ at all,
+# which is check_failed_reason_block's shape (`inconclusive`, asserted both
+# ways) -- written there for that one flag, and by nobody for these three.
 _STRESS_VISIBLE = {
     ("render_hotkeys_partial", "registered"), ("render_hotkeys_partial", "expected"),
     ("render_insert_failed", "seq"), ("render_transcription_failed", "seq"),
     ("render_waiting_strip", "seq"), ("render_waiting_strip", "chars"),
     ("render_noapi_panel", "env_dir"), ("render_recovered_panel", "when"),
     ("render_selftest_failed", "reason"),
+    ("render_masthead", "history_path"), ("render_recovered_panel", "audio_path"),
+    ("render_noapi_panel", "missing"), ("render_noapi_panel", "other_failures"),
+    ("render_switch_failed", "missing"), ("render_switch_failed", "lineup"),
+    ("render_switched_panel", "lineup"), ("render_selftest_failed", "action_lines"),
 }
 _VISIBLE_SEEN = set()      # one message per parameter, not one per sweep rung
 _VISIBLE_CHECKED = set()   # every pair a sweep call actually carried
@@ -1457,6 +1482,22 @@ def _is_stress_visible(rname, pname):
     """Whether this renderer must show this parameter's value -- see the table."""
     return (pname in _STRESS_KEY_ACTION or pname.endswith("_label")
             or (rname, pname) in _STRESS_VISIBLE)
+
+
+def _visible_tokens(value):
+    """What a visible value has to put on the screen, as strings. A list or tuple
+    reaches a surface as its ELEMENTS -- the lineup rows and the noapi zone are
+    composed out of them and the repr appears nowhere -- so it stands for its
+    elements' tokens. Three shapes yield nothing, all for the same reason: there
+    is no string a screen could be asked for. A flag picks a rendering rather
+    than printing itself; an empty list renders no line at all; and the empty
+    string is in every text there is. A parameter that yields nothing here is one
+    this table cannot speak about -- which is what the stale guard reports."""
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple)):
+        return [t for item in value for t in _visible_tokens(item)]
+    return [] if isinstance(value, bool) else [str(value)]
 
 
 def _stress_scheme(mods, keys, mixed):
@@ -1552,13 +1593,14 @@ def check_stress_widths():
     elif len(line) != u.W:
         _record(f"saved strip at {MAX_COMBO}: framed len {len(line)} != {u.W}: {line!r}")
 
-    # The visible table stays honest: a pair no sweep call carried names a renderer
-    # or parameter that was mistyped or renamed away, and checks nothing.
+    # The visible table stays honest: an entry the sweep never put a token on a
+    # screen for checks nothing, whether the name is wrong or the fixture is.
     stale = sorted(p for p in _STRESS_VISIBLE if p not in _VISIBLE_CHECKED)
     if stale:
-        _record(f"stress: _STRESS_VISIBLE names {stale}, which no sweep call carried -- "
-                f"a renderer or parameter mistyped or renamed away, so the entry "
-                f"asserts nothing")
+        _record(f"stress: no sweep call asked a screen for {stale} -- a renderer or "
+                f"parameter mistyped or renamed away, or one whose every fixture "
+                f"yields nothing to look for (a flag, a None, an empty list or "
+                f"string): either way the entry asserts nothing")
 
 
 def _stress_visibility(tag, rname, kw, lines):
@@ -1569,17 +1611,22 @@ def _stress_visibility(tag, rname, kw, lines):
     for pname, value in kw.items():
         if value is None or not _is_stress_visible(rname, pname):
             continue
+        tokens = _visible_tokens(value)
+        if not tokens:
+            continue      # nothing to ask of the screen -- the stale guard has it
         _VISIBLE_CHECKED.add((rname, pname))
         if (rname, pname) in _VISIBLE_SEEN:
             continue
         if text is None:
             text = strip("\n".join(lines))
-        if str(value) not in text:
+        gone = [t for t in tokens if t not in text]
+        if gone:
             _VISIBLE_SEEN.add((rname, pname))
             _record(f"stress {tag}: {rname}.{pname} is classified as visible, but "
-                    f"its value {str(value)!r} appears nowhere in the rendering -- "
+                    f"{gone[0]!r} appears nowhere in the rendering -- "
                     f"the surface went silent while every line still holds 70 "
-                    f"cells (#281)")
+                    f"cells (#281), or a fixture longer than what this surface "
+                    f"shows of it")
 
 
 def _stress_widths(name, fn, kw):

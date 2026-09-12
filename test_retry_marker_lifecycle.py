@@ -93,7 +93,8 @@ logging.getLogger("Thoughtborne").setLevel(logging.CRITICAL)
 # as a running tool, so a mere test run faked the heartbeat (#267). thoughtborne.py binds
 # the value at import, so the module attribute has to move before it, not after.
 import config  # noqa: E402
-config.LOG_FILE = Path(tempfile.mkdtemp(prefix="tb_marker_log_")) / "thoughtborne.log"
+_LOG_DIR = Path(tempfile.mkdtemp(prefix="tb_marker_log_"))   # removed in main()
+config.LOG_FILE = _LOG_DIR / "thoughtborne.log"
 
 
 # ---- second layer: the transcript verdict ROUTING (#133), tested by driving
@@ -1343,6 +1344,10 @@ def main():
         # import); no case runs past this point, so clearing it here leaves a
         # standalone run no tb_marker_test_* dir behind in /tmp.
         shutil.rmtree(ah.ARCHIVE_FOLDER, ignore_errors=True)
+        # The log dir goes the same way -- and unlike the archive dir it needs no
+        # re-creation in test_all(): nothing reaches it after the import block,
+        # which detaches every handler the thoughtborne import attached.
+        shutil.rmtree(_LOG_DIR, ignore_errors=True)
 
 
 def test_all():
