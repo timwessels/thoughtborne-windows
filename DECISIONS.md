@@ -1599,3 +1599,51 @@ Respects D-006 (the ZIP is a `git archive`, which is what makes the gate exact),
 D-018 (one console form: the version-less masthead keeps the same layout instead
 of falling back to a centered tagline) and D-019 (the token is no key: it carries
 no combo and changes no order).
+
+## D-022 — Mouse buttons are not hotkeys here; the supported route is an external remapper
+
+Decided 2026-09-13 (#308, reverting its implementation the day after it landed,
+before any release carried it).
+
+The middle and thumb buttons briefly worked as hotkeys (`9a34a28` + `04ff12e`: a
+polled listening lane beside RegisterHotKey, capture in the settings window, a
+caveat dialog about non-exclusivity). Reverted whole, for three reasons that
+outweigh the narrow case it served:
+
+- **The external route is better, not just equal.** Windows cannot make a mouse
+  button exclusive for us — RegisterHotKey accepts the VK and never fires
+  (measured 2026-09-08), and the low-level mouse hook that could swallow the
+  press is the lane the Modern-Standby precedent (#66) rules out for a tool
+  whose first principle is stability. A dedicated remapper (X-Mouse Button
+  Control, AutoHotkey) *does* swallow the press and can emit F13–F24 — keys the
+  grammar has accepted since #55, with static VK codes (D-012 holds) and no
+  physical key to collide with. That yields an exclusive hotkey with no
+  double-triggering: strictly more than the built-in lane could ever deliver,
+  which is why the lane's own caveat dialog already recommended it.
+- **The capture guarantee did not survive real driver software.** The design
+  rested on "what captures, works": a button the mouse's driver swallows never
+  reaches the capture field. A gesture-configured button under Logi Options+
+  breaks that — its synthesized click reaches the settings window (captures
+  fine) but never moves the global key state the polled lane reads (never
+  fires). "Assignable but dead" through the UI is the worst version of the
+  feature, and closing that hole would have meant more machinery on top.
+- **The tool stays small on purpose.** The lane cost ~1,500 lines (~5% of the
+  codebase) plus a second listening mechanism, a second registration ledger,
+  and two issues of its own (#314, #315) — a standing tax on every future
+  hotkey change, paid for a case that almost always has a better answer. The
+  maintainer's stated bar — a codebase an agent can still reason about whole —
+  is itself a product feature and wins here.
+
+The user-facing answer is a pointer, not a feature: the settings app says in
+plain text that a mouse button cannot be bound here and where the route is
+described, and the README carries the recipe (remapper → F13–F24 → bind that
+key as a normal hotkey). Tracked separately.
+
+Do not reintroduce: mouse virtual keys in the hotkey grammar, a polled or
+hooked mouse-listening lane, or mouse capture in the settings window — however
+cleanly a request reads (#287's mouse half was such a request, and the answer
+to the next one is this entry and the README recipe). If the facts change —
+Windows grows a reservation mechanism that fires for mouse VKs, or the F13–F24
+route stops working — that is a supersede discussion, not a re-implementation.
+The full implementation survives in git history at `04ff12e` and `9a34a28`,
+with the Win32 measurements in the issue.
