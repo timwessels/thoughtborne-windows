@@ -41,6 +41,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active |
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
+| D-025 | German user-facing text says du | Active |
 
 ---
 
@@ -1732,3 +1733,15 @@ exceptions. If multi-binding ever becomes a real need, that is a supersede
 discussion citing this entry — and the design would then be uniform (every
 action a list), not two privileged actions; the old implementation survives in
 git history (pre-#318).
+
+## D-025 — German user-facing text says du
+
+Decided 2026-09-13 (settled while specifying #316).
+
+Every German-language user-facing surface — the settings app's DE strings,
+`README.de.md`, the website's German pages — addresses the reader informally
+as *du*, never *Sie*. This matches the target user (`VISION.md`: the
+self-reliant techie the tool bends to) and records what every existing German
+text already does uniformly, so no future text or review "corrects" a du into
+a Sie. English text is untouched by this entry; code, comments and
+developer-facing docs stay English either way (AGENTS.md).
