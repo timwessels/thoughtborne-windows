@@ -40,6 +40,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
 | D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active |
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
+| D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 
 ---
 
@@ -1695,3 +1696,39 @@ Do not reintroduce: a runtime- or layout-resolved key lane in any form -- no
 If a real need for a non-static hotkey key ever materializes, that is a supersede
 discussion citing this entry, not a quiet re-add; the implementation survives in
 git history (pre-#317).
+
+## D-024 — One action, one combo: multi-binding and the list-shaped values are removed
+
+Decided 2026-09-12 with the maintainer, in dialog; implementation tracked in #318.
+
+Every action binds exactly **one** combo. The list-shaped values that
+`cancel_recording` and `exit_program` carried — the door to binding several
+combos to one action — are removed, and with them the whole rule surface that
+existed only for that door.
+
+- **What goes.** The two list-shaped defaults become plain strings;
+  `apply_hotkey_overrides` loses the shape-preservation rule, the multi-combo
+  rejection lane and the same-combo-listed-twice branch of its collision loop;
+  `hotkey_parse.first_combo`, the settings app's `(+n more)` suffix, and every
+  `isinstance(value, list)` branch across the registrar, the diff writer and the
+  display surfaces go with it.
+- **Why.** The capability was demonstrably unused: both shipped defaults held a
+  single entry, the F-keys preset assigns one combo per action, the capture
+  widget could only ever *replace* a list with a single combo, and every surface
+  displayed only the first element. What remained was a `str | list[str]`
+  duality that every future edit had to think through — cost without value. The
+  maintainer's call: this is not a deferral, multi-binding is *not wanted*.
+- **Compatibility.** One boundary rule survives in `apply_hotkey_overrides`: a
+  **one-element list** in `personal_settings.json` is accepted and silently
+  collapsed to its string — load-bearing, because the F-keys preset itself wrote
+  `"cancel_recording": ["ctrl+f9"]` into user files, and an update must never
+  silently reset such a key (VISION principle #1). A multi-element list is
+  rejected the way bad entries always were: one log warning, the action keeps
+  its default, the tool always starts. No migration rewrites a user's file; the
+  next settings-app save writes string shape naturally.
+
+Do not reintroduce: no second value shape for hotkey bindings, no per-action
+exceptions. If multi-binding ever becomes a real need, that is a supersede
+discussion citing this entry — and the design would then be uniform (every
+action a list), not two privileged actions; the old implementation survives in
+git history (pre-#318).
