@@ -102,6 +102,10 @@ What is covered:
     detect_ui_language() stays gone (D-015: English default, no system-language
     detection) alongside the retired hotkeys.more_suffix (D-024: one combo per
     action, so no "(+n more)" to show).
+  - the README anchors behind the settings links (#316): every url.* value that opens
+    a README twin at a #anchor is held to a heading that really stands in that twin,
+    since GitHub derives the anchor from the heading text -- a renamed or translated
+    heading otherwise leaves the link opening a 300-line file at the top, silently.
   - settings_io.write_personal_settings ui.language merge (#144, F6): ui_language
     None preserves an existing ui block untouched (and creates none when absent),
     "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
@@ -1356,6 +1360,48 @@ def check_i18n():
           "behavior.engine.remember.none must use exactly {engine}")
     check(set(re.findall(r"{(\w+)}", sstr._EN["machine.version.body"])) == {"version"},
           "machine.version.body must use exactly {version}")
+
+
+# ---- README anchors behind the settings links (#316) -------------------------
+_README_LINK_RE = re.compile(
+    r"thoughtborne-windows/blob/main/(README(?:\.de)?\.md)#(\S+)\Z")
+
+
+def _gh_anchor(heading):
+    """GitHub's heading anchor: lowercased, punctuation dropped, spaces to hyphens.
+    `\\w` is Unicode-aware here, which is what GitHub does with umlauts too."""
+    return re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+
+
+def check_readme_anchors():
+    # A url.* value that carries a #anchor points at a README HEADING, and GitHub
+    # derives that anchor from the heading text -- rename or translate the heading and
+    # the link silently opens the file at the top instead of the section, with nothing
+    # raising and nothing to see. Same coupling style as the guards in check_i18n,
+    # across a file boundary: hold every such link to a heading that really stands in
+    # the twin it names.
+    seen = set()
+    for lang, table in (("en", sstr._EN), ("de", sstr._DE)):
+        for key, value in sorted(table.items()):
+            m = _README_LINK_RE.search(value) if key.startswith("url.") else None
+            if not m:
+                continue
+            seen.add((key, lang))
+            readme, anchor = m.group(1), m.group(2)
+            text = (config.SCRIPT_DIR / readme).read_text(encoding="utf-8")
+            headings = {_gh_anchor(line.lstrip("#").strip())
+                        for line in text.splitlines() if re.match(r"#{1,6} ", line)}
+            check(anchor in headings,
+                  f"i18n: {key} ({lang}) points at {readme}#{anchor}, but no heading in "
+                  f"{readme} carries that GitHub anchor -- it was renamed, and the link "
+                  "now opens the file at the top instead of the section")
+    # #316: the mouse-button tip is the reason this guard exists, so a value that stops
+    # resolving as an anchor into a README twin must be loud rather than skipped.
+    for lang in ("en", "de"):
+        check(("url.mouse_hotkeys", lang) in seen,
+              f"url.mouse_hotkeys ({lang}) no longer reads as a README-twin anchor "
+              f"({sstr.t('url.mouse_hotkeys', lang)!r}) -- the anchor guard just went "
+              "silent for the link the hotkey tab's tip box opens")
 
 
 # ---- settings_io ui.language merge (#144, F6) --------------------------------
@@ -2825,6 +2871,7 @@ def main():
     check_verdict_coverage()
     check_string_keys()
     check_i18n()
+    check_readme_anchors()
     check_preselect()
     check_engine_keyed()
     check_engine_save_signal()

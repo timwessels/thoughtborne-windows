@@ -216,6 +216,19 @@ _EN = {
     "capture.collision": "Already used by: {action}",
     "hotkeys.status.ok": "All hotkeys are valid — no collisions.",
     "hotkeys.status.warn_prefix": "Hotkey problems (the defaults stay for these):",
+    "hotkeys.mouse.title": "Tip: Use a mouse button as a hotkey",
+    "hotkeys.mouse.body": (
+        "Use mouse buttons such as back/forward as hotkeys by assigning the key "
+        "combination to that button in your mouse software. Mouse gestures are "
+        "another neat way to keep dictation right \"at hand\". If you don't have "
+        "mouse software, the free X-Mouse Button Control (XMBC) lets you set up "
+        "the shortcuts for your mouse."),
+    "hotkeys.mouse.link": "▸ README: Using mouse buttons as hotkeys",
+    # This value ends in an ANCHOR on a README heading -- rename that heading (here, or
+    # the German one behind the _DE twin of this key) and the link lands at the top of
+    # the file; held to the section in test_settings_io.
+    "url.mouse_hotkeys": ("https://github.com/timwessels/thoughtborne-windows/blob/"
+                          "main/README.md#mouse-buttons-as-hotkeys"),
     # in the canonical DEFAULT_HOTKEYS order (D-019); the tab iterates that dict
     "action.start_recording": "Start recording",
     "action.stop_recording_clipboard": "Stop + insert (clipboard paste)",
@@ -649,6 +662,17 @@ _DE = {
     "capture.collision": "Schon vergeben an: {action}",
     "hotkeys.status.ok": "Alle Hotkeys sind gültig — keine Kollisionen.",
     "hotkeys.status.warn_prefix": "Hotkey-Probleme (für diese bleiben die Defaults):",
+    "hotkeys.mouse.title": "Tipp: Eine Maustaste als Hotkey verwenden",
+    "hotkeys.mouse.body": (
+        "Nutze Maustasten wie Vor-/Zurück-Tasten als Hotkey, indem du die "
+        "Tastenkombination in deiner Maussoftware für die jeweilige Taste "
+        "einstellst. Auch Mausgesten sind eine coole Möglichkeit, die "
+        "Spracheingabe immer „zur Hand“ zu haben. Wenn du keine Maussoftware "
+        "hast, kannst du das kostenlose Tool X-Mouse Button Control (XMBC) "
+        "benutzen, um die Shortcuts für deine Maus einzustellen."),
+    "hotkeys.mouse.link": "▸ README: Maustasten als Hotkeys verwenden",
+    "url.mouse_hotkeys": ("https://github.com/timwessels/thoughtborne-windows/blob/"
+                          "main/README.de.md#maustasten-als-hotkeys"),
     "action.start_recording": "Aufnahme starten",
     "action.stop_recording_clipboard": "Stopp + einfügen (Zwischenablage)",
     "action.stop_recording_send": "Stopp + einfügen + Enter (senden)",

@@ -256,6 +256,14 @@ More settings (parallel transcriptions, audio trimming, …) are documented as c
 
 **Or tell your coding agent.** The project's configurability strategy is readable code rather than a sprawling settings surface ([VISION.md](VISION.md)): describe the change you want to your AI coding agent — [`AGENTS.md`](AGENTS.md) gives it the ground rules for working in this repo.
 
+### Mouse buttons as hotkeys
+
+Mouse buttons can drive Thoughtborne too — the route runs through your mouse software: on most mice, the manufacturer's software (often already installed, otherwise downloadable there) can assign a key combination to a button. Enter the Thoughtborne combination you want, and pressing that mouse button sends the combination — Thoughtborne picks it up like any normal hotkey.
+
+Mouse gestures are another neat trick if your mouse software offers them: hold the button down and drag in a direction. That fits the whole of dictation onto a single button — the middle one, say: drag up starts the recording, drag left inserts, drag right inserts and presses Enter, drag down transcribes only (to insert later). Whether gestures are available depends on the software and the mouse model — Logitech's Options+ does them, for example.
+
+No mouse software? The free [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) assigns key combinations to the buttons of any mouse, whatever the make.
+
 ## Troubleshooting
 
 **PyAudio installation fails (pip path).** PyAudio ships official Windows wheels for Python 3.10–3.13 — `pip install` needs no compiler there. A build error usually means Python 3.14: switch to 3.13 or use the uv path (uv picks a suitable Python automatically).

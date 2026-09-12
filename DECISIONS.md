@@ -38,7 +38,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
 | D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
 | D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
-| D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active |
+| D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active; the pointer's form settled 2026-09-13 (#316) — a tip on how the route works, not a notice about what cannot be bound; the no-mouse-lane substance stands |
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
@@ -1650,6 +1650,13 @@ The user-facing answer is a pointer, not a feature: the settings app says in
 plain text that a mouse button cannot be bound here and where the route is
 described, and the README carries the recipe (remapper → F13–F24 → bind that
 key as a normal hotkey). Tracked separately.
+
+*The shape of that pointer is settled 2026-09-13 (#316) — as a tip, how the
+route works, not a notice about what cannot be bound here. No "a mouse button
+cannot be bound here" wording in the settings app, and no F13–F24 in any
+user-facing text; the recipe the READMEs carry is the mouse software's own
+key-combination assignment. The substance of this entry — no native mouse
+lane — is untouched.*
 
 Do not reintroduce: mouse virtual keys in the hotkey grammar, a polled or
 hooked mouse-listening lane, or mouse capture in the settings window — however

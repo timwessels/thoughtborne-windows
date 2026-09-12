@@ -256,6 +256,14 @@ Weitere Einstellungen (parallele Transkriptionen, Audio-Trimming, …) sind als 
 
 **Oder dem Coding-Agenten sagen.** Die Konfigurations-Strategie des Projekts ist lesbarer Code statt einer ausufernden Konfigurationsfläche ([VISION.md](VISION.md)): die gewünschte Änderung dem eigenen KI-Coding-Agenten beschreiben — [`AGENTS.md`](AGENTS.md) gibt ihm die Spielregeln für dieses Repo.
 
+### Maustasten als Hotkeys
+
+Auch Maustasten können Thoughtborne steuern — der Weg führt über die Maussoftware: Bei den meisten Mäusen lässt sich in der Software des Herstellers (oft schon installiert, sonst dort herunterladbar) einer Taste eine Tastenkombination zuweisen. Dort einfach die gewünschte Thoughtborne-Kombination eintragen — beim Druck auf die Maustaste sendet die Maus dann die Kombination, und Thoughtborne erkennt sie wie einen normalen Hotkey.
+
+Ein cooler Tipp sind auch Mausgesten, wenn deine Maussoftware sie anbietet: die Maustaste gedrückt halten und in eine Richtung ziehen. So passt das komplette Diktieren auf eine einzige Taste — zum Beispiel die mittlere: nach oben ziehen startet die Aufnahme, nach links ziehen fügt ein, nach rechts ziehen fügt ein und drückt Enter, nach unten ziehen transkribiert nur (zum späteren Einfügen). Ob Gesten verfügbar sind, hängt von Software und Mausmodell ab — mit Logitechs Options+ geht es zum Beispiel.
+
+Wenn du keine Maussoftware hast: Das kostenlose [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) belegt die Tasten jeder Maus mit Tastenkombinationen, unabhängig vom Hersteller.
+
 ## Troubleshooting
 
 **PyAudio-Installation schlägt fehl (pip-Weg).** PyAudio liefert offizielle Windows-Wheels für Python 3.10–3.13 — `pip install` braucht dort keinen Compiler. Ein Build-Fehler heißt meist Python 3.14: auf 3.13 wechseln oder den uv-Weg nutzen (uv wählt automatisch ein passendes Python).

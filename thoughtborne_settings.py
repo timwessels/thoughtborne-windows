@@ -1255,6 +1255,19 @@ class SettingsApp:
         self.status_lbl.pack(fill="x")
         for _lbl in (self.capture_lbl, self.status_lbl):
             self._register_wrap(_lbl)
+
+        # A tip, not a restriction notice (#316, D-022): a mouse button reaches
+        # Thoughtborne through the user's own mouse software, and this is where the
+        # reader who just tried one in a capture field is standing. Card-shaped like
+        # the presets but deliberately headless -- the title line is regular card text,
+        # so the box reads as an aside to the tab rather than a fourth section of it.
+        tip = self._card(f)
+        tip.pack(fill="x", pady=(sp(24), 0))
+        self._prose(tip, "hotkeys.mouse.title", surface="Card.").pack(
+            fill="x", pady=(0, sp(4)))
+        self._prose(tip, "hotkeys.mouse.body", surface="Card.Muted.").pack(fill="x")
+        self._link(tip, "hotkeys.mouse.link", "url.mouse_hotkeys", bg=CARD).pack(
+            anchor="w", pady=(sp(8), 0))
         return outer
 
     def _build_preset_card(self, parent, which, title_key, body_key, caveat_key=None):
