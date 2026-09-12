@@ -200,17 +200,23 @@ _EN = {
     "hotkeys.custom.body": (
         "Click Change next to an action, then press the new combo. Letters, "
         "digits, F1–F24 and the ü key work — F-keys also bare, everything else "
-        "with Ctrl and/or Alt."),
+        "with Ctrl and/or Alt. The wheel click and the two thumb buttons of your "
+        "mouse count as keys too, always bare."),
     "hotkeys.col.action": "Action",
     "hotkeys.col.combo": "Shortcut",
     "hotkeys.capture_limit": (
         "While Thoughtborne is running, a combo it already holds can't be captured "
         "here — Windows fires the action instead of passing the key press through. "
-        "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
+        "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use. A mouse "
+        "button is the exception, in both directions: nothing reserves it, so it can "
+        "be captured here even while Thoughtborne is listening to it — and the same "
+        "press fires that action in the running tool."),
     "btn.change_key": "Change…",
     "hotkeys.more_suffix": "(+{n} more)",
     "capture.prompt": "Press the combo … (Esc)",
-    "capture.unbindable": "This key can't be bound — use letters, digits, F1–F24 or ü.",
+    "capture.unbindable": (
+        "This key can't be bound — use letters, digits, F1–F24, ü, or a mouse "
+        "button (wheel click, thumb buttons)."),
     "capture.need_modifier": (
         "Letters and digits need Ctrl and/or Alt — only F-keys work bare."),
     "capture.invalid": "Not a usable combo ({detail}).",
@@ -389,6 +395,29 @@ _EN = {
     "dlg.hotkeywarn.body": (
         "Some hotkeys would be ignored at startup — the defaults stay in force for "
         "them (details on the Hotkeys tab). Save anyway?"),
+    # The notice a captured mouse button earns (#308). Four blocks and one button,
+    # in the maintainer's own wording: a mouse button is a hotkey like any other,
+    # minus exclusivity, and this is the one moment the tool says so.
+    "dlg.mouse.title": "Mouse button assigned",
+    "dlg.mouse.heading": "Hey, this one matters",
+    "dlg.mouse.intro": (
+        "You've picked a mouse button as a hotkey. Nice idea — the button is "
+        "assigned, but there's a catch."),
+    "dlg.mouse.catch.heading": "The catch",
+    "dlg.mouse.catch.body": (
+        "Thoughtborne can't stop other programs from reacting to that button as "
+        "well. So if you picked the Back button, it isn't just Thoughtborne: your "
+        "Windows Explorer and your browser react too, and you navigate one page "
+        "back. That can't be prevented here — that part is up to you."),
+    "dlg.mouse.rec.heading": "The recommendation",
+    "dlg.mouse.rec.body": (
+        "If you have your mouse maker's software, set the button there to send a "
+        "key combination — one you don't use otherwise. Then assign that "
+        "combination here. Then only Thoughtborne reacts, the way it should be."),
+    "dlg.mouse.closing": (
+        "So: if you save this, Thoughtborne reacts to this button — and so do other "
+        "programs, unless you change something."),
+    "btn.mouse_ok": "Got it",
     "dlg.reset.title": "Reset to defaults",
     "dlg.reset.body": (
         "This puts your hotkeys, push-to-talk, the engine to start on and the "
@@ -630,20 +659,24 @@ _DE = {
     "hotkeys.custom.body": (
         "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
         "Buchstaben, Ziffern, F1–F24 und die ü-Taste funktionieren — F-Tasten auch "
-        "blank, alles andere mit Ctrl und/oder Alt."),
+        "blank, alles andere mit Ctrl und/oder Alt. Der Mausrad-Klick und die "
+        "beiden Daumentasten der Maus zählen ebenfalls als Taste, immer blank."),
     "hotkeys.col.action": "Aktion",
     "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
         "Solange Thoughtborne läuft, lässt sich eine bereits belegte Kombination "
         "hier nicht aufnehmen — Windows löst stattdessen die Aktion aus, statt den "
         "Tastendruck durchzureichen. Vorher Thoughtborne beenden ({exit_key}) oder "
-        "eine unbelegte Kombination wählen."),
+        "eine unbelegte Kombination wählen. Eine Maustaste ist die Ausnahme, und zwar "
+        "in beide Richtungen: Für sie gibt es keine Reservierung, also lässt sie sich "
+        "hier auch aufnehmen, während Thoughtborne auf sie hört — und derselbe Druck "
+        "löst im laufenden Tool ihre Aktion aus."),
     "btn.change_key": "Ändern…",
     "hotkeys.more_suffix": "(+{n} weitere)",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
-        "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern, F1–F24 oder ü "
-        "verwenden."),
+        "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern, F1–F24, ü oder "
+        "eine Maustaste (Mausrad-Klick, Daumentasten) verwenden."),
     "capture.need_modifier": (
         "Buchstaben und Ziffern brauchen Ctrl und/oder Alt — nur F-Tasten gehen "
         "ohne."),
@@ -832,6 +865,28 @@ _DE = {
     "dlg.hotkeywarn.body": (
         "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "
         "in Kraft (Details im Hotkeys-Tab). Trotzdem speichern?"),
+    "dlg.mouse.title": "Maustaste vergeben",
+    "dlg.mouse.heading": "Hey, das hier ist wichtig",
+    "dlg.mouse.intro": (
+        "Du hast eine Maustaste als Hotkey gewählt. Coole Idee — die Taste ist "
+        "vergeben, aber es gibt einen Haken."),
+    "dlg.mouse.catch.heading": "Der Haken",
+    "dlg.mouse.catch.body": (
+        "Thoughtborne kann andere Programme nicht davon abhalten, weiter auf diese "
+        "Taste zu reagieren. Das heißt: Hast du die Zurück-Taste vergeben, reagiert "
+        "nicht nur Thoughtborne, sondern auch dein Windows Explorer und dein "
+        "Browser — und du navigierst eine Seite zurück. Das lässt sich hier nicht "
+        "verhindern, da müsstest du selbst ran."),
+    "dlg.mouse.rec.heading": "Die Empfehlung",
+    "dlg.mouse.rec.body": (
+        "Wenn du ein Programm deines Maus-Herstellers hast, leg dort eine "
+        "Tastenkombination fest, die die Maus beim Drücken sendet — eine, die du "
+        "sonst nicht benutzt. Diese Kombination stellst du dann hier ein. Dann "
+        "reagiert nur Thoughtborne, so wie es sein soll."),
+    "dlg.mouse.closing": (
+        "Also: Wenn du so speicherst, reagiert Thoughtborne auf diese Taste — andere "
+        "Programme aber auch, solange du nichts änderst."),
+    "btn.mouse_ok": "Alles klar",
     "dlg.reset.title": "Auf Standard zurücksetzen",
     "dlg.reset.body": (
         "Hotkeys, Push-to-talk, die Engine beim Start und die Sprache dieses "

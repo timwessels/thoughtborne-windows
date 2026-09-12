@@ -127,6 +127,24 @@ holds, and every `ALLOW_EMPTY` entry must still name something that really is
 blank. The tab labels and the window title are checked with it, since neither
 lives in the widget tree the walk can see.
 
+A ninth, `test_mouse_capture_with_display`, drives the #308 mouse-button capture through
+the real window: a press generated on the app's own binding (never the handler) assigns
+the bare button, shows it on the chip, and opens the caveat notice — the app's first
+`Toplevel` of its own — which is then swept for blank text and, in both languages,
+measured against the clipping class of #218/#231: nothing placed in it may be shorter
+than it asked to be, and no paragraph may end up wider than the notice's own measure.
+What that render lane cannot show is pinned on the source instead
+(`test_notice_width_strut`, static): the strut those bounds hang on, whose absence
+turns the notice into a column that grows off the bottom of the screen without
+breaking a single bound. Its edge is pinned too — the background is the theme's hairline with
+the body inset by a pixel, since a notice painted like the page has no boundary at all
+where no window manager draws one, and this render lane is the app's only automated eye.
+Both ways out are driven: its own button (the only exit it shows) and `<Escape>`, each of
+which must empty the two app-level registries the notice borrowed. The refusals are
+checked with it: a collision assigns nothing and opens no notice (it would claim a
+binding that does not exist), and with no row armed a mouse press anywhere in the window
+is nothing at all.
+
 Since #240 the same module also owns the settings app's whole `[SETTINGS]` log lane, and
 this driver owns its checks: `format_settings_line` (asserted BYTE-IDENTICAL to the
 literal f-strings the startup and focus-existing lines used to be, so no consumer -- the
@@ -520,6 +538,40 @@ def _app_sandbox():
 
 
 @_app_sandbox()
+def test_notice_width_strut():
+    """The strut that pins the #308 caveat notice's measure is still there.
+
+    On the source, because nothing that renders the notice measures it against the
+    screen it has to fit. Drop the strut and the notice is only as wide as its widest
+    paragraph happens to wrap: it collapses into a column and grows downwards --
+    246x953 instead of 540x512 on this ladder's own 1280x1024 screen, and 404x1331
+    with the German text at 150 % on 1366x768, where the only exit it shows sits
+    538 px below the bottom edge of a window the user cannot resize. The whole
+    ladder reports exactly one violation for that, this one: every paragraph still
+    carries a wraplength inside the notice's measure, which is all the display lane
+    below asks of them (measured, #308).
+
+    The paragraphs' own bounds are NOT pinned here. Nothing heals a missing one --
+    with the closing paragraph's wraplength dropped the notice comes out 952 px wide
+    in English and 1032 in German instead of 540 -- and the display lane goes red for
+    it in both languages on this ladder's screen, which is where it belongs."""
+    tree = _app_tree("notice width strut")
+    if tree is None:
+        return
+    fn = _method(tree, "SettingsApp", "_show_mouse_caveat", "notice width strut")
+    if fn is None:
+        return
+    struts = [node.lineno for node in ast.walk(fn)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and node.func.attr == "Frame"
+              and any(kw.arg == "width" for kw in node.keywords)]
+    check(len(struts) == 1,
+          f"the notice has {len(struts)} width struts instead of the one that pins its "
+          "measure -- without it the notice is only as wide as its widest paragraph "
+          "happens to wrap, and grows off the bottom of the screen with its only "
+          "button, which no lane that renders it notices")
+
+
 def test_storm_guards_with_display():
     # Only runs where a display exists (a CI/dev box with Xvfb); the normal WSL case
     # has no tkinter or no display and skips cleanly. Builds the REAL settings app and
@@ -1931,6 +1983,318 @@ def _show():
         "2026-08-16 12:00:00", None, None, None, None, None, "firstrun"), end="")
 
 
+@_app_sandbox()
+def test_mouse_capture_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case
+    # skips cleanly. The settings half of #308 through the REAL app: the pure decode
+    # and the acceptance rule are test_settings_io.py's, but only the built window
+    # shows that the BINDING exists -- that a mouse press really reaches the capture
+    # chain. So every press here is driven with event_generate through the app's own
+    # binding; nothing calls _on_capture_mouse directly.
+    #
+    # Those three sequences are what a display can generate at all; on Windows they
+    # are the wheel click and the two thumb buttons. The event's button NUMBER differs
+    # between Tk 8.6 and Tk 9 (4/5 vs 8/9 for the thumb buttons), which is why the
+    # decode carries both -- and why this lane, driving sequences rather than numbers,
+    # means the same thing under either.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped mouse-capture check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped mouse-capture check: no display)")
+        return
+    try:
+        import settings_strings as sstr
+        import settings_theme
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped mouse-capture check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    def _dialogs():
+        return [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+
+    def _descendants(widget):
+        out = []
+        for child in widget.winfo_children():
+            out.append(child)
+            out.extend(_descendants(child))
+        return out
+
+    def _capture(action, seq):
+        """Arm a row and press a mouse button on the window, the way a user does."""
+        app._arm(action)
+        root.update()
+        root.event_generate(seq, x=8, y=8)
+        root.update()
+
+    def _dismiss():
+        for dialog in _dialogs():
+            # focus_force first: with no window manager under Xvfb nothing hands a new
+            # toplevel the X focus, and Tk delivers a key event to the focus window. Of
+            # the screens measured only a 1920 px wide one needs that -- and there THIS
+            # line segfaults Tk 8.6 (4/4, faulthandler names it), while dropping it
+            # leaves the notice open and the lane red (3/3), so the driver cannot run at
+            # 1920 either way. That reaches neither the ladder (it pins 1280x1024, green
+            # with the line and without; 1600x1200 and Tk 9.0 at 1920 likewise) nor the
+            # product (no focus_force anywhere in it). The screen dependency is
+            # unexplained (#315) and the obvious swaps do not replace the line:
+            # focus_set() only dodges the crash, root.focus_force() crashes too (all
+            # measured, #308).
+            dialog.focus_force()
+            root.update()
+            dialog.event_generate("<Escape>")
+        root.update()
+
+    _showerror = ts.messagebox.showerror
+    try:
+        ts.messagebox.showerror = lambda *a, **k: None
+        root.geometry("900x860")
+        app = ts.SettingsApp(root, first_run=False)
+        root.update()
+        base_text, base_wrap = len(app._text_widgets), len(app._wrap_labels)
+
+        _capture("start_recording", "<Button-4>")
+        check(app.hotkeys_state["start_recording"] == "xbutton1",
+              f"a thumb-button press on an armed row did not assign the bare button: "
+              f"start_recording is {app.hotkeys_state['start_recording']!r} -- either "
+              "the binding is gone (Tk sends a <Button> to the widget under the "
+              "POINTER, so it cannot hang on the chip the way a <KeyPress> does) or "
+              "the decode no longer knows this button number")
+        check(app._combo_labels["start_recording"].cget("text") == "XButton1",
+              f"the chip does not show XButton1 after the capture: "
+              f"{app._combo_labels['start_recording'].cget('text')!r}")
+        check(app._armed is None,
+              "the row stayed armed after a successful mouse capture -- the notice "
+              "then pulls the focus off a live capture row")
+
+        dlgs = _dialogs()
+        check(len(dlgs) == 1,
+              f"a mouse capture opened {len(dlgs)} notice windows instead of one -- "
+              "this is the one moment the tool says a mouse button is not exclusive")
+        if len(dlgs) != 1:
+            return
+        dlg = dlgs[0]
+        root.update()
+        check(str(dlg.title()) == sstr.t("dlg.mouse.title", "en"),
+              f"the notice carries the title {dlg.title()!r} -- it is a window of its "
+              "own now, and a window without its own name is what the taskbar shows")
+
+        # The notice has a visible edge: its own background is the theme's hairline
+        # colour and its body insets by a pixel, so a pixel of that colour shows all
+        # round. Pinned because without it the notice and the page behind it are the
+        # same value -- measured delta zero -- and off Windows, where no window manager
+        # draws a frame, there is then no boundary at all: the dialog's text floats
+        # between half-lines of the page and its button reads as one more button in the
+        # grid. This render lane is the app's only automated eye, and an eye that cannot
+        # tell the dialog from the page cannot judge it either. The colour comes from
+        # settings_theme (D-010), so a palette change moves both sides at once.
+        dlg_bg = str(dlg.cget("background")).lower()
+        check(dlg_bg != settings_theme.PAGE.lower(),
+              "the notice is painted in the page colour, so it has no edge of its own "
+              "-- the page behind it and its own surface are one value")
+        check(dlg_bg == settings_theme.LINE.lower(),
+              f"the notice's surface is {dlg_bg!r}, not the theme's hairline "
+              f"{settings_theme.LINE!r} -- the edge is what a pixel of it showing round "
+              "the inset body draws")
+        dlg_body = dlg.winfo_children()[0]
+        check((dlg_body.winfo_x(), dlg_body.winfo_y()) == (1, 1),
+              f"the notice's body sits at {(dlg_body.winfo_x(), dlg_body.winfo_y())}, "
+              "not inset by the one pixel that lets the edge show")
+
+        # No placed text element in the notice may be blank (#299's rule, applied to
+        # the app's first window of its own), in EN and again after a language switch.
+        for lang in ("en", "de"):
+            if app.lang != lang:
+                app.lang = lang
+                app.lang_var.set(lang)
+                app.render_all()          # no _on_lang: this lane must not write
+                root.update()
+            seen, _allowed = _sweep_empty_text(app, dlg, {}, f"mouse-caveat/{lang}")
+            registered = len(app._text_widgets) - base_text
+            check(seen >= registered,
+                  f"[mouse-caveat/{lang}] the sweep found {seen} text widgets in the "
+                  f"notice, fewer than the {registered} the language registry alone "
+                  "holds for it -- the walk no longer reaches the whole dialog")
+            check(registered >= 4,
+                  f"[mouse-caveat/{lang}] the notice registers only {registered} text "
+                  "elements -- the headline, the catch, the recommendation and the "
+                  "closing line are what it exists to say")
+
+            # Every dlg.mouse.* string the table carries really stands on the page,
+            # and nothing on it is a raw key name. check_string_keys in
+            # test_settings_io.py cannot see these: the dialog hands its keys to the
+            # helpers out of a tuple, and that collector reads literals at the call.
+            # So the same two faults are caught here instead -- a block dropped from
+            # the dialog, and a mistyped key, which t() renders as the dotted key
+            # itself rather than as a blank the sweep above would find.
+            shown = {str(w.cget("text")) for w in _descendants(dlg)
+                     if "text" in w.keys()}
+            missing = sorted(k for k in sstr._EN
+                             if k.startswith("dlg.mouse.") and k != "dlg.mouse.title"
+                             and sstr.t(k, lang) not in shown)
+            check(not missing,
+                  f"[mouse-caveat/{lang}] the string table carries {missing} for this "
+                  "notice, but nothing on the page says it")
+            dotted = sorted(t for t in shown
+                            if t.startswith(("dlg.", "btn.", "capture.", "hotkeys.")))
+            check(not dotted,
+                  f"[mouse-caveat/{lang}] {dotted} stands on the notice -- that is a "
+                  "string key, not a sentence: t() falls back to the key itself, so a "
+                  "typo reads as a dotted name instead of going blank")
+
+            # Nothing clipped: the two most expensive settings bugs of the last weeks
+            # (#218 footer, #231 verdict line) were both a window sized from a height
+            # measured before its text had wrapped. Relative throughout -- every
+            # placed element must be at least as tall as it asked to be, the dialog
+            # included -- and re-checked in German, the longer of the two languages.
+            dlg.update_idletasks()
+            root.update()
+            check(dlg.winfo_height() >= dlg.winfo_reqheight(),
+                  f"[mouse-caveat/{lang}] the notice is {dlg.winfo_height()} px tall "
+                  f"but asks for {dlg.winfo_reqheight()} -- its last block is cut off")
+            short = [(str(w), w.winfo_height(), w.winfo_reqheight())
+                     for w in _descendants(dlg)
+                     if w.winfo_manager() != ""
+                     and w.winfo_height() < w.winfo_reqheight()]
+            check(not short,
+                  f"[mouse-caveat/{lang}] clipped element(s) in the notice "
+                  f"(path, height, asked for): {short}")
+
+            # ... and the long paragraph really wrapped, which is what proves the
+            # dialog has a width bound of its own: unwrapped it would stand as one
+            # ~1500 px line, and the wrap pass would then wrap it to that same width,
+            # i.e. never. Finding it by its own string also shows the notice follows
+            # the language switch.
+            line = app.theme.body_font.metrics("linespace")
+            catch = [w for w in _descendants(dlg) if "text" in w.keys()
+                     and str(w.cget("text")) == sstr.t("dlg.mouse.catch.body", lang)]
+            check(len(catch) == 1,
+                  f"[mouse-caveat/{lang}] the catch paragraph is not on the page under "
+                  "its own string -- either it is missing or the notice did not follow "
+                  "the language switch")
+            if catch:
+                check(catch[0].winfo_height() > 2 * line,
+                      f"[mouse-caveat/{lang}] the catch paragraph stands "
+                      f"{catch[0].winfo_height()} px tall on a {line} px line: it did "
+                      "not wrap, so the dialog has no width bound of its own")
+
+            # ... and no paragraph ends up wider than the notice's own measure. Per
+            # label, so none of the four can be the one left out, and against the module
+            # constant the dialog builds from rather than a number repeated here. What
+            # this catches is a bound that is wrong (too wide, or a paragraph the wrap
+            # pass gave up on and left at 0, which is how the 150 % breakage shows) --
+            # and a bound simply MISSING, which nothing heals: with the closing
+            # paragraph's wraplength dropped the notice comes out 952 px wide in English
+            # and 1032 in German against a 496 px measure, and this check goes red in
+            # both (measured, #308). What no rendered notice shows is the strut those
+            # bounds hang on; test_notice_width_strut() has that one.
+            measure = app.theme.body_font.measure("n" * ts._NOTICE_MEASURE_CH)
+            paras = app._wrap_labels[base_wrap:]
+            check(len(paras) == 4,
+                  f"[mouse-caveat/{lang}] {len(paras)} of the notice's paragraphs wrap; "
+                  "the intro, the two blocks and the closing line are four")
+            unbounded = []
+            for w in paras:
+                try:
+                    wl = int(str(w.cget("wraplength")))
+                except (ValueError, tk.TclError):
+                    wl = 0
+                if not 0 < wl <= measure:
+                    unbounded.append((str(w), wl, str(w.cget("text"))[:40]))
+            check(not unbounded,
+                  f"[mouse-caveat/{lang}] paragraph(s) with no bound of the notice's "
+                  f"own (path, wraplength, text; the measure is {measure} px): "
+                  f"{unbounded}")
+
+        # Its own button closes it. That one is checked FIRST and by invoking the
+        # widget, because it is the only way out the notice actually shows: Escape is
+        # written nowhere on it, so a button wired to nothing leaves a modal window with
+        # no visible exit -- and a missing `command` breaks nothing else, which is why it
+        # has to be driven rather than read. Invoking it runs the same close path the
+        # window-manager X is wired to, registry cleanup included: closing must take the
+        # notice's widgets out of the two app-level registries, or every capture leaves
+        # dead entries in lists that outlive it.
+        buttons = [w for w in _descendants(dlg) if w.winfo_class() == "TButton"]
+        check(len(buttons) == 1,
+              f"the notice carries {len(buttons)} buttons; it is one acknowledgement, "
+              "and that one is the exit the user can see")
+        for b in buttons:
+            b.invoke()
+        root.update()
+        check(not _dialogs(),
+              "the notice's own button did not close it -- the only exit it shows does "
+              "nothing, leaving Escape (which it never mentions) as the way out")
+        check((len(app._text_widgets), len(app._wrap_labels)) == (base_text, base_wrap),
+              f"the closed notice left {len(app._text_widgets) - base_text} text and "
+              f"{len(app._wrap_labels) - base_wrap} wrap entries behind in the app's "
+              "registries -- render_all and the wrap pass walk those long after it is "
+              "gone, and every capture would add another")
+
+        # Once per capture, not once per session -- and the other two buttons ride the
+        # same path. cancel_recording is list-valued, so it proves the shape is kept.
+        _capture("stop_recording_clipboard", "<Button-2>")
+        check(app.hotkeys_state["stop_recording_clipboard"] == "mbutton",
+              f"the wheel click did not assign: "
+              f"{app.hotkeys_state['stop_recording_clipboard']!r}")
+        check(len(_dialogs()) == 1,
+              "the notice did not open again on the second capture -- it is once per "
+              "capture, not once per session")
+        _dismiss()
+        check(not _dialogs(),
+              "<Escape> did not close the notice -- the issue asks for the button and "
+              "Escape both, and this is the Escape half")
+
+        _capture("cancel_recording", "<Button-5>")
+        check(app.hotkeys_state["cancel_recording"] == ["xbutton2"],
+              f"the second thumb button did not assign into the list-valued action: "
+              f"{app.hotkeys_state['cancel_recording']!r}")
+        check(len(_dialogs()) == 1, "the third button opened no notice")
+        _dismiss()
+
+        # A collision is refused exactly like a keyboard one -- and then there is
+        # nothing to give notice about: "the button is saved, but ..." over a button
+        # that was not saved would be a lie in the literal sense.
+        before = app.hotkeys_state["switch_api"]
+        _capture("switch_api", "<Button-4>")
+        check(app.hotkeys_state["switch_api"] == before,
+              f"a mouse button already held by another action was assigned anyway: "
+              f"switch_api is {app.hotkeys_state['switch_api']!r}")
+        check(app.capture_lbl.cget("text") == sstr.t(
+                  "capture.collision", app.lang).format(
+                      action=sstr.t("action.start_recording", app.lang)),
+              f"the refused mouse capture does not report the colliding action: "
+              f"{app.capture_lbl.cget('text')!r}")
+        check(not _dialogs(),
+              "the notice opened over a REFUSED capture -- it says the button is "
+              "saved, and nothing was")
+
+        # And with no row armed, a mouse press anywhere in the window is nothing at
+        # all: that gate is what lets one binding sit on the window for good instead
+        # of being hung and unhung per arm.
+        app._disarm()
+        before_all = json.dumps(app.hotkeys_state, sort_keys=True)
+        root.event_generate("<Button-4>", x=8, y=8)
+        root.update()
+        check(json.dumps(app.hotkeys_state, sort_keys=True) == before_all
+              and not _dialogs(),
+              "a mouse press with no row armed changed a binding or opened the notice")
+    finally:
+        ts.messagebox.showerror = _showerror
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def main():
     test_wrap_length()
     test_scrollbar_should_show()
@@ -1942,6 +2306,7 @@ def main():
     test_format_error_block_never_raises()
     test_append_log_line()
     test_log_sink_source_guards()
+    test_notice_width_strut()
     test_storm_guards_with_display()
     test_tab_layout_with_display()
     test_empty_label_sweep_with_display()
@@ -1952,6 +2317,7 @@ def main():
     test_save_readfail_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
+    test_mouse_capture_with_display()
 
     if SHOW:
         _show()
@@ -1970,8 +2336,13 @@ def main():
           "languages, the #216 maximize->restore content-vanish guard, the #231 "
           "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
           "with its confirmation gate, the #291 read-failure dialog on both save "
-          "paths with .env left untouched, and the #240 callback / pre-mainloop "
-          "crash logging all pass")
+          "paths with .env left untouched, the #240 callback / pre-mainloop "
+          "crash logging, and the #308 mouse-button capture with its notice — "
+          "assignment, the two refusals, no blank or clipped element in either "
+          "language, every paragraph bounded on the page with the strut behind them "
+          "pinned on the source, the "
+          "notice's own edge, both ways out and the registries emptied on close — all "
+          "pass")
     return 0
 
 
