@@ -86,6 +86,15 @@ import audio_handler as ah  # noqa: E402
 ah.ARCHIVE_FOLDER = Path(tempfile.mkdtemp(prefix="tb_marker_test_"))
 logging.getLogger("Thoughtborne").setLevel(logging.CRITICAL)
 
+# The log goes to a throwaway dir of its own, and BEFORE `import thoughtborne` below:
+# that import attaches a RotatingFileHandler to config.LOG_FILE, which creates the file
+# where none exists. In a fresh clone that left a 0-byte thoughtborne.log with a fresh
+# mtime and no `Program ended` -- exactly what the "While the tool is running" gate reads
+# as a running tool, so a mere test run faked the heartbeat (#267). thoughtborne.py binds
+# the value at import, so the module attribute has to move before it, not after.
+import config  # noqa: E402
+config.LOG_FILE = Path(tempfile.mkdtemp(prefix="tb_marker_log_")) / "thoughtborne.log"
+
 
 # ---- second layer: the transcript verdict ROUTING (#133), tested by driving
 # the real worker methods (process_recording_thread / retry_recording_thread)

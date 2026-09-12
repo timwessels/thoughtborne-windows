@@ -11,10 +11,11 @@
 # pyproject.toml restricts resolution to sys_platform == 'win32', and PyAudio has no
 # Linux wheels.
 #
-# Xvfb matters: the display-gated checks in test_settings_visibility.py and
-# test_settings_theme.py build the real settings window, and without a display they
-# skip. run_tests.py prints a `[n skipped]` marker per driver, so the log says
-# whether they really ran.
+# Xvfb is installed but not invoked here: run_tests.py puts itself under `xvfb-run`,
+# so CI runs the documented command and exercises that takeover on every push. The step
+# below fails when the ladder fails AND when it did not take the display over -- an
+# xvfb-run that cannot serve a display makes the ladder fall back to skipping, which is
+# honest but green, and CI is the one place that must stay hard about it.
 
 name: Tests
 
@@ -53,4 +54,15 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -qq -y xvfb python3-tk
 
       - name: Run the test ladder
-        run: xvfb-run -a python run_tests.py
+        # No pipe in here: the job shell is `bash -e` WITHOUT `pipefail`, so a
+        # `run_tests.py | tee` would hand the step tee's exit status and quietly turn a
+        # red ladder green -- worse than the hole this step closes.
+        run: |
+          python run_tests.py > ladder.log || { cat ladder.log; exit 1; }
+          cat ladder.log
+          # The head of run_tests.py's `Display:` line. Reword that line and this grep
+          # must follow -- it then fails the step loudly, so it cannot drift unnoticed.
+          grep -q '^Display: xvfb-run' ladder.log || {
+            echo "::error::the ladder did not take the display over, so its display-gated checks skipped"
+            exit 1
+          }

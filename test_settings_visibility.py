@@ -137,13 +137,18 @@ pin what those helpers are worth in the app: no `open(config.LOG_FILE ...)` lite
 left, `__init__` still hangs the handler on the root, and `main()`'s body is still one
 `try` that logs and re-raises. Two more display-gated lanes drive the real thing: a
 deliberate exception in an `after_idle` callback and one before `mainloop()`. Like the
-#239 lane they WRITE, so both patch `config.LOG_FILE` to a tempdir and assert the
-checkout's own `thoughtborne.log` came out byte-identical.
+#239 lane they WRITE, so both assert the checkout's own `thoughtborne.log` came out
+byte-identical. Every lane that builds the app runs in `_app_sandbox`, which moves
+`config.SCRIPT_DIR` and `config.LOG_FILE` into a tempdir together -- no test run may
+fake the heartbeat the *While the tool is running* gate reads (#267). What enforces that
+is one rung up: `run_tests.py` watches the log's mtime around every driver, so a lane
+that leaves the sandbox and writes fails the ladder by name.
 
     python3 test_settings_visibility.py          # verify, exit non-zero on any violation
     python3 test_settings_visibility.py --show   # also print sample visible: lines
 """
 import ast
+import contextlib
 import io
 import json
 import sys
@@ -513,6 +518,32 @@ def test_log_sink_source_guards():
               "config.replay_import_warnings() would end on stderr here, i.e. DEVNULL")
 
 
+@contextlib.contextmanager
+def _app_sandbox():
+    """A tempdir the app may read, write and log into -- `config.SCRIPT_DIR` and
+    `config.LOG_FILE` together, restored afterwards. Yields the directory.
+
+    Together is the point. LOG_FILE is computed from SCRIPT_DIR at import and does not
+    move with it, so a lane that patched only SCRIPT_DIR still logged into the
+    checkout's own thoughtborne.log -- whose mtime the "While the tool is running" gate
+    reads as the tool's heartbeat, and no test run may be able to fake that signal
+    (#267). Every lane that builds the real app belongs in here; the ones that need
+    nothing IN the directory wear it as a decorator (`@_app_sandbox()`), which also
+    covers the window teardown in their `finally`, where a callback can still fire.
+    """
+    import config
+    script_dir, log_file = config.SCRIPT_DIR, config.LOG_FILE
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            config.SCRIPT_DIR = tmp
+            config.LOG_FILE = tmp / "thoughtborne.log"
+            yield tmp
+    finally:
+        config.SCRIPT_DIR, config.LOG_FILE = script_dir, log_file
+
+
+@_app_sandbox()
 def test_storm_guards_with_display():
     # Only runs where a display exists (a CI/dev box with Xvfb); the normal WSL case
     # has no tkinter or no display and skips cleanly. Builds the REAL settings app and
@@ -656,6 +687,7 @@ def test_storm_guards_with_display():
             pass
 
 
+@_app_sandbox()
 def test_tab_layout_with_display():
     # The six-tab layout (#281). Two index-parallel lists that must stay in step, and
     # the tab strip fitting the MINIMUM window width -- clam clips tab labels silently
@@ -877,7 +909,6 @@ def test_empty_label_sweep_with_display():
         return
 
     try:
-        import config
         import thoughtborne_settings as ts
     except Exception as e:
         print(f"  (skipped empty-label sweep: cannot import the app: {e})")
@@ -888,15 +919,11 @@ def test_empty_label_sweep_with_display():
         return
 
     _showerror = ts.messagebox.showerror
-    _script_dir, _log_file = config.SCRIPT_DIR, config.LOG_FILE
     win = root                  # the display probe becomes the first mode's window
     matched = set()
     try:
         ts.messagebox.showerror = lambda *a, **k: None
-        with tempfile.TemporaryDirectory() as d:
-            tmp = Path(d)
-            config.SCRIPT_DIR = tmp
-            config.LOG_FILE = tmp / "thoughtborne.log"
+        with _app_sandbox() as tmp:
             (tmp / ".env").write_text(
                 "GROQ_API_KEY=gsk_fixture\nSONIOX_API_KEY=fixture\n", encoding="utf-8")
             for mode in ("settings", "firstrun"):
@@ -945,7 +972,6 @@ def test_empty_label_sweep_with_display():
               "blank -- they were renamed, removed or now fill themselves, so the "
               "entry licenses nothing and belongs out of the table")
     finally:
-        config.SCRIPT_DIR, config.LOG_FILE = _script_dir, _log_file
         ts.messagebox.showerror = _showerror
         if win is not None:
             try:
@@ -954,6 +980,7 @@ def test_empty_label_sweep_with_display():
                 pass
 
 
+@_app_sandbox()
 def test_maximize_restore_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case has
     # no tkinter or no display and skips cleanly. Builds the REAL settings app and
@@ -1072,10 +1099,12 @@ def test_maximize_restore_with_display():
             pass
 
 
+@_app_sandbox()
 def test_verdict_wrap_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
-    # cleanly. Builds the REAL settings app on the Provider tab and delivers each verdict
-    # to both cards, guarding the #231 fix AND the trap the obvious fix falls into.
+    # cleanly. Builds the REAL settings app on the Provider tab and delivers every verdict
+    # to both cards in both languages, guarding the #231 fix AND the trap the obvious fix
+    # falls into.
     #
     # #231: the verdict label was a plain, unregistered ttk.Label, so a full-sentence
     # verdict clipped at the column edge -- hiding exactly the reassuring "saving works
@@ -1179,42 +1208,55 @@ def test_verdict_wrap_with_display():
         app._goto_tab("provider.tab")
         settle()
 
-        for provider in ("groq", "soniox"):
-            ind = app._indicators[provider]
-            deliver(provider, KeyStatus.VALID)      # the one short verdict = the baseline
-            short_w, short_h = ind.winfo_width(), ind.winfo_height()
-            for status in (KeyStatus.INVALID, KeyStatus.INCONCLUSIVE,
-                           KeyStatus.UNREACHABLE):
-                deliver(provider, status)
-                check_readable(ind, f"{provider} verdict {status.name}", short_w, short_h)
-
-        # The #179 Soniox balance note sits on the same card and had the identical
-        # packing fault -- it shipped as a ~110px vertical ribbon. It only appears under
-        # a green Soniox verdict, which is why no journey test ever caught it.
-        note = app._soniox_balance_note
-        deliver("soniox", KeyStatus.VALID)
-        card_w = note.master.winfo_width()
-        check(note.winfo_reqwidth() <= note.winfo_width(),
-              f"soniox balance note: text wants {note.winfo_reqwidth()}px in a "
-              f"{note.winfo_width()}px label -- clipped instead of wrapped (#179/#231)")
-        check(note.winfo_width() >= 0.5 * card_w,
-              f"soniox balance note: collapsed to {note.winfo_width()}px inside a "
-              f"{card_w}px card -- it needs fill='x' like the verdict line (#179/#231)")
-
-        # Dead-guard on the cost side: a genuine width change must re-wrap the verdict
-        # label, and do so once per settled width -- not never (a label frozen at the
-        # floor never re-wraps) and not per <Configure> (the #203 Windows stall).
-        ind = app._indicators["groq"]
-        deliver("groq", KeyStatus.INCONCLUSIVE)
-        before = writes.get(id(ind), 0)
-        for w in ("820x860", "900x860"):
-            root.geometry(w)
+        for lang in ("en", "de"):
+            # Both languages, because the verdict STRINGS are what this lane measures and
+            # the German ones are not the English ones -- #231 was a sentence outgrowing
+            # its column. Same idiom as the tab-layout lane: no _on_lang, which writes.
+            app.lang = lang
+            app.lang_var.set(lang)
+            app.render_all()
             settle()
-        rewraps = writes.get(id(ind), 0) - before
-        check(1 <= rewraps <= 6,
-              f"{rewraps} wraplength write(s) on the verdict label across two width "
-              "changes -- 0 means it never re-wraps (frozen at the floor), many means "
-              "it is re-measured per <Configure> instead of once per settled width (#203)")
+
+            for provider in ("groq", "soniox"):
+                ind = app._indicators[provider]
+                deliver(provider, KeyStatus.VALID)   # the one short verdict = baseline
+                short_w, short_h = ind.winfo_width(), ind.winfo_height()
+                for status in (KeyStatus.INVALID, KeyStatus.INCONCLUSIVE,
+                               KeyStatus.UNREACHABLE):
+                    deliver(provider, status)
+                    check_readable(ind, f"[{lang}] {provider} verdict {status.name}",
+                                   short_w, short_h)
+
+            # The #179 Soniox balance note sits on the same card and had the identical
+            # packing fault -- it shipped as a ~110px vertical ribbon. It only appears
+            # under a green Soniox verdict, so no journey test ever caught it.
+            note = app._soniox_balance_note
+            deliver("soniox", KeyStatus.VALID)
+            card_w = note.master.winfo_width()
+            check(note.winfo_reqwidth() <= note.winfo_width(),
+                  f"[{lang}] soniox balance note: text wants "
+                  f"{note.winfo_reqwidth()}px in a {note.winfo_width()}px label -- "
+                  "clipped instead of wrapped (#179/#231)")
+            check(note.winfo_width() >= 0.5 * card_w,
+                  f"[{lang}] soniox balance note: collapsed to "
+                  f"{note.winfo_width()}px inside a {card_w}px card -- it needs "
+                  "fill='x' like the verdict line (#179/#231)")
+
+            # Dead-guard on the cost side: a genuine width change must re-wrap the verdict
+            # label, and do so once per settled width -- not never (a label frozen at the
+            # floor never re-wraps) and not per <Configure> (the #203 Windows stall).
+            ind = app._indicators["groq"]
+            deliver("groq", KeyStatus.INCONCLUSIVE)
+            before = writes.get(id(ind), 0)
+            for w in ("820x860", "900x860"):
+                root.geometry(w)
+                settle()
+            rewraps = writes.get(id(ind), 0) - before
+            check(1 <= rewraps <= 6,
+                  f"[{lang}] {rewraps} wraplength write(s) on the verdict label "
+                  "across two width changes -- 0 means it never re-wraps (frozen at "
+                  "the floor), many means it is re-measured per <Configure> instead "
+                  "of once per settled width (#203)")
     finally:
         tk.Misc.configure = _configure
         tk.Misc.config = _configure
@@ -1252,7 +1294,6 @@ def test_language_toggle_gate_with_display():
         return
 
     try:
-        import config
         import thoughtborne_settings as ts
     except Exception as e:
         print(f"  (skipped language-toggle-gate check: cannot import the app: {e})")
@@ -1263,16 +1304,13 @@ def test_language_toggle_gate_with_display():
         return
 
     _showerror = ts.messagebox.showerror
-    _script_dir = config.SCRIPT_DIR
     try:
         # A modal showerror from __init__ would hang a headless run with nobody to
         # dismiss it (the load-error path; the corrupt fixture below takes the strip
         # path, but the idiom costs nothing and keeps the test robust).
         ts.messagebox.showerror = lambda *a, **k: None
 
-        with tempfile.TemporaryDirectory() as d:
-            tmp = Path(d)
-            config.SCRIPT_DIR = tmp
+        with _app_sandbox() as tmp:
             ps = tmp / "personal_settings.json"
             # Truncated but UTF-8-valid, carrying the two hand-written blocks that have
             # no GUI and exist only because someone typed them.
@@ -1317,7 +1355,6 @@ def test_language_toggle_gate_with_display():
             check(data.get("vocabulary", {}).get("terms") == ["keepme"],
                   "the persisting toggle clobbered the repaired file's vocabulary")
     finally:
-        config.SCRIPT_DIR = _script_dir
         ts.messagebox.showerror = _showerror
         try:
             root.destroy()
@@ -1347,7 +1384,6 @@ def test_reset_with_display():
         print("  (skipped reset check: no display)")
         return
     try:
-        import config
         import settings_strings as sstr
         import thoughtborne_settings as ts
     except Exception as e:
@@ -1360,7 +1396,6 @@ def test_reset_with_display():
 
     _showerror = ts.messagebox.showerror
     _askyesno = ts.messagebox.askyesno
-    _script_dir = config.SCRIPT_DIR
     root2 = None
     try:
         # Both are modal and would hang a headless run with nobody to dismiss them.
@@ -1370,9 +1405,7 @@ def test_reset_with_display():
         ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
         shown = []      # the body text each confirmation was asked with
 
-        with tempfile.TemporaryDirectory() as d:
-            tmp = Path(d)
-            config.SCRIPT_DIR = tmp
+        with _app_sandbox() as tmp:
             ps = tmp / "personal_settings.json"
             ps.write_text(json.dumps(
                 {"vocabulary": {"terms": ["Grüße"]},
@@ -1516,7 +1549,6 @@ def test_reset_with_display():
                   "the first-run wizard built the reset button -- a first run has "
                   "nothing to reset, and the restart would drop the key being typed")
     finally:
-        config.SCRIPT_DIR = _script_dir
         ts.messagebox.showerror = _showerror
         ts.messagebox.askyesno = _askyesno
         for r in (root, root2):
@@ -1551,7 +1583,6 @@ def test_save_readfail_with_display():
         print("  (skipped save-readfail check: no display)")
         return
     try:
-        import config
         import settings_strings as sstr
         import thoughtborne_settings as ts
     except Exception as e:
@@ -1564,7 +1595,6 @@ def test_save_readfail_with_display():
 
     _showerror = ts.messagebox.showerror
     _askyesno = ts.messagebox.askyesno
-    _script_dir = config.SCRIPT_DIR
     try:
         # Both are modal and would hang a headless run; both are also evidence here,
         # so they record instead of vanishing. Every confirmation is answered yes --
@@ -1574,9 +1604,7 @@ def test_save_readfail_with_display():
         ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
         ts.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
 
-        with tempfile.TemporaryDirectory() as d:
-            tmp = Path(d)
-            config.SCRIPT_DIR = tmp
+        with _app_sandbox() as tmp:
             ps = tmp / "personal_settings.json"
             healthy = json.dumps({"vocabulary": {"terms": ["Grüße"]}},
                                  indent=2, ensure_ascii=False) + "\n"
@@ -1674,7 +1702,6 @@ def test_save_readfail_with_display():
             check(ps.read_bytes() == undecodable,
                   "the save rewrote the undecodable file")
     finally:
-        config.SCRIPT_DIR = _script_dir
         ts.messagebox.showerror = _showerror
         ts.messagebox.askyesno = _askyesno
         try:
@@ -1718,18 +1745,16 @@ def test_callback_error_log_with_display():
         return
 
     _showerror = ts.messagebox.showerror
-    _log_file = config.LOG_FILE
     _stderr = sys.stderr
-    checkout_log = Path(_log_file)
+    checkout_log = Path(config.LOG_FILE)
     checkout_before = checkout_log.read_bytes() if checkout_log.exists() else None
     try:
         # A modal showerror from __init__ (unreadable personal_settings.json) would hang
         # a headless run with nobody to dismiss it; neutralized for the build.
         ts.messagebox.showerror = lambda *a, **k: None
 
-        with tempfile.TemporaryDirectory() as d:
-            log = Path(d) / "thoughtborne.log"
-            config.LOG_FILE = log
+        with _app_sandbox():
+            log = config.LOG_FILE          # the sandbox's log, not the checkout's
 
             root.geometry("800x860")
             ts.SettingsApp(root, first_run=False)
@@ -1810,7 +1835,6 @@ def test_callback_error_log_with_display():
                   f"expected exactly one suppression notice after the cap: {text!r}")
     finally:
         sys.stderr = _stderr
-        config.LOG_FILE = _log_file
         ts.messagebox.showerror = _showerror
         try:
             root.destroy()
@@ -1854,15 +1878,13 @@ def test_main_error_log_with_display():
         return
 
     _size_window = ts._size_window
-    _log_file = config.LOG_FILE
     _warnings = config.IMPORT_WARNINGS
     _argv = sys.argv
-    checkout_log = Path(_log_file)
+    checkout_log = Path(config.LOG_FILE)
     checkout_before = checkout_log.read_bytes() if checkout_log.exists() else None
     try:
-        with tempfile.TemporaryDirectory() as d:
-            log = Path(d) / "thoughtborne.log"
-            config.LOG_FILE = log
+        with _app_sandbox():
+            log = config.LOG_FILE          # the sandbox's log, not the checkout's
             # The import-warning replay rides the same sink (#240): a broken .env or
             # personal_settings.json must leave its trace in the log of the window that
             # repairs it, ABOVE any error block from the same start.
@@ -1910,7 +1932,6 @@ def test_main_error_log_with_display():
     finally:
         sys.argv = _argv
         config.IMPORT_WARNINGS = _warnings
-        config.LOG_FILE = _log_file
         ts._size_window = _size_window
         # main() failed with its root already built; leaving it behind would upset any
         # later check that expects a clean interpreter.
