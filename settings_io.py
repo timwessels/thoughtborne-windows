@@ -740,16 +740,20 @@ def _example_block_comment(example_path, block):
 
 
 def hotkeys_diff_vs_default(effective: dict, default: dict) -> dict:
-    """Pure: {action: value} for actions whose effective binding differs from the
-    default, in #55's partial-override shape (value keeps the effective shape --
-    str or list[str]). The inverse of what apply_hotkey_overrides consumes, so a
-    round-trip (write diff -> apply_hotkey_overrides on the same defaults)
-    reproduces `effective`."""
+    """Pure: {action: combo} for actions whose effective binding differs from the
+    default, in #55's partial-override shape. The inverse of what
+    apply_hotkey_overrides consumes, so a round-trip (write diff ->
+    apply_hotkey_overrides on the same defaults) reproduces `effective`.
+
+    `effective` is a post-loader set: action -> combo STRING, as
+    apply_hotkey_overrides emits it and every caller hands it over (D-024). That
+    contract is what normalize_combo's never-raise promise rests on -- it absorbs
+    an unparseable string, not a value of another type."""
     diff = {}
     for action, default_value in default.items():
         eff_value = effective.get(action, default_value)
-        if _norm_value(eff_value) != _norm_value(default_value):
-            diff[action] = copy.deepcopy(eff_value)
+        if normalize_combo(eff_value) != normalize_combo(default_value):
+            diff[action] = eff_value
     return diff
 
 
@@ -761,20 +765,13 @@ def normalize_combo(raw: str) -> str:
     apply_hotkey_overrides emits, from the one canonicalizer, so the diff
     compares bindings and not notations.
 
-    Sits in the diff path (_norm_value -> hotkeys_diff_vs_default) and must not
-    raise there: an unparseable string falls back to the plain
-    lowercase-and-strip, which compares it against itself as before."""
+    Sits in the diff path (hotkeys_diff_vs_default) and must not raise there: an
+    unparseable string falls back to the plain lowercase-and-strip, which
+    compares it against itself as before."""
     try:
         return canonical_combo(raw)
     except HotkeyParseError:
         return "+".join(part.strip() for part in raw.lower().split("+"))
-
-
-def _norm_value(value):
-    """Normalize a combo value (str or list[str]) for equality comparison."""
-    if isinstance(value, list):
-        return [normalize_combo(v) for v in value]
-    return normalize_combo(value)
 
 
 def validate_combo(raw: str) -> tuple:
@@ -868,22 +865,21 @@ def decode_key_event(state_bits: int, keysym: str, char: str):
 # (cancel / send / switch engine), CTRL+ALT the rare/technical one (deliver without
 # insert / via typing). Housekeeping (open_history / open_settings /
 # test_transcription / exit_program) is kept identical to the shipped Ctrl+Alt scheme so switching preset
-# means no relearning. cancel_recording / exit_program keep single-element LISTS to
-# match their list-shaped defaults (apply_hotkey_overrides preserves shape). Bare f8
-# is intentionally left unassigned -- reserved for a future push-to-talk hold key.
+# means no relearning. Bare f8 is intentionally left unassigned -- reserved for a
+# future push-to-talk hold key.
 PRESET_FKEYS = {   # keys in the canonical DEFAULT_HOTKEYS order (D-019)
     "start_recording": "f9",
     "stop_recording_clipboard": "f10",
     "stop_recording_send": "ctrl+f10",
     "stop_recording_no_insert": "ctrl+alt+f9",
     "stop_recording_keyboard": "ctrl+alt+f10",
-    "cancel_recording": ["ctrl+f9"],
+    "cancel_recording": "ctrl+f9",
     "retry_last_failed": "shift+f8",
     "switch_api": "ctrl+f8",
     "open_history": "ctrl+alt+6",
     "open_settings": "ctrl+alt+g",   # housekeeping stays on Ctrl+Alt (#164)
     "test_transcription": "ctrl+alt+t",
-    "exit_program": ["ctrl+alt+4"],
+    "exit_program": "ctrl+alt+4",
 }
 
 

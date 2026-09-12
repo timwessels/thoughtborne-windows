@@ -71,7 +71,7 @@ The reliable check is the log heartbeat: the recording loop writes a `Recording 
   - `audio_handler.py` — capture, the stall guards, the retry-marker files.
   - `transcriber.py` — the four engines and the transcript cleanup.
   - `output_handler.py` — text insertion: the typed and clipboard routes, plus the send-after-insert flag.
-  - `hotkey_manager.py` — Win32 hotkey registration; `hotkey_parse.py` — the ctypes-free lexical layer it shares with `config`, plus the one canonical combo spelling (`canonical_combo`) and its display form (`format_combo`, `first_combo`).
+  - `hotkey_manager.py` — Win32 hotkey registration; `hotkey_parse.py` — the ctypes-free lexical layer it shares with `config`, plus the one canonical combo spelling (`canonical_combo`) and its display form (`format_combo`).
   - `ptt_detector.py` — the push-to-talk gesture state machine, Win32-decoupled.
   - `config.py` — constants, the `.env` and `personal_settings.json` loading with the hotkey/engine overrides, the legacy-archive migration, and `VERSION` read from `pyproject.toml` (the regex twin of `setup.ps1`'s).
   - `console_ui.py` — the console renderer, pure stdlib.

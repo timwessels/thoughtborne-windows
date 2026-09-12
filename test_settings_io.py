@@ -70,8 +70,9 @@ What is covered:
   - the pure hotkey helpers: normalize_combo (the canonicalizer of #275, with its
     never-raise fallback for the diff path), validate_combo, decode_key_event on
     synthetic Tk events, and the diff <-> apply_hotkey_overrides round-trip
-    (exercising BOTH bare-F-key and modifier-chord shapes plus the list shape,
-    and that an alias-spelled default diffs to nothing).
+    (exercising BOTH bare-F-key and modifier-chord combos, that an alias-spelled
+    default diffs to nothing, and that a pre-D-024 file whose value is still a
+    one-element list loads and saves back as that one combo).
   - key_check.classify_http (pure), the empty-key short-circuit, a non-HTTP
     response decoding to UNREACHABLE rather than crashing (B2, localhost socket), a
     malformed key (embedded newline / non-latin-1 glyph) rejected as INVALID without
@@ -99,7 +100,8 @@ What is covered:
     non-empty string, the t() lang -> EN -> key-itself fallback chain, the
     engine.desc.* EN wording tracks config.API_DISPLAY, and the retired
     detect_ui_language() stays gone (D-015: English default, no system-language
-    detection).
+    detection) alongside the retired hotkeys.more_suffix (D-024: one combo per
+    action, so no "(+n more)" to show).
   - settings_io.write_personal_settings ui.language merge (#144, F6): ui_language
     None preserves an existing ui block untouched (and creates none when absent),
     "de"/"en" sets ui.language while preserving sibling keys + the _comment, and an
@@ -338,6 +340,26 @@ def check_personal_settings(tmp):
     check(warn2 is None, "D: write over an unreadable file did not produce valid JSON")
     check("Project Name" not in p.read_text(encoding="utf-8"),
           "D: overwrite leaked the placeholder vocabulary")
+
+    # E -- a pre-#318 file: the F-key preset used to write a one-element LIST for
+    # cancel_recording. It must load as the identical binding, silently (D-024),
+    # and the next save must write it back in string shape.
+    p = tmp / "ps_e.json"
+    p.write_text(json.dumps({"hotkeys": {"cancel_recording": ["ctrl+f9"],
+                                         "start_recording": "f9"}}),
+                 encoding="utf-8")
+    data, warn = sio.read_personal_settings(p)
+    check(warn is None, "E: legacy file did not load")
+    eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, data["hotkeys"])
+    check(eff["cancel_recording"] == "ctrl+f9" and not warns,
+          f"E: legacy one-element list did not collapse silently (warns={warns})")
+    sio.write_personal_settings(p, hotkeys_effective=eff, default_api=None,
+                                example_path=EXAMPLE_PS)
+    data2, _ = sio.read_personal_settings(p)
+    check(data2["hotkeys"].get("cancel_recording") == "ctrl+f9",
+          f"E: the save kept a list shape: {data2['hotkeys'].get('cancel_recording')!r}")
+    eff2, warns2 = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, data2["hotkeys"])
+    check(eff2 == eff and not warns2, "E: legacy round-trip changed the effective binding")
 
     # missing file -> ({}, None): a first run is normal, not a warning
     md, mw = sio.read_personal_settings(tmp / "nope.json")
@@ -895,8 +917,8 @@ def check_hotkey_helpers():
     diff = sio.hotkeys_diff_vs_default(sio.preset_fkeys(), config.DEFAULT_HOTKEYS)
     check(diff.get("start_recording") == "f9" and diff.get("stop_recording_clipboard") == "f10",
           "diff lost the bare-F-key core ops")
-    check(diff.get("cancel_recording") == ["ctrl+f9"],
-          "diff lost the list shape for cancel_recording")
+    check(diff.get("cancel_recording") == "ctrl+f9",
+          "diff lost the cancel_recording rebind")
     eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, diff)
     check(eff == sio.preset_fkeys() and not warns,
           f"F-key preset round-trip mismatch (warns={warns})")
@@ -1301,6 +1323,12 @@ def check_i18n():
     # the default on German Windows again.
     check(not hasattr(sstr, "detect_ui_language"),
           "detect_ui_language() is retired (D-015) and must not return")
+
+    # D-024: one action binds one combo, so the hotkey rows have no second binding
+    # to hint at and the "(+n more)" suffix went with the list shape. Same kind of
+    # guard as the one above -- a returning key means a returning multi-combo display.
+    check("hotkeys.more_suffix" not in sstr._EN and "hotkeys.more_suffix" not in sstr._DE,
+          "hotkeys.more_suffix is back -- D-024 retired the multi-combo display (#318)")
 
     # Placeholder parity (#178): the key-set check above proves DE and EN carry the
     # same keys, but not that a format string uses the same {…} tokens in both -- a

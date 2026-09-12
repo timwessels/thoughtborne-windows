@@ -55,7 +55,7 @@ from config import (
     RECORDING_LOOP_STALE_SECONDS,
 )
 from hotkey_manager import HotkeyManager, is_key_pressed, is_vk_pressed, VK_RMENU
-from hotkey_parse import first_combo, format_combo
+from hotkey_parse import format_combo
 from ptt_detector import PttDetector, KeyboardSnapshot, PttAction
 from audio_handler import (
     AudioRecorder, recover_partial_files,
@@ -2444,8 +2444,8 @@ class ThoughtborneApp:
                 for a in AVAILABLE_APIS]
 
     def _show(self, name):
-        """The one display combo of an action (the first of a list value)."""
-        return format_combo(first_combo(HOTKEYS[name]))
+        """The display combo of an action."""
+        return format_combo(HOTKEYS[name])
 
     def _pairs(self, names=None):
         """[(action_name, display_combo)] in canonical order -- HOTKEYS inherits
@@ -2603,10 +2603,9 @@ class ThoughtborneApp:
             'exit_program': self.on_exit_program,
         }
 
-        for hotkey_name, value in HOTKEYS.items():
-            for hotkey_str in (value if isinstance(value, list) else [value]):
-                self.hotkey_manager.register(hotkey_str, callbacks[hotkey_name],
-                                             name=hotkey_name)
+        for hotkey_name, hotkey_str in HOTKEYS.items():
+            self.hotkey_manager.register(hotkey_str, callbacks[hotkey_name],
+                                         name=hotkey_name)
 
         # Start the listener thread (blocks until registration is done)
         if not self.hotkey_manager.start():

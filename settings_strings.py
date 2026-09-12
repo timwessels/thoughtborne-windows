@@ -208,7 +208,6 @@ _EN = {
         "here — Windows fires the action instead of passing the key press through. "
         "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
     "btn.change_key": "Change…",
-    "hotkeys.more_suffix": "(+{n} more)",
     "capture.prompt": "Press the combo … (Esc)",
     "capture.unbindable": "This key can't be bound — use letters, digits or F1–F24.",
     "capture.need_modifier": (
@@ -639,7 +638,6 @@ _DE = {
         "Tastendruck durchzureichen. Vorher Thoughtborne beenden ({exit_key}) oder "
         "eine unbelegte Kombination wählen."),
     "btn.change_key": "Ändern…",
-    "hotkeys.more_suffix": "(+{n} weitere)",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
         "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern oder F1–F24 "

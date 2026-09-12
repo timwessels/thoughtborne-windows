@@ -637,16 +637,16 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
 
     Pure and side-effect-free (no logging, no globals) so it is unit-testable and
     IS the production loader: config calls it verbatim. `defaults` is HOTKEYS
-    (action -> str | list[str]); `raw` is the parsed personal_settings 'hotkeys'
+    (action -> combo string); `raw` is the parsed personal_settings 'hotkeys'
     object. Every rejected entry leaves that action's default in force -- never a
     startup abort (stability, VISION principle #1). A combo colliding with another
     action's effective binding is dropped (the default stays). Never raises.
 
-    Shape is preserved exactly: an action whose default is a string stays a string
-    (a one-element list override collapses to it; a multi-combo override is
-    rejected), and only an action whose default is already a list accepts several
-    combos -- so thoughtborne._register_hotkeys keeps reading the shapes it does
-    today.
+    One action binds one combo (D-024). The one list-shaped remnant is a boundary
+    compat rule: a ONE-element list -- what the F-key preset AND every settings-
+    window rebind of cancel_recording/exit_program used to write -- collapses to
+    its string without a warning, so an update never resets a key a user is still
+    pressing. Any other list is rejected like every other bad entry.
     """
     warnings = []
     effective = copy.deepcopy(defaults)
@@ -661,66 +661,44 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                 f"(valid: {', '.join(sorted(defaults))})")
             continue
 
-        # Normalize to a list of combo strings (a bare string is one combo).
-        if isinstance(value, str):
-            combos = [value]
-        elif isinstance(value, list):
-            combos = value
-        else:
-            warnings.append(
-                f"hotkeys.{action}: value must be a combo string or a list of "
-                f"them; keeping default")
-            continue
-        if not combos:
-            warnings.append(f"hotkeys.{action}: empty list; keeping default")
-            continue
+        # D-024: one action binds one combo. A ONE-element list is the single
+        # legacy shape that still loads -- the F-key preset wrote
+        # "cancel_recording": ["ctrl+f9"] into user files, and so did the settings
+        # window on every rebind of those two actions; an update must not silently
+        # reset such a key (VISION principle #1). It collapses here, before
+        # validation, so from this point there is one value shape.
+        if isinstance(value, list):
+            if len(value) != 1:
+                warnings.append(
+                    f"hotkeys.{action}: an action binds exactly one combo; "
+                    f"keeping default")
+                continue
+            value = value[0]
 
-        norm = []
-        ok = True
-        for c in combos:
-            if not isinstance(c, str) or not c.strip():
-                warnings.append(
-                    f"hotkeys.{action}: '{c}' is not a non-empty combo string; "
-                    f"keeping default")
-                ok = False
-                break
-            try:
-                _mods, key = parse_hotkey_lexical(c)
-            except HotkeyParseError as e:
-                warnings.append(
-                    f"hotkeys.{action}: '{c}' is not a valid combo ({e}); "
-                    f"keeping default")
-                ok = False
-                break
-            if classify_key(key) == KEY_INVALID:
-                warnings.append(
-                    f"hotkeys.{action}: '{c}' has an unrecognized key '{key}'; "
-                    f"keeping default")
-                ok = False
-                break
-            # One spelling for every effective combo (#272/#275): modifiers in
-            # the fixed order ctrl, alt, shift, win, aliases and case collapsed,
-            # inner spaces dropped. The registrar strips and parses either way
-            # -- this is for everything that compares or shows the string: the
-            # shared-prefix detection of the console lead, the display
-            # formatter, the settings app's diff against the defaults, and the
-            # duplicate check below.
-            norm.append(canonical_combo(c))
-        if not ok:
-            continue
-
-        # Match the default's shape (maintainer decision, #55): a string-valued
-        # action stays a string; genuine multi-binding is only for actions whose
-        # default is already a list, so _register_hotkeys' shapes are unchanged.
-        if isinstance(defaults[action], list):
-            effective[action] = norm
-        elif len(norm) == 1:
-            effective[action] = norm[0]
-        else:
+        if not isinstance(value, str) or not value.strip():
             warnings.append(
-                f"hotkeys.{action}: multiple combos are not supported for this "
-                f"action; keeping default")
+                f"hotkeys.{action}: '{value}' is not a non-empty combo string; "
+                f"keeping default")
             continue
+        try:
+            _mods, key = parse_hotkey_lexical(value)
+        except HotkeyParseError as e:
+            warnings.append(
+                f"hotkeys.{action}: '{value}' is not a valid combo ({e}); "
+                f"keeping default")
+            continue
+        if classify_key(key) == KEY_INVALID:
+            warnings.append(
+                f"hotkeys.{action}: '{value}' has an unrecognized key '{key}'; "
+                f"keeping default")
+            continue
+        # One spelling for every effective combo (#272/#275): modifiers in the
+        # fixed order ctrl, alt, shift, win, aliases and case collapsed, inner
+        # spaces dropped. The registrar strips and parses either way -- this is
+        # for everything that compares or shows the string: the shared-prefix
+        # detection of the console lead, the display formatter, the settings
+        # app's diff against the defaults, and the duplicate check below.
+        effective[action] = canonical_combo(value)
         overridden.add(action)
 
     # ---- duplicate detection on the EFFECTIVE set --------------------------
@@ -729,40 +707,26 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     # RegisterHotKey collides on for every statically resolvable key. Run on the
     # effective set (not the raw defaults) so "free a default key, then reuse it"
     # is not a false positive.
-    def _flatten(d):
-        for act, val in d.items():
-            for combo in ([val] if isinstance(val, str) else val):
-                mods, key = parse_hotkey_lexical(combo)
-                yield (mods, key), act
-
+    #
     # Revert every overridden action that collides, until no collision involves an
     # override. Defaults are mutually collision-free in the shipped config, so this
-    # converges (in practice one pass); a default is never mutated. A colliding
-    # combo is tagged 'cross' (shared with a *different* action) or 'self' (the
-    # same combo listed twice within one action's list) so the warning is honest.
+    # converges (in practice one pass); a default is never mutated. With one combo
+    # per action (D-024) a shared canonical form always means two *different*
+    # actions, so there is one thing to report; reverting in the canonical action
+    # order (D-019) keeps the warnings identical from run to run.
     while True:
         groups = {}
-        for canon, act in _flatten(effective):
-            groups.setdefault(canon, []).append(act)
-        to_revert = {}   # action -> 'cross' | 'self'  ('cross' wins if both apply)
-        for canon, acts in groups.items():
-            if len(acts) <= 1:
-                continue
-            cross = len(set(acts)) > 1
-            for a in acts:
-                if a in overridden and to_revert.get(a) != 'cross':
-                    to_revert[a] = 'cross' if cross else 'self'
+        for act, combo in effective.items():
+            groups.setdefault(parse_hotkey_lexical(combo), []).append(act)
+        colliding = {a for acts in groups.values() if len(acts) > 1 for a in acts}
+        to_revert = [a for a in effective if a in colliding and a in overridden]
         if not to_revert:
             break
-        for a, kind in to_revert.items():
-            effective[a] = copy.deepcopy(defaults[a])
+        for a in to_revert:
+            effective[a] = defaults[a]
             overridden.discard(a)
-            if kind == 'cross':
-                warnings.append(
-                    f"hotkeys.{a}: combo collides with another action; keeping default")
-            else:
-                warnings.append(
-                    f"hotkeys.{a}: the same combo is listed more than once; keeping default")
+            warnings.append(
+                f"hotkeys.{a}: combo collides with another action; keeping default")
 
     return effective, warnings
 
@@ -1014,13 +978,13 @@ DEFAULT_HOTKEYS = {
     'stop_recording_send': 'ctrl+alt+d',       # D = Stop & insert & SEND (press Enter)
     'stop_recording_no_insert': 'ctrl+alt+y',  # Y = Stop & process only (insert later) - NEW!
     'stop_recording_keyboard': 'ctrl+alt+h',   # H = Stop & insert (keyboard typing)
-    'cancel_recording': ['ctrl+alt+x'],        # X = Cancel recording
+    'cancel_recording': 'ctrl+alt+x',          # X = Cancel recording
     'retry_last_failed': 'ctrl+alt+r',         # R = Retry last FAILED transcription
     'switch_api': 'ctrl+alt+l',                # L = Cycle transcription APIs
     'open_history': 'ctrl+alt+6',              # 6 = Open the history folder in Explorer (#50)
     'open_settings': 'ctrl+alt+g',             # G = Open the settings app (gear) (#164)
     'test_transcription': 'ctrl+alt+t',        # T = Test transcription
-    'exit_program': ['ctrl+alt+4']             # 4 = Exit program
+    'exit_program': 'ctrl+alt+4'               # 4 = Exit program
 }
 
 # Hotkey overrides (#55): DEFAULT_HOTKEYS is the pristine shipped scheme; the

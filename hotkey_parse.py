@@ -10,9 +10,8 @@ bindable key -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers
 lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one).
 
 Because every layer passes through here, this is also where a combo gets its one
-spelling (`canonical_combo`) and its one display form (`format_combo`,
-`first_combo`) -- the grammar the console, the settings app and the tests share
-(#272).
+spelling (`canonical_combo`) and its one display form (`format_combo`) -- the
+grammar the console, the settings app and the tests share (#272).
 """
 
 # ===== Win32 RegisterHotKey modifier flags (plain ints -- no ctypes/DLL) =====
@@ -138,19 +137,6 @@ def format_combo(combo: str) -> str:
     settings app and tests share it, so no surface invents a second spelling.
     """
     return '+'.join(part.capitalize() for part in combo.split('+'))
-
-
-def first_combo(value) -> str:
-    """The one combo a display surface shows for an action.
-
-    A binding is a combo string or, for the list-shaped actions
-    (cancel_recording, exit_program), a list of them -- of which every surface
-    has always shown the first. An empty list yields '': apply_hotkey_overrides
-    rejects one, and a display helper must not be the thing that raises.
-    """
-    if isinstance(value, list):
-        return value[0] if value else ''
-    return value
 
 
 def common_prefix(combos) -> "str | None":

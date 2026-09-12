@@ -368,6 +368,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   always meant: a clean but empty result means no speech, on every engine. Wording only — no key
   names, no precedence, no behaviour (D-008 stands). DE and EN twins in lockstep.
 
+- **One action, one combo — the list-shaped hotkey values are gone (#318, D-024).** Two of the
+  twelve actions, *Cancel recording* and *Exit*, carried their combo in a list rather than as a
+  plain string — the door to binding several combos to one action. Nothing ever walked through it:
+  both shipped values held a single entry, the F-key preset assigns one combo per action, the
+  settings window's capture field could only ever *replace* such a list with one combo, and every
+  surface displayed the first element and nothing else. What the shape did cost was a
+  `str | list[str]` duality that every edit to the hotkey system had to think through, in the
+  loader, the registrar, the diff writer and each display surface. Both values are now plain
+  strings, and with the duality go the shape-preservation rule, the multi-combo rejection lane, the
+  same-combo-listed-twice branch of the collision check, `hotkey_parse.first_combo` and the
+  settings window's never-seen `(+n more)` suffix. Nothing a user presses changes: the keys, their
+  order, the console, the README tables and the 12 registrations are identical. One compatibility
+  rule stays at the loader's edge — a **one-element list** in `personal_settings.json`, which is
+  exactly what the F-key preset used to write (`"cancel_recording": ["ctrl+f9"]`) and what the
+  settings window itself wrote whenever someone rebound one of those two keys, is accepted and
+  collapsed to its combo with no warning, so an update can never quietly reset a key someone is
+  still using; a longer list is refused the way bad entries always were, with one line in
+  `thoughtborne.log` and the default kept. Nothing rewrites anyone's file — the next save from the
+  settings window writes the string shape by itself.
+
 ### Removed
 
 - **The `ü` hotkey lane is gone — every bindable key is a letter, digit, or F-key now (#317,

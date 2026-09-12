@@ -11,19 +11,20 @@ durable regression guard, sibling of `test_console_ui.py`).
 Layer A -- `hotkey_parse` (the ctypes-free lexical layer): the static VK map
 (letters, digits, F1-F24), the structural parser `parse_hotkey_lexical`,
 `classify_key`, and the one spelling a combo is stored and shown in --
-`canonical_combo`, `format_combo`, `first_combo` (#275), including the guard
-that both shipped schemes (`DEFAULT_HOTKEYS` and `settings_io.PRESET_FKEYS`) are
-written canonically themselves -- and the drift guard that keeps the README
-twins' `## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019).
+`canonical_combo`, `format_combo` (#275), including the guard that both shipped
+schemes (`DEFAULT_HOTKEYS` and `settings_io.PRESET_FKEYS`) are written
+canonically themselves -- and the drift guard that keeps the README twins'
+`## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019). `first_combo`,
+the picker the list shape needed, is pinned as retired (D-024).
 
 Layer B -- `config.apply_hotkey_overrides` (the pure production loader config
 calls verbatim): partial override by action name, warn-and-keep-default on every
-kind of bad entry, F-key names, list vs. string shapes (a string-default action
-stays a string, only already-list actions multi-bind -- the maintainer's #55
-decision), duplicate detection on the *effective* set with case/modifier-order
-normalization, and the guarantees that the defaults dict is never mutated and
-that their order, the canonical action order every surface follows (D-019),
-survives the one loader it passes through.
+kind of bad entry, F-key names, the value shape (one action binds one combo,
+D-024 -- a one-element list from an older version collapses silently, any other
+list is rejected), duplicate detection on the *effective* set with
+case/modifier-order normalization, and the guarantees that the defaults dict is
+never mutated and that their order, the canonical action order every surface
+follows (D-019), survives the one loader it passes through.
 
 The did-the-key-actually-fire check is hands-on (RegisterHotKey needs Windows)
 and is tracked in a separate `test` issue.
@@ -45,8 +46,8 @@ from config import apply_hotkey_overrides, DEFAULT_HOTKEYS
 
 SHOW = "--show" in sys.argv
 
-# Own fixture mirroring the real HOTKEYS shape (str-default and list-default
-# actions, plus a digit key) -- NOT config.HOTKEYS, which the repo's own
+# Own fixture mirroring the real HOTKEYS shape (one combo string per action,
+# D-024, plus a digit key) -- NOT config.HOTKEYS, which the repo's own
 # personal_settings.json might already have overridden.
 DEFAULTS = {
     'start_recording': 'ctrl+alt+w',
@@ -55,8 +56,8 @@ DEFAULTS = {
     'switch_api': 'ctrl+alt+l',
     'test_transcription': 'ctrl+alt+t',
     'open_history': 'ctrl+alt+6',
-    'cancel_recording': ['ctrl+alt+x'],
-    'exit_program': ['ctrl+alt+4'],
+    'cancel_recording': 'ctrl+alt+x',
+    'exit_program': 'ctrl+alt+4',
 }
 _DEFAULTS_SNAPSHOT = copy.deepcopy(DEFAULTS)
 
@@ -159,7 +160,7 @@ def test_canonical_combo():
             pass
 
 
-def test_format_and_first_combo():
+def test_format_combo():
     assert hp.format_combo('ctrl+alt+w') == 'Ctrl+Alt+W'
     assert hp.format_combo('ctrl+alt+f10') == 'Ctrl+Alt+F10'
     assert hp.format_combo('ctrl+alt+6') == 'Ctrl+Alt+6'
@@ -170,11 +171,13 @@ def test_format_and_first_combo():
     # of the later display steps rests on this.
     assert len(hp.format_combo(hp.canonical_combo('windows+shift+alt+control+f24'))) == 22
 
-    # The one combo a surface shows for an action: a string as-is, the first of a
-    # list-shaped binding, and '' rather than a raise on an empty list.
-    assert hp.first_combo('ctrl+alt+w') == 'ctrl+alt+w'
-    assert hp.first_combo(['ctrl+alt+x', 'ctrl+alt+q']) == 'ctrl+alt+x'
-    assert hp.first_combo([]) == ''
+
+def test_first_combo_retired():
+    # D-024 (#318): one action binds one combo, so there is no first one to pick --
+    # first_combo went with the list shape. Pin the removal: a helper that takes a
+    # binding and returns one of several is the door back to multi-combo actions.
+    assert not hasattr(hp, 'first_combo'), \
+        "hotkey_parse.first_combo is back -- D-024 retired it with the list shape"
 
 
 def test_common_prefix():
@@ -200,22 +203,26 @@ def test_partial_override():
 
 
 def test_value_shapes():
-    # list override on a list-default action -> genuine multi-binding
-    eff, warns = run({'exit_program': ['ctrl+alt+4', 'ctrl+alt+q']})
-    only_changed(eff, {'exit_program': ['ctrl+alt+4', 'ctrl+alt+q']})
-    assert warns == [], warns
-    # string override on a string-default action -> stays a string
+    # D-024 (#318): one action binds one combo.
     eff, warns = run({'switch_api': 'ctrl+alt+p'})
     only_changed(eff, {'switch_api': 'ctrl+alt+p'})
     assert warns == [], warns
-    # one-element list on a string-default action collapses to a string
-    eff, warns = run({'switch_api': ['ctrl+alt+p']})
-    only_changed(eff, {'switch_api': 'ctrl+alt+p'})
-    assert warns == [], warns
-    # multi-element list on a string-default action is rejected (keeps default)
-    eff, warns = run({'switch_api': ['ctrl+alt+p', 'ctrl+alt+j']})
-    only_changed(eff, {})
-    assert any('multiple combos' in w for w in warns), warns
+    # A ONE-element list -- the shape the F-key preset wrote into user files
+    # before #318 -- is accepted and collapses SILENTLY. Zero warnings is the
+    # load-bearing half: an update must never reset a key a user still presses.
+    for action, legacy in (('switch_api', ['ctrl+alt+p']),
+                           ('cancel_recording', ['ctrl+f9']),
+                           ('exit_program', ['ctrl+alt+9'])):
+        eff, warns = run({action: legacy})
+        only_changed(eff, {action: legacy[0]})
+        assert warns == [], (action, warns)
+    # Any other list is rejected like every other bad entry: exactly one warning,
+    # the default stays.
+    for bad in (['ctrl+alt+p', 'ctrl+alt+j'], []):
+        eff, warns = run({'switch_api': bad})
+        only_changed(eff, {})
+        assert len(warns) == 1, (bad, warns)
+        assert 'one combo' in warns[0], warns
 
 
 def test_inner_spaces_canonicalized():
@@ -251,14 +258,15 @@ def test_bad_combos_keep_default():
 
 
 def test_wrong_value_types_keep_default():
-    for bad in (5, True, {}, [], ['ctrl+alt+l', 7]):
+    for bad in (5, True, {}, [], [7], ['ctrl+alt+l', 7]):
         eff, warns = run({'switch_api': bad})
         only_changed(eff, {})
         assert warns, f"expected a warning for switch_api={bad!r}"
 
 
-def test_fkey_names_bare_and_list():
-    # F-key name, a bare (modifier-less) F-key, list collapse, and lowercasing
+def test_fkey_names_bare_and_legacy_list():
+    # F-key name, a bare (modifier-less) F-key, the D-024 collapse of a legacy
+    # one-element list, and lowercasing
     eff, warns = run({'start_recording': 'F13', 'test_transcription': ['f24']})
     only_changed(eff, {'start_recording': 'f13', 'test_transcription': 'f24'})
     assert warns == [], warns
@@ -277,16 +285,6 @@ def test_duplicate_two_overrides_same_combo():
     assert sum('collides' in w for w in warns) >= 2, warns
 
 
-def test_duplicate_within_same_action_list():
-    # One combo listed twice inside a single action's list is a *self*-duplicate,
-    # not a cross-action collision -- honest wording, and the action reverts to its
-    # default (SOLLTE 4).
-    eff, warns = run({'exit_program': ['ctrl+alt+4', 'ctrl+alt+4']})
-    only_changed(eff, {})
-    assert any('more than once' in w for w in warns), warns
-    assert not any('collides with another action' in w for w in warns), warns
-
-
 def test_duplicate_case_and_order_normalized():
     # ALT+CTRL+4 canonicalizes to exit_program's ctrl+alt+4 -> reverts
     eff, warns = run({'start_recording': 'ALT+CTRL+4'})
@@ -297,7 +295,7 @@ def test_duplicate_case_and_order_normalized():
 def test_free_then_reuse_no_false_collision():
     # start_recording vacates ctrl+alt+w, so exit_program may take it
     eff, warns = run({'start_recording': 'f9', 'exit_program': 'ctrl+alt+w'})
-    only_changed(eff, {'start_recording': 'f9', 'exit_program': ['ctrl+alt+w']})
+    only_changed(eff, {'start_recording': 'f9', 'exit_program': 'ctrl+alt+w'})
     assert warns == [], warns
 
 
@@ -305,11 +303,10 @@ def test_shipped_defaults_are_static():
     # #211 / D-012: no shipped default may sit on a key without a static VK code --
     # those are resolved against the ACTIVE layout at startup and fail off QWERTZ.
     # Guards against the self-test (or any default) regressing onto the umlaut.
-    for action, value in DEFAULT_HOTKEYS.items():
-        for combo in (value if isinstance(value, list) else [value]):
-            _mods, key = hp.parse_hotkey_lexical(combo)
-            assert hp.classify_key(key) == hp.KEY_STATIC, \
-                f"D-012: default {action}={combo!r} uses layout-resolved key {key!r}"
+    for action, combo in DEFAULT_HOTKEYS.items():
+        _mods, key = hp.parse_hotkey_lexical(combo)
+        assert hp.classify_key(key) == hp.KEY_STATIC, \
+            f"D-012: default {action}={combo!r} uses layout-resolved key {key!r}"
 
 
 def test_shipped_combos_are_canonical():
@@ -319,11 +316,10 @@ def test_shipped_combos_are_canonical():
     # app's diff (which compares an effective set against DEFAULT_HOTKEYS).
     for source, table in (("DEFAULT_HOTKEYS", DEFAULT_HOTKEYS),
                           ("settings_io.PRESET_FKEYS", settings_io.PRESET_FKEYS)):
-        for action, value in table.items():
-            for combo in (value if isinstance(value, list) else [value]):
-                assert hp.canonical_combo(combo) == combo, \
-                    f"{source}[{action}] = {combo!r} is not canonical " \
-                    f"({hp.canonical_combo(combo)!r})"
+        for action, combo in table.items():
+            assert hp.canonical_combo(combo) == combo, \
+                f"{source}[{action}] = {combo!r} is not canonical " \
+                f"({hp.canonical_combo(combo)!r})"
 
 
 def _readme_hotkey_column(path):
@@ -337,8 +333,7 @@ def test_readme_hotkey_tables_match_defaults():
     # D-019: the README twins' ## Hotkeys tables track DEFAULT_HOTKEYS -- order
     # AND values (the spirit of test_deps_sync). The canonical order is the dict's,
     # and the tables are the user-facing copy of it.
-    expected = [hp.format_combo(hp.first_combo(DEFAULT_HOTKEYS[a]))
-                for a in DEFAULT_HOTKEYS]
+    expected = [hp.format_combo(DEFAULT_HOTKEYS[a]) for a in DEFAULT_HOTKEYS]
     here = Path(__file__).resolve().parent
     for name in ("README.md", "README.de.md"):
         got = _readme_hotkey_column(here / name)
@@ -379,7 +374,8 @@ CASES = [
     test_parse_raises_structural,
     test_classify_key,
     test_canonical_combo,
-    test_format_and_first_combo,
+    test_format_combo,
+    test_first_combo_retired,
     test_shipped_defaults_are_static,
     test_shipped_combos_are_canonical,
     test_readme_hotkey_tables_match_defaults,
@@ -393,10 +389,9 @@ CASES = [
     test_comment_key_ignored,
     test_bad_combos_keep_default,
     test_wrong_value_types_keep_default,
-    test_fkey_names_bare_and_list,
+    test_fkey_names_bare_and_legacy_list,
     test_duplicate_override_vs_untouched_default,
     test_duplicate_two_overrides_same_combo,
-    test_duplicate_within_same_action_list,
     test_duplicate_case_and_order_normalized,
     test_free_then_reuse_no_false_collision,
 ]
@@ -405,7 +400,7 @@ CASES = [
 def main():
     if SHOW:
         for raw in ({'start_recording': 'f9'},
-                    {'exit_program': ['ctrl+alt+4', 'ctrl+alt+q']},
+                    {'cancel_recording': ['ctrl+f9']},
                     {'start_recording': 'ctrl+alt+4', 'switch_api': 'bogus'}):
             eff, warns = apply_hotkey_overrides(DEFAULTS, raw)
             print(f"----- override {raw} -----")

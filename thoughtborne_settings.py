@@ -1288,13 +1288,7 @@ class SettingsApp:
         # format_combo is the one display formatter (#275); hotkeys_state is
         # canonical, having come through apply_hotkey_overrides, so capitalizing
         # per part is the whole grammar -- 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
-        combos = value if isinstance(value, list) else [value]
-        if not combos:
-            return ""
-        text = format_combo(combos[0])
-        if len(combos) > 1:
-            text += " " + strings.t("hotkeys.more_suffix", self.lang).format(n=len(combos) - 1)
-        return text
+        return format_combo(value)
 
     def _render_combo_label(self, name):
         # A re-render sets only text + foreground + font; the chip's box (card tint,
@@ -1381,11 +1375,9 @@ class SettingsApp:
             return "break"
 
         # Collision: build the candidate state and let apply_hotkey_overrides --
-        # the runtime acceptance authority -- judge it. A list-valued action gets
-        # its whole list replaced by [combo] (an explicit, visible user act).
+        # the runtime acceptance authority -- judge it.
         candidate = copy.deepcopy(self.hotkeys_state)
-        candidate[name] = ([combo] if isinstance(config.DEFAULT_HOTKEYS[name], list)
-                           else combo)
+        candidate[name] = combo
         diff = settings_io.hotkeys_diff_vs_default(candidate, config.DEFAULT_HOTKEYS)
         _eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, diff)
         if warns:
@@ -1415,12 +1407,11 @@ class SettingsApp:
         for action, value in self.hotkeys_state.items():
             if action == name:
                 continue
-            for c in (value if isinstance(value, list) else [value]):
-                try:
-                    if parse_hotkey_lexical(c) == target:
-                        return action
-                except Exception:
-                    continue
+            try:
+                if parse_hotkey_lexical(value) == target:
+                    return action
+            except Exception:
+                continue
         return None
 
     # ---- behavior tab ----

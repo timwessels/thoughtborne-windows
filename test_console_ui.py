@@ -56,7 +56,7 @@ import hotkey_parse as hp   # the canonical modifier order + key set the ladder 
 import settings_io          # PRESET_FKEYS as an override fixture; stdlib-only
 from config import (API_DISPLAY, API_KEY_ENV, AVAILABLE_APIS, DEFAULT_API,
                     DEFAULT_HOTKEYS, LOG_FILE, engine_has_key)
-from hotkey_parse import canonical_combo, common_prefix, first_combo, format_combo
+from hotkey_parse import canonical_combo, common_prefix, format_combo
 
 SHOW = "--show" in sys.argv
 
@@ -165,11 +165,11 @@ def pairs_for(scheme, names=None):
 def combo_for(scheme, name):
     """One display combo out of a scheme -- pairs_for for a single action, so a
     fixture's switch_key/start_key come from the very scheme it renders."""
-    return format_combo(first_combo(scheme[name]))
+    return format_combo(scheme[name])
 
 
 PAIRS = pairs_for(DEFAULT_HOTKEYS)
-_prefix = common_prefix([first_combo(v) for v in DEFAULT_HOTKEYS.values()])
+_prefix = common_prefix(DEFAULT_HOTKEYS.values())
 KEY_PREFIX = format_combo(_prefix) if _prefix else None
 # Which actions a box shows -- sets, deliberately: pairs_for supplies the order.
 REC_ACTIONS = {"stop_recording_clipboard", "stop_recording_send",
@@ -180,8 +180,8 @@ REC_STOPS = pairs_for(DEFAULT_HOTKEYS, REC_ACTIONS)
 WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
 
 # the one MODEL header form (#276): masthead, switched and switch_failed alike.
-# Through combo_for, like every other fixture combo, so a list-shaped binding on
-# any of these actions keeps yielding the one combo a surface shows.
+# Through combo_for, like every other fixture combo, so the display spelling comes
+# from the scheme rather than from a hand-written copy of it.
 SWITCH = combo_for(DEFAULT_HOTKEYS, "switch_api")
 PASTE = combo_for(DEFAULT_HOTKEYS, "stop_recording_clipboard")
 OPEN = combo_for(DEFAULT_HOTKEYS, "open_history")
@@ -849,7 +849,7 @@ def check_grid_schemes():
     #     16-cell combo shortens -- with only the key token bold ([...] is a
     #     renderer artifact, not part of the key).
     three = {n: ("f9" if n == "start_recording"
-                 else "ctrl+alt+shift+" + first_combo(v).rpartition("+")[2])
+                 else "ctrl+alt+shift+" + v.rpartition("+")[2])
              for n, v in DEFAULT_HOTKEYS.items()}
     rows = grid_for("grid/three-modifiers", three)
     ansi_joined = "".join(rows)
