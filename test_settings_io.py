@@ -56,9 +56,10 @@ What is covered:
     stays the explicit Save's branch alone. A healthy target still takes the surgical
     ui.language write with every other block as found, a missing one still takes the
     first-run skeleton lane (the gate keys on the warning, not on empty state), and an
-    undecodable one still raises for the caller's best-effort lane. Plus the wiring:
-    _persist_language calls only the gated writer, never write_personal_settings, and
-    that writer's signature stays too narrow to write anything but ui.language.
+    undecodable one still raises for the caller's best-effort lane. Plus that
+    writer's signature, which stays too narrow to write anything but ui.language --
+    that the toggle really goes through it is driven on the real window in
+    test_settings_visibility.py.
   - the data-safety regressions (check_regressions): a CRLF .env round-trips
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
@@ -119,10 +120,11 @@ What is covered:
     against the two save signals that return None there), over no file at all
     (the canonical all-defaults file, still without the example's placeholder
     vocabulary), twice in a row (idempotent bytes), and with a .env beside it that
-    must not move. Plus the call site, statically: the forced arguments, no
-    resolver, no write_env, no engine-memory write, a confirmation that warns and
-    preselects the preserving answer, the restart as the tail, and reset_btn in the
-    restart freeze.
+    must not move. Plus the part of the call site the display lane in
+    test_settings_visibility.py cannot see, statically: the two shipped values written
+    as literals (its fixture cannot tell a forced one from a derived one), no
+    write_env, no engine-memory write, no window destroy, the confirmation's warning
+    icon and preselected answer, and the restart as the tail.
   - the save pre-flight and its dialog (#291): settings_io.unreadable_save_target
     fires exactly where a writer would abort on a target whose bytes cannot be read
     or UTF-8-decoded and stays silent exactly where a write goes through -- each case
@@ -130,9 +132,11 @@ What is covered:
     drift from write_env's own guard read. With the two controls that a naive fix
     breaks: a corrupt-but-decodable personal_settings.json stays on D-002's warn-then-
     overwrite branch, and an unreadable .env this save would not write at all (both
-    key fields blank) does not block it. Plus both call sites, statically -- the save
-    probes before its first write and with the update set it writes, the reset's read
-    branch names the read failure, and both write branches keep dlg.savefail.
+    key fields blank) does not block it. Plus the two halves no display lane reaches,
+    statically: the probe asks with the update set the write uses, and both write
+    branches keep dlg.savefail. (That the probe runs before the first write, names the
+    file and uses its own title is driven on the real window in
+    test_settings_visibility.py.)
   - the no-key confirmation's second text (#294): settings_io.env_read_failure tells
     a present-but-unreadable .env (ANSI, UTF-16, locked) from a missing one, which
     read_env alone cannot -- it degrades both to {} -- so the keyless save stops
@@ -2038,8 +2042,9 @@ def check_reset_defaults(tmp):
     realistically meet. Both halves of the promise need proving -- that the four
     managed keys really land at their shipped values, and that nothing else in the
     file moves -- and the second half is the one a user notices."""
-    # Exactly the call _reset_to_defaults makes (check_reset_wiring pins that it
-    # keeps making it): the shipped hotkeys, no pin, English, push-to-talk off.
+    # Exactly the call _reset_to_defaults makes (test_settings_visibility's
+    # test_reset_with_display drives the real button and asserts the file it leaves
+    # behind): the shipped hotkeys, no pin, English, push-to-talk off.
     RESET = dict(hotkeys_effective=config.DEFAULT_HOTKEYS,
                  default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS,
                  ui_language="en", ptt_enabled=False)
@@ -2172,17 +2177,21 @@ def check_reset_defaults(tmp):
 
 
 def check_reset_wiring():
-    """The reset's call site, pinned statically on thoughtborne_settings.py's syntax
-    tree (#282, D-020) -- the twin of check_ptt_wiring and check_save_always_restarts,
-    and the only off-Windows coverage the GUI half can have.
-
-    Everything in check_reset_defaults proves what the WRITE does; what nothing else
-    can catch is the reset feeding it something else -- a resolver instead of a forced
-    value (which would leave invalid hand-typed values alive), a .env write beside the
-    only one, a memory clear, or a restart lane of its own."""
-    for key in ("machine.reset.heading", "machine.reset.body", "machine.reset.body2",
-                "btn.reset_defaults", "dlg.reset.title", "dlg.reset.body",
-                "dlg.reset.body_corrupt"):
+    """The part of the reset's call site that no run of the real window can show
+    (#282, D-020). test_settings_visibility.test_reset_with_display drives the button
+    itself -- the confirmation gate, the file the confirmed reset leaves behind, the
+    vocabulary and the .env left alone, the restart reached, the button frozen against
+    a second click -- and what that lane catches was dropped here (#309). What is left
+    is what stayed green when each half was measured against it: the two confirmation
+    bodies (their key reaches t() through a variable, so the literal-reading
+    check_string_keys never sees them, and the lane compares t() against t(), where a
+    missing key reads the same on both sides), the body2 wording, the two shipped
+    values whose FORCING its fixture cannot tell from a derivation, two writers that
+    must be UNREACHABLE rather than merely unused, the two confirmation keywords its
+    askyesno stub throws away with its **k, the restart's POSITION, which the stub
+    registers wherever it stands, and the absence of a window destroy in the one abort
+    branch no lane provokes."""
+    for key in ("dlg.reset.body", "dlg.reset.body_corrupt"):
         check(key in sstr._EN and key in sstr._DE,
               f"reset-wiring: {key} is missing a string in EN or DE")
     # The "this is not a wipe" pointer names both files verbatim in both languages --
@@ -2203,32 +2212,29 @@ def check_reset_wiring():
                         "reset was renamed and this guard no longer guards anything")
         return
 
+    # The two shipped values are written as LITERALS, not derived from the form. The
+    # display lane reads the file a confirmed reset leaves behind, but it runs with
+    # app.lang == "en" and an untouched push-to-talk switch, so a derived `self.lang` /
+    # `self.ptt_var.get()` produces the same bytes there and it stays green (measured,
+    # #309) -- while a user resetting out of the German window would keep German
+    # (D-015) and one with push-to-talk on would keep it on. hotkeys_effective and
+    # default_api need no literal here: the lane's fixture differs from the shipped
+    # value for both, so deriving either turns it red.
     writes = _calls_to(reset, "write_personal_settings")
     check(len(writes) == 1,
           f"reset-wiring: _reset_to_defaults makes {len(writes)} settings writes, "
           "expected exactly one -- the reset is one forced write, not a sequence")
     if len(writes) == 1:
         kw = {k.arg: k.value for k in writes[0].keywords}
-        forced = {"hotkeys_effective": ("config", "DEFAULT_HOTKEYS"),
-                  "default_api": ("settings_io", "REMOVE_API_PIN")}
-        for name, (mod, attr) in forced.items():
-            node = kw.get(name)
-            check(isinstance(node, ast.Attribute) and node.attr == attr
-                  and getattr(node.value, "id", None) == mod,
-                  f"reset-wiring: {name}= is not {mod}.{attr} -- the reset must FORCE "
-                  "the shipped value; anything derived from the form moves no control "
-                  "over a hand-typed invalid value and would leave it in place (D-002)")
         for name, want in (("ui_language", "en"), ("ptt_enabled", False)):
             node = kw.get(name)
             check(isinstance(node, ast.Constant) and type(node.value) is type(want)
                   and node.value == want,
                   f"reset-wiring: {name}= is not the literal {want!r} -- the shipped "
                   "state is written unconditionally, never diffed (D-015/D-002)")
-    for name in ("resolve_engine_save_signal", "resolve_ptt_save_signal"):
-        check(not _calls_to(reset, name),
-              f"reset-wiring: _reset_to_defaults calls {name} -- the save signals ask "
-              "'did the control move?', which is exactly the question a reset must "
-              "not ask (D-020)")
+    # Both writers below are checked for UNREACHABILITY, which is why a lane that
+    # watches the files cannot stand in: in the reset scenario the key fields are empty
+    # and the engine memory is not read back, so an added write moves no bytes there.
     check(not _calls_to(reset, "write_env"),
           "reset-wiring: _reset_to_defaults calls write_env -- the API keys are safe "
           "STRUCTURALLY, by this method never reaching the only .env writer, and that "
@@ -2253,10 +2259,9 @@ def check_reset_wiring():
           "`icon=messagebox.WARNING, default=messagebox.NO` -- an action this "
           "irreversible needs a confirmation that looks like a warning and whose "
           "destructive answer is never the preselected one (D-011, D-020)")
-    # The restart lane is reused, not copied: the tail is the handshake, and nothing
-    # here destroys the window. That is also what makes the frozen _loaded snapshots
-    # harmless -- every exit from _restart_and_relaunch ends the window, so there is
-    # no next save for a stale snapshot to lie to.
+    # The restart lane is reused, not copied: the tail is the handshake. That is also
+    # what makes the frozen _loaded snapshots harmless -- every exit from
+    # _restart_and_relaunch ends the window, so there is no next save to lie to.
     tail = reset.body[-1]
     tail_call = tail.value if isinstance(tail, ast.Expr) else None
     check(isinstance(tail_call, ast.Call)
@@ -2264,6 +2269,10 @@ def check_reset_wiring():
           "reset-wiring: _reset_to_defaults does not END in _restart_and_relaunch -- "
           "pickup is start-based (D-002), so a reset that does not restart would "
           "silently defer itself to the user's next manual start")
+    # And nothing here destroys the window. The lane walks three of the four exits and
+    # dies with a TclError on a destroy in any of them -- but not the WRITE-failure
+    # branch, which no display lane provokes, so a destroy THERE is caught by this and
+    # by nothing else (measured, #309).
     destroys = [n for n in ast.walk(reset)
                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                 and n.func.attr == "destroy"
@@ -2273,69 +2282,53 @@ def check_reset_wiring():
           "reset-wiring: _reset_to_defaults destroys the window itself -- every exit "
           "of a completed reset belongs to _restart_and_relaunch; the aborts (a "
           "declined dialog, a read or write failure) leave the window open on purpose")
-    # The re-entrancy fix (#282): the reset button sits on a TAB, so the rail freeze
-    # cannot reach it. Without it a click during the deliberately responsive restart
-    # wait -- after a save just as much as after a reset -- writes a second signal.
-    freeze = methods.get("_set_rail_waiting")
-    if freeze is None:
-        failures.append("reset-wiring: SettingsApp._set_rail_waiting not found -- the "
-                        "restart freeze was renamed and this guard no longer guards it")
-        return
-    check(any(isinstance(n, ast.Attribute) and n.attr == "reset_btn"
-              for n in ast.walk(freeze)),
-          "reset-wiring: _set_rail_waiting does not disable reset_btn -- the button "
-          "lives on a tab, so the rail freeze misses it and a second click during the "
-          "restart wait would start a second handshake")
 
 
 # ---- the read-failure dialog's two call sites (#291) --------------------------
 def check_readfail_wiring():
-    """The two #291 call sites, pinned statically on thoughtborne_settings.py's syntax
-    tree -- the idiom of check_reset_wiring / check_ptt_wiring, and the only coverage
-    the GUI half can have without a display (test_settings_visibility.py drives the
-    real window where one exists).
+    """The two halves of #291 that no run of the real window reaches: the pre-flight
+    probing with the update set the write uses, and both WRITE-failure branches still
+    naming dlg.savefail.title.
 
-    BOTH entry points are pinned, because fixing one alone is exactly what #282
-    declined to ship: the everyday save and the Machine Room reset share the dialog, so
-    half a fix leaves the app less consistent rather than more. Pinned with them: that
-    the pre-flight runs BEFORE the first write (otherwise "nothing was changed" is
-    untrue for a .env that has already been rewritten), that it probes with the same
-    update set the write uses, and that both write-failure branches keep dlg.savefail,
-    where that title is the correct one and must not be renamed along."""
-    for key in ("dlg.readfail.title", "dlg.readfail.body"):
-        check(key in sstr._EN and key in sstr._DE,
-              f"readfail-wiring: {key} is missing a string in EN or DE")
-    for lang in ("en", "de"):
-        check("{file}" in sstr.t("dlg.readfail.body", lang),
-              f"readfail-wiring: dlg.readfail.body ({lang}) carries no {{file}} "
-              "placeholder -- the two files have different remedies (close the other "
-              "program vs. re-save as UTF-8) and sit in the same folder, so the dialog "
-              "has to name which one it is about")
-
+    The rest is driven for real -- test_settings_visibility's
+    test_save_readfail_with_display for the everyday save, test_reset_with_display for
+    the reset's own read branch: that the pre-flight runs BEFORE the first write, that
+    the failure arrives under the read title, and that it names the file. Both halves
+    left here were measured against those lanes and stayed green (#309): all four of
+    the save lane's cases either fill the Groq field or leave both blank, so a probe
+    looking at only the Groq half agrees with the write in every one of them; and no
+    display lane ever makes a WRITE fail, so a rename carrying both branches over to
+    the read title -- the plausible one, since they sit in the same method and read
+    almost alike -- goes unnoticed everywhere else. The string keys are
+    check_string_keys' (both titles stand as literals in these two methods) and
+    check_i18n's (the {file} placeholder is held to EN by the lane, to DE by the
+    placeholder parity)."""
     methods = _settings_app_methods("readfail-wiring")
     if not methods:
         return
     for name in ("_save", "_reset_to_defaults"):
-        if methods.get(name) is None:
+        method = methods.get(name)
+        if method is None:
             failures.append(f"readfail-wiring: SettingsApp.{name} not found -- the "
                             "path was renamed and this guard no longer guards it")
             return
-    save, reset = methods["_save"], methods["_reset_to_defaults"]
+        consts = {n.value for n in ast.walk(method)
+                  if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        check("dlg.savefail.title" in consts,
+              f"readfail-wiring: {name} no longer names dlg.savefail.title -- the "
+              "WRITE-failure branch was renamed along with the read one, and there the "
+              "old title is the correct one")
 
+    save = methods["_save"]
     probes = _calls_to(save, "unreadable_save_target")
     check(len(probes) == 1,
           f"readfail-wiring: expected exactly one unreadable_save_target call in _save, "
-          f"found {len(probes)} -- without it an unreadable target reaches the user as "
-          f"a write failure, and only once .env has been rewritten (#291)")
+          f"found {len(probes)} -- the check below reads that one probe's arguments")
     writes = _calls_to(save, "write_env")
     check(len(writes) == 1,
           f"readfail-wiring: expected exactly one write_env call in _save, found "
           f"{len(writes)} -- this guard assumes the single .env write")
     if len(probes) == 1 and len(writes) == 1:
-        check(probes[0].lineno < writes[0].lineno,
-              "readfail-wiring: _save probes AFTER it writes .env -- the dialog would "
-              "then tell the user nothing was changed over a .env that already carries "
-              "the new key (#291)")
         probed = {k.arg: k.value for k in probes[0].keywords if k.arg}
         updates = probed.get("env_updates")
         written = writes[0].args[1] if len(writes[0].args) > 1 else None
@@ -2346,19 +2339,6 @@ def check_readfail_wiring():
               f"writes {ast.unparse(written) if written is not None else '<missing>'} "
               "-- the probe would decide about a different update set than the write, "
               "so the .env no-op rule it leans on could be answered for the wrong one")
-
-    for name, method in (("_save", save), ("_reset_to_defaults", reset)):
-        consts = {n.value for n in ast.walk(method)
-                  if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-        check("dlg.readfail.title" in consts,
-              f"readfail-wiring: {name} never names dlg.readfail.title -- its read "
-              "failure is back under 'Saving failed', which names neither what went "
-              "wrong nor a way out, and after a reset click not even the right verb "
-              "(#291)")
-        check("dlg.savefail.title" in consts,
-              f"readfail-wiring: {name} no longer names dlg.savefail.title -- the "
-              "WRITE-failure branch was renamed along with the read one, and there the "
-              "old title is the correct one")
 
 
 def check_ptt_read():
@@ -2446,8 +2426,8 @@ def check_ptt_wiring():
     is the writer being fed the wrong thing. The push-to-talk byte-identity guarantee
     lives in the call site alone: _save must hand `ptt_enabled=` the RESOLVED signal --
     the raw toggle state would rewrite the block on every save (D-002). (The language
-    toggle's own wiring moved to check_lang_gate_wiring with the #239 gate: since it no
-    longer calls write_personal_settings at all, "passes no ptt_enabled" is now a
+    toggle's own wiring moved to check_lang_writer_signature with the #239 gate: since
+    it no longer calls write_personal_settings at all, "passes no ptt_enabled" is now a
     property of write_ui_language's signature, asserted there.)"""
     methods = _settings_app_methods("ptt-wiring")
     if not methods:
@@ -2489,21 +2469,28 @@ def check_ptt_wiring():
               "an untouched toggle would then rewrite the block on every save (D-002)")
 
 
-# ---- the gated language persist's wiring (#239) ------------------------------
-def check_lang_gate_wiring():
-    """That _persist_language really goes through the GATED writer (#239), pinned
-    statically for the same reason as check_ptt_wiring: check_ui_language_gate proves
-    write_ui_language protects a corrupt file, but the protection is worth nothing if
-    the silent lane reaches write_personal_settings directly -- which is exactly the
-    pre-#239 code and the one regression a refactor would reintroduce. Also pins the
-    narrow signature the guarantee now rests on: with no hotkeys / engine / push-to-talk
-    parameter to pass, the D-014 lane structurally cannot write anything but
-    ui.language (the property the retired ptt half of check_ptt_wiring used to assert
-    call site by call site)."""
+# ---- the silent language writer's signature (#239) ---------------------------
+def check_lang_writer_signature():
+    """How narrow settings_io.write_ui_language is -- a path, a language, an example
+    path, and nothing else -- which is what the D-014 lane's safety rests on (#239).
+
+    That the toggle goes through this writer at all, and that it leaves a corrupt
+    personal_settings.json byte-identical, is driven on the real window by
+    test_settings_visibility.test_language_toggle_gate_with_display. What no run can
+    show is a WIDENED writer: a parameter for another block, handed through from the
+    call site, writes that block for every user whose file carries one -- and a fixture
+    that carries none stays green either way (measured, #309). Narrowness is a property
+    of the signature, so the signature is where it is asserted.
+
+    Let go with the rest of the old AST half, deliberately: "exactly one
+    write_ui_language call". A second, identical write is idempotent, so nothing
+    observable is lost -- measured (#309), and recorded here rather than dropped in
+    silence, since bringing it back would mean parsing the app source again for a
+    fault with no consequence."""
     code = sio.write_ui_language.__code__
     params = list(code.co_varnames[:code.co_argcount])
     check(params == ["path", "language", "example_path"],
-          f"lang-wiring: settings_io.write_ui_language takes {params} -- the silent "
+          f"lang-writer: settings_io.write_ui_language takes {params} -- the silent "
           "D-014 lane's writer must stay narrow (path, language, example_path); a "
           "parameter that writes another block would put the push_to_talk / hotkeys / "
           "engine-pin risk back into a toggle (D-002)")
@@ -2517,37 +2504,9 @@ def check_lang_gate_wiring():
     if code.co_flags & 0x08:
         extras.append("**kwargs")
     check(not extras,
-          f"lang-wiring: settings_io.write_ui_language also takes {extras} -- a "
+          f"lang-writer: settings_io.write_ui_language also takes {extras} -- a "
           "keyword-only or catch-all parameter widens the silent lane's writer just as "
           "a positional one does (D-002)")
-
-    methods = _settings_app_methods("lang-wiring")
-    if not methods:
-        return
-    persist = methods.get("_persist_language")
-    if persist is None:
-        failures.append("lang-wiring: SettingsApp._persist_language not found -- the "
-                        "D-014 language self-persist was renamed and this guard no "
-                        "longer guards anything")
-        return
-
-    direct = _calls_to(persist, "write_personal_settings")
-    check(not direct,
-          f"lang-wiring: _persist_language calls write_personal_settings directly "
-          f"({len(direct)}x) -- that bypasses the #239 gate, so a language toggle over "
-          "a corrupt personal_settings.json skeletons it again and destroys the user's "
-          "hand-written vocabulary / soniox_endpointing (D-002)")
-    gated = _calls_to(persist, "write_ui_language")
-    check(len(gated) == 1,
-          f"lang-wiring: expected exactly one write_ui_language call in "
-          f"_persist_language, found {len(gated)}")
-    for call in gated:
-        extra = sorted({k.arg for k in call.keywords if k.arg} - {"path", "language",
-                                                                 "example_path"})
-        check(not extra,
-              f"lang-wiring: _persist_language passes {extra} to write_ui_language -- "
-              "the silent toggle lane may carry nothing beyond the target path, the "
-              "language and the example path")
 
 
 # ---- the fixed-mode entry move's wiring (#207) -------------------------------
@@ -2844,7 +2803,7 @@ def main():
     check_ptt_read()
     check_ptt_save_signal()
     check_ptt_wiring()
-    check_lang_gate_wiring()
+    check_lang_writer_signature()
     check_mode_flip_wiring()
     check_save_always_restarts()
     check_reset_wiring()

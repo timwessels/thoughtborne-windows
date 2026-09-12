@@ -132,13 +132,14 @@ this driver owns its checks: `format_settings_line` (asserted BYTE-IDENTICAL to 
 literal f-strings the startup and focus-existing lines used to be, so no consumer -- the
 sandbox needle, a human grep -- sees a changed line), `format_error_block` (lead line
 plus indented traceback, with a never-raise sweep, since it runs inside the crash path)
-and the guarded `append_log_line` sink. Three AST guards on `thoughtborne_settings.py`
-pin what those helpers are worth in the app: no `open(config.LOG_FILE ...)` literal is
-left, `__init__` still hangs the handler on the root, and `main()`'s body is still one
-`try` that logs and re-raises. Two more display-gated lanes drive the real thing: a
-deliberate exception in an `after_idle` callback and one before `mainloop()`. Like the
-#239 lane they WRITE, so both assert the checkout's own `thoughtborne.log` came out
-byte-identical. Every lane that builds the app runs in `_app_sandbox`, which moves
+and the guarded `append_log_line` sink. Two display-gated lanes drive the real thing --
+a deliberate exception in an `after_idle` callback and one before `mainloop()` -- and
+what they cannot see is pinned on `thoughtborne_settings.py`'s syntax tree instead: no
+`open(config.LOG_FILE ...)` literal is left, the flood counter is initialized before the
+handler is hung on the root, and `main()`'s body is still one `try` that catches
+`Exception` rather than `BaseException`. Like the #239 lane those two lanes WRITE, so
+both assert the checkout's own `thoughtborne.log` came out byte-identical. Every lane
+that builds the app runs in `_app_sandbox`, which moves
 `config.SCRIPT_DIR` and `config.LOG_FILE` into a tempdir together -- no test run may
 fake the heartbeat the *While the tool is running* gate reads (#267). What enforces that
 is one rung up: `run_tests.py` watches the log's mtime around every driver, so a lane
@@ -416,15 +417,21 @@ def _function(tree, name, prefix):
     return None
 
 
-def _calls_to(node, name):
-    """Every `<something>.name(...)` call inside one syntax tree."""
-    return [c for c in ast.walk(node) if isinstance(c, ast.Call)
-            and getattr(c.func, "attr", None) == name]
-
-
 def test_log_sink_source_guards():
-    # What the helpers are worth depends on the app actually using them, and the GUI is
-    # hands-on only -- so these three properties are pinned statically (#240).
+    """What the #240 log lane needs pinned on the SOURCE, because no run of the app
+    reaches it.
+
+    The two display lanes at the end of this file drive real crashes -- one in an
+    after_idle callback, one before mainloop() -- and read the block back out of a
+    patched log, so the wiring, the counter, the sink, the re-raise and the
+    import-warning replay are all proven by behaviour; those halves were dropped here
+    (#309). What is left is what stayed green when it was measured against them: a
+    hand-written open(config.LOG_FILE ...) that writes the same bytes, the ORDER of two
+    statements a few instructions apart inside __init__, a statement drifted out of
+    main()'s try (the lanes throw from INSIDE the wrap, so what sits outside it is
+    exactly what they cannot see), and which class the wrap catches -- BaseException
+    would swallow the focus-existing sys.exit(0), whose lane does not run off Windows
+    at all."""
     tree = _app_tree("log-sink guards")
     if tree is None:
         return
@@ -445,38 +452,28 @@ def test_log_sink_source_guards():
           f"{stray}) -- every settings-side log write must go through "
           "settings_visibility.append_log_line (#240)")
 
-    # (2) The handler is hung on the Tk root in __init__, and the counter it reads is
-    # initialized BEFORE that -- wiring first would leave a window in which the very
-    # first callback exception dies on an AttributeError inside the crash handler.
+    # (2) The counter the handler reads is initialized BEFORE the handler is hung on
+    # the Tk root -- wiring first would leave a window in which the very first callback
+    # exception dies on an AttributeError inside the crash handler. That either exists
+    # at all is the callback lane's: without the wiring nothing is logged, without the
+    # counter the handler raises. Only their order is invisible to it.
     init = _method(tree, "SettingsApp", "__init__", "log-sink guards")
     if init is not None:
         wiring = [n for n in ast.walk(init) if isinstance(n, ast.Assign)
                   and any(isinstance(t, ast.Attribute)
                           and t.attr == "report_callback_exception"
                           for t in n.targets)]
-        check(wiring,
-              "SettingsApp.__init__ no longer assigns root.report_callback_exception -- "
-              "callback exceptions go back to Tk's stderr default, i.e. DEVNULL (#240)")
         counter = [n for n in ast.walk(init) if isinstance(n, ast.Assign)
                    and any(isinstance(t, ast.Attribute) and t.attr == "_error_log_count"
                            for t in n.targets)]
-        check(counter, "SettingsApp.__init__ never initializes _error_log_count -- the "
-                       "flood cap the handler reads would raise inside the crash path")
         if wiring and counter:
             check(min(n.lineno for n in counter) < min(n.lineno for n in wiring),
                   "_error_log_count is initialized AFTER the handler is wired up -- a "
                   "callback exception in between would fault inside the handler (#240)")
-    handler = _method(tree, "SettingsApp", "_report_callback_exception",
-                      "log-sink guards")
-    if handler is not None:
-        check(_calls_to(handler, "format_error_block")
-              and _calls_to(handler, "append_log_line"),
-              "SettingsApp._report_callback_exception no longer writes a block through "
-              "the sink -- the callback lane is silent again (#240)")
 
-    # (3) main() is ONE try that logs and re-raises. A statement drifting out of the
-    # wrap is a hole in exactly the lane #240 closed, so the guard pins the shape, not
-    # just the presence of a try.
+    # (3) main() is ONE try that catches Exception. A statement drifting out of the
+    # wrap is a hole in exactly the lane #240 closed, so the guard pins the shape --
+    # what the wrap then DOES is the pre-mainloop lane's.
     fn = _function(tree, "main", "log-sink guards")
     if fn is None:
         return
@@ -490,32 +487,11 @@ def test_log_sink_source_guards():
           "statement(s)) -- whatever sits outside the wrap fails silently again (#240)")
     if not (len(body) == 1 and isinstance(body[0], ast.Try)):
         return
-    wrap = body[0]
-    broad = [h for h in wrap.handlers
+    broad = [h for h in body[0].handlers
              if isinstance(h.type, ast.Name) and h.type.id == "Exception"]
     check(broad, "main()'s wrap does not catch Exception -- and it must stay Exception, "
                  "not BaseException: the focus-existing sys.exit(0) is a SystemExit and "
                  "must pass through without an error: line (#240)")
-    for h in broad:
-        check(_calls_to(h, "format_error_block") and _calls_to(h, "append_log_line"),
-              "main()'s except handler does not write the error block through the sink "
-              "-- a failure before mainloop() is a silent no-op again (#240)")
-        check(any(isinstance(n, ast.Raise) and n.exc is None for n in ast.walk(h)),
-              "main()'s except handler does not end in a bare `raise` -- re-raising is "
-              "what keeps the console start's stderr traceback and non-zero exit (#240)")
-
-    # (4) The import-warning replay: config collects those instead of logging them
-    # (#206/#238), and its logger-based replay would land on stderr in this process.
-    replays = [n for n in ast.walk(fn) if isinstance(n, ast.For)
-               and isinstance(n.iter, ast.Attribute) and n.iter.attr == "IMPORT_WARNINGS"]
-    check(replays,
-          "main() no longer replays config.IMPORT_WARNINGS -- a broken .env or "
-          "personal_settings.json leaves no trace in the log of the very window that "
-          "repairs it (#240)")
-    for loop in replays:
-        check(_calls_to(loop, "append_log_line"),
-              "the IMPORT_WARNINGS replay does not go through append_log_line -- "
-              "config.replay_import_warnings() would end on stderr here, i.e. DEVNULL")
 
 
 @contextlib.contextmanager
