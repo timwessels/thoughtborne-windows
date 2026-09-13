@@ -12,15 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A tip on the hotkey tab: use a mouse button (#316).** A mouse button can drive
   Thoughtborne — through the mouse's own software, which sends the key combination the tool
   already listens for (D-022). Nothing said so anywhere, so the route was invisible to anyone
-  who did not already know it. The hotkey tab now ends in a tip box, right under the capture
-  grid where someone who just tried a mouse button is standing: assign the Thoughtborne combo
-  to that button in your mouse software — and mouse gestures, where the software offers them,
-  put the whole dictation loop on one button (drag up to record, left to insert, right to
-  insert and send, down to transcribe only). A link line opens the new README section, the
-  German one from a German window and the English one from an English window. The READMEs
-  carry the full recipe at the end of Customization, including the free X-Mouse Button Control
-  for anyone with no mouse software, whatever the make of mouse. Text only — no detection,
-  no dialog, no new key lane.
+  who did not already know it. A tip box now sits in the hotkey tab's Individual actions
+  section, between the capture advisory and the table of actions, where someone is about to
+  bind keys of their own: assign the Thoughtborne combo to a mouse button in your mouse software
+  — and mouse gestures, where the software offers them, put the whole dictation loop on one
+  button (drag up to record, left to insert, right to insert and send, down to transcribe
+  only). A link line opens the new README section, the German one from a German window and the
+  English one from an English window. The READMEs carry the full recipe at the end of
+  Customization, including the free X-Mouse Button Control for anyone with no mouse software,
+  whatever the make of mouse. Text only — no detection, no dialog, no new key lane.
 - **Install the current checkout the way a user installs a release (#306).** Everything that
   exists only on the install path — the Start-menu shortcut, the Installed-apps entry with its
   icon and version, an in-place update over an existing install — could be looked at only by
