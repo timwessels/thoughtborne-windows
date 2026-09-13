@@ -262,7 +262,7 @@ Auch Maustasten können Thoughtborne steuern — der Weg führt über die Mausso
 
 Ein cooler Tipp sind auch Mausgesten, wenn deine Maussoftware sie anbietet: die Maustaste gedrückt halten und in eine Richtung ziehen. So passt das komplette Diktieren auf eine einzige Taste — zum Beispiel die mittlere: nach oben ziehen startet die Aufnahme, nach links ziehen fügt ein, nach rechts ziehen fügt ein und drückt Enter, nach unten ziehen transkribiert nur (zum späteren Einfügen). Ob Gesten verfügbar sind, hängt von Software und Mausmodell ab — mit Logitechs Options+ geht es zum Beispiel.
 
-Wenn du keine Maussoftware hast: Das kostenlose [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) belegt die Tasten jeder Maus mit Tastenkombinationen, unabhängig vom Hersteller.
+Wenn du keine Maussoftware hast: Das kostenlose [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) belegt die Tasten jeder Maus mit Tastenkombinationen, unabhängig vom Hersteller (unterstützt allerdings keine Gesten, nur Tastenbelegung).
 
 ## Troubleshooting
 

@@ -262,7 +262,7 @@ Mouse buttons can drive Thoughtborne too — the route runs through your mouse s
 
 Mouse gestures are another neat trick if your mouse software offers them: hold the button down and drag in a direction. That fits the whole of dictation onto a single button — the middle one, say: drag up starts the recording, drag left inserts, drag right inserts and presses Enter, drag down transcribes only (to insert later). Whether gestures are available depends on the software and the mouse model — Logitech's Options+ does them, for example.
 
-No mouse software? The free [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) assigns key combinations to the buttons of any mouse, whatever the make.
+No mouse software? The free [X-Mouse Button Control (XMBC)](https://www.highrez.co.uk/downloads/XMouseButtonControl.htm) assigns key combinations to the buttons of any mouse, whatever the make (no gesture support, though — button assignments only).
 
 ## Troubleshooting
 
