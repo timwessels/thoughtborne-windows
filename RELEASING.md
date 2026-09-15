@@ -98,8 +98,10 @@ Do not proceed to step 4 unless the verification passes.
 same ZIP and then stamps `<version>+dev.<short sha of the ref's commit>` into the
 `pyproject.toml` and `uv.lock` inside it, writing both assets to `dist/dev/` so a
 test build can never sit where step 4 uploads from. It answers "what does the next
-version's install actually look like" without a tag: point `THOUGHTBORNE_ZIP` at
-the built ZIP and run `setup.ps1`, and the installed copy reports
+version's install actually look like" without a tag: run the install command the
+build prints (`setup.ps1 -Zip <built zip>` via `-File` — one literal line that
+works in PowerShell, CMD and a WSL shell alike; the `THOUGHTBORNE_ZIP` env lane
+still exists, #322), and the installed copy reports
 `vX.Y.Z+dev.<sha>` wherever it reports a version (D-021) — the console masthead
 excepted when the stamped number outgrows it (step 1), which the build warns
 about. A `--dev` build is a test build, never a release asset, and is never

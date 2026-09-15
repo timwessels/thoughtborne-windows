@@ -276,9 +276,20 @@ echo
 echo "Asset:      $ZIP ($size, $file_count files, $py_count .py compiled)"
 echo "Standalone: $PS1"
 if [ "$DEV" -eq 1 ]; then
-    echo "DEV BUILD:  $DEV_VERSION -- install it with THOUGHTBORNE_ZIP; never publish it"
+    echo "DEV BUILD:  $DEV_VERSION -- a test build; never publish it"
     if [ -n "$FIT_WARNING" ]; then
         echo "            (see the masthead WARNING above)"
+    fi
+    # The ready-to-paste install command (#322), generated rather than
+    # hand-composed: -File + -Zip passes the ZIP path as a plain argument,
+    # which survives every shell's quoting -- the THOUGHTBORNE_ZIP env form
+    # lost its value to Windows PowerShell 5.1's native-argument re-quoting
+    # when nested inside a  powershell -Command  one-liner.
+    if command -v wslpath >/dev/null 2>&1; then
+        echo "Install:    paste into PowerShell, CMD or a WSL shell (same line everywhere):"
+        echo "  powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w "$PS1")\" -Zip \"$(wslpath -w "$ZIP")\""
+    else
+        echo "Install:    on the Windows side, run:  setup.ps1 -Zip <path to this thoughtborne.zip>"
     fi
 fi
 if [ "$fail" -ne 0 ]; then

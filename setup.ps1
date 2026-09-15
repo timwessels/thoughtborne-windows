@@ -16,7 +16,14 @@
 # `exit` is gated behind THOUGHTBORNE_FROM_BAT, which only setup.bat (the -File
 # lane, never the pipe) sets, to hand a real exit code back to that wrapper.
 
-param([switch]$DryRun)
+# -Zip: the local-ZIP lane (#306) as a plain parameter (#322). The env form
+# (THOUGHTBORNE_ZIP) stays, but a nested  powershell -Command '...'  handover
+# loses it on Windows PowerShell 5.1, whose native-argument re-quoting drops
+# embedded double quotes -- and an UNSET variable is, by the set-means-set
+# design, a normal release install, so the slip is silent. A parameter passed
+# via  -File  is a plain argument with no nested quoting to go wrong; the same
+# literal command line works in PowerShell 5.1, pwsh, cmd and a WSL bash.
+param([switch]$DryRun, [string]$Zip)
 
 # --- Preamble (runs before any nested fetch) -------------------------------
 
@@ -108,6 +115,17 @@ function New-ThoughtborneShortcuts {
     $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
     $cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
     $icon = Join-Path $InstallDir 'assets\logo\thoughtborne.ico'
+    # An installed tree without the pixel icon (D-016) is reachable: a NEWER
+    # standalone setup.ps1 installing an OLDER payload (THOUGHTBORNE_VERSION
+    # pinned to a pre-D-016 release, or a release download running where a dev
+    # ZIP was intended -- the 2026-09-15 incident, #321). A shortcut pointed at
+    # a missing .ico renders as the blank-paper default, so fall back to the
+    # legacy icon that IS on disk; when neither exists the canonical name stays
+    # (no worse than pointing at it unguarded).
+    if (-not (Test-Path -LiteralPath $icon)) {
+        $legacy = Join-Path $InstallDir 'assets\logo\favicon.ico'
+        if (Test-Path -LiteralPath $legacy) { $icon = $legacy }
+    }
 
     # One Start-menu entry (#223, D-014: the standalone settings lane is retired, so
     # there is no separate settings shortcut). Target cmd.exe with  /c "<bat>"  rather
@@ -152,8 +170,12 @@ function New-ThoughtborneShortcuts {
                 # points at the retired assets\logo\favicon.ico. Move exactly that,
                 # in place, keeping every other property; any other icon is the
                 # user's own choice and stays. This one-time save pays the #140
-                # price once, only on such installs.
-                if ($existing.IconLocation -like '*\assets\logo\favicon.ico*') {
+                # price once, only on such installs. Only when the pixel icon is
+                # actually on disk (#321): with an older payload $icon resolved to
+                # the legacy file above, and retargeting favicon to favicon -- or
+                # worse, to a missing file -- repairs nothing.
+                if (($existing.IconLocation -like '*\assets\logo\favicon.ico*') -and
+                        ($icon -like '*\thoughtborne.ico') -and (Test-Path -LiteralPath $icon)) {
                     $existing.IconLocation = $icon + ',0'
                     $existing.Save()
                 }
@@ -222,6 +244,12 @@ function Write-UninstallRegistryEntry {
     $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Thoughtborne'
     $uninst  = Join-Path $InstallDir 'uninstall.ps1'
     $icon    = Join-Path $InstallDir 'assets\logo\thoughtborne.ico'
+    # Same fallback as New-ThoughtborneShortcuts (#321, see the comment there):
+    # never register a DisplayIcon path that names no file on this install.
+    if (-not (Test-Path -LiteralPath $icon)) {
+        $legacy = Join-Path $InstallDir 'assets\logo\favicon.ico'
+        if (Test-Path -LiteralPath $legacy) { $icon = $legacy }
+    }
     $common  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File'
     $uStr    = 'powershell.exe {0} "{1}"' -f $common, $uninst
     $qStr    = '{0} -Silent' -f $uStr
@@ -265,7 +293,7 @@ function Write-UninstallRegistryEntry {
 # --- Main ------------------------------------------------------------------
 
 function Install-Thoughtborne {
-    param([switch]$DryRun)
+    param([switch]$DryRun, [string]$Zip)
 
     # DryRun via the param (setup.bat -DryRun) OR the env var (the only way a
     # piped irm|iex can request it). DryRun resolves params, detects uv and
@@ -276,12 +304,13 @@ function Install-Thoughtborne {
     $installDir = if ($env:THOUGHTBORNE_INSTALL_DIR) { $env:THOUGHTBORNE_INSTALL_DIR } `
                   else { Join-Path $env:LOCALAPPDATA 'Programs\Thoughtborne' }
     $version = if ($env:THOUGHTBORNE_VERSION) { $env:THOUGHTBORNE_VERSION } else { 'latest' }
-    # THOUGHTBORNE_ZIP (#306): an absolute path to a locally built thoughtborne.zip,
-    # staged instead of a release asset -- the maintainer lane that installs an
-    # unpublished state (build-release-zip.sh --dev, RELEASING.md). Set means set:
-    # nothing below falls back to the release download, because a quiet
-    # fall-through would turn a test build into a release install.
-    $localZip = $env:THOUGHTBORNE_ZIP
+    # THOUGHTBORNE_ZIP / -Zip (#306, #322): an absolute path to a locally built
+    # thoughtborne.zip, staged instead of a release asset -- the maintainer lane
+    # that installs an unpublished state (build-release-zip.sh --dev,
+    # RELEASING.md). The parameter wins over the env var. Set means set: nothing
+    # below falls back to the release download, because a quiet fall-through
+    # would turn a test build into a release install.
+    $localZip = if ($Zip) { $Zip } else { $env:THOUGHTBORNE_ZIP }
 
     Write-Host "Thoughtborne setup"
     Write-Host ("  install dir: {0}" -f $installDir)
@@ -313,21 +342,21 @@ function Install-Thoughtborne {
         # one, while a quote is no part of a Windows path either way. Nothing is
         # trimmed off here: this lane installs the file that was named, or none.
         if (($localZip.IndexOfAny([System.IO.Path]::GetInvalidPathChars()) -ge 0) -or $localZip.Contains('"')) {
-            Write-Host ("ERROR: THOUGHTBORNE_ZIP contains a character no path can hold: '{0}'" -f $localZip)
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP / -Zip contains a character no path can hold: '{0}'" -f $localZip)
             Write-Host '       Quotes are the usual cause: cmd keeps them in the value, so set it'
             Write-Host '       without them (set THOUGHTBORNE_ZIP=C:\path\to\thoughtborne.zip).'
             $Global:LASTEXITCODE = 1
             return
         }
         if (-not [System.IO.Path]::IsPathRooted($localZip)) {
-            Write-Host ("ERROR: THOUGHTBORNE_ZIP must be an absolute path: '{0}'" -f $localZip)
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP / -Zip must be an absolute path: '{0}'" -f $localZip)
             $Global:LASTEXITCODE = 1
             return
         }
         # -PathType Leaf: a plain Test-Path is true for a directory too, which would
         # then fail deep inside Expand-Archive instead of here.
         if (-not (Test-Path -LiteralPath $localZip -PathType Leaf)) {
-            Write-Host ("ERROR: THOUGHTBORNE_ZIP does not name a file: '{0}'" -f $localZip)
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP / -Zip does not name a file: '{0}'" -f $localZip)
             Write-Host "       Clear it to install from the published release instead."
             $Global:LASTEXITCODE = 1
             return
@@ -338,7 +367,7 @@ function Install-Thoughtborne {
         # whole block exists to prevent. The comparison is case-insensitive ('.ZIP' is
         # fine); it judges the name, not the contents, which Expand-Archive does too.
         if ([System.IO.Path]::GetExtension($localZip) -ne '.zip') {
-            Write-Host ("ERROR: THOUGHTBORNE_ZIP must name a .zip file: '{0}'" -f $localZip)
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP / -Zip must name a .zip file: '{0}'" -f $localZip)
             Write-Host "       Expand-Archive accepts no other extension."
             $Global:LASTEXITCODE = 1
             return
@@ -347,7 +376,7 @@ function Install-Thoughtborne {
         try {
             [System.IO.File]::OpenRead($localZip).Dispose()
         } catch {
-            Write-Host ("ERROR: THOUGHTBORNE_ZIP cannot be read: {0}" -f $_.Exception.Message)
+            Write-Host ("ERROR: THOUGHTBORNE_ZIP / -Zip cannot be read: {0}" -f $_.Exception.Message)
             $Global:LASTEXITCODE = 1
             return
         }
@@ -665,7 +694,7 @@ function Install-Thoughtborne {
 
 Optimize-SecurityProtocol
 try {
-    Install-Thoughtborne -DryRun:$DryRun
+    Install-Thoughtborne -DryRun:$DryRun -Zip:$Zip
 } catch {
     Write-Host ("ERROR: {0}" -f $_.Exception.Message)
     $Global:LASTEXITCODE = 1

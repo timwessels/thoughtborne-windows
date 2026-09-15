@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The dev build prints its own install command (#322).** Handing `THOUGHTBORNE_ZIP` to
+  `setup.ps1` inside a nested `powershell -Command` one-liner silently loses the variable on
+  Windows PowerShell 5.1, whose native-argument re-quoting drops the embedded quotes — and an
+  unset variable is, by design, a normal release install, so the wrong build lands without a
+  word. `setup.ps1` now also takes the ZIP path as a plain parameter (`-Zip`), which arrives
+  intact through `-File` from every shell, and `build-release-zip.sh --dev` prints the
+  ready-to-paste install command with real Windows paths — the same literal line for
+  PowerShell, CMD and a WSL shell. The env lane stays.
 - **A tip on the hotkey tab: use a mouse button (#316).** A mouse button can drive
   Thoughtborne — through the mouse's own software, which sends the key combination the tool
   already listens for (D-022). Nothing said so anywhere, so the route was invisible to anyone
@@ -446,6 +454,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The installer never points an icon at a file the install does not have (#321).** `setup.ps1`
+  pointed the Start-menu shortcut and the Installed-apps `DisplayIcon` at
+  `assets\logo\thoughtborne.ico` unconditionally, and its D-016 repair retargeted old
+  `favicon.ico` shortcuts the same way. With a payload from before the pixel icon — a newer
+  standalone `setup.ps1` installing an older release — the shortcut ended up naming a file that
+  does not exist, and Windows showed the blank-paper default in its place. Both consumers now
+  check that the file is on disk and fall back to the legacy `favicon.ico` when it is not; the
+  repair fires only when the new icon is actually there.
 - **The settings window's taskbar button carries the app icon right away (#296).** Since the icon
   arrived (D-016), the title bar and the Alt+Tab entry showed the pixel mark while the taskbar
   button kept Tk's blue feather — until you switched the language, which changes the window's
