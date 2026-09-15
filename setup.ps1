@@ -643,6 +643,28 @@ function Install-Thoughtborne {
         Write-Host ("WARNING: could not register Thoughtborne under Installed apps: {0}" -f $_.Exception.Message)
     }
 
+    # 7c) Tell the shell that shortcuts and icons changed (SHChangeNotify with
+    #     SHCNE_ASSOCCHANGED) -- the standard post-install nudge, sent by MSI and
+    #     the common installer builders alike, so Explorer re-reads icons without
+    #     a re-login. Without it a repaired shortcut icon (#321) can sit behind
+    #     the stale icon cache indefinitely. Cosmetic and fail-open; the Win11
+    #     pinned-Start tile keeps a cache of its own and may still lag until the
+    #     tile is re-pinned or its host process restarts.
+    if ($DryRun) {
+        Write-Host "[dry-run] would notify the shell that shortcut icons changed (SHChangeNotify)"
+    } else {
+        try {
+            if (-not ('ThoughtborneSetup.Shell' -as [type])) {
+                $sig = '[DllImport("shell32.dll")] public static extern void ' +
+                       'SHChangeNotify(int wEventId, int uFlags, IntPtr dwItem1, IntPtr dwItem2);'
+                Add-Type -Namespace ThoughtborneSetup -Name Shell -MemberDefinition $sig -ErrorAction Stop
+            }
+            # 0x08000000 = SHCNE_ASSOCCHANGED, 0x0 = SHCNF_IDLIST (async -- never
+            # blocks the install waiting on the shell).
+            [ThoughtborneSetup.Shell]::SHChangeNotify(0x08000000, 0x0, [IntPtr]::Zero, [IntPtr]::Zero)
+        } catch { }
+    }
+
     # 8) Hand off by starting the tool itself (#223, D-014): the standalone settings
     #    lane is gone. A keyless install opens as the #200 shop window and auto-launches
     #    the first-run wizard -- the intended first-run experience -- so starting the

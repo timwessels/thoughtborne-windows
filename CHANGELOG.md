@@ -461,7 +461,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standalone `setup.ps1` installing an older release — the shortcut ended up naming a file that
   does not exist, and Windows showed the blank-paper default in its place. Both consumers now
   check that the file is on disk and fall back to the legacy `favicon.ico` when it is not; the
-  repair fires only when the new icon is actually there.
+  repair fires only when the new icon is actually there. After writing the shortcuts the
+  installer now also sends the shell the standard changed-icons notification (`SHChangeNotify`),
+  so Explorer re-reads them without a re-login — Windows 11's pinned-Start tiles keep a cache of
+  their own and may still need a re-pin.
 - **The settings window's taskbar button carries the app icon right away (#296).** Since the icon
   arrived (D-016), the title bar and the Alt+Tab entry showed the pixel mark while the taskbar
   button kept Tk's blue feather — until you switched the language, which changes the window's
