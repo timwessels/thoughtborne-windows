@@ -237,10 +237,10 @@ copy personal_settings.example.json personal_settings.json
 <details>
 <summary><b>Console out of the taskbar (optional)</b></summary>
 
-Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Interaction**, turn both on:
+Thoughtborne runs in a console window that sits in the taskbar like any other. To move it out of the way — still running, one click back — when that window runs in **Windows Terminal** (the default console host on current Windows 11), two of Terminal's own settings handle it, with no extra tool and no admin rights. Open Terminal's settings (`Ctrl+,`) and, under **Appearance**, turn both on:
 
-- "Hide Terminal in the notification area when it is minimized" (`minimizeToNotificationArea`) — minimizing then sends the window to the tray (the notification area) instead of the taskbar: the taskbar button disappears and everything keeps running, dictation included (it is hotkey-driven and works with the window hidden).
 - "Always display an icon in the notification area" (`alwaysShowNotificationIcon`) — keeps a permanent tray icon as the anchor: a single click restores the window, a right-click lists it.
+- "Hide Terminal in the notification area when it is minimized" (`minimizeToNotificationArea`) — minimizing then sends the window to the tray (the notification area) instead of the taskbar: the taskbar button disappears and everything keeps running, dictation included (it is hotkey-driven and works with the window hidden).
 
 One-time detail: Windows first tucks a new tray icon into the overflow flyout (the `^` chevron) — drag the Terminal icon out of it into the visible tray once so it stays reachable. Two honest limits: both settings are **global**, so they affect *every* Windows Terminal window (and minimizing always trays the whole window, never a single tab) — irrelevant if you don't otherwise use Terminal, a deliberate choice if you do; and the route needs Windows Terminal specifically — under the classic `conhost` host (older setups, or if you changed the default terminal) these toggles don't exist. On Windows 10, Terminal is installable and can be set as the default terminal. The GUI toggles are the clean way — no need to hand-edit Terminal's `settings.json`.
 

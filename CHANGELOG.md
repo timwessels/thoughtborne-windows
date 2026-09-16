@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The settings window's texts, revised — and the Windows Terminal tray recipe corrected
+  (#324).** A pass over the window's prose in both languages. The free lane is now named for
+  what it is: dictating with Groq costs nothing, permanently, rather than a trial you
+  eventually pay for. The console is introduced as *the Thoughtborne console* — a status
+  monitor you never type into, which is why it may stay hidden. The admin-window section
+  carries the whole recipe (right-click the Start-menu entry, *Run as administrator*) instead
+  of sending the reader to the README for one line. The machine-room file section says what
+  the two files are for and leaves the save-and-restart mechanics to the sections that own
+  them. The German texts also use en dashes throughout now — the correct dash in German
+  typography; the English ones keep their em dashes. The tray recipe was factually wrong on
+  top of that: Windows Terminal carries *Always display an icon in the notification area* and
+  *Hide Terminal in the notification area when it is minimized* on its **Appearance** page,
+  not under Interaction, where Microsoft's own documentation files them. Corrected in the
+  settings window and in both READMEs, which now also list the two toggles in the order the
+  UI shows them.
+
 ## [1.2.0rc1] - 2026-09-16
 
 ### Added

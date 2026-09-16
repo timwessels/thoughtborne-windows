@@ -56,23 +56,22 @@ _EN = {
         "The whole loop: click into a text field, press {start}, speak, then press "
         "{stop} — and the text is there. It works in every application."),
     "welcome.loop.link": "▸ How you dictate, in detail",
-    "welcome.console.heading": "The console is a status display",
+    "welcome.console.heading": "The Thoughtborne console is a status display",
     "welcome.console.body": (
-        "The black console window is a status monitor — it shows what Thoughtborne "
-        "is doing while you dictate. You control everything through hotkeys, so in "
-        "normal use you never type into it; dictation keeps working even with the "
-        "window hidden. The one exception is a failed start: then the console asks "
-        "you to press Enter to close it."),
+        "The black console window is a status monitor: it shows what Thoughtborne "
+        "is doing while you dictate. Everything is controlled through hotkeys — "
+        "you never type into it. In normal use the window can therefore stay "
+        "hidden; you only look at it when you want to check on something."),
     "welcome.byok.link": "▸ Provider & API key",
     "welcome.next.heading": "Set things up",
     "welcome.step1.heading": "1 — Get an API key",
     "welcome.step1.body": (
         "This is the one thing dictation can't work without. Thoughtborne has no "
-        "subscription and no middleman — you use your own account at a "
-        "transcription provider and pay only for what you use. Two lanes, and one "
-        "key is enough to start: Groq is free, so you can try Thoughtborne without "
-        "paying anyone; Soniox is the quality lane. The Provider tab walks you "
-        "through getting a key and pasting it in."),
+        "subscription and no middleman: you use your own account at a "
+        "transcription provider — and that can be entirely free, for good. One key "
+        "is enough to start, and two providers are built in: with Groq you dictate "
+        "for free; Soniox is the quality lane, paid by actual use. The Provider "
+        "tab walks you through getting a key and pasting it in."),
     "welcome.step2.heading": "2 — Choose your hotkeys",
     "welcome.step2.body": (
         "The shipped Ctrl+Alt scheme is the author's own setup — built for "
@@ -98,10 +97,11 @@ _EN = {
         ".env file in the Thoughtborne folder, and is sent nowhere except to the "
         "provider it belongs to."),
     "provider.lanes.body": (
-        "One key is enough to start. Groq is the free lane — transcription on "
-        "Groq's free tier costs nothing, so you can try Thoughtborne without paying "
-        "anyone. Soniox is the quality lane. With both keys, all four engines are "
-        "available, switchable while dictating (Ctrl+Alt+L)."),
+        "One key is enough to start. Groq is the free lane: transcription on "
+        "Groq's free tier costs nothing, and it runs the well-known Whisper model "
+        "with solid quality. Soniox is the top-quality lane; there you pay the "
+        "provider by actual use. Sign up with both providers and all four engines "
+        "are available, switchable while dictating."),
     "provider.groq.heading": "Groq — the free lane",
     "provider.groq.body": (
         "Free for transcription, no credit card needed (as of July 2026). Sign up "
@@ -146,9 +146,8 @@ _EN = {
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
     "hotkeys.intro": (
-        "Thoughtborne is driven by global hotkeys — they work in every "
-        "application, whatever has focus; in return, each combo is reserved "
-        "system-wide while the tool runs. Below you first decide whether "
+        "Thoughtborne is driven by global hotkeys. They work in every application, "
+        "whichever window you are active in. Below you first decide whether "
         "push-to-talk joins them as a second way to dictate; then pick a preset as "
         "the base and change any single action if a combo clashes with something "
         "you use."),
@@ -267,21 +266,23 @@ _EN = {
     "engine.desc.groq": "fast, free",
     "behavior.tray.heading": "Console out of the taskbar (tray)",
     "behavior.tray.body": (
-        "The console is a status monitor — dictation keeps working with the window "
+        "The console is a status monitor; dictation keeps working with the window "
         "hidden. If the console runs in Windows Terminal (the default on Windows "
         "11), two of Terminal's own settings move it to the tray: open Terminal's "
-        "settings (Ctrl+,), go to Interaction, and enable both \"Hide Terminal in "
-        "the notification area when it is minimized\" and \"Always display an icon "
-        "in the notification area\"."),
+        "settings (Ctrl + comma), go to \"Appearance\" and enable both — \"Always "
+        "display an icon in the notification area\" and \"Hide Terminal in the "
+        "notification area when it is minimized\"."),
     "behavior.tray.body2": (
         "Minimizing then sends the window to the tray; "
         "one click on the tray icon brings it back (Windows first parks new tray "
         "icons behind the ^ chevron — drag the icon into the visible tray once)."),
     "behavior.tray.body3": (
         "Two honest limits: both toggles affect every Windows Terminal window, and "
-        "they don't exist under the classic conhost. Thoughtborne deliberately "
-        "doesn't change Terminal's settings for you — the button below just takes "
-        "you there."),
+        "the old Windows console window (conhost) doesn't have them. If "
+        "Thoughtborne still runs there, make Windows Terminal your default "
+        "terminal application (in Terminal's settings under \"Startup\") — it "
+        "looks nicer anyway. Thoughtborne deliberately doesn't change Terminal's "
+        "settings for you; the button below just takes you there."),
     "btn.open_terminal": "Open Windows Terminal",
     "behavior.tray.no_wt": (
         "Windows Terminal was not found on this system — the tray route needs it "
@@ -289,9 +290,10 @@ _EN = {
     "behavior.admin.heading": "Dictating into admin windows",
     "behavior.admin.body": (
         "Hotkeys and text insertion can't reach a window that runs as "
-        "administrator — Windows blocks input from non-elevated processes there. "
-        "The fix is to start Thoughtborne itself elevated; the short recipe is in "
-        "the README under Troubleshooting."),
+        "administrator; Windows blocks input from non-elevated processes there. "
+        "The fix: start Thoughtborne itself elevated. Right-click Thoughtborne in "
+        "the Start menu and choose \"Run as administrator\". Details are in the "
+        "README under Troubleshooting."),
     "behavior.admin.link": "README — Troubleshooting",
     "url.admin_recipe": "https://github.com/timwessels/thoughtborne-windows#troubleshooting",
 
@@ -303,23 +305,18 @@ _EN = {
         "Thoughtborne sits in one folder — the program itself, your two settings "
         "files, the log, and every recording under history/:"),
     "btn.open_folder": "Open this folder",
-    "machine.files.heading": "The two files that are yours",
+    "machine.files.heading": "Your two settings files",
     "machine.files.body": (
-        "You write exactly two of them. .env holds your API keys — the key "
-        "Thoughtborne uses comes from that file, in this folder, and from no other "
-        "source. personal_settings.json holds everything else you can change "
-        "without touching code: "
-        "recognition vocabulary, hotkeys, push-to-talk, Soniox endpointing, the "
-        "engine to start on, and the language of this window. Every other file in "
-        "the folder belongs to the program."),
+        "Your settings live in two files. .env holds your API keys; Thoughtborne "
+        "reads them from this file and nowhere else. personal_settings.json holds "
+        "everything else: hotkeys, push-to-talk, recognition vocabulary, Soniox "
+        "endpointing, the engine to start on, and the language of this window. "
+        "This window writes exactly these two files; every other file in the "
+        "folder belongs to the program."),
     "machine.files.body2": (
-        "What each setting does is explained in the comments of .env.example and "
-        "personal_settings.example.json beside them — they are the templates to copy "
-        "from when a block is still missing from your own file. A change takes effect "
-        "the next time Thoughtborne starts, and this window writes the same two files. "
-        "If personal_settings.json is no longer valid JSON, saving from here "
-        "replaces it with a clean file — rescue hand-edited content in a text "
-        "editor first."),
+        "Both can also be edited by hand; the comments in .env.example and "
+        "personal_settings.example.json beside them explain every setting. A "
+        "change takes effect the next time Thoughtborne starts."),
     "machine.vocab.heading": "Recognition vocabulary",
     "machine.vocab.body": (
         "Recurring proper names, technical terms or acronyms are recognized more "
@@ -463,7 +460,7 @@ _DE = {
     "app.title.settings": "Thoughtborne-Einstellungen",
     "app.title.firstrun": "Thoughtborne-Einrichtung",
     "welcome.heading": "Willkommen bei Thoughtborne",
-    "welcome.sub": ("Kurz einrichten — ein API-Key, die Hotkeys, ein paar "
+    "welcome.sub": ("Kurz einrichten – ein API-Key, die Hotkeys, ein paar "
                     "Einstellungen. Alles hier lässt sich später in genau diesem "
                     "Fenster wieder ändern."),
     "lang.de": "Deutsch",
@@ -478,41 +475,40 @@ _DE = {
     "welcome.tab": "Überblick",
     "welcome.intro.heading": "Was Thoughtborne macht",
     "welcome.intro.body": (
-        "Thoughtborne macht aus Sprache Text — in jedem Windows-Programm. Du "
+        "Thoughtborne macht aus Sprache Text – in jedem Windows-Programm. Du "
         "diktierst, und das Transkript erscheint genau dort, wo dein Cursor steht, "
         "als hättest du es getippt. Gebaut ist es vor allem fürs Sprechen mit KI: "
         "Der Text soll gut genug sein, um ihn ungelesen an ein Sprachmodell zu "
         "schicken."),
     "welcome.loop.body": (
         "Der ganze Ablauf: in ein Textfeld klicken, {start} drücken, sprechen, dann "
-        "{stop} drücken — und der Text steht da. Das funktioniert in jeder "
+        "{stop} drücken – und der Text steht da. Das funktioniert in jeder "
         "Anwendung."),
     "welcome.loop.link": "▸ So diktierst du, ausführlich",
-    "welcome.console.heading": "Die Konsole ist eine Statusanzeige",
+    "welcome.console.heading": "Die Thoughtborne-Konsole ist eine Statusanzeige",
     "welcome.console.body": (
-        "Das schwarze Konsolenfenster ist ein Status-Monitor — es zeigt, was "
+        "Das schwarze Konsolenfenster ist ein Status-Monitor: Es zeigt, was "
         "Thoughtborne gerade tut, während du diktierst. Gesteuert wird alles über "
-        "Hotkeys; im normalen Betrieb tippst du also nie hinein, und Diktieren "
-        "funktioniert auch bei verstecktem Fenster. Die einzige Ausnahme ist ein "
-        "fehlgeschlagener Start: Dann bittet die Konsole dich, zum Schließen Enter "
-        "zu drücken."),
+        "Hotkeys, getippt wird hier nie. Im normalen Betrieb kann das Fenster "
+        "deshalb ausgeblendet bleiben; du schaust nur hinein, wenn du etwas "
+        "überprüfen willst."),
     "welcome.byok.link": "▸ Anbieter & API-Key",
     "welcome.next.heading": "Jetzt einrichten",
-    "welcome.step1.heading": "1 — Einen API-Key holen",
+    "welcome.step1.heading": "1 – Einen API-Key holen",
     "welcome.step1.body": (
-        "Ohne ihn funktioniert Diktieren nicht — er ist die einzige Voraussetzung. "
-        "Thoughtborne hat kein Abo und keinen Zwischenhändler — du nutzt dein "
-        "eigenes Konto bei einem Transkriptionsanbieter und zahlst nur, was du "
-        "verbrauchst. Zwei Wege, ein Key genügt zum Start: Groq ist kostenlos, "
-        "damit lässt sich Thoughtborne ausprobieren, ohne jemanden zu bezahlen; "
-        "Soniox ist der Qualitäts-Weg. Der Anbieter-Tab führt dich durch — Key "
-        "holen und eintragen."),
-    "welcome.step2.heading": "2 — Hotkeys wählen",
+        "Ohne ihn funktioniert Diktieren nicht. Er ist die einzige Voraussetzung. "
+        "Thoughtborne hat kein Abo und keinen Zwischenhändler: Du nutzt dein "
+        "eigenes Konto bei einem Transkriptionsanbieter, und das geht auch "
+        "dauerhaft kostenlos. Ein Key genügt zum Start, zwei Anbieter sind "
+        "integriert: Mit Groq kannst du kostenlos diktieren; Soniox ist der "
+        "Qualitäts-Weg und wird nach Verbrauch bezahlt. Der Anbieter-Tab führt "
+        "dich durch: Key holen und eintragen."),
+    "welcome.step2.heading": "2 – Hotkeys wählen",
     "welcome.step2.body": (
-        "Das mitgelieferte Ctrl+Alt-Schema ist das eigene Setup des Autors — "
+        "Das mitgelieferte Ctrl+Alt-Schema ist das eigene Setup des Autors – "
         "gebaut für einhändiges Diktieren. Übernehmen oder auf dem Hotkeys-Tab "
         "jede Kombi anpassen."),
-    "welcome.step3.heading": "3 — Optional: Start & Fenster",
+    "welcome.step3.heading": "3 – Optional: Start & Fenster",
     "welcome.step3.body": (
         "Optionaler Feinschliff: mit welcher Engine Thoughtborne startet und wie "
         "du die Konsole in den Tray schickst."),
@@ -526,57 +522,58 @@ _DE = {
     "provider.tab": "Anbieter & API-Key",
     "provider.keys.heading": "Was ist ein API-Key?",
     "provider.keys.body": (
-        "Ein API-Key ist ein persönlicher Zugangscode für einen Cloud-Dienst — "
+        "Ein API-Key ist ein persönlicher Zugangscode für einen Cloud-Dienst – "
         "eine lange Zeichenkette, die man einmal in der Web-Konsole des Anbieters "
         "erstellt und unten einfügt. Thoughtborne schickt damit die Aufnahmen an "
         "den Transkriptionsdienst: Die Nutzung läuft über das eigene Konto, direkt "
-        "beim Anbieter — kein Zwischenhändler, kein Abo. Der Key liegt nur auf "
+        "beim Anbieter – kein Zwischenhändler, kein Abo. Der Key liegt nur auf "
         "diesem PC, in der Datei .env im Thoughtborne-Ordner, und geht an niemanden "
         "außer an den Anbieter, zu dem er gehört."),
     "provider.lanes.body": (
-        "Ein Key genügt für den Start. Groq ist der kostenlose Weg — Transkription "
-        "im Free Tier von Groq kostet nichts, damit lässt sich Thoughtborne "
-        "ausprobieren, ohne irgendwen zu bezahlen. Soniox ist der Qualitäts-Weg. "
-        "Mit beiden Keys stehen alle vier Engines bereit, umschaltbar beim "
-        "Diktieren (Ctrl+Alt+L)."),
-    "provider.groq.heading": "Groq — der kostenlose Weg",
+        "Ein Key genügt für den Start. Groq ist der kostenlose Weg: Transkription "
+        "im Free Tier von Groq kostet nichts, und genutzt wird das bekannte Modell "
+        "Whisper mit ordentlicher Qualität. Soniox ist der Top-Qualitäts-Weg, "
+        "dafür zahlst du beim Anbieter nach Verbrauch. Registrierst du dich bei "
+        "beiden Anbietern, stehen dir alle vier Engines bereit, umschaltbar beim "
+        "Diktieren."),
+    "provider.groq.heading": "Groq – der kostenlose Weg",
     "provider.groq.body": (
         "Für Transkription kostenlos, keine Kreditkarte nötig (Stand Juli 2026). "
         "Auf console.groq.com registrieren, auf der API-Keys-Seite einen Key "
-        "erstellen und hier einfügen — er wird nur einmal angezeigt, also gleich "
-        "kopieren. Die Free-Tier-Limits — rund 2 Stunden Audio pro Stunde und 8 "
-        "pro Tag, geteilt über das ganze Groq-Konto — lassen fürs persönliche "
+        "erstellen und hier einfügen – er wird nur einmal angezeigt, also gleich "
+        "kopieren. Die Free-Tier-Limits – rund 2 Stunden Audio pro Stunde und 8 "
+        "pro Tag, geteilt über das ganze Groq-Konto – lassen fürs persönliche "
         "Diktieren viel Luft. Versorgt die beiden Groq-Whisper-Engines."),
-    "provider.soniox.heading": "Soniox — der Qualitäts-Weg",
+    "provider.soniox.heading": "Soniox – der Qualitäts-Weg",
     "provider.soniox.body": (
         "Zahlung nach Verbrauch, kein Abo (Stand Juli 2026): 0,12 $ pro Stunde "
-        "Audio bei der Echtzeit-Engine (Soniox Live), 0,10 $ bei Datei-Uploads — "
+        "Audio bei der Echtzeit-Engine (Soniox Live), 0,10 $ bei Datei-Uploads – "
         "abgerechnet nach tatsächlicher Nutzung (du zahlst nur für das gesendete "
         "Audio). Rund 25 Stunden Diktat im Monat ergeben etwa 3 $. Neue Konten "
         "bekommen kein Startguthaben: Nach der Registrierung auf console.soniox.com "
-        "zuerst in der Console ein kleines Guthaben aufladen — der Key allein "
+        "zuerst in der Console ein kleines Guthaben aufladen – der Key allein "
         "transkribiert noch nicht. Versorgt die beiden Soniox-Engines."),
     "provider.field.groq": "Groq-API-Key",
     "provider.field.soniox": "Soniox-API-Key",
     "provider.reveal.show": "Anzeigen",
     "provider.reveal.hide": "Verbergen",
     "provider.keep_note": (
-        "Speichern löscht nie einen Key — ein geleertes Feld lässt den "
+        "Speichern löscht nie einen Key – ein geleertes Feld lässt den "
         "gespeicherten Key unangetastet. Zum Entfernen den Key direkt in der Datei "
         ".env löschen."),
     "btn.test_key": "Key testen",
     "test.testing": "Teste…",
     "test.valid": "Key funktioniert",
     "test.valid.soniox_balance": (
-        "Das prüft den Key, nicht dein Guthaben — ein neues Soniox-Konto muss erst "
+        "Das prüft den Key, nicht dein Guthaben – ein neues Soniox-Konto muss erst "
         "Guthaben aufladen, sonst scheitert das erste Diktat mit einem Zahlungsfehler."),
-    "test.invalid": "Key abgelehnt — auf Tippfehler prüfen oder frisch aus der Console kopieren.",
+    "test.invalid": "Key abgelehnt – auf Tippfehler prüfen oder frisch aus der Console kopieren.",
     "test.inconclusive": (
-        "Der Server hat die Prüfung abgelehnt — das ist kein Netzwerkproblem und kein "
+        "Der Server hat die Prüfung abgelehnt – das ist kein Netzwerkproblem und kein "
         "Urteil über den Key: Zum Diktieren kann er trotzdem funktionieren. Speichern "
         "geht ohnehin; der Key wurde nur nicht geprüft."),
     "test.unreachable": (
-        "Server nicht erreichbar — Internetverbindung prüfen. Speichern geht "
+        "Server nicht erreichbar – Internetverbindung prüfen. Speichern geht "
         "trotzdem; der Key wurde nur nicht geprüft."),
     "url.groq_keys": "https://console.groq.com/keys",
     "url.soniox_console": "https://console.soniox.com",
@@ -584,83 +581,82 @@ _DE = {
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
     "hotkeys.intro": (
-        "Thoughtborne wird über globale Hotkeys gesteuert — sie "
-        "funktionieren in jeder Anwendung, egal was gerade den Fokus hat; dafür "
-        "ist jede Kombination systemweit reserviert, solange das Tool läuft. "
-        "Darunter zuerst die Entscheidung, ob Push-to-talk als zweiter Weg zum "
-        "Diktieren dazukommt; danach als Basis ein Preset wählen und einzelne "
+        "Thoughtborne wird über globale Hotkeys gesteuert. Sie funktionieren in "
+        "jeder Anwendung, egal in welchem Fenster du gerade aktiv bist. Darunter "
+        "zuerst die Entscheidung, ob Push-to-talk als zweiter Weg zum Diktieren "
+        "dazukommt; danach als Basis ein Hotkey-Schema wählen und einzelne "
         "Aktionen ändern, falls eine Kombination mit etwas kollidiert, das man "
         "nutzt."),
-    "hotkeys.ptt.heading": "Push-to-talk — beim Sprechen eine Taste halten",
+    "hotkeys.ptt.heading": "Push-to-talk – beim Sprechen eine Taste halten",
     "hotkeys.ptt.body": (
         "Ein zweiter Weg zu diktieren, gedacht für kurze Einwürfe: die linke "
         "Ctrl-Taste kurz antippen, loslassen, dann gleich darauf erneut drücken und "
         "halten. Solange sie gehalten wird, läuft die Aufnahme; beim Loslassen wird "
-        "das Transkript an der Cursorposition eingefügt — genau wie bei den "
+        "das Transkript an der Cursorposition eingefügt – genau wie bei den "
         "Stopp-Hotkeys. Das erste Antippen ist der Schutz: ein einzelner "
         "Ctrl-Druck löst nie etwas aus, Ctrl+C, Ctrl+V und jede andere "
         "Ctrl-Kombination bleiben unberührt. Auf deutschen Tastaturen wird "
         "zusätzlich AltGr herausgefiltert (Windows meldet es als Ctrl+Alt), sodass "
         "@ \\ { } [ ] | € ~ nie eine Aufnahme starten."),
-    "hotkeys.ptt.off": "Aus — nur über die Hotkeys diktieren",
-    "hotkeys.ptt.on": "An — Ctrl doppelt tippen und halten zum Diktieren",
+    "hotkeys.ptt.off": "Aus – nur über die Hotkeys diktieren",
+    "hotkeys.ptt.on": "An – Ctrl doppelt tippen und halten zum Diktieren",
     "hotkeys.ptt.fine": (
         "Standardmäßig aus: solange es an ist, wertet Thoughtborne jeden Ctrl-Druck "
         "aus. Trigger-Taste (linke Ctrl, rechte Ctrl oder linke Alt), der "
         "Einfüge-Weg und die drei Zeitschwellen bleiben im Block „push_to_talk“ in "
         "personal_settings.json von Hand einstellbar. Eine Kollision, die man kennen "
-        "sollte: In JetBrains-IDEs öffnet doppeltes Ctrl „Run Anything“ — wenn das "
+        "sollte: In JetBrains-IDEs öffnet doppeltes Ctrl „Run Anything“ – wenn das "
         "stört, in den Advanced Settings der IDE „Disable double modifier key "
         "shortcuts“ aktivieren."),
-    "hotkeys.presets.heading": "Zwei Presets zur Wahl",
-    "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt-Buchstaben — der Auslieferungszustand",
+    "hotkeys.presets.heading": "Zwei Schemas zur Wahl",
+    "hotkeys.preset.ctrl_alt.title": "Ctrl+Alt-Buchstaben – der Auslieferungszustand",
     "hotkeys.preset.ctrl_alt.body": (
         "Ctrl+Alt halten und einen Buchstaben drücken: W startet die Aufnahme, "
         "A/D/H/Y liefern das Transkript ab, X bricht ab. Das ist das eigene Setup "
-        "des Autors — Ctrl+Alt-Kombinationen sind von anderen Windows-Programmen "
+        "des Autors – Ctrl+Alt-Kombinationen sind von anderen Windows-Programmen "
         "selten belegt, und sie liegen alle auf der linken Tastaturhälfte: Start "
         "und Stopp gehen einhändig, die rechte Hand bleibt an der Maus. "
         "Funktioniert auf jeder Tastatur, Laptops eingeschlossen, und lässt die "
-        "F-Tasten-Reihe frei, die IDEs fürs Debuggen nutzen — die sichere "
-        "Allround-Wahl. Das F-Tasten-Preset unten geht noch einen Schritt weiter: "
-        "Aufnahme mit einem einzelnen Tastendruck. Dieses Preset anzuwenden ist "
+        "F-Tasten-Reihe frei, die IDEs fürs Debuggen nutzen – die sichere "
+        "Allround-Wahl. Das F-Tasten-Schema unten geht noch einen Schritt weiter: "
+        "Aufnahme mit einem einzelnen Tastendruck. Dieses Schema anzuwenden ist "
         "zugleich der Weg zurück zu den Defaults."),
-    "hotkeys.preset.fkeys.title": "F-Tasten — ein Tastendruck statt Griff",
+    "hotkeys.preset.fkeys.title": "F-Tasten – ein Tastendruck statt Griff",
     "hotkeys.preset.fkeys.body": (
         "Drei F-Tasten, drei Familien: F8 Engine, F9 Aufnahme, F10 Abliefern. Die "
         "blanke Taste ist der Alltag (F9 startet, F10 fügt ein), Ctrl der wichtige "
         "Geschwister-Fall (abbrechen, senden, Engine wechseln), Ctrl+Alt der "
         "seltene technische; die Verwaltungs-Tasten (History, Selbsttest, Beenden) "
-        "bleiben wie im Buchstaben-Preset."),
+        "bleiben wie im Buchstaben-Schema."),
     "hotkeys.preset.fkeys.caveat": (
-        "Ein Vorbehalt: Das Band F5–F11 ist in "
-        "den meisten IDEs mit Debug-Aktionen belegt — wer viel debuggt, bleibt "
-        "beim Buchstaben-Preset oder passt einzelne Tasten an. Auf dem Laptop ggf. "
-        "Fn-Lock aktivieren (meist Fn+Esc), damit F9/F10 direkt feuern."),
-    "btn.use_preset": "Dieses Preset übernehmen",
+        "Ein Vorbehalt: Das Band F5–F11 ist in den meisten IDEs mit Debug-Aktionen "
+        "belegt – wer viel debuggt, bleibt beim Buchstaben-Schema oder passt "
+        "einzelne Tasten an. Auf dem Laptop ggf. Fn-Lock aktivieren (meist "
+        "Fn+Esc), damit F9/F10 direkt feuern."),
+    "btn.use_preset": "Dieses Schema übernehmen",
     "hotkeys.custom.heading": "Einzelne Aktionen",
     "hotkeys.custom.body": (
         "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
-        "Buchstaben, Ziffern und F1–F24 funktionieren — F-Tasten auch blank, "
+        "Buchstaben, Ziffern und F1–F24 funktionieren – F-Tasten auch blank, "
         "alles andere mit Ctrl und/oder Alt."),
     "hotkeys.col.action": "Aktion",
     "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
         "Solange Thoughtborne läuft, lässt sich eine bereits belegte Kombination "
-        "hier nicht aufnehmen — Windows löst stattdessen die Aktion aus, statt den "
+        "hier nicht aufnehmen – Windows löst stattdessen die Aktion aus, statt den "
         "Tastendruck durchzureichen. Vorher Thoughtborne beenden ({exit_key}) oder "
         "eine unbelegte Kombination wählen."),
     "btn.change_key": "Ändern…",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
-        "Diese Taste lässt sich nicht belegen — Buchstaben, Ziffern oder F1–F24 "
+        "Diese Taste lässt sich nicht belegen – Buchstaben, Ziffern oder F1–F24 "
         "verwenden."),
     "capture.need_modifier": (
-        "Buchstaben und Ziffern brauchen Ctrl und/oder Alt — nur F-Tasten gehen "
+        "Buchstaben und Ziffern brauchen Ctrl und/oder Alt – nur F-Tasten gehen "
         "ohne."),
     "capture.invalid": "Keine verwendbare Kombination ({detail}).",
     "capture.collision": "Schon vergeben an: {action}",
-    "hotkeys.status.ok": "Alle Hotkeys sind gültig — keine Kollisionen.",
+    "hotkeys.status.ok": "Alle Hotkeys sind gültig – keine Kollisionen.",
     "hotkeys.status.warn_prefix": "Hotkey-Probleme (für diese bleiben die Defaults):",
     "hotkeys.mouse.title": "Tipp: Eine Maustaste als Hotkey verwenden",
     "hotkeys.mouse.body": (
@@ -690,7 +686,7 @@ _DE = {
     "behavior.tab": "Start & Fenster",
     "behavior.engine.heading": "Engine beim Start",
     "behavior.engine.body": (
-        "Wie Thoughtborne beim Start seine Engine wählt — zwei Modi zur Wahl. "
+        "Wie Thoughtborne beim Start seine Engine wählt – zwei Modi zur Wahl. "
         "Entweder mit der Engine starten, auf die du zuletzt per Ctrl+Alt+L "
         "gewechselt hast (Thoughtborne merkt sie sich), oder immer mit einer festen "
         "Engine starten, egal was du beim Diktieren umschaltest. In beiden Fällen "
@@ -701,7 +697,7 @@ _DE = {
     "behavior.engine.mode.fixed": "Immer starten mit:",
     "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
     "behavior.engine.remember.none": (
-        "Noch kein Wechsel gemerkt — startet auf dem Standard ({engine})"),
+        "Noch kein Wechsel gemerkt – startet auf dem Standard ({engine})"),
     "behavior.engine.keyless": (
         "▸  Trage auf dem Tab „Anbieter & API-Key“ einen API-Key ein, "
         "um das Diktieren zu aktivieren."),
@@ -711,33 +707,37 @@ _DE = {
     "engine.desc.groq": "schnell, kostenlos",
     "behavior.tray.heading": "Konsole aus der Taskleiste (Tray)",
     "behavior.tray.body": (
-        "Die Konsole ist ein Status-Monitor — Diktieren funktioniert auch bei "
+        "Die Konsole ist ein Status-Monitor; Diktieren funktioniert auch bei "
         "verstecktem Fenster. Läuft die Konsole in Windows Terminal (dem Standard "
         "unter Windows 11), erledigen zwei von Terminals eigenen Einstellungen den "
-        "Umzug in den Tray: Terminals Einstellungen öffnen (Ctrl+,), zu "
-        "Interaktion gehen und beide aktivieren — „Terminal bei Minimierung im "
-        "Infobereich ausblenden“ und „Immer ein Symbol im Infobereich anzeigen“."),
+        "Umzug in den Tray: Terminals Einstellungen öffnen (Ctrl + Komma), zur "
+        "Seite „Darstellung“ wechseln und dort beide aktivieren – „Immer ein "
+        "Symbol im Infobereich anzeigen“ und „Terminal bei Minimierung im "
+        "Infobereich ausblenden“."),
     "behavior.tray.body2": (
         "Minimieren schickt das Fenster dann in den Tray; ein Klick aufs Tray-Icon "
         "holt es zurück (neue Tray-Icons parkt Windows zunächst hinter dem "
-        "^-Ausklappmenü — das Icon einmal in den sichtbaren Bereich ziehen)."),
+        "^-Ausklappmenü – das Icon einmal in den sichtbaren Bereich ziehen)."),
     "behavior.tray.body3": (
-        "Zwei "
-        "ehrliche Grenzen: Beide Schalter wirken auf jedes Windows-Terminal-"
-        "Fenster, und unter dem klassischen conhost gibt es sie nicht. "
-        "Thoughtborne ändert Terminals Einstellungen bewusst nicht selbst — der "
+        "Zwei ehrliche Grenzen: Beide Schalter wirken auf jedes "
+        "Windows-Terminal-Fenster, und unter dem alten Windows-Konsolenfenster "
+        "(conhost) gibt es sie nicht. Läuft Thoughtborne noch dort, mach Windows "
+        "Terminal zur standardmäßigen Terminalanwendung (in Terminals "
+        "Einstellungen unter „Starten“); das sieht ohnehin hübscher aus. "
+        "Thoughtborne ändert Terminals Einstellungen bewusst nicht selbst; der "
         "Button unten führt nur hin."),
     "btn.open_terminal": "Windows Terminal öffnen",
     "behavior.tray.no_wt": (
-        "Windows Terminal wurde auf diesem System nicht gefunden — der Tray-Weg "
+        "Windows Terminal wurde auf diesem System nicht gefunden – der Tray-Weg "
         "braucht es (kostenlos im Microsoft Store)."),
     "behavior.admin.heading": "In Admin-Fenster diktieren",
     "behavior.admin.body": (
         "Hotkeys und Text-Einfügung erreichen kein Fenster, das als Administrator "
-        "läuft — Windows blockiert dort Eingaben von nicht-erhöhten Prozessen. Die "
-        "Lösung: Thoughtborne selbst mit erhöhten Rechten starten; das kurze "
-        "Rezept steht im README unter Troubleshooting."),
-    "behavior.admin.link": "README — Troubleshooting",
+        "läuft; Windows blockiert dort Eingaben von nicht-erhöhten Prozessen. Die "
+        "Lösung: Thoughtborne selbst erhöht starten. Dazu im Startmenü "
+        "Thoughtborne rechtsklicken und „Als Administrator ausführen“ wählen. "
+        "Details stehen im README unter Troubleshooting."),
+    "behavior.admin.link": "README – Troubleshooting",
     "url.admin_recipe": ("https://github.com/timwessels/thoughtborne-windows/blob/"
                          "main/README.de.md#troubleshooting"),
 
@@ -746,26 +746,21 @@ _DE = {
     "machine.install.heading": "Diese Installation",
     "machine.version.body": "Hier läuft Thoughtborne {version}.",
     "machine.folder.body": (
-        "Thoughtborne liegt in einem einzigen Ordner — das Programm selbst, deine "
+        "Thoughtborne liegt in einem einzigen Ordner – das Programm selbst, deine "
         "zwei Einstellungsdateien, das Log und jede Aufnahme unter history/:"),
     "btn.open_folder": "Ordner öffnen",
-    "machine.files.heading": "Die zwei Dateien, die dir gehören",
+    "machine.files.heading": "Deine zwei Einstellungsdateien",
     "machine.files.body": (
-        "Genau zwei schreibst du selbst. In der .env stehen deine API-Keys — den "
-        "Key, mit dem Thoughtborne arbeitet, liest es aus dieser Datei in diesem "
-        "Ordner und aus keiner anderen Quelle. In der personal_settings.json steht "
-        "alles andere, was sich ohne Eingriff in den Code einstellen lässt: "
-        "Erkennungs-Vokabular, Hotkeys, Push-to-talk, Soniox-Endpointing, die Engine "
-        "beim Start und die Sprache dieses Fensters. Jede weitere Datei im Ordner "
-        "gehört dem Programm."),
+        "Deine Einstellungen liegen in zwei Dateien. In der .env stehen deine "
+        "API-Keys; nur aus dieser Datei liest Thoughtborne sie. In der "
+        "personal_settings.json steht alles andere: Hotkeys, Push-to-talk, "
+        "Erkennungs-Vokabular, Soniox-Endpointing, die Engine beim Start und die "
+        "Sprache dieses Fensters. Dieses Fenster schreibt genau diese zwei "
+        "Dateien; alle weiteren im Ordner gehören dem Programm."),
     "machine.files.body2": (
-        "Was sich im Einzelnen einstellen lässt, erklären .env.example und "
-        "personal_settings.example.json daneben in Kommentaren — sie sind zugleich "
-        "die Vorlage, wenn ein Block in deiner Datei noch fehlt. Eine Änderung "
-        "greift beim nächsten Start von Thoughtborne, und dieses Fenster schreibt "
-        "dieselben zwei Dateien. Ist die personal_settings.json kein gültiges JSON "
-        "mehr, wird sie beim Speichern aus diesem Fenster durch eine saubere Datei "
-        "ersetzt — handgepflegte Inhalte vorher im Texteditor retten."),
+        "Beide lassen sich auch von Hand bearbeiten; die Kommentare in "
+        ".env.example und personal_settings.example.json daneben erklären jede "
+        "Einstellung. Eine Änderung greift beim nächsten Start."),
     "machine.vocab.heading": "Erkennungs-Vokabular",
     "machine.vocab.body": (
         "Wiederkehrende Eigennamen, Fachbegriffe oder Abkürzungen erkennen die "
@@ -777,13 +772,13 @@ _DE = {
         "Setzt die Einstellungen, die dieses Fenster schreibt, auf den "
         "Auslieferungszustand zurück: die Hotkeys, Push-to-talk, die Engine beim "
         "Start und die Sprache dieses Fensters. Deine API-Keys bleiben, und alles, "
-        "was du selbst in die personal_settings.json geschrieben hast, bleibt auch — "
+        "was du selbst in die personal_settings.json geschrieben hast, bleibt auch – "
         "das Erkennungs-Vokabular, der Soniox-Endpointing-Block, die Trigger-Taste "
         "und die Zeitschwellen von Push-to-talk, deine eigenen Kommentare. "
         "Thoughtborne startet danach neu, damit die Standardwerte greifen."),
     "machine.reset.body2": (
         "Zwei Dinge passieren dabei nicht. Die Engine, zu der du zuletzt gewechselt "
-        "hast, bleibt gemerkt — das ist eine Aufzeichnung dessen, was du getan hast, "
+        "hast, bleibt gemerkt – das ist eine Aufzeichnung dessen, was du getan hast, "
         "keine Einstellung. Und ein Löschen ist es nicht: Wer wirklich bei null "
         "anfangen will, beendet Thoughtborne und löscht .env und "
         "personal_settings.json im Ordner oben."),
@@ -792,29 +787,29 @@ _DE = {
     "machine.update.body": (
         "Es gibt kein Auto-Update: Thoughtborne sucht nie nach einer neuen Version "
         "und installiert auch keine im Hintergrund. Aktualisieren heißt, den "
-        "Installationsbefehl noch einmal auszuführen — auf thoughtborne.app steht "
+        "Installationsbefehl noch einmal auszuführen – auf thoughtborne.app steht "
         "immer der aktuelle."),
     "machine.update.body2": (
         "Ein Update ersetzt die Programmdateien und ergänzt neue; gelöscht wird "
         "nie. Deine .env, deine personal_settings.json, das Log und history/ "
-        "bleiben unangetastet — ein Wert, den du im Programmcode geändert hast, ist "
+        "bleiben unangetastet – ein Wert, den du im Programmcode geändert hast, ist "
         "danach aber weg. Die personal_settings.json ist die Datei, die bleibt."),
-    "machine.update.link": "▸ thoughtborne.app — der aktuelle Befehl",
+    "machine.update.link": "▸ thoughtborne.app – der aktuelle Befehl",
     "url.update": "https://thoughtborne.app/#installation",
     "machine.license.heading": "Lizenz",
     "machine.license.body": (
         "Thoughtborne ist Open Source unter der MIT-Lizenz: benutzen, ändern, "
-        "weitergeben — ohne Gewährleistung."),
+        "weitergeben – ohne Gewährleistung."),
     "machine.license.link": "▸ MIT-Lizenz",
     "url.license": ("https://github.com/timwessels/thoughtborne-windows/blob/"
                     "main/LICENSE"),
 
     # ---- done / closing tab ----
     "done.tab": "So diktierst du",
-    "done.heading.firstrun": "Fertig — so diktierst du",
+    "done.heading.firstrun": "Fertig – so diktierst du",
     "done.heading.settings": "So diktierst du",
     "done.loop.body": (
-        "In ein Textfeld klicken, {start} drücken, sprechen, dann {stop} drücken — "
+        "In ein Textfeld klicken, {start} drücken, sprechen, dann {stop} drücken – "
         "das Transkript erscheint an der Eingabemarke. Das funktioniert in jeder "
         "Anwendung; die Konsole zeigt nur an, was gerade passiert."),
     "done.controls.body": (
@@ -826,46 +821,46 @@ _DE = {
         "klicken und eine freie Kombination drücken (z. B. Ctrl+Alt+1). Windows "
         "berücksichtigt sie nur bei Startmenü- und Desktop-Verknüpfungen."),
     "done.threewindow.body": (
-        "Ein noch offenes schwarzes Setup-Fenster kannst du schließen — Thoughtborne "
+        "Ein noch offenes schwarzes Setup-Fenster kannst du schließen – Thoughtborne "
         "läuft in seiner eigenen Konsole."),
 
     # ---- dialogs & warnings ----
     "dlg.nokey.title": "Kein API-Key",
     "dlg.nokey.body": (
-        "Es ist kein API-Key eingetragen, und es wurde keiner gefunden — ohne Key "
+        "Es ist kein API-Key eingetragen, und es wurde keiner gefunden – ohne Key "
         "kann Thoughtborne nicht transkribieren. Deine Hotkeys und Einstellungen "
         "werden trotzdem gespeichert, und Thoughtborne startet neu, damit sie greifen "
-        "— solange kein Key eingetragen ist, öffnet sich diese Einrichtung danach "
-        "wieder. Einen Key kannst du jederzeit ergänzen — öffne die Einstellungen "
+        "– solange kein Key eingetragen ist, öffnet sich diese Einrichtung danach "
+        "wieder. Einen Key kannst du jederzeit ergänzen – öffne die Einstellungen "
         "aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und neu starten?"),
     "dlg.nokey.title_unreadable": "Key-Datei nicht lesbar",
     "dlg.nokey.body_unreadable": (
         "Es ist kein API-Key eingetragen, und die Datei .env im Thoughtborne-Ordner "
-        "konnte nicht gelesen werden — steht ein Key darin, kann Thoughtborne ihn "
+        "konnte nicht gelesen werden – steht ein Key darin, kann Thoughtborne ihn "
         "nicht nutzen. Das Speichern fasst die Datei nicht an: Eine nicht lesbare "
         "Datei wird nie überschrieben. Möglicherweise ist sie in einem anderen "
         "Programm geöffnet, das sie sperrt, oder nicht als UTF-8 gespeichert (etwa "
-        "ANSI oder UTF-16) — schließe das andere Programm oder speichere die Datei "
+        "ANSI oder UTF-16) – schließe das andere Programm oder speichere die Datei "
         "erneut als UTF-8. Deine Hotkeys und Einstellungen werden trotzdem "
-        "gespeichert, und Thoughtborne startet neu, damit sie greifen — solange die "
+        "gespeichert, und Thoughtborne startet neu, damit sie greifen – solange die "
         "Datei nicht lesbar ist, öffnet sich diese Einrichtung danach wieder. Jetzt "
         "speichern und neu starten?"),
     "dlg.hotkeywarn.title": "Hotkey-Probleme",
     "dlg.hotkeywarn.body": (
-        "Einige Hotkeys würden beim Start ignoriert — für sie blieben die Defaults "
+        "Einige Hotkeys würden beim Start ignoriert – für sie blieben die Defaults "
         "in Kraft (Details im Hotkeys-Tab). Trotzdem speichern?"),
     "dlg.reset.title": "Auf Standard zurücksetzen",
     "dlg.reset.body": (
         "Hotkeys, Push-to-talk, die Engine beim Start und die Sprache dieses "
         "Fensters gehen zurück auf den Auslieferungszustand. Deine API-Keys bleiben "
         "unangetastet, und ebenso alles, was du selbst in die personal_settings.json "
-        "geschrieben hast — das Erkennungs-Vokabular, der Soniox-Endpointing-Block, "
+        "geschrieben hast – das Erkennungs-Vokabular, der Soniox-Endpointing-Block, "
         "die Trigger-Taste und die Zeitschwellen von Push-to-talk, deine eigenen "
         "Kommentare. Was in diesem Fenster eingetragen und noch nicht gespeichert "
         "ist, geht dabei verloren. Thoughtborne startet gleich danach neu. "
         "Jetzt zurücksetzen?"),
     "dlg.reset.body_corrupt": (
-        "Die personal_settings.json lässt sich nicht lesen — sie ist kein gültiges "
+        "Die personal_settings.json lässt sich nicht lesen – sie ist kein gültiges "
         "JSON mehr. Das Zurücksetzen ersetzt sie deshalb durch eine saubere Datei, "
         "und alles von Hand Geschriebene darin geht verloren: das "
         "Erkennungs-Vokabular, der Soniox-Endpointing-Block, die Trigger-Taste und "
@@ -876,13 +871,13 @@ _DE = {
     "dlg.savefail.title": "Speichern fehlgeschlagen",
     "dlg.savefail.body": (
         "Die Einstellungen konnten nicht gespeichert werden. Jede Datei wird atomar "
-        "geschrieben — erst im Ganzen ersetzt —, sodass keine halb geschrieben oder "
+        "geschrieben – erst im Ganzen ersetzt –, sodass keine halb geschrieben oder "
         "beschädigt zurückbleibt; möglicherweise ist eine Datei gesperrt oder nicht "
         "lesbar. Das technische Detail:"),
     "dlg.readfail.title": "Datei nicht lesbar",
     "dlg.readfail.body": (
         "Die Datei {file} konnte nicht gelesen werden, deshalb wurde nichts "
-        "geändert — eine nicht lesbare Datei wird nie überschrieben, alles darin ist "
+        "geändert – eine nicht lesbare Datei wird nie überschrieben, alles darin ist "
         "also noch da. Möglicherweise ist sie in einem anderen Programm geöffnet, das "
         "sie sperrt, oder in einer anderen Kodierung als UTF-8 gespeichert (etwa ANSI, "
         "nach einer Bearbeitung in einem älteren Editor). Schließe das andere Programm "
@@ -890,7 +885,7 @@ _DE = {
         "technische Detail:"),
     "dlg.loadfail.title": "Einstellungen nicht lesbar",
     "dlg.loadfail.body": (
-        "Die gespeicherten Einstellungen konnten nicht gelesen werden — "
+        "Die gespeicherten Einstellungen konnten nicht gelesen werden – "
         "Thoughtborne startete mit den Standardwerten, und es wurde nichts "
         "geändert. Möglicherweise ist eine Datei gesperrt oder in einer "
         "unerwarteten Kodierung; Speichern bleibt blockiert, bis sie wieder lesbar "
@@ -898,21 +893,21 @@ _DE = {
     "dlg.startfail.title": "Start fehlgeschlagen",
     "dlg.startfail.body": (
         "Die Einstellungen wurden gespeichert, aber Thoughtborne ließ sich von "
-        "hier nicht starten — bitte über Thoughtborne.bat starten."),
+        "hier nicht starten – bitte über Thoughtborne.bat starten."),
     "dlg.restarttimeout.title": "Nicht neu gestartet",
     "dlg.restarttimeout.body": (
         "Deine Einstellungen wurden gespeichert. Thoughtborne hat sich aber nicht "
-        "innerhalb weniger Sekunden beendet und wurde deshalb nicht neu gestartet — "
+        "innerhalb weniger Sekunden beendet und wurde deshalb nicht neu gestartet – "
         "die Änderungen gelten ab dem nächsten Start. Bitte beende oder starte es "
         "selbst neu (standardmäßig Strg+Alt+4 in seiner Konsole, oder das Fenster "
         "schließen)."),
     "dlg.restartfail.title": "Nicht neu gestartet",
     "dlg.restartfail.body": (
         "Deine Einstellungen wurden gespeichert, aber die Neustart-Anfrage konnte "
-        "nicht geschrieben werden — Thoughtborne läuft unverändert weiter. Die "
+        "nicht geschrieben werden – Thoughtborne läuft unverändert weiter. Die "
         "Änderungen gelten ab dem nächsten Start; bitte starte es selbst neu."),
     "warn.corrupt": (
-        "personal_settings.json existiert, ließ sich aber nicht parsen — Speichern "
+        "personal_settings.json existiert, ließ sich aber nicht parsen – Speichern "
         "ersetzt sie durch eine saubere Datei. Um handgepflegte Inhalte (z. B. "
         "Vokabular) zu retten, die Datei vorher in einem Texteditor reparieren. "
         "Bis dahin wird die hier gewählte Sprache nicht gemerkt."),
