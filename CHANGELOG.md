@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0rc1] - 2026-09-16
+
 ### Added
 
 - **The dev build prints its own install command (#322).** Handing `THOUGHTBORNE_ZIP` to
