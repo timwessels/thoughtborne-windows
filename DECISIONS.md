@@ -18,7 +18,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | ID | Decision | Status |
 | --- | --- | --- |
 | D-001 | Untranscribed-recording recovery: remind once, keep it retryable | Active; extended 2026-07-22 (#138/#159) and 2026-08-15 (#179) |
-| D-002 | Settings app: how it writes config, and when the tool sees changes | Active; the 2026-08-16 addenda drop the `defaults.api` diff for this surface (#198) and narrow the no-coordination clause (#202); extended 2026-08-25 (#233) |
+| D-002 | Settings app: how it writes config, and when the tool sees changes | Active; the 2026-08-16 addenda drop the `defaults.api` diff for this surface (#198) and narrow the no-coordination clause (#202); extended 2026-08-25 (#233); narrowed 2026-09-19 by D-026 — backup-then-overwrite, abort only on a failed backup, invalid owned values normalize on save, the blank-key guard retired |
 | D-003 | Typed inserts are capped at 4,000 characters, not repaired | Active |
 | D-004 | A second instance refuses rather than running deaf | Active; narrowed 2026-09-07 (#269) — the developer opt-out is read from the install directory's `.env` only, per D-017 |
 | D-005 | Settings-app launcher: venv-first (probed), system Python is the rescue lane | Retired 2026-08-21 by D-014 (#223) with the standalone lane; the stdlib-only constraint on the settings-app import chain still holds |
@@ -36,12 +36,13 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-017 | API keys come from the install directory's `.env` only | Active |
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
-| D-020 | Reset to defaults: the app's own settings, never the user's data | Active |
+| D-020 | Reset to defaults: the app's own settings, never the user's data | Active; extended 2026-09-19 by D-026 — the reset writes through the backup lane, the corrupt-file wording stops claiming loss |
 | D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
 | D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active; the pointer's form settled 2026-09-13 (#316) — a tip on how the route works, not a notice about what cannot be bound; the no-mouse-lane substance stands |
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
+| D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active |
 
 ---
 
@@ -208,6 +209,22 @@ the file through `read_ptt_enabled`, which applies `config.py`'s JSON-boolean-on
 so it can never show ON for a file the tool reads as OFF. Not a supersede — D-002's
 write contract and all its other guarantees stand.
 Maintainer-directed via issue #233 (spec of 2026-08-25).
+
+**2026-09-19 addendum (D-026).** The settings doctrine changes three clauses of
+this contract, for `personal_settings.json` only: *abort rather than clobber*
+narrows to *abort when the backup fails* — a save that cannot carry the found
+file fully into its result (corrupt JSON, wrong encoding, or single entries it
+normalizes away) first renames it to a timestamped backup and aborts only if
+that rename fails, which retires both the warn-then-overwrite branch and the
+undecodable-file abort; the leave-as-found policy for **invalid** values in
+app-managed surfaces gives way to normalize-on-save (unmanaged content and
+valid entries stay leave-as-found); and the empty-field rule for the `.env`
+key lines ("a blank never clobbers a stored key") is retired — the key fields
+display the stored keys, so a cleared field deletes the key line, while a
+present-but-unreadable or undecodable `.env` still aborts the save. The
+matching lines of the do-not-reintroduce list below read through this lens.
+Everything else — the surgical merge, the single-writer rule, the diff
+conventions, never-seed — stands. See D-026.
 
 Do not reintroduce: a full-file rewrite that drops user comments or unmanaged blocks;
 a save that silently overwrites an unreadable or undecodable settings file; freezing
@@ -1522,6 +1539,13 @@ unmanaged value changed. The honest promise is "no unmanaged value is changed,
 added or removed"; byte-for-byte holds for `.env` (never opened) and for every
 reset after the first (it is idempotent).
 
+**2026-09-19 addendum (D-026).** The reset's write goes through D-026's backup
+lane like every deliberate write: over a corrupt file it renames the found file
+to a timestamped backup before writing, so the confirmation's corrupt-file
+second body stops claiming the hand-written blocks are lost — they live on in
+the backup, and the wording follows. The confirmation itself, the forced
+values and the settings-not-data line stand. See D-026.
+
 Do not reintroduce: a reset that deletes API keys, the `vocabulary` or
 `soniox_endpointing` blocks, any `_comment`, or a settings file wholesale; a
 reset driven by the save signals instead of forced values (it leaves invalid
@@ -1752,3 +1776,124 @@ self-reliant techie the tool bends to) and records what every existing German
 text already does uniformly, so no future text or review "corrects" a du into
 a Sie. English text is untouched by this entry; code, comments and
 developer-facing docs stay English either way (AGENTS.md).
+
+## D-026 — Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss
+
+Decided 2026-09-19. Maintainer-settled across the settings-architecture dialogs
+of 2026-09-13 through -19, on the back of a full read-side/write-side survey of
+the settings pipeline. This entry writes down the rules the codebase has mostly lived by —
+plus one deliberate reversal: where the app used to warn about a broken file or
+abort, it now backs the file up and writes. The doctrine exists so that every
+future settings change (human or AI agent, a year from now) meets these rules at
+the point of edit instead of re-deriving them per change.
+
+- **Ownership: the app owns the surfaces it displays; everything else is user
+  land.** Today that is the `hotkeys` block, `defaults.api`,
+  `push_to_talk.enabled`, `ui.language`, and the two managed key lines of `.env`.
+  The rule is deliberately phrased by *display*, not by a frozen list: when the
+  app one day manages vocabulary or endpointing, those blocks move from user land
+  to app-owned by the same rule. User land — every unmanaged block, every
+  unmanaged sibling key, every `_`-prefixed key, every unknown block — is never
+  changed, removed or normalized by any write (D-002's surgical merge, unchanged).
+- **Reading is tolerant, identical in both programs, and leaves a trace.** Both
+  the tool and the settings app read the files once at startup through the same
+  code, validate per entry, fall back to the shipped default on anything invalid,
+  and never abort a start. A reader never writes. **The warn duty is gapless:**
+  everything a reader discards — an invalid value, a wrong-typed block, an
+  unknown top-level block (the `hotkyes` typo) — leaves a log warning, and the
+  tool's console shows it at startup. (Closing today's silent spots — the mute
+  block level, the untested read lanes — is scheduled work under this rule.)
+- **Only deliberate actions write; a save is WYSIWYG for the owned surfaces.**
+  No program start, no update, no migration ever writes a settings file; a
+  missing file means shipped defaults until the user saves. Save and Reset are
+  the deliberate actions (the instant language persist stays the one narrow,
+  corruption-gated exception it already is, D-014/#239 — it never takes the
+  backup path and never writes over a broken file). A save writes the owned
+  surfaces so that the file afterwards expresses exactly the state the window
+  showed — including the case where the shown state is a default that replaced
+  an invalid entry: the invalid entry is normalized away. The diff conventions
+  (hotkeys as a partial override, remember-mode writing no pin) are unchanged —
+  WYSIWYG is about what the file *means* after the save, not about spelling
+  every default out. WYSIWYG covers the `.env` key fields too: they already
+  display the stored keys (masked, with a reveal control), so a field the user
+  cleared is a shown state like any other — saving removes the stored key line.
+  The former blank-never-deletes guard is retired; the case it really protected
+  (an unreadable `.env` presenting as empty fields) stays covered by the
+  abort rule below. A first-run wizard field that was never filled writes
+  nothing, as before.
+- **Backup before loss — no backup, no overwrite.** Any deliberate write that
+  cannot carry the found `personal_settings.json` fully into its result — the
+  whole file (corrupt JSON, wrong encoding) or single entries it normalizes
+  away — first renames the found file to
+  `personal_settings.backup-YYYY-MM-DD_HHMMSS.json` (same folder; if the name
+  exists, append `-2`, `-3`, …) and only then writes the new file. The save
+  probes the target fresh at write time (the #239 pattern), so a file that broke
+  *while the window was open* is caught too. If the rename fails (locked,
+  permission-denied), the save aborts — the overwrite path is chained to a
+  successful backup, which replaces D-002's abort-on-unreadable with the same
+  guarantee and a better outcome elsewhere: the wrong-encoding case (an ANSI
+  file with intact vocabulary) no longer dead-ends in an abort; the intact bytes
+  live on in the backup while the user gets a working file. Backups are never
+  auto-deleted and never read by any loader; a normal save over a healthy,
+  fully-understood file creates none. `.env` is *not* under this model: its
+  line-wise edit needs the found file (unmanaged lines and comments have no
+  shown state to rebuild from) — a present-but-unreadable or undecodable `.env`
+  still aborts the save, exactly as before.
+- **The app is silent about file health; the log is not.** The settings window
+  shows the effective state and makes no statements about the file behind it: no
+  warning stripes, no broken-file banners, no save-time dialogs about file
+  condition (the pre-open corruption stripe goes away with this entry). What it
+  *does* assert must be true of the shown state — and an assertion that cannot
+  say anything else is decoration, not information: the hotkey tab's status
+  line and its save-time warning dialog are provably unreachable in their
+  warning branches (every feed of the hotkey state passes the validator first),
+  so both are removed entirely rather than reworded. The
+  user's window into problems is the tool's console and the log (previous rule),
+  and the user's safety net is the backup, not a dialog. Reset keeps its
+  confirmation — that guards a destructive *action*, not file health (D-020's
+  line vs. D-014) — but its corrupt-file second body stops claiming hand-written
+  blocks "are lost": with the backup they are not, and the wording follows.
+- **Evolution: additive, with a frozen-fixture proof.** Blocks and keys are only
+  ever added; a widening of a value space (a new key, a new engine name) is safe
+  by construction — old files cannot contain it. A *narrowing* needs a decision
+  entry with an old-file clause, a look at what the *documentation* historically
+  recommended (the D-024 lesson: the compat rule covered what the software had
+  written, not the pattern the example comment had recommended for years), and a
+  frozen fixture: an example file in the old shape that the test ladder feeds to
+  the current reader on every run. No schema-version field in the file — a
+  version stamp only serves a migration mechanism this product deliberately does
+  not have; the tolerant reader *is* the migration strategy. The downgrade case
+  (newer file, older program — real via rollback or a cloned checkout) is
+  accepted and harmless by the same rules: warn, default, and the file
+  self-heals on the next save, backup included.
+
+Do not reintroduce: a warning stripe, banner or save-time dialog in the settings
+app about file condition; a save that discards any content of the found
+`personal_settings.json` without a successful backup rename first; a save-abort
+over a corrupt-but-backupable file (abort is for a failed backup, not for
+corruption); an overwrite of an unreadable `.env`; a write triggered by program
+start, update or migration; a schema-version field in `personal_settings.json`;
+a value-space narrowing without decision entry, doc-history check and frozen
+fixture; auto-deletion of backup files; a status element or dialog whose warning branch
+is unreachable by construction; or an empty key field that is silently
+skipped on save (the D-002 blank-guard this entry retires).
+
+Amends D-002 — the surgical merge, single-writer rule, diff conventions and
+never-seed rule stand; its "abort rather than clobber" narrows to "abort when
+the backup fails" for `personal_settings.json` (unchanged for `.env`), its
+warn-then-overwrite branch is replaced by backup-then-overwrite, and its
+leave-as-found policy for *invalid* values in owned surfaces gives way to
+normalize-on-save (leave-as-found continues to govern everything unmanaged and
+every valid entry), and its empty-field rule for the key lines ("a blank never
+clobbers a stored key") gives way to WYSIWYG deletion — the fields display the
+stored keys, so a cleared field is an instruction, and the unreadable-`.env`
+abort keeps covering the case the old rule really protected (the two in-app
+help texts that point users at the file for key removal are updated with it). Amends D-020 — the reset takes the same backup lane and its
+corrupt-file dialog wording follows; its confirmation, forced values and
+settings-not-data line stand. Respects D-014 (the gated silent language write is
+untouched; no new dialogs), D-008 (precedence untouched), D-015, D-017 (`.env`
+single parser and location), D-023/D-024 (both are precedents of the narrowing
+rule; their old shapes are ladder-guarded per function today and gain
+whole-file coverage through the two or three frozen historical files the
+read-side work adds).
+
