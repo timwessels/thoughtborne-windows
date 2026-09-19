@@ -38,7 +38,9 @@ has to arrive in the real Soniox request -- the async body and the live WebSocke
 config, the endpointing block riding along on the second. Since #329 that last mile
 starts one step earlier, at the filter that builds the effective context: the block's
 `_`-prefixed comment keys reach neither request, and a block holding nothing else
-sends no context at all.
+sends no context at all. What that filter leaves is measured too (#286): a context
+large enough to risk the service's own limit warns at startup -- and is sent anyway,
+whole, because a warning is the remedy here as well.
 
 `.env` (#238, #269) gets the same treatment for the same reason -- it is written by
 hand or by an assisting agent, on a Windows whose PowerShell defaults are ANSI,
@@ -308,6 +310,48 @@ def test_effective_soniox_context():
     check(got is not full, "the context returned IS the parsed block, not a copy")
     check(list(got) == ["general", "terms", "text"],
           f"the block's key order did not survive the filter: {list(got)}")
+
+
+def test_soniox_context_size_guard():
+    """The threshold of the startup size guard and the two decisions its measurement
+    rests on (#286). Soniox rejects a context over 8,000 tokens (~10,000 characters)
+    with an invalid_request error, on the WebSocket path too -- where a session error
+    is categorized as a service problem, so an oversized vocabulary breaks every
+    dictation on the default engine while the failure points away from the file that
+    caused it.
+
+    The function is pure, so the threshold can be met exactly: a `{"text": ...}` block
+    serializes to its payload plus 12 characters of JSON hull, which puts 7,488 x's
+    exactly on `SONIOX_CONTEXT_WARN_CHARS` and 7,489 one over it. The warning's
+    fragments are the five things it has to carry: the measured size, the limit, that
+    a character count only estimates it, the file to edit, and the promise that
+    nothing is changed on the way out."""
+    check(config.soniox_context_size_warning(None) is None,
+          "a None context warned -- no context field is sent for it, so there is "
+          "nothing the service could reject")
+    at = config.soniox_context_size_warning({"text": "x" * 7488})    # 7,500 exactly
+    check(at is None, f"a context of exactly the threshold warned: {at!r}")
+    over = config.soniox_context_size_warning({"text": "x" * 7489})  # 7,501
+    check(isinstance(over, str), f"a context past the threshold gave {over!r}")
+    for fragment in ("7501", "8,000 tokens", "estimates tokens",
+                     "personal_settings.json", "sent unchanged"):
+        check(fragment in (over or ""),
+              f"the size warning does not say {fragment!r}: {over!r}")
+
+    # Counted as characters, not as ASCII escape sequences: 1,400 umlauts are 1,412
+    # characters here and 8,412 with ensure_ascii -- the difference between silence
+    # and a permanent warning for an ordinary German vocabulary. The service
+    # tokenizes the character, and it is the character the async request sends.
+    check(config.soniox_context_size_warning({"text": "ü" * 1400}) is None,
+          "a 1,412-character German context warned -- the measurement is counting "
+          "the six-character JSON escape instead of the character that is sent")
+
+    # Measured AFTER the comment filter (#329), so the user's prose about the block
+    # never counts towards the limit the block's own content has to stay under.
+    commented = config.effective_soniox_context(
+        {"_comment": "y" * 9000, "terms": ["Fixture Term"]})
+    check(config.soniox_context_size_warning(commented) is None,
+          f"a long comment was measured as context: {commented!r}")
 
 
 def test_never_raises(d):
@@ -751,6 +795,41 @@ def test_vocabulary_filter_subprocess():
             if report is not None:
                 _check_report(f"vocabulary {label}", report, 0, [],
                               {"context": context})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_context_size_guard_subprocess():
+    """The size guard on the real import path (#286): an oversized vocabulary in the
+    file, and what a starting tool then holds.
+
+    The lane above it covers the measurement, this one the wiring and the promise the
+    guard makes -- warn, never block. That the fixture starts at all is half the
+    assertion (a non-zero exit is recorded as a failure in `_probe_settings`); the
+    other half is that SONIOX_CONTEXT still carries the whole oversized object, since
+    the guard's job is to say what is about to be sent, not to change it. Nothing
+    here is user data: the payloads are synthetic filler."""
+    tmp = tempfile.mkdtemp(prefix="tb_config_ctx_size_")
+    try:
+        _copy_config_into(tmp)
+        # 8,012 characters serialized -- a perfectly valid file with too much in it,
+        # which is the case the guard exists for. The reported size is checked, not
+        # just the fact of a warning: it is what tells the user how far over they are.
+        oversized = {"text": "x" * 8000}
+        report = _probe_settings("context size over", tmp,
+                                 json.dumps({"vocabulary": oversized}).encode("utf-8"))
+        if report is not None:
+            _check_report("context size over", report, 1,
+                          ["vocabulary:", "8012 characters"], {"context": oversized})
+        # Filter before measurement, on the chain a real start runs: a long comment
+        # never pushes a small vocabulary over the line.
+        report = _probe_settings(
+            "context size comment", tmp,
+            json.dumps({"vocabulary": {"_comment": "y" * 9000,
+                                       "terms": ["Fixture Term"]}}).encode("utf-8"))
+        if report is not None:
+            _check_report("context size comment", report, 0, [],
+                          {"context": {"terms": ["Fixture Term"]}})
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2104,9 +2183,11 @@ TEMPDIR_CASES = [
 PLAIN_CASES = [
     test_known_blocks_drift,
     test_effective_soniox_context,
+    test_soniox_context_size_guard,
     test_import_subprocess,
     test_settings_values_subprocess,
     test_vocabulary_filter_subprocess,
+    test_context_size_guard_subprocess,
     test_frozen_historical_files,
     test_env_loading_subprocess,
     test_env_corpus_subprocess,
@@ -2153,8 +2234,8 @@ def main():
           f"pass (personal_settings: encoding, top-level shape, the block gate with "
           f"its known-blocks guards, vocabulary shape, the push_to_talk and "
           f"soniox_endpointing value rules, three frozen historical files, the "
-          f"comment filter on the vocabulary's way out and its arrival in both "
-          f"real Soniox requests, the "
+          f"comment filter and the size guard on the vocabulary's way out and its "
+          f"arrival in both real Soniox requests, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "

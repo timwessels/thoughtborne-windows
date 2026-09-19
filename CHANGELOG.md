@@ -61,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carrying a retired value beside a block this version does not know — so an old file quietly
   losing its meaning becomes a failing test rather than a surprise.
 
+- **A startup size guard for the Soniox context (#286).** The `vocabulary` block travels to
+  Soniox as context, under a service limit of 8,000 tokens (roughly 10,000 characters), and a
+  context over that limit is rejected outright — on the default live engine every dictation
+  would then fail, reported as a service problem that never points at the file the user
+  edited. The tool now measures the context it is about to send at startup and warns in
+  `thoughtborne.log` and on the console above 7,500 characters — deliberately below the
+  documented equivalence, because a character count only estimates tokens and German
+  vocabulary can run out of them earlier. The warning names the measured size and the block to
+  trim; nothing is shortened, nothing is held back and no start is blocked — the context goes
+  out unchanged, the tool just says out loud what it is about to send.
+
 ### Changed
 
 - **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**

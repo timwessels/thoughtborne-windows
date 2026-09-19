@@ -947,12 +947,60 @@ def effective_soniox_context(vocabulary):
     return effective or None
 
 
+# Warn threshold for the effective Soniox context, in CHARACTERS of the serialized
+# object -- not the token number that happens to sit right beside it. Soniox
+# documents an 8,000-token limit (~10,000 characters) and rejects an oversized
+# context outright (HTTP 400 invalid_request, the WebSocket path included), which on
+# soniox-live breaks every dictation and surfaces as a service error that never
+# points at the file the user edited (#286). 7,500 keeps a deliberate margin under
+# the documented equivalence: 1.25 characters per token is tight for German
+# vocabulary with umlauts, where the real token count can run out earlier.
+SONIOX_CONTEXT_WARN_CHARS = 7500
+
+
+def soniox_context_size_warning(context):
+    """One warning string when the effective Soniox context risks the service limit,
+    else None (#286).
+
+    Measures len(json.dumps(context, ensure_ascii=False)): the characters the service
+    tokenizes, and what the async request actually sends (httpx encodes JSON with
+    ensure_ascii=False) -- ASCII escaping would count an umlaut six times without
+    making the estimate any better, and the safety margin belongs in the threshold
+    rather than in a skewed measurement. The input comes out of json.loads (the loader
+    drops non-dict blocks first), so dumps cannot raise here: even NaN and lone
+    surrogates round-trip, and a guard against nothing would be exactly the decoration
+    this codebase refuses. None in, None out -- with no context there is nothing the
+    service could reject, which is why measuring AFTER the comment filter is what makes
+    a comment-only block silent here too. Pure like effective_soniox_context, so the
+    threshold cases are unit-testable; warn-never-block lives at the call site, where
+    the context goes out unchanged either way.
+    """
+    if context is None:
+        return None
+    size = len(json.dumps(context, ensure_ascii=False))
+    if size <= SONIOX_CONTEXT_WARN_CHARS:
+        return None
+    return (
+        f"vocabulary: the Soniox context serializes to {size} characters; the "
+        f"service limit is 8,000 tokens (roughly 10,000 characters -- a character "
+        f"count only estimates tokens, so the limit can arrive earlier). Over it "
+        f"Soniox rejects the request outright, and every dictation on a Soniox "
+        f"engine fails. The context is sent unchanged; trim the vocabulary block "
+        f"of personal_settings.json to stay clearly below the limit")
+
+
 # The "vocabulary" block of the optional personal_settings.json in the project root
 # (format: personal_settings.example.json). Personalization is user-specific (names,
 # project terms etc.) and therefore kept out of the repository. A missing or invalid
 # file, no "vocabulary" block, or a block holding nothing but comments all leave
 # SONIOX_CONTEXT None, and no personalization is sent to the Soniox API.
 SONIOX_CONTEXT = effective_soniox_context(_settings.get("vocabulary"))
+
+# Size guard (#286): measured on SONIOX_CONTEXT itself, the exact object both send
+# sites read -- warn, never block; nothing is truncated or held back.
+_ctx_size_warning = soniox_context_size_warning(SONIOX_CONTEXT)
+if _ctx_size_warning:
+    IMPORT_WARNINGS.append(_ctx_size_warning)
 
 # Push-to-talk override (#66): read from the same _settings dict so the
 # file is parsed once. Absent block or any invalid field -> the default
