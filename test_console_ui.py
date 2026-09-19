@@ -37,7 +37,9 @@ What each rendered block is checked for:
      set is one the app passes (#295), and both sides name the same stop actions.
  10. pass-through (#299): a parameter the stress tables classify as visible must
      show its value in the rendering -- a surface can go silent (#281) with every
-     framed line still exactly 70 cells wide.
+     framed line still exactly 70 cells wide. A flag has the other failure: it
+     puts no value anywhere, so what is asserted is that its two states render
+     different screens (#311) -- a lost flag makes a surface wrong, not silent.
  11. the masthead's version token (#297): the tagline flush with the start of the
      wordmark, the token dim and flush with its right edge, dropped whole --
      never shortened -- when it is over budget or carries a character outside
@@ -1477,7 +1479,8 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
 # true -- so an entry here could only assert that the word `False` reaches the
 # screen. What a flag owes its surface is that its two branches differ at all,
 # which is check_failed_reason_block's shape (`inconclusive`, asserted both
-# ways) -- written there for that one flag, and by nobody for these three.
+# ways). _STRESS_BRANCHING below makes that assertion for the two RECOVERED
+# flags (#311); `sent` stays uncovered, by the decision recorded there.
 _STRESS_VISIBLE = {
     ("render_hotkeys_partial", "registered"), ("render_hotkeys_partial", "expected"),
     ("render_insert_failed", "seq"), ("render_transcription_failed", "seq"),
@@ -1657,6 +1660,56 @@ def _stress_widths(name, fn, kw):
     for i, (la, lp) in enumerate(zip(a, pl)):
         if len(strip(la)) != len(lp):
             _record(f"stress {name}[{i}]: twin length {len(lp)} != {len(strip(la))}")
+
+
+# ---- #311 the branch check: a flag has to pick between two renderings --------
+# The other half of the visible table's reasoning, for the flags it cannot speak
+# for. A flag's loss is not #281's silent surface: both renderings keep their
+# copy and their 70 cells, one of them just starts standing for both states --
+# every clean rescue would claim a hard kill, and the panel would say "once
+# hotkeys work" while they are working. The RECOVERED panel is rare and shows up
+# when something already went wrong, so nobody holds it against a remembered
+# baseline; that is the ladder's job. `render_ok_strip`'s `sent` is left out by
+# decision, not by oversight (#311): the OK strip is on screen dozens of times a
+# day, so a missing `+ sent` is something a person cannot miss -- and this lane
+# guards what a person cannot see.
+_STRESS_BRANCHING = {
+    ("render_recovered_panel", "clean_exit"),
+    ("render_recovered_panel", "hotkeys_ok"),
+}
+
+
+def check_stress_branches():
+    """Every flag in _STRESS_BRANCHING really picks a rendering: with every other
+    sweep parameter held equal, its rungs have to produce screens that differ.
+    No wording is pinned -- only that something changes. Rendered on the shipped
+    scheme, since this measures copy rather than width, and compared on the plain
+    twin: a branch that shows only in colour leaves the ASCII screen -- the one a
+    log or a plain console gets -- saying the same thing for both states."""
+    for rname, pname in sorted(_STRESS_BRANCHING):
+        fn = getattr(u, rname, None)
+        combos = _stress_kwargs(fn, DEFAULT_HOTKEYS) if fn else []
+        # Everything else the sweep varies -- what is left is constant anyway, so
+        # these names alone group the rungs by "all other parameters equal".
+        rest = [k for k in (combos[0] if combos else ())
+                if k != pname and any(kw[k] != combos[0][k] for kw in combos)]
+        groups = {}
+        for kw in combos:
+            groups.setdefault(tuple(repr(kw[k]) for k in rest), []).append(kw)
+        if not any(len(g) > 1 for g in groups.values()):
+            _record(f"branch {rname}.{pname}: the sweep never rendered two rungs of "
+                    f"it -- renderer or parameter renamed away, or _STRESS_SWEEP no "
+                    f"longer carries the flag: either way the entry asserts nothing")
+            continue
+        for g in groups.values():
+            if len({"\n".join(fn(ansi=False, **kw)) for kw in g}) == len(g):
+                continue
+            tag = ", ".join(f"{k}={g[0][k]!r}" for k in rest)
+            _record(f"branch {rname}.{pname} at [{tag}]: the rungs "
+                    f"{[kw[pname] for kw in g]} render the same screen -- the flag "
+                    f"no longer picks between two renderings, so one of them now "
+                    f"stands for both states and the surface states the wrong "
+                    f"one (#311)")
 
 
 # ---- #55 override edge: no shared modifier prefix ----------------------------
@@ -2071,6 +2124,7 @@ def main():
     check_footer_lead_fallback()
     check_app_derives_no_key()
     check_stress_widths()
+    check_stress_branches()
 
     # ---- #55 override edge: a scheme with no shared lead ---------------------
     check_prefix_none_widths()

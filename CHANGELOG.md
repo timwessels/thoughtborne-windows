@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NumDec, ScrLk, …); the README twins carry the practical notes (Scroll Lock still toggles
   its lock state, numpad hotkeys need Num Lock on, RDP client shortcuts).
 
+- **The RECOVERED panel's two flags are now held to branching (#311).** Whether a recording
+  was saved cleanly or rescued after a hard kill, and whether the hotkeys came up, decide
+  what that panel says: the cause it names and the retry instruction it gives. Nothing
+  checked that they still decide anything. Had one of them stopped reaching the copy, every
+  framed line would have measured its usual 70 cells and read like ordinary prose, while the
+  panel claimed a hard kill for every clean rescue and pointed at hotkeys that were working —
+  a flag does not make a surface go quiet, it makes it state the wrong thing. The console
+  test driver now renders both states of each flag with everything else held equal and
+  requires the two screens to differ; no wording is pinned, only that the flag still picks.
+  The OK strip's *sent* flag stays uncovered on purpose: that strip is on screen dozens of
+  times a day, so a missing `+ sent` is something a person notices.
+
 ### Changed
 
 - **The hotkey capture reads key codes, not key names (#325).** The settings app's capture
