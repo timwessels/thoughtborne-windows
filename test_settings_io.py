@@ -101,7 +101,11 @@ What is covered:
     engine.desc.* EN wording tracks config.API_DISPLAY, and the retired
     detect_ui_language() stays gone (D-015: English default, no system-language
     detection) alongside the retired hotkeys.more_suffix (D-024: one combo per
-    action, so no "(+n more)" to show).
+    action, so no "(+n more)" to show). A broken table must REPORT, not raise
+    (#313): the placeholder loop walks only the shared keys, the format pins and
+    the t() probes name a retired key as a failure of their own, and a per-run
+    proof plants both gap shapes in memory to hold check_i18n to returning with
+    the message recorded.
   - the README anchors behind the settings links (#316): every url.* value that opens
     a README twin at a #anchor is held to a heading that really stands in that twin,
     since GitHub derives the anchor from the heading text -- a renamed or translated
@@ -1291,10 +1295,15 @@ def check_i18n():
     # (btn.back as the probe: present in both tables with DIFFERENT values, so the
     # unknown-lang assert cannot pass on a fallback that returned the DE string --
     # which is why lang.de / lang.en, verbatim-identical in both tables, are no probe.)
-    check(sstr.t("btn.back", "de") == sstr._DE["btn.back"], "t(): DE lookup wrong")
-    check(sstr.t("btn.back", "en") == sstr._EN["btn.back"], "t(): EN lookup wrong")
-    check(sstr.t("btn.back", "fr") == sstr._EN["btn.back"],
-          "t(): unknown lang should fall back to EN")
+    probe_ok = "btn.back" in sstr._EN and "btn.back" in sstr._DE
+    check(probe_ok, "i18n: the t() probe btn.back is gone from a table -- restore it, "
+                    "or pick a new probe that sits in both tables with different "
+                    "values (#313)")
+    if probe_ok:
+        check(sstr.t("btn.back", "de") == sstr._DE["btn.back"], "t(): DE lookup wrong")
+        check(sstr.t("btn.back", "en") == sstr._EN["btn.back"], "t(): EN lookup wrong")
+        check(sstr.t("btn.back", "fr") == sstr._EN["btn.back"],
+              "t(): unknown lang should fall back to EN")
     check(sstr.t("no.such.key", "de") == "no.such.key",
           "t(): a missing key should fall back to the key itself")
 
@@ -1334,32 +1343,87 @@ def check_i18n():
     check("hotkeys.more_suffix" not in sstr._EN and "hotkeys.more_suffix" not in sstr._DE,
           "hotkeys.more_suffix is back -- D-024 retired the multi-combo display (#318)")
 
-    # Placeholder parity (#178): the key-set check above proves DE and EN carry the
-    # same keys, but not that a format string uses the same {…} tokens in both -- a
+    # Placeholder parity (#178): the key-set check above guards that DE and EN carry
+    # the same keys, but not that a format string uses the same {…} tokens in both -- a
     # mismatch passes i18n and then crashes .format() in one language at runtime.
     # Guard every string generically -- covers existing, new, and future format
     # strings -- then pin the exact render contract of the #178 ones below. The
-    # key-set equality asserted above makes sstr._DE[k] safe while iterating _EN.
+    # parity checks above only COLLECT (#313): a key can be missing from DE right
+    # here, so walk the shared keys only -- the parity message already names the
+    # orphan, and the driver has to reach its verdict either way.
     for k in sstr._EN:
+        if k not in sstr._DE:
+            continue
         en = set(re.findall(r"{(\w+)}", sstr._EN[k]))
         de = set(re.findall(r"{(\w+)}", sstr._DE[k]))
         check(en == de,
               f"i18n: placeholder mismatch in {k}: EN{sorted(en)} DE{sorted(de)}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["done.loop.body"])) == {"start", "stop"},
-          "done.loop.body must use exactly {start} and {stop}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["welcome.loop.body"])) == {"start", "stop"},
-          "welcome.loop.body must use exactly {start} and {stop}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["done.controls.body"]))
-          == {"exit_key", "settings_key"},
-          "done.controls.body must use exactly {exit_key} and {settings_key}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["hotkeys.capture_limit"])) == {"exit_key"},
-          "hotkeys.capture_limit must use exactly {exit_key}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["behavior.engine.remember.current"])) == {"engine"},
-          "behavior.engine.remember.current must use exactly {engine}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["behavior.engine.remember.none"])) == {"engine"},
-          "behavior.engine.remember.none must use exactly {engine}")
-    check(set(re.findall(r"{(\w+)}", sstr._EN["machine.version.body"])) == {"version"},
-          "machine.version.body must use exactly {version}")
+    # A pin looks its key up directly, so a key retired from BOTH tables -- parity
+    # green, nothing else recorded -- must fail readably here, not die as the
+    # KeyError that swallows every check block after check_i18n (#313).
+    def pin(key, *tokens):
+        if key not in sstr._EN:
+            check(False, f"i18n: pinned format key {key} is gone from EN -- "
+                         "retire the pin together with the string")
+            return
+        check(set(re.findall(r"{(\w+)}", sstr._EN[key])) == set(tokens),
+              f"{key} must use exactly "
+              + " and ".join("{" + tok + "}" for tok in sorted(tokens)))
+
+    pin("done.loop.body", "start", "stop")
+    pin("welcome.loop.body", "start", "stop")
+    pin("done.controls.body", "exit_key", "settings_key")
+    pin("hotkeys.capture_limit", "exit_key")
+    pin("behavior.engine.remember.current", "engine")
+    pin("behavior.engine.remember.none", "engine")
+    pin("machine.version.body", "version")
+
+
+def check_i18n_gap_proof():
+    """#313 per-run proof: check_i18n must REPORT a broken table, not die on it.
+
+    Two in-memory mutations, each undone before the next check block runs. An EN
+    key with no DE partner (the #313 shape) must leave the parity message naming
+    the key; a pinned format key retired from BOTH tables -- the case the parity
+    checks cannot see -- must leave the pin's own message. In both cases
+    check_i18n has to return normally: an escaping KeyError would end the driver
+    as a traceback and swallow every check block after it plus the failure print.
+    """
+    def run_and_expect(*fragments):
+        # All fragments in ONE message, rather than one literal message: the parity
+        # check lists every orphan it found, so a table that is ALREADY missing a DE
+        # key -- the very run this proof matters in -- would otherwise fail the proof
+        # over the neighbouring key in the same line.
+        before = len(failures)
+        raised = None
+        try:
+            check_i18n()
+        except Exception as e:
+            raised = f"{type(e).__name__}: {e}"
+        provoked = failures[before:]
+        del failures[before:]
+        check(raised is None,
+              f"check_i18n raised on a broken table instead of reporting: {raised}")
+        check(any(all(f in m for f in fragments) for m in provoked),
+              f"check_i18n recorded no message carrying {list(fragments)} for the "
+              "planted gap")
+
+    saved = sstr._DE.pop("btn.back", None)
+    try:
+        run_and_expect("missing in DE", "'btn.back'")
+    finally:
+        if saved is not None:
+            sstr._DE["btn.back"] = saved
+
+    saved_en = sstr._EN.pop("done.loop.body", None)
+    saved_de = sstr._DE.pop("done.loop.body", None)
+    try:
+        run_and_expect("pinned format key done.loop.body is gone")
+    finally:
+        if saved_en is not None:
+            sstr._EN["done.loop.body"] = saved_en
+        if saved_de is not None:
+            sstr._DE["done.loop.body"] = saved_de
 
 
 # ---- README anchors behind the settings links (#316) -------------------------
@@ -2871,6 +2935,7 @@ def main():
     check_verdict_coverage()
     check_string_keys()
     check_i18n()
+    check_i18n_gap_proof()
     check_readme_anchors()
     check_preselect()
     check_engine_keyed()

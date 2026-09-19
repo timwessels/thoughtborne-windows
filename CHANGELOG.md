@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings window and in both READMEs, which now also list the two toggles in the order the
   UI shows them.
 
+### Fixed
+
+- **A broken string table now reads as failure messages, not a traceback (#313).** When an
+  EN key lost its DE partner, `test_settings_io.py`'s `check_i18n` recorded the clean parity
+  message naming the key — and then died on a `KeyError` before anything printed, taking the
+  fourteen check blocks after it and the failure print down with it. Same class, worse
+  report: the seven hard-wired placeholder pins and the `btn.back` probes crash the same way
+  on a key retired from both tables — with the parity checks green, so the i18n checks record
+  nothing at all. The placeholder loop now walks only the keys both tables share, the pins and
+  the probes report a missing key as a failure of their own, and a per-run proof plants both
+  gap shapes in memory to hold `check_i18n` to reporting-and-returning.
+
 ## [1.2.0rc1] - 2026-09-16
 
 ### Added
