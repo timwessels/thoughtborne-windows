@@ -18,9 +18,9 @@ ctypes, and the i18n completeness test depends on that.
 Two wording contracts are load-bearing (mirror them if either source changes):
   - `engine.desc.*` EN equals `config.API_DISPLAY[api]["descriptor"]` (one engine
     descriptor, two surfaces -- the console lineup and the settings engine radios).
-  - the hotkey-validator detail surfaced under `capture.invalid` /
-    `hotkeys.status.warn_prefix` stays English in both languages (it is the same
-    text `thoughtborne.log` prints); the localized headline carries the meaning.
+  - the hotkey-validator detail surfaced under `capture.invalid` stays English in
+    both languages (it is the same text `thoughtborne.log` prints); the localized
+    headline carries the meaning.
 """
 
 # =============================================================================
@@ -213,8 +213,6 @@ _EN = {
         "and arrow keys, the numpad, Pause or Scroll Lock."),
     "capture.invalid": "Not a usable combo ({detail}).",
     "capture.collision": "Already used by: {action}",
-    "hotkeys.status.ok": "All hotkeys are valid — no collisions.",
-    "hotkeys.status.warn_prefix": "Hotkey problems (the defaults stay for these):",
     "hotkeys.mouse.title": "Tip: Use a mouse button as a hotkey",
     "hotkeys.mouse.body": (
         "Use mouse buttons such as back/forward as hotkeys by assigning the key "
@@ -394,10 +392,6 @@ _EN = {
         "UTF-8. Your hotkeys and preferences will still be saved, and Thoughtborne "
         "restarts so they take effect — as long as the file cannot be read, this "
         "setup window opens again afterwards. Save and restart now?"),
-    "dlg.hotkeywarn.title": "Hotkey problems",
-    "dlg.hotkeywarn.body": (
-        "Some hotkeys would be ignored at startup — the defaults stay in force for "
-        "them (details on the Hotkeys tab). Save anyway?"),
     "dlg.reset.title": "Reset to defaults",
     "dlg.reset.body": (
         "This puts your hotkeys, push-to-talk, the engine to start on and the "
@@ -448,11 +442,6 @@ _EN = {
         "Your settings were saved, but the restart request could not be written, so "
         "Thoughtborne keeps running as it is. The changes take effect the next time "
         "it starts — please restart it yourself."),
-    "warn.corrupt": (
-        "personal_settings.json exists but could not be parsed — saving from here "
-        "will replace it with a clean file. To rescue hand-edited content (e.g. "
-        "vocabulary), fix the file in a text editor first. Until then, the language "
-        "chosen here is not remembered."),
 }
 
 _DE = {
@@ -654,8 +643,6 @@ _DE = {
         "verwenden."),
     "capture.invalid": "Keine verwendbare Kombination ({detail}).",
     "capture.collision": "Schon vergeben an: {action}",
-    "hotkeys.status.ok": "Alle Hotkeys sind gültig – keine Kollisionen.",
-    "hotkeys.status.warn_prefix": "Hotkey-Probleme (für diese bleiben die Defaults):",
     "hotkeys.mouse.title": "Tipp: Eine Maustaste als Hotkey verwenden",
     "hotkeys.mouse.body": (
         "Nutze Maustasten wie Vor-/Zurück-Tasten als Hotkey, indem du die "
@@ -843,10 +830,6 @@ _DE = {
         "gespeichert, und Thoughtborne startet neu, damit sie greifen – solange die "
         "Datei nicht lesbar ist, öffnet sich diese Einrichtung danach wieder. Jetzt "
         "speichern und neu starten?"),
-    "dlg.hotkeywarn.title": "Hotkey-Probleme",
-    "dlg.hotkeywarn.body": (
-        "Einige Hotkeys würden beim Start ignoriert – für sie blieben die Defaults "
-        "in Kraft (Details im Hotkeys-Tab). Trotzdem speichern?"),
     "dlg.reset.title": "Auf Standard zurücksetzen",
     "dlg.reset.body": (
         "Hotkeys, Push-to-talk, die Engine beim Start und die Sprache dieses "
@@ -903,11 +886,6 @@ _DE = {
         "Deine Einstellungen wurden gespeichert, aber die Neustart-Anfrage konnte "
         "nicht geschrieben werden – Thoughtborne läuft unverändert weiter. Die "
         "Änderungen gelten ab dem nächsten Start; bitte starte es selbst neu."),
-    "warn.corrupt": (
-        "personal_settings.json existiert, ließ sich aber nicht parsen – Speichern "
-        "ersetzt sie durch eine saubere Datei. Um handgepflegte Inhalte (z. B. "
-        "Vokabular) zu retten, die Datei vorher in einem Texteditor reparieren. "
-        "Bis dahin wird die hier gewählte Sprache nicht gemerkt."),
 }
 
 _TABLES = {"en": _EN, "de": _DE}

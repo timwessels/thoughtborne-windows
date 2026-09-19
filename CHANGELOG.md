@@ -51,8 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An ANSI/cp1252 file used to dead-end the save and the reset in an abort dialog; now it
   is treated like corrupt JSON — backed up byte-exact and rewritten cleanly — so the
   intact vocabulary lives on in the backup while the user gets a working file. Opening
-  the settings window over such a file raises the same warning strip as a corrupt one
-  instead of a load-failure dialog. Invalid values in the app-managed entries
+  the settings window over such a file no longer stops at a load-failure dialog — it
+  opens on the effective state like any other. Invalid values in the app-managed entries
   (`defaults.api`, `push_to_talk.enabled`, `ui.language`) are normalized on save to the
   defaults the window showed for them, safe now because the backup keeps the trace;
   everything hand-written and every valid entry stays leave-as-found. The reset's
@@ -82,6 +82,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not under Interaction, where Microsoft's own documentation files them. Corrected in the
   settings window and in both READMEs, which now also list the two toggles in the order the
   UI shows them.
+
+### Removed
+
+- **The settings window no longer makes statements about file health (#326, D-026).** Three
+  surfaces are gone: the hotkey tab's status line (permanently green — every feed of the hotkey
+  state passes the validator first, so its warning branch could never be reached), the "save
+  anyway?" hotkey-problems dialog in the save path (the same dead twin), and the yellow banner
+  shown over an already-broken `personal_settings.json` when the window opened. A check that by
+  construction cannot find anything is decoration, and falsely reassuring decoration is worse
+  than none. The window shows the effective state; file problems stay visible where they always
+  were — the tool's console and `thoughtborne.log` — and the safety net for a broken file is
+  #263's backup-before-loss lane, not a dialog.
 
 ### Fixed
 

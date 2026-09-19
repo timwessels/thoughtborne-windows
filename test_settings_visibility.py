@@ -834,7 +834,7 @@ def _sweep_empty_text(app, root, tab_map, where):
             try:
                 text = str(widget.cget("text"))
                 # Unplaced is not on the page: a blank there is invisible and harmless
-                # (warn_strip's resting state), and only pack/grid/place put it up.
+                # (a widget built but never packed), and only pack/grid/place put it up.
                 placed = widget.winfo_manager() != ""
             except tk.TclError:
                 text, placed = "", False
@@ -863,8 +863,8 @@ def _sweep_empty_text(app, root, tab_map, where):
 
 
 def test_empty_label_sweep_with_display():
-    # The version-line check above, generalized to its whole class (#299). 27 of the
-    # app's ~142 text elements are built empty and filled only out of render_all, and
+    # The version-line check above, generalized to its whole class (#299). 26 of the
+    # app's ~143 text elements are built empty and filled only out of render_all, and
     # before this lane exactly one of them was asserted. Each of the nine render paths
     # render_all calls can drop out on its own, and every one leaves the same signature
     # #281 had: a blank gap on the page, no exception, a green ladder. So after the app
@@ -1292,8 +1292,9 @@ def test_language_toggle_gate_with_display():
     _showerror = ts.messagebox.showerror
     try:
         # A modal showerror from __init__ would hang a headless run with nobody to
-        # dismiss it (the load-error path; the corrupt fixture below takes the strip
-        # path, but the idiom costs nothing and keeps the test robust).
+        # dismiss it (the load-error path; the corrupt fixture below is a different
+        # class and since #326 raises no surface at all, but the idiom costs nothing
+        # and keeps the test robust).
         ts.messagebox.showerror = lambda *a, **k: None
 
         with _app_sandbox() as tmp:
@@ -1308,9 +1309,14 @@ def test_language_toggle_gate_with_display():
             app = ts.SettingsApp(root, first_run=False)
             root.update()
             check(app.lang == "en", f"the app should load English (D-015), got {app.lang}")
-            check(app.warn_strip.winfo_manager() == "pack",
-                  "a corrupt personal_settings.json did not raise the warning strip -- "
-                  "the user gets no hint that the language will not be remembered")
+            # #326, D-026: the window makes no statements about file health -- the
+            # pre-open corruption strip is gone entirely, not hidden. Same fixture,
+            # inverted assertion: the app opens over a corrupt file carrying no strip
+            # attribute at all (a returning attribute means a returning surface).
+            check(not hasattr(app, "warn_strip"),
+                  "the corruption strip is back on the app -- #326/D-026 removed the "
+                  "settings window's file-health UI; the log and the save-time backup "
+                  "lane carry this now")
 
             # The real toggle: what the header radio's command does.
             app.lang_var.set("de")

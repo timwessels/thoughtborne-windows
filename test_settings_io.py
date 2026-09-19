@@ -125,11 +125,12 @@ What is covered:
     engine.desc.* EN wording tracks config.API_DISPLAY, and the retired
     detect_ui_language() stays gone (D-015: English default, no system-language
     detection) alongside the retired hotkeys.more_suffix (D-024: one combo per
-    action, so no "(+n more)" to show). A broken table must REPORT, not raise
-    (#313): the placeholder loop walks only the shared keys, the format pins and
-    the t() probes name a retired key as a failure of their own, and a per-run
-    proof plants both gap shapes in memory to hold check_i18n to returning with
-    the message recorded.
+    action, so no "(+n more)" to show) and the five retired file-health keys
+    (#326, D-026: the window says nothing about the file behind it). A broken table
+    must REPORT, not raise (#313): the placeholder loop walks only the shared keys,
+    the format pins and the t() probes name a retired key as a failure of their own,
+    and a per-run proof plants both gap shapes in memory to hold check_i18n to
+    returning with the message recorded.
   - the README anchors behind the settings links (#316): every url.* value that opens
     a README twin at a #anchor is held to a heading that really stands in that twin,
     since GitHub derives the anchor from the heading text -- a renamed or translated
@@ -1778,6 +1779,15 @@ def check_i18n():
     # guard as the one above -- a returning key means a returning multi-combo display.
     check("hotkeys.more_suffix" not in sstr._EN and "hotkeys.more_suffix" not in sstr._DE,
           "hotkeys.more_suffix is back -- D-024 retired the multi-combo display (#318)")
+
+    # #326, D-026: the settings window makes no statements about file health -- the
+    # always-green hotkey status line, its dead save-time dialog and the pre-open
+    # corruption strip went entirely. A returning key means a returning surface.
+    for key in ("hotkeys.status.ok", "hotkeys.status.warn_prefix",
+                "dlg.hotkeywarn.title", "dlg.hotkeywarn.body", "warn.corrupt"):
+        check(key not in sstr._EN and key not in sstr._DE,
+              f"{key} is back -- #326/D-026 removed the settings app's file-health "
+              "surfaces; the log is the user's window into file problems")
 
     # Placeholder parity (#178): the key-set check above guards that DE and EN carry
     # the same keys, but not that a format string uses the same {…} tokens in both -- a

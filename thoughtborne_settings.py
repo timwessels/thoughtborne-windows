@@ -330,16 +330,18 @@ class SettingsApp:
 
         # ---- load state from the CP1 IO (the GUI's own live view) --------------
         load_error = None
-        warning = None
         try:
-            personal, warning = settings_io.read_personal_settings(
+            # The reader's warning is dropped on purpose: the window makes no
+            # statements about file health (#326, D-026). The log carries it, and
+            # the save re-probes the file itself for the backup lane (#263).
+            personal, _warning = settings_io.read_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json")
         except Exception as e:
             # A locked file (the bytes cannot be read): continue with empty state;
             # every save will abort the same way until the user fixes it (nothing
-            # is clobbered). A non-UTF-8 file lands in `warning` instead since
-            # D-026: it is a whole-file loss class a save backs up and rewrites.
-            personal, warning, load_error = {}, None, e
+            # is clobbered). A non-UTF-8 file is NOT this class since D-026: it is
+            # a whole-file loss a save backs up and rewrites.
+            personal, load_error = {}, e
 
         hk = personal.get("hotkeys")
         hk = hk if isinstance(hk, dict) else {}
@@ -460,9 +462,6 @@ class SettingsApp:
             messagebox.showerror(
                 strings.t("dlg.loadfail.title", self.lang),
                 strings.t("dlg.loadfail.body", self.lang) + "\n\n" + str(load_error))
-        elif warning:
-            # Text comes from the render registry (warn.corrupt); just make it visible.
-            self.warn_strip.pack(side="top", fill="x", padx=12, before=self.notebook)
 
         root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
@@ -517,15 +516,15 @@ class SettingsApp:
 
     def _register_wrap(self, lbl):
         """Register a wrapping label for the coalesced wrap pass (#203). Every wrapping
-        label -- prose, dynamic prose, the hotkey capture/status lines, the corrupt-file
-        strip, the wizard subtitle -- goes through one mechanism: its own <Configure>
-        stores the label's realized width and schedules a single idle _push_wraps, which
-        is the ONLY place wraplength is actually set. Deferring the set is the fix: each
-        wraplength change forces a full GDI text remeasurement, and the initial layout
-        steps a label through several real widths, so setting wraplength on every
-        <Configure> (the pre-fix behaviour) cost seconds of native layout work per open
-        on Windows. Keeping wraplength fixed through the storm lets Tk reuse the cached
-        text layout, and the push then measures each label once per settled width.
+        label -- prose, dynamic prose, the hotkey capture line, the wizard subtitle --
+        goes through one mechanism: its own <Configure> stores the label's realized width
+        and schedules a single idle _push_wraps, which is the ONLY place wraplength is
+        actually set. Deferring the set is the fix: each wraplength change forces a full
+        GDI text remeasurement, and the initial layout steps a label through several real
+        widths, so setting wraplength on every <Configure> (the pre-fix behaviour) cost
+        seconds of native layout work per open on Windows. Keeping wraplength fixed
+        through the storm lets Tk reuse the cached text layout, and the push then measures
+        each label once per settled width.
 
         Trade-off: until the first push runs, wraplength is 0, so a label is one line at
         its natural width. The push runs at idle before Tk redraws, so under X11 the
@@ -566,7 +565,7 @@ class SettingsApp:
         self._wrap_push_pending = False
         # The upper bound for a settled label width is the window width -- nothing can be
         # wider than the toplevel. A canvas-body label caps below that at _column_px; a
-        # root-chrome label (warn strip, wizard subtitle) can span the full width. A
+        # root-chrome label (the wizard subtitle) can span the full width. A
         # stored width above this bound is a not-yet-pinned label still at its full
         # single-line natural width, so skip it (a max() fallback covers an unmapped
         # root whose winfo_width is still 1).
@@ -675,13 +674,6 @@ class SettingsApp:
         # rail first (pinned bottom), then header (top), then notebook (fills).
         self._build_rail()
         self._build_header()
-        self.warn_strip = ttk.Label(self.root, style="Warn.TLabel", justify="left")
-        # Register it so render_all() re-renders its text on a language toggle; its
-        # only text is warn.corrupt, and it stays unpacked (invisible) until a corrupt
-        # settings file packs it into view below. #155: wrap dynamically like _prose
-        # (the old fixed wraplength=740 was wrong at every scaling != 100 %).
-        self._reg(self.warn_strip, "warn.corrupt")
-        self._register_wrap(self.warn_strip)
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(side="top", fill="both", expand=True, padx=8, pady=(2, 0))
         self._tab_frames = [
@@ -1211,8 +1203,8 @@ class SettingsApp:
 
         # A dynamic advisory (#178): a combo the running tool already holds can't be
         # captured here. Rendered from hotkeys_state so the {exit_key} hint tracks a
-        # rebind of exit_program (its own attribute -- never overwrite capture_lbl /
-        # status_lbl below).
+        # rebind of exit_program (its own attribute -- never overwrite capture_lbl
+        # below).
         self.capture_limit_lbl = self._prose_dyn(f, surface="Muted.")
         self.capture_limit_lbl.pack(fill="x", pady=(0, sp(8)))
 
@@ -1265,15 +1257,12 @@ class SettingsApp:
             cb.grid(row=r, column=2, sticky="e", pady=sp(3))
 
         # capture_lbl carries the amber capture feedback (unbindable / need-modifier /
-        # invalid / collision), status_lbl the hotkey warnings -- the longest single
-        # lines on the tab. Wrap them to their own width like _prose so a long German
-        # message reflows instead of running past the capped content column (#155).
+        # invalid / collision) -- the longest single lines on the tab. Wrap it to its
+        # own width like _prose so a long German message reflows instead of running
+        # past the capped content column (#155).
         self.capture_lbl = ttk.Label(f, foreground=AMBER, justify="left")
         self.capture_lbl.pack(fill="x", pady=(sp(8), sp(2)))
-        self.status_lbl = ttk.Label(f, justify="left")
-        self.status_lbl.pack(fill="x")
-        for _lbl in (self.capture_lbl, self.status_lbl):
-            self._register_wrap(_lbl)
+        self._register_wrap(self.capture_lbl)
         return outer
 
     def _build_preset_card(self, parent, which, title_key, body_key, caveat_key=None):
@@ -1297,7 +1286,6 @@ class SettingsApp:
                               else settings_io.preset_fkeys())
         self._disarm()
         self._render_hotkey_grid()
-        self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
@@ -1327,20 +1315,6 @@ class SettingsApp:
     def _render_hotkey_grid(self):
         for name in self._combo_labels:
             self._render_combo_label(name)
-
-    def _hotkey_warnings(self):
-        diff = settings_io.hotkeys_diff_vs_default(self.hotkeys_state, config.DEFAULT_HOTKEYS)
-        _eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, diff)
-        return warns
-
-    def _render_hotkey_status(self):
-        warns = self._hotkey_warnings()
-        if not warns:
-            self.status_lbl.config(text=strings.t("hotkeys.status.ok", self.lang),
-                                   foreground=GREEN)
-        else:
-            text = strings.t("hotkeys.status.warn_prefix", self.lang) + "\n" + "\n".join(warns)
-            self.status_lbl.config(text=text, foreground=AMBER)
 
     # capture widget interaction
     def _arm(self, name):
@@ -1404,7 +1378,6 @@ class SettingsApp:
         self.hotkeys_state[name] = candidate[name]
         self.capture_lbl.config(text="")
         self._disarm()
-        self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
@@ -1766,13 +1739,11 @@ class SettingsApp:
         # carry (corrupt or undecodable -- one warning class since D-026)
         # write_ui_language is a byte-identical no-op instead of skeletoning over
         # hand-written blocks -- rewriting such a file, backup included, belongs to
-        # the deliberate actions alone (D-026), and the warn strip already on screen
-        # says the language is not
-        # remembered until the file is fixed. One rule for both modes: the language radios
-        # live in the shared header, so this fires in the wizard and the everyday dialog
-        # alike. Best-effort -- a gated or failed write costs only the remembered display
-        # language, never the settings, so it stays silent rather than raising an error
-        # dialog on every toggle (mirrors engine_memory.write_last_engine's stance).
+        # the deliberate actions alone (D-026). One rule for both modes: the language
+        # radios live in the shared header, so this fires in the wizard and the everyday
+        # dialog alike. Best-effort -- a gated or failed write costs only the remembered
+        # display language, never the settings, so it stays silent rather than raising an
+        # error dialog on every toggle (mirrors engine_memory.write_last_engine's stance).
         try:
             settings_io.write_ui_language(
                 config.SCRIPT_DIR / "personal_settings.json", self.lang,
@@ -1936,7 +1907,6 @@ class SettingsApp:
             self._render_indicator(provider)
         self._render_engine_control()
         self._render_hotkey_grid()
-        self._render_hotkey_status()
         self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
@@ -1977,10 +1947,10 @@ class SettingsApp:
 
     def _save(self):
         # Pre-save checks (order matters): the file pre-flight first, then no key at
-        # all, then hotkey warnings. A key is present if one is entered OR one is
-        # already stored (_has_any_key -- a blank field never clobbers a stored key, so
-        # an empty field on top of a stored key is NOT keyless, and the "no key"
-        # warning must not fire there).
+        # all. A key is present if one is entered OR one is already stored
+        # (_has_any_key -- a blank field never clobbers a stored key, so an empty
+        # field on top of a stored key is NOT keyless, and the "no key" warning must
+        # not fire there).
         #
         # #291: settings_io.unreadable_save_target -- its docstring carries the why.
         # It runs HERE, ahead of both confirmations, because there is nothing to ask
@@ -2016,10 +1986,6 @@ class SettingsApp:
                 body_key = "dlg.nokey.body"
             if not messagebox.askyesno(strings.t(title_key, self.lang),
                                        strings.t(body_key, self.lang)):
-                return
-        if self._hotkey_warnings():
-            if not messagebox.askyesno(strings.t("dlg.hotkeywarn.title", self.lang),
-                                       strings.t("dlg.hotkeywarn.body", self.lang)):
                 return
 
         # Engine field (#193/#198, D-008): derive the two on-save signals from the

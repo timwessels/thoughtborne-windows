@@ -37,7 +37,7 @@ _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # The palette constants that must be #RRGGBB strings.
 COLOUR_NAMES = (
     "INK", "INK_SOFT", "MUTED", "PAGE", "CARD", "CARD_HOVER", "TAB_BG", "LINE",
-    "CONTROL_LINE", "FIELD", "SEL", "FOCUS", "WARN_BG", "WARN_LINE",
+    "CONTROL_LINE", "FIELD", "SEL", "FOCUS",
     "PRIMARY_BG", "PRIMARY_BG_HOVER", "PRIMARY_BG_ACTIVE", "PRIMARY_FG",
     "LINK_COLOR", "TEXT_COLOR", "GREEN", "RED", "GREY", "AMBER",
 )
@@ -52,7 +52,7 @@ TEXT_ON = (
     ("GREEN", ("PAGE", "CARD")),
     ("RED", ("PAGE", "CARD")),
     ("GREY", ("PAGE", "CARD")),
-    ("AMBER", ("PAGE", "CARD", "WARN_BG")),   # the warn strip sits on WARN_BG
+    ("AMBER", ("PAGE", "CARD")),
     ("PRIMARY_FG", ("PRIMARY_BG", "PRIMARY_BG_HOVER")),  # white on the navy button
 )
 

@@ -48,8 +48,6 @@ FIELD        = "#090D12"   # input wells sit *below* the page, like a prompt lin
 SEL          = "#1F4A66"   # text selection
 ACCENT       = "#59C2FF"   # the console masthead accent (console_ui.ACCENT)
 FOCUS        = ACCENT      # focus ring == accent (one accent, not two)
-WARN_BG      = "#241D0C"
-WARN_LINE    = "#57451D"
 PRIMARY_BG        = ACCENT # the one glowing action: accent-filled, dark text
 PRIMARY_BG_HOVER  = "#7CD0FF"
 PRIMARY_BG_ACTIVE = "#38A8EC"
@@ -179,12 +177,8 @@ def apply_theme(root):
     st.configure("H1.TLabel", font=th.h1_font, foreground=ACCENT)
     st.configure("H2.TLabel", font=th.h2_font)
     st.configure("Title.TLabel", font=th.title_font, foreground=ACCENT)
-    st.configure("Warn.TLabel", background=WARN_BG, foreground=AMBER,
-                 padding=(th.sp(10), th.sp(7)), relief="solid", borderwidth=1,
-                 bordercolor=WARN_LINE)          # a bordered amber callout strip
     # A borderless amber guidance line (#201): AMBER text on the page, no box -- a
-    # calm "next step" note, distinct from Warn.TLabel's bordered "something is
-    # broken" callout. AMBER on PAGE (and CARD) is WCAG-checked in
+    # calm "next step" note. AMBER on PAGE (and CARD) is WCAG-checked in
     # test_settings_theme.py. Inherits background=PAGE + body font from TLabel.
     st.configure("Hint.TLabel", foreground=AMBER)
     # Card twins: only the background differs; foreground/font inherit by dotted

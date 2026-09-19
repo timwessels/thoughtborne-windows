@@ -731,10 +731,9 @@ def write_ui_language(path, language, example_path=None) -> bool:
 
     The corruption is probed FRESH on every call rather than carried from load time:
     a file that breaks while the window is open is protected too, and one that is
-    FIXED while it is open starts persisting again (which is what makes the warn
-    strip's "until the file is fixed" sentence literally true). The cost is one extra
-    read of a tiny file per toggle, and a millisecond-wide TOCTOU window between probe
-    and write -- irrelevant against today's unconditional clobber.
+    FIXED while it is open starts persisting again. The cost is one extra read of a
+    tiny file per toggle, and a millisecond-wide TOCTOU window between probe and
+    write -- irrelevant against today's unconditional clobber.
 
     A MISSING file is not a warning and stays the normal first-run lane (managed
     skeleton + ui.language), so a wizard toggle still persists. A present-but-
