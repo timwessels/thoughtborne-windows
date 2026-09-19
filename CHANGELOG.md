@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The OK strip's *sent* flag stays uncovered on purpose: that strip is on screen dozens of
   times a day, so a missing `+ sent` is something a person notices.
 
+- **The settings reader now speaks at the block level too (#327, D-026).** Until now a
+  whole block of `personal_settings.json` could disappear without a word: a block written
+  as something other than an object (`"push_to_talk": "on"`) was dropped in silence, and a
+  mistyped block name (`hotkyes`, `vocabluary`) was completely invisible — no log line, no
+  console line, the tool simply running on defaults while the file looked right. Both now
+  leave a warning in `thoughtborne.log` and on the console at startup, a mistyped name with
+  the nearest known one offered (*did you mean 'hotkeys'?*) and an unrecognizable one with
+  the list of blocks that exist. Keys starting with `_` stay reserved for comments and are
+  never flagged, whatever they hold, and the file itself is never touched — the warning is
+  the remedy. The test ladder also covers the read paths that had none: every `push_to_talk`
+  and `soniox_endpointing` validation rule read back as the values a running tool would use,
+  the vocabulary's arrival in both real Soniox requests, and three complete settings files
+  driven through the whole load path on every run — the 2026-04 and 2026-07 shapes, plus one
+  carrying a retired value beside a block this version does not know — so an old file quietly
+  losing its meaning becomes a failing test rather than a surprise.
+
 ### Changed
 
 - **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**
@@ -138,6 +154,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unterminated quote in a hand-edited file (a `"` or `'` with no partner on
   the line) keeps its meaning — the character stays part of the value, as it always did —
   but now leaves a start-up warning instead of passing in silence.
+
+- **Three places that said the wrong thing about the engine and the settings file (#327).**
+  The startup log's `Configuration: Default API=…` line named the *configured* default while
+  the `Startup engine:` line above it named the engine the start actually uses — so a start
+  on a remembered engine read like two contradicting entries. It now says `default engine=…`
+  and whether that is the built-in one or a pin from `personal_settings.json`.
+  `runtime_state.json` told its reader it records "the engine you last selected with the
+  switch hotkey", though the settings app writes it too; it now names both ways, as does the
+  module behind it. And the settings window's load-failure dialog no longer blames an
+  unexpected encoding: since the backup lane (D-026) a wrongly encoded file does not land
+  there at all, so the dialog names the case that does — a file another program holds locked.
 
 ## [1.2.0rc1] - 2026-09-16
 

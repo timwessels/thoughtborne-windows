@@ -425,9 +425,9 @@ _EN = {
     "dlg.loadfail.title": "Settings couldn't be read",
     "dlg.loadfail.body": (
         "Your saved settings could not be read — Thoughtborne opened with the "
-        "defaults, and nothing has been changed. A file may be locked or in an "
-        "unexpected encoding; saving stays blocked until it can be read again. The "
-        "technical detail:"),
+        "defaults, and nothing has been changed. The file may be open in another "
+        "program that holds it locked; saving stays blocked until it can be read "
+        "again. The technical detail:"),
     "dlg.startfail.title": "Start failed",
     "dlg.startfail.body": (
         "The settings were saved, but Thoughtborne could not be started from here "
@@ -869,9 +869,9 @@ _DE = {
     "dlg.loadfail.body": (
         "Die gespeicherten Einstellungen konnten nicht gelesen werden – "
         "Thoughtborne startete mit den Standardwerten, und es wurde nichts "
-        "geändert. Möglicherweise ist eine Datei gesperrt oder in einer "
-        "unerwarteten Kodierung; Speichern bleibt blockiert, bis sie wieder lesbar "
-        "ist. Das technische Detail:"),
+        "geändert. Möglicherweise ist die Datei in einem anderen Programm geöffnet, "
+        "das sie sperrt; Speichern bleibt blockiert, bis sie wieder lesbar ist. "
+        "Das technische Detail:"),
     "dlg.startfail.title": "Start fehlgeschlagen",
     "dlg.startfail.body": (
         "Die Einstellungen wurden gespeichert, aber Thoughtborne ließ sich von "

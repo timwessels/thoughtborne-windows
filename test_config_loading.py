@@ -22,6 +22,21 @@ processes), the `IMPORT_WARNINGS` / `replay_import_warnings()` contract that get
 import-time warnings into thoughtborne.log instead of stderr, and two static guards
 that keep both halves wired.
 
+Since #327 the BLOCK level of that file is covered too -- it used to be the silent
+one. Every top-level entry now passes one gate in the reader (an unknown name warns
+with a nearest-name hint, a known block of the wrong type warns and is dropped, a
+`_`-prefixed key is never looked at), and the tuple that gate judges against is held
+to the shipped example and to the reads of both programs so it cannot become a second
+truth. The two blocks with real per-entry validation are checked where that validation
+lives, at module level below the reader: `push_to_talk` and `soniox_endpointing`, one
+fixture per rule family, each read back as the constants a running tool would use.
+Three complete historical files go the same way on every run (D-026's frozen-fixture
+rule -- the 2026-04 and 2026-07 shapes and a downgrade file), because a per-rule lane
+cannot show what a user actually meets, which is one whole file meeting one program.
+And the vocabulary's last mile is measured rather than assumed: what the reader kept
+has to arrive in the real Soniox request -- the async body and the live WebSocket
+config, the endpointing block riding along on the second.
+
 `.env` (#238, #269) gets the same treatment for the same reason -- it is written by
 hand or by an assisting agent, on a Windows whose PowerShell defaults are ANSI,
 UTF-16 and UTF-8-with-BOM. Since #269 it is also the ONLY place a key may come from
@@ -60,8 +75,8 @@ anything else -- a torn reflog, a `ref:` pointing outside `refs/`, no `.git` at 
 -- is to yield None and cost nothing, so it is checked exactly like the readers
 above: against tempdir layouts, and once more through a real `import config`.
 
-The Soniox constructor lane needs `groq` (transcriber's only third-party import off
-Windows) and skips cleanly without it, and the checkout lane's one assertion against
+The three Soniox lanes need `groq` (transcriber's only third-party import off
+Windows) and skip cleanly without it, and the checkout lane's one assertion against
 the real repository skips where there is no `.git` to read (an exported tree); the
 `.env` lanes need nothing beyond the stdlib and always run. Starting the real tool
 with a broken file and reading the resulting thoughtborne.log line stays hands-on
@@ -74,10 +89,12 @@ import ast
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from datetime import datetime
 from pathlib import Path
 
@@ -272,6 +289,133 @@ def test_never_raises(d):
 
 
 # ======================================================================
+# The block lane: the top-level gate every entry passes (#327)
+# ======================================================================
+
+def test_block_types(d):
+    """A known block of the wrong type warns and is dropped -- what `vocabulary`
+    has always done, now for all six, because a block dropped in silence is the
+    gap D-026's warn duty closes. One warning per block, its siblings untouched,
+    and the wording is the one `vocabulary` already had (the sibling blocks are
+    not worth a second phrasing). An explicit null keeps its exemption: it says
+    "nothing configured", which is not a mistake and reads like an absent block
+    everywhere below."""
+    for block in config.KNOWN_SETTINGS_BLOCKS:
+        siblings = {k: {} for k in config.KNOWN_SETTINGS_BLOCKS if k != block}
+        for value, kind in ((["Claude", "WSL2"], "list"), ("on", "str"),
+                            (42, "int"), (True, "bool")):
+            payload = dict(siblings, **{block: value, "_comment": "a note"})
+            values, warnings = load(d, json.dumps(payload).encode("utf-8"))
+            check(block not in values,
+                  f"{block} as {kind} survived as {values.get(block)!r} -- every read "
+                  f"below the loader would have to guard its own type again")
+            check(len(warnings) == 1,
+                  f"{block} as {kind}: expected one warning, got {warnings}")
+            check(warnings and f"personal_settings '{block}' must be an object; "
+                               f"ignoring (got {kind})" in warnings[0],
+                  f"{block} as {kind}: warning wording drifted: {warnings}")
+            check({k: v for k, v in values.items() if k != "_comment"} == siblings,
+                  f"{block} as {kind} took the other blocks down with it: {values!r}")
+
+    for block in config.KNOWN_SETTINGS_BLOCKS:
+        values, warnings = load(d, json.dumps({block: None}).encode("utf-8"))
+        check(values.get(block) is None and warnings == [],
+              f"an explicit null {block} should be silent, got ({values!r}, {warnings})")
+
+
+def test_unknown_blocks(d):
+    """The typo class D-026 names by example: `hotkyes` used to be completely
+    invisible -- no log line, no console line, the tool simply running on
+    defaults. Now it warns, with the nearest known name where difflib finds one
+    and the known list spelled out where it does not, so the answer is in the
+    warning either way.
+
+    Two things the gate deliberately does NOT do: it does not drop an unknown
+    block (nothing reads it, and a reader never edits user land), and it never
+    looks at a `_`-prefixed key -- that is the file's comment convention, so the
+    value may be anything at all."""
+    known = ", ".join(config.KNOWN_SETTINGS_BLOCKS)
+    for name, fragment in (("hotkyes", "did you mean 'hotkeys'?"),
+                           ("vocabluary", "did you mean 'vocabulary'?"),
+                           ("pushtotalk", "did you mean 'push_to_talk'?"),
+                           ("endpointing", "did you mean 'soniox_endpointing'?"),
+                           ("dictation", f"(known blocks: {known})"),
+                           ("engine", f"(known blocks: {known})")):
+        values, warnings = load(d, json.dumps({name: {"x": 1}}).encode("utf-8"))
+        check(len(warnings) == 1, f"unknown block {name}: expected one warning, got {warnings}")
+        check(warnings and f"unknown block '{name}'" in warnings[0] and fragment in warnings[0],
+              f"unknown block {name}: the warning does not carry {fragment!r}: {warnings}")
+        check(values.get(name) == {"x": 1},
+              f"unknown block {name} was dropped -- the reader leaves user land alone")
+
+    values, warnings = load(d, json.dumps(
+        {"_note": "a comment", "_comment": 42, "_x": ["anything"]}).encode("utf-8"))
+    check(warnings == [], f"a `_`-prefixed key was flagged: {warnings}")
+    check(len(values) == 3, f"a `_`-prefixed key was dropped: {values!r}")
+
+    # Two of them: one warning each, in the file's own order (json.loads keeps it),
+    # so a file with several typos reads top to bottom like the file does.
+    values, warnings = load(d, b'{"zzz": {}, "aaa": {}}')
+    check(len(warnings) == 2 and "'zzz'" in warnings[0] and "'aaa'" in warnings[1],
+          f"two unknown blocks did not warn once each, in file order: {warnings}")
+
+    # Both faults in one file: the unknown block and the wrongly typed known one.
+    values, warnings = load(d, b'{"dictation": {}, "push_to_talk": "on"}')
+    check(len(warnings) == 2 and "unknown block 'dictation'" in warnings[0]
+          and "'push_to_talk' must be an object" in warnings[1],
+          f"an unknown block beside a wrongly typed known one: {warnings}")
+
+
+def test_known_blocks_drift():
+    """`config.KNOWN_SETTINGS_BLOCKS` is the tuple the gate judges every user file
+    against, so it has to stay the same set as the file surface it speaks for --
+    checked from both sides, because either drift is silent and lands in a user's
+    log rather than here.
+
+    `personal_settings.example.json` is the documented surface: a block shipped
+    there without a reader would make the tool warn about its own example, and a
+    reader without a documented block would be undocumented. The `.get(...)` reads
+    on the parsed dict are the live surface: a new read that forgets the tuple
+    would make the tool warn about the very block it just started reading. Both
+    settings-app modules that read a block are scanned too -- `ui` is read in the
+    window and nowhere else, which is exactly the kind of block that goes missing
+    from a list kept in the tool, and `settings_io` reads one in a pure helper
+    (`read_ptt_enabled`). Its save lanes are deliberately not scanned: those merge
+    into the user's file rather than read a block, and they say `data`/`found`."""
+    root = Path(__file__).resolve().parent
+    known = set(config.KNOWN_SETTINGS_BLOCKS)
+    check(len(known) == len(config.KNOWN_SETTINGS_BLOCKS),
+          f"KNOWN_SETTINGS_BLOCKS has a duplicate: {config.KNOWN_SETTINGS_BLOCKS}")
+    try:
+        example = json.loads((root / "personal_settings.example.json")
+                             .read_text(encoding="utf-8-sig"))
+    except Exception as e:
+        failures.append(f"could not read personal_settings.example.json: "
+                        f"{type(e).__name__}: {e}")
+    else:
+        documented = {k for k in example if not k.startswith("_")}
+        check(documented == known,
+              f"personal_settings.example.json documents {sorted(documented)} while "
+              f"config.KNOWN_SETTINGS_BLOCKS holds {sorted(known)} -- a block in one "
+              f"and not the other is either undocumented or warned about in every "
+              f"user's log")
+
+    for name, expression in (("config.py", r'_settings\.get\("([^"]+)"'),
+                             ("thoughtborne_settings.py", r'personal\.get\("([^"]+)"'),
+                             ("settings_io.py", r'personal\.get\("([^"]+)"')):
+        try:
+            src = (root / name).read_text(encoding="utf-8")
+        except OSError as e:
+            failures.append(f"could not read {name}: {type(e).__name__}: {e}")
+            continue
+        strays = sorted(set(re.findall(expression, src)) - known)
+        check(not strays,
+              f"{name} reads the personal_settings block(s) {strays} that "
+              f"config.KNOWN_SETTINGS_BLOCKS does not know -- the loader would warn "
+              f"about a block this very program reads")
+
+
+# ======================================================================
 # The import lane: `import config` itself, per fixture, in a subprocess
 # ======================================================================
 
@@ -358,6 +502,290 @@ def test_import_subprocess():
             check(reported.get("DEFAULT_API") == default_api,
                   f"{label}: the file's engine pin did not reach DEFAULT_API "
                   f"({reported.get('DEFAULT_API')}, expected {default_api})")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ======================================================================
+# The value lanes: what a file's push_to_talk / soniox_endpointing entries
+# actually become, measured through a real `import config` (#327)
+# ======================================================================
+
+# Both validations live at MODULE level in config.py, below the reader, so the
+# in-process lanes above cannot reach them at all -- only a real import runs them.
+# The probe reports the constants a running tool would use, as one ASCII JSON line
+# (json.dumps escapes non-ASCII, so the child's stdout encoding can never be the
+# thing that fails). `ep` is the merged WS-config fragment rather than the three
+# constants: what is SENT is the question, and an absent field is its own answer.
+_VALUES_PROBE = (
+    "import config, json;"
+    "print('JSON', json.dumps({"
+    "'warnings': config.IMPORT_WARNINGS,"
+    "'ptt': [config.PTT_ENABLED, config.PTT_TRIGGER, config.PTT_TRIGGER_VK,"
+    " config.PTT_INSERT, config.PTT_TAP_WINDOW_S, config.PTT_MIN_HOLD_S,"
+    " config.PTT_RELEASE_TAIL_S],"
+    "'ep': config.soniox_live_endpointing_params(),"
+    "'hotkeys': config.HOTKEYS,"
+    "'api': [config.DEFAULT_API, config.DEFAULT_API_IS_EXPLICIT],"
+    "'context': config.SONIOX_CONTEXT}))"
+)
+
+# The shipped push-to-talk defaults, in the probe's order. Every invalid entry
+# has to land back on exactly these -- that is what "warn and keep the default"
+# means at the far end.
+_PTT_DEFAULTS = [False, "lctrl", 0xA2, "clipboard", 0.30, 0.20, 0.15]
+
+
+def _probe_settings(label, tmp, raw):
+    """One real `import config` in a fresh interpreter, with `raw` written as the
+    personal_settings.json beside the copied config (its SCRIPT_DIR is that
+    tempdir). Returns the probe's report, or None after recording the failure --
+    a non-zero exit is the tool refusing to start on that file."""
+    (Path(tmp) / "personal_settings.json").write_bytes(raw)
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    try:
+        proc = subprocess.run([sys.executable, "-c", _VALUES_PROBE], cwd=tmp, env=env,
+                              capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        failures.append(f"{label}: `import config` did not finish within 120 s")
+        return None
+    if proc.returncode != 0:
+        failures.append(
+            f"{label}: `import config` exited {proc.returncode} -- the tool would not "
+            f"start on this file: {proc.stderr.strip()[-300:]}")
+        return None
+    line = next((ln for ln in proc.stdout.split("\n") if ln.startswith("JSON ")), None)
+    if line is None:
+        failures.append(f"{label}: the probe printed no JSON line: {proc.stdout[-200:]!r}")
+        return None
+    report = json.loads(line[len("JSON "):])
+    if SHOW:
+        print(f"    {label}: {report}")
+    return report
+
+
+def _check_report(label, report, n_warnings, fragments, expected):
+    """One probe report against its expectation: the exact warning count (the
+    house style -- a warning appearing or vanishing is a change, not a detail),
+    each expected fragment somewhere in them, and every named value."""
+    got = report.get("warnings", [])
+    check(len(got) == n_warnings,
+          f"{label}: expected {n_warnings} import warning(s), got {len(got)}: {got}")
+    for fragment in fragments:
+        check(any(fragment in w for w in got),
+              f"{label}: no warning says {fragment!r}: {got}")
+    for key, want in expected.items():
+        check(report.get(key) == want,
+              f"{label}: {key} is {report.get(key)!r}, expected {want!r}")
+
+
+# One fixture per rule family, each file complete. The push-to-talk rules are
+# read-every-keypress territory (#66) and the endpointing ones go straight into
+# a live WebSocket config (#121), so both validate client-side -- and both were
+# untested until #327.
+_VALUE_CASES = [
+    # (label, file contents, warnings, warning fragments, expected probe values)
+    ("ptt-valid",
+     {"push_to_talk": {"enabled": True, "trigger": "RCtrl", "insert": "send",
+                       "tap_window_s": 0.5, "min_hold_s": 1, "release_tail_s": 0.05}},
+     0, [],
+     # The trigger name collapses to lower case and carries its VK along; an int
+     # threshold is accepted and floated. `ep` empty: nothing configured, nothing
+     # sent, and the live config JSON stays byte-identical to an unpersonalized one.
+     {"ptt": [True, "rctrl", 0xA3, "send", 0.5, 1.0, 0.05], "ep": {}}),
+    ("ptt-invalid",
+     {"push_to_talk": {"enabled": "true", "trigger": "ctrl", "insert": "paste",
+                       "tap_window_s": 0, "min_hold_s": True, "release_tail_s": "0.2"}},
+     6,
+     # Each entry names itself, so a log line points at the key to fix. The two
+     # traps: a quoted "true" must not switch on an off-by-default feature
+     # (bool("false") is True in Python), and a JSON true must not pass as the
+     # number 1 -- a 1 s min-hold would be a behaviour change, not a typo.
+     ["push_to_talk.enabled 'true' invalid",
+      "push_to_talk.trigger 'ctrl' unknown",
+      "push_to_talk.insert 'paste' unknown",
+      "push_to_talk.tap_window_s '0' invalid (need a positive number)",
+      "push_to_talk.min_hold_s 'True' invalid",
+      "push_to_talk.release_tail_s '0.2' invalid"],
+     {"ptt": _PTT_DEFAULTS}),
+    ("ptt-null",
+     # The asymmetry is deliberate and pinned as such: `enabled` reads through a
+     # .get(key, DEFAULT), so an explicit null arrives as a non-boolean and warns,
+     # while a threshold's `elif _v is not None` lets the same null through in
+     # silence. Both end on the default; only one says so.
+     {"push_to_talk": {"enabled": None, "tap_window_s": None}},
+     1, ["push_to_talk.enabled 'None' invalid"],
+     {"ptt": _PTT_DEFAULTS}),
+    ("ep-bounds-low",
+     {"soniox_endpointing": {"endpoint_sensitivity": -1.0,
+                             "endpoint_latency_adjustment_level": 0,
+                             "max_endpoint_delay_ms": 500}},
+     0, [],
+     # Level 0 is the #121 core: the params are built with `is not None`, never
+     # truthiness, so a configured zero is sent rather than silently dropped.
+     {"ep": {"endpoint_sensitivity": -1.0, "endpoint_latency_adjustment_level": 0,
+             "max_endpoint_delay_ms": 500}}),
+    ("ep-bounds-high",
+     {"soniox_endpointing": {"endpoint_sensitivity": 0.0,
+                             "endpoint_latency_adjustment_level": 3,
+                             "max_endpoint_delay_ms": 3000}},
+     0, [],
+     {"ep": {"endpoint_sensitivity": 0.0, "endpoint_latency_adjustment_level": 3,
+             "max_endpoint_delay_ms": 3000}}),
+    ("ep-float-delay",
+     # A number, sent as integer milliseconds -- the one conversion in the block.
+     {"soniox_endpointing": {"max_endpoint_delay_ms": 1500.7}},
+     0, [], {"ep": {"max_endpoint_delay_ms": 1500}}),
+    ("ep-invalid",
+     {"soniox_endpointing": {"endpoint_sensitivity": 1.5,
+                             "endpoint_latency_adjustment_level": 1.0,
+                             "max_endpoint_delay_ms": 400}},
+     3,
+     ["soniox_endpointing.endpoint_sensitivity '1.5' invalid (need a number -1.0..1.0)",
+      "soniox_endpointing.endpoint_latency_adjustment_level '1.0' invalid "
+      "(need an integer 0..3)",
+      "soniox_endpointing.max_endpoint_delay_ms '400' invalid (need a number 500..3000)"],
+     # Nothing is sent: an out-of-range value reaching Soniox would be rejected
+     # and could drop the live session, which is why the range lives here.
+     {"ep": {}}),
+    ("ep-bools",
+     # True is an int in Python and 1 is inside both ranges, so without the
+     # explicit bool rejection all three of these would be sent as numbers.
+     {"soniox_endpointing": {"endpoint_sensitivity": True,
+                             "endpoint_latency_adjustment_level": True,
+                             "max_endpoint_delay_ms": True}},
+     3, ["endpoint_sensitivity 'True' invalid",
+         "endpoint_latency_adjustment_level 'True' invalid",
+         "max_endpoint_delay_ms 'True' invalid"],
+     {"ep": {}}),
+]
+
+
+def test_settings_values_subprocess():
+    """Every push_to_talk and soniox_endpointing rule, end to end: the file on
+    disk in, the constants a running tool would use out.
+
+    These two blocks are the file's only ones with real per-entry validation, and
+    until #327 none of it was covered: the rules sit at module level in config.py,
+    below the reader the in-process lanes exercise, so nothing short of a real
+    `import config` runs them. What each fixture pins is in its comment."""
+    tmp = tempfile.mkdtemp(prefix="tb_config_values_")
+    try:
+        _copy_config_into(tmp)
+        for label, payload, n_warnings, fragments, expected in _VALUE_CASES:
+            report = _probe_settings(f"values {label}", tmp,
+                                     json.dumps(payload).encode("utf-8"))
+            if report is not None:
+                _check_report(f"values {label}", report, n_warnings, fragments, expected)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ======================================================================
+# Frozen historical settings files (D-026's evolution rule, #327)
+#
+# Complete files in shapes that older releases -- and their documentation --
+# produced or recommended, run through the current reader on every ladder run.
+# The per-function lanes already guard the old shapes one rule at a time (the
+# D-024 list rules in test_hotkey_overrides.py, say); what these add is the
+# whole-file proof, which is what a user actually has on disk.
+#
+# The values are invented, only the shapes are historical: nothing here comes
+# from anyone's real file. Every deliberate NARROWING of the value space deposits
+# its own whole-file fixture here (D-026), so this list only ever grows.
+# ======================================================================
+
+_FROZEN_2026_07 = b"""{
+  "_comment": "frozen fixture: the #55-era file shape (2026-07)",
+  "vocabulary": {
+    "general": [{"key": "domain", "value": "Voice Typing / Dictation"}],
+    "terms": ["Fixture Term"]
+  },
+  "hotkeys": {
+    "_comment": "one-element list -- what the F-key preset and every settings-window rebind wrote",
+    "cancel_recording": ["ctrl+f9"],
+    "exit_program": ["ctrl+alt+4", "ctrl+alt+q"],
+    "test_transcription": "ctrl+alt+ue"
+  },
+  "defaults": {"api": "soniox-live"}
+}
+"""
+
+_FROZEN_2026_04 = b"""{
+  "_comment": "frozen fixture: the initial-release file shape (2026-04)",
+  "vocabulary": {
+    "general": [
+      {"key": "domain", "value": "Voice Typing / Dictation"},
+      {"key": "topic", "value": "Fixture Topic"}
+    ],
+    "terms": ["Fixture Name", "Fixture Acronym"]
+  }
+}
+"""
+
+_FROZEN_DOWNGRADE = b"""{
+  "_comment": "frozen fixture: D-026's downgrade case -- a file this reader does not fully know. 'soniox-v4' really was an engine id once (it left AVAILABLE_APIS before defaults.api existed, so no supported route ever wrote this exact file); the shape, a retired value beside a block from another version, is what a rollback or a cloned checkout produces.",
+  "defaults": {"api": "soniox-v4"},
+  "dictation": {"language": "de"}
+}
+"""
+
+
+def _frozen_cases():
+    """The frozen files with what the current reader must make of them. Built
+    from config's own defaults rather than written out, so the expectation says
+    "the shipped default" and not a value that has to be chased when one moves."""
+    voc_2026_07 = {"general": [{"key": "domain", "value": "Voice Typing / Dictation"}],
+                   "terms": ["Fixture Term"]}
+    voc_2026_04 = {"general": [{"key": "domain", "value": "Voice Typing / Dictation"},
+                               {"key": "topic", "value": "Fixture Topic"}],
+                   "terms": ["Fixture Name", "Fixture Acronym"]}
+    return [
+        # (label, file bytes, warnings, warning fragments, expected probe values)
+        ("2026-07 hotkey-override era", _FROZEN_2026_07, 2,
+         # Both of today's narrowings, on one file: D-024 (an action binds exactly
+         # one combo) and D-023 (the layout-resolved 'ue' key lane is gone). The
+         # one-element list is the boundary rule and stays SILENT -- an update may
+         # never reset a key the user is still pressing.
+         ["hotkeys.exit_program: an action binds exactly one combo",
+          "hotkeys.test_transcription: 'ctrl+alt+ue' has an unrecognized key 'ue'"],
+         {"hotkeys": dict(config.DEFAULT_HOTKEYS, cancel_recording="ctrl+f9"),
+          # A pin ON the built-in default is still a pin (D-008: presence decides),
+          # which is what makes it outrank a remembered engine.
+          "api": ["soniox-live", True],
+          "context": voc_2026_07,
+          "ptt": _PTT_DEFAULTS, "ep": {}}),
+        ("2026-04 initial release", _FROZEN_2026_04, 0, [],
+         # The point of this one is the silence: the oldest documented user file
+         # must never acquire so much as one warning line from a later change.
+         {"hotkeys": dict(config.DEFAULT_HOTKEYS), "api": [config.BUILTIN_DEFAULT_API, False],
+          "context": voc_2026_04, "ptt": _PTT_DEFAULTS, "ep": {}}),
+        ("downgrade: retired value + unknown block", _FROZEN_DOWNGRADE, 2,
+         ["defaults.api 'soniox-v4' unknown", "unknown block 'dictation'"],
+         # Warn, default, carry on -- and the file itself is left alone, so it
+         # still works in the newer release it came from.
+         {"hotkeys": dict(config.DEFAULT_HOTKEYS), "api": [config.BUILTIN_DEFAULT_API, False],
+          "context": None, "ptt": _PTT_DEFAULTS, "ep": {}}),
+    ]
+
+
+def test_frozen_historical_files():
+    """Whole historical files through the real full load path, every run.
+
+    D-026 makes settings evolution additive and gives every narrowing of the value
+    space a frozen fixture as proof -- an old file that the current reader still
+    has to make sense of. Per-rule lanes cannot show what a user experiences,
+    which is one file meeting one program: warnings that name what was ignored,
+    and everything else in force. The `_comment` keys are part of that -- each of
+    these files carries them the way the shipped example recommends, and the whole
+    file has to pass without a word about them."""
+    tmp = tempfile.mkdtemp(prefix="tb_config_frozen_")
+    try:
+        _copy_config_into(tmp)
+        for label, raw, n_warnings, fragments, expected in _frozen_cases():
+            report = _probe_settings(f"frozen [{label}]", tmp, raw)
+            if report is not None:
+                _check_report(f"frozen [{label}]", report, n_warnings, fragments, expected)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1370,6 +1798,204 @@ def test_soniox_constructors():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ======================================================================
+# The consumer lane, part two: the vocabulary's last mile into the request
+# ======================================================================
+
+class _FakeResponse:
+    """The two httpx.Response members the Soniox async path touches."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _FakeWebSocket:
+    """A websockets sync connection as start_session uses it: it sends the config
+    JSON, then the receiver thread reads until a 'finished' message. Answering
+    that on the first recv ends the receiver at once, so the lane needs no
+    timeouts and leaves no thread behind."""
+
+    def __init__(self, sent):
+        self._sent = sent
+
+    def send(self, message):
+        self._sent.append(message)
+
+    def recv(self, timeout=None):
+        return json.dumps({"finished": True})
+
+    def close(self):
+        return None
+
+
+def test_soniox_context_async_request():
+    """The vocabulary block's last mile: what the reader kept has to arrive in the
+    real request body, and what it dropped has to be absent from it.
+
+    The reader lane above stops at SONIOX_CONTEXT; the constructor lane stops at
+    the constructor. In between sits the one line that decides whether a user's
+    terms are actually used -- and its `if SONIOX_CONTEXT:` is also what keeps an
+    unpersonalized request byte-identical to what it always was. Driven through
+    the production `transcribe()` with httpx's three verbs replaced, so no
+    request leaves the machine; the fake key never leaves the process and the
+    archive folder is redirected, so nothing is written into the checkout."""
+    try:
+        import transcriber
+    except ModuleNotFoundError as e:
+        print(f"    (skipped the Soniox async request lane: '{e.name}' is not "
+              f"installed off Windows)")
+        return
+    import httpx
+
+    bodies = []
+
+    def fake_post(url, **kwargs):
+        if url.endswith("/v1/files"):
+            return _FakeResponse({"id": "file-fixture"})
+        bodies.append(kwargs.get("json"))
+        return _FakeResponse({"id": "tx-fixture"})
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/transcript"):
+            return _FakeResponse({"text": "fixture transcript"})
+        return _FakeResponse({"status": "completed"})
+
+    def fake_delete(url, **kwargs):
+        return _FakeResponse({})
+
+    saved_tx = (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
+                transcriber.TEXT_ARCHIVE_FOLDER)
+    saved_httpx = (httpx.post, httpx.get, httpx.delete)
+    tmp = tempfile.mkdtemp(prefix="tb_config_async_ctx_")
+    try:
+        transcriber.SONIOX_API_KEY = "not-a-real-key"
+        transcriber.TEXT_ARCHIVE_FOLDER = Path(tmp) / "transcripts"
+        httpx.post, httpx.get, httpx.delete = fake_post, fake_get, fake_delete
+        audio = Path(tmp) / "fixture.wav"
+        audio.write_bytes(b"")
+        for label, ctx in (("with a vocabulary", {"terms": ["Claude-MD"]}),
+                           ("without one", None)):
+            bodies.clear()
+            transcriber.SONIOX_CONTEXT = ctx
+            text = transcriber.SonioxAsyncTranscriber().transcribe(str(audio), 1.0)
+            check(text == "fixture transcript",
+                  f"async {label}: transcribe() returned {text!r} -- the lane is no "
+                  f"longer driving the real path it means to assert on")
+            check(len(bodies) == 1,
+                  f"async {label}: {len(bodies)} transcription request(s), expected one")
+            body = bodies[0] if bodies else {}
+            check(body.get("model") == config.SONIOX_ASYNC_MODEL,
+                  f"async {label}: the request names model {body.get('model')!r}")
+            check(body.get("language_hints") == config.SONIOX_LANGUAGE_HINTS,
+                  f"async {label}: the request's language_hints are "
+                  f"{body.get('language_hints')!r}")
+            if ctx is None:
+                check("context" not in body,
+                      f"async {label}: a context field was sent for a file with no "
+                      f"vocabulary: {body.get('context')!r}")
+            else:
+                check(body.get("context") == ctx,
+                      f"async {label}: the request carries context "
+                      f"{body.get('context')!r}, expected {ctx!r}")
+    finally:
+        (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
+         transcriber.TEXT_ARCHIVE_FOLDER) = saved_tx
+        httpx.post, httpx.get, httpx.delete = saved_httpx
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_soniox_context_live_config():
+    """The same last mile on the live path, where the file's endpointing block
+    rides along: both personalizations end up in one WebSocket config JSON, and
+    the tool sends it before a single audio chunk moves.
+
+    `websockets` is injected into sys.modules rather than installed -- the import
+    in start_session is lazy, so the fake is what it finds, and the lane runs
+    wherever the ladder runs. Everything is restored afterwards: a leftover entry
+    there would poison every later import in this process."""
+    try:
+        import transcriber
+    except ModuleNotFoundError as e:
+        print(f"    (skipped the Soniox live config lane: '{e.name}' is not "
+              f"installed off Windows)")
+        return
+
+    sent = []
+    fake_client = types.ModuleType("websockets.sync.client")
+    fake_client.connect = lambda url: _FakeWebSocket(sent)
+    absent = object()
+    saved_modules = {name: sys.modules.get(name, absent)
+                     for name in ("websockets", "websockets.sync",
+                                  "websockets.sync.client")}
+    saved_tx = (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
+                transcriber.TEXT_ARCHIVE_FOLDER)
+    saved_ep = (config.SONIOX_ENDPOINT_SENSITIVITY,
+                config.SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL,
+                config.SONIOX_MAX_ENDPOINT_DELAY_MS)
+    tmp = tempfile.mkdtemp(prefix="tb_config_live_ctx_")
+    try:
+        sys.modules["websockets.sync.client"] = fake_client
+        transcriber.SONIOX_API_KEY = "not-a-real-key"
+        transcriber.TEXT_ARCHIVE_FOLDER = Path(tmp) / "transcripts"
+        # (label, context, endpointing constants, fields the config JSON must carry)
+        cases = [
+            ("personalized", {"terms": ["Claude-MD"]}, (-0.3, 0, 900),
+             {"context": {"terms": ["Claude-MD"]}, "endpoint_sensitivity": -0.3,
+              "endpoint_latency_adjustment_level": 0, "max_endpoint_delay_ms": 900}),
+            ("plain", None, (None, None, None), {}),
+        ]
+        for label, ctx, endpointing, expected in cases:
+            sent.clear()
+            transcriber.SONIOX_CONTEXT = ctx
+            (config.SONIOX_ENDPOINT_SENSITIVITY,
+             config.SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL,
+             config.SONIOX_MAX_ENDPOINT_DELAY_MS) = endpointing
+            tx = transcriber.SonioxLiveTranscriber()
+            try:
+                check(tx.start_session() is True,
+                      f"live {label}: start_session() did not report success")
+                check(len(sent) >= 1,
+                      f"live {label}: nothing was sent on the WebSocket")
+                body = json.loads(sent[0]) if sent else {}
+                check(body.get("model") == config.SONIOX_RT_MODEL,
+                      f"live {label}: the config names model {body.get('model')!r}")
+                check(body.get("enable_endpoint_detection") is True,
+                      f"live {label}: endpoint detection is "
+                      f"{body.get('enable_endpoint_detection')!r}")
+                for field, want in expected.items():
+                    check(body.get(field) == want,
+                          f"live {label}: the config's {field} is "
+                          f"{body.get(field)!r}, expected {want!r}")
+                if not expected:
+                    strays = sorted(f for f in body if f == "context"
+                                    or f.startswith("endpoint_")
+                                    or f == "max_endpoint_delay_ms")
+                    check(not strays,
+                          f"live {label}: an unconfigured file sent {strays} -- with "
+                          f"nothing personalized the config JSON stays what it was "
+                          f"before #121/#206, field for field")
+            finally:
+                tx.cancel_session()
+    finally:
+        for name, module in saved_modules.items():
+            if module is absent:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
+         transcriber.TEXT_ARCHIVE_FOLDER) = saved_tx
+        (config.SONIOX_ENDPOINT_SENSITIVITY,
+         config.SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL,
+         config.SONIOX_MAX_ENDPOINT_DELAY_MS) = saved_ep
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 TEMPDIR_CASES = [
     test_valid_file,
     test_bom,
@@ -1380,11 +2006,16 @@ TEMPDIR_CASES = [
     test_absent_and_unreadable,
     test_vocabulary_shape,
     test_never_raises,
+    test_block_types,
+    test_unknown_blocks,
     test_version_reader,
     test_checkout_reader,
 ]
 PLAIN_CASES = [
+    test_known_blocks_drift,
     test_import_subprocess,
+    test_settings_values_subprocess,
+    test_frozen_historical_files,
     test_env_loading_subprocess,
     test_env_corpus_subprocess,
     test_env_inherited_subprocess,
@@ -1396,6 +2027,8 @@ PLAIN_CASES = [
     test_version_import_subprocess,
     test_checkout_import_subprocess,
     test_soniox_constructors,
+    test_soniox_context_async_request,
+    test_soniox_context_live_config,
 ]
 
 # These take a tempdir positionally and run via main(); they are not pytest items (#242).
@@ -1425,7 +2058,10 @@ def main():
         print(f"\nFAIL: {len(failures)} violation(s)")
         return 1
     print(f"\nOK: all {len(TEMPDIR_CASES) + len(PLAIN_CASES)} config-reading cases "
-          f"pass (personal_settings: encoding, top-level shape, vocabulary shape, the "
+          f"pass (personal_settings: encoding, top-level shape, the block gate with "
+          f"its known-blocks guards, vocabulary shape, the push_to_talk and "
+          f"soniox_endpointing value rules, three frozen historical files, the "
+          f"vocabulary's arrival in both real Soniox requests, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "

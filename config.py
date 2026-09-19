@@ -9,6 +9,7 @@ path constants it serves.
 """
 
 import copy
+import difflib
 import json
 import logging
 import re
@@ -832,6 +833,17 @@ PTT_TRIGGER_VK = _PTT_TRIGGER_VK[PTT_TRIGGER]
 _hotkeys_override = None
 _personal_settings_path = SCRIPT_DIR / "personal_settings.json"
 
+# Every top-level block of personal_settings.json that either program reads:
+# config reads five of them below, and `ui` is read by the settings app alone
+# (ui.language). `ui` belongs here anyway -- the two programs read one file
+# surface, documented once in personal_settings.example.json, so the gate below
+# has to speak for the whole of it or the tool would warn about the block the
+# app writes on every language toggle (D-026: reading is identical in both
+# programs). The ladder holds this tuple against the example file and against
+# the `_settings.get(...)` reads below, so it cannot become a second truth (#327).
+KNOWN_SETTINGS_BLOCKS = ("defaults", "hotkeys", "push_to_talk",
+                         "soniox_endpointing", "ui", "vocabulary")
+
 
 def _load_personal_settings(path):
     """Read personal_settings.json once, tolerantly (#206).
@@ -849,10 +861,20 @@ def _load_personal_settings(path):
     read_ptt_enabled states about itself). The file is still read exactly once,
     at import, so D-002's timing contract is untouched.
 
-    The `vocabulary` block is shape-checked here rather than by a parser below,
-    because it is the only block whose consumers dereference it blindly (both
-    Soniox constructors call .get('terms', []) on it) -- a wrongly shaped block
-    is dropped, so they see the absent-block None.
+    Every top-level entry is gated here, once, for both programs (#327): an
+    unknown block name warns -- with difflib's nearest known name where one is
+    close enough, the `hotkyes` typo -- and a known block of the wrong type
+    warns and is dropped. A `_`-prefixed key is the JSON-comment convention and
+    is user land: never named, never type-checked, whatever it holds. An
+    explicit `null` is not a mistake either ("no personalization"), so it stays
+    silent and reads like an absent block everywhere below.
+
+    That gate is D-026's gapless warn duty, and it stops at warning: the reader
+    never writes, so the file keeps what it has until a deliberate save. The
+    DROP is what `vocabulary` needs -- it is the one block whose consumers
+    dereference it blindly (both Soniox constructors call .get('terms', []) on
+    it) -- and it costs nothing for the rest, so every read below this point
+    finds a dict or nothing.
     """
     warnings = []
     try:
@@ -880,12 +902,20 @@ def _load_personal_settings(path):
             f"{path.name} must be a JSON object at the top level; ignoring the "
             f"file (got {type(values).__name__})")
         return {}, warnings
-    _voc = values.get("vocabulary")
-    if _voc is not None and not isinstance(_voc, dict):
-        warnings.append(
-            f"personal_settings 'vocabulary' must be an object; "
-            f"ignoring (got {type(_voc).__name__})")
-        del values["vocabulary"]
+    for key, value in list(values.items()):   # list(): the loop deletes entries
+        if key.startswith("_"):
+            continue
+        if key not in KNOWN_SETTINGS_BLOCKS:
+            hint = difflib.get_close_matches(key, KNOWN_SETTINGS_BLOCKS, n=1)
+            warnings.append(
+                f"personal_settings: unknown block '{key}' -- ignored"
+                + (f"; did you mean '{hint[0]}'?" if hint else
+                   f" (known blocks: {', '.join(KNOWN_SETTINGS_BLOCKS)})"))
+        elif value is not None and not isinstance(value, dict):
+            warnings.append(
+                f"personal_settings '{key}' must be an object; "
+                f"ignoring (got {type(value).__name__})")
+            del values[key]
     return values, warnings
 
 
@@ -979,14 +1009,10 @@ if isinstance(_ep_cfg, dict):
 
 # Hotkey overrides (#55): capture the optional "hotkeys" block here (so the
 # file is parsed once) and apply it after the HOTKEYS defaults are defined
-# below -- the defaults don't exist yet at this point in the module.
-_hk = _settings.get("hotkeys")
-if _hk is not None and not isinstance(_hk, dict):
-    IMPORT_WARNINGS.append(
-        f"personal_settings 'hotkeys' must be an object of "
-        f"action -> combo; ignoring (got {type(_hk).__name__})")
-else:
-    _hotkeys_override = _hk
+# below -- the defaults don't exist yet at this point in the module. The block's
+# SHAPE is settled by the loader above (#327), which warns about a non-object
+# and drops it, so what arrives here is a dict or nothing.
+_hotkeys_override = _settings.get("hotkeys")
 
 # Default engine override (#55): defaults.api must be one of AVAILABLE_APIS,
 # else warn and keep DEFAULT_API. Same warn-and-keep pattern as the blocks

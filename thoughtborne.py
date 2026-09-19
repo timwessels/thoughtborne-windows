@@ -709,7 +709,14 @@ class ThoughtborneApp:
                 f"insert={PTT_INSERT}, tap_window={PTT_TAP_WINDOW_S}s, "
                 f"min_hold={PTT_MIN_HOLD_S}s, release_tail={PTT_RELEASE_TAIL_S}s")
 
-        logger.info(f"Configuration: Default API={DEFAULT_API}, Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}",
+        # "default engine", not "API in force": this names the CONFIGURED default
+        # and where it comes from, while the "Startup engine" line above names what
+        # this start actually opens on. The two differ whenever a remembered engine
+        # applies (#193), and the old "Default API=" wording read like a
+        # contradiction of the line above it (#327).
+        logger.info(f"Configuration: default engine={DEFAULT_API} "
+                    f"({'defaults.api pin' if DEFAULT_API_IS_EXPLICIT else 'built-in'}), "
+                    f"Max parallel={MAX_PARALLEL_TRANSCRIPTIONS}",
                     extra=FILE_ONLY)
         logger.info(f"Current transcriber: "
                     f"{self.transcriber.get_name() if self.transcriber else 'none (keyless shop-window, #200)'}",

@@ -1,9 +1,12 @@
 """Memory of the engine the user last selected, #193 (see DECISIONS.md D-008).
 
-A successful engine switch is recorded in a small machine-written state file
+A deliberate engine choice is recorded in a small machine-written state file
 beside the project files, so the next start opens on it instead of always on the
-built-in default. Only a deliberate switch is ever recorded -- never the startup
-carousel's fall-through, which is an outage rather than a choice.
+built-in default. Two writers feed it, one per program: the tool records a
+successful switch (`thoughtborne.py`, Ctrl+Alt+L), and the settings app records a
+save that moved its remember-mode engine (its sole memory write, #178). Only a
+deliberate choice is ever recorded -- never the startup carousel's fall-through,
+which is an outage rather than a choice.
 
 The state file is NOT a settings file: `personal_settings.json` stays
 user-authored and `settings_io.py` stays its only writer (D-002). An explicit
@@ -30,9 +33,10 @@ STATE_FILENAME = "runtime_state.json"
 # nothing. Mirrors the personal_settings.example.json house style.
 STATE_COMMENT = (
     "Written by Thoughtborne itself -- not a settings file. It records the engine "
-    "you last selected with the switch hotkey, so the next start opens on it. Safe "
-    "to delete; it is recreated on the next switch. Your own settings live in "
-    "personal_settings.json, whose 'defaults.api' outranks this file."
+    "you last selected -- with the switch hotkey, or in the settings window -- so "
+    "the next start opens on it. Safe to delete; it is recreated the next time you "
+    "select an engine. Your own settings live in personal_settings.json, whose "
+    "'defaults.api' outranks this file."
 )
 
 _LAST_ENGINE_KEY = "last_engine"

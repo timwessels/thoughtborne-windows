@@ -1802,8 +1802,9 @@ the point of edit instead of re-deriving them per change.
   and never abort a start. A reader never writes. **The warn duty is gapless:**
   everything a reader discards — an invalid value, a wrong-typed block, an
   unknown top-level block (the `hotkyes` typo) — leaves a log warning, and the
-  tool's console shows it at startup. (Closing today's silent spots — the mute
-  block level, the untested read lanes — is scheduled work under this rule.)
+  tool's console shows it at startup. (The silent spots this entry inherited —
+  the mute block level, the untested read lanes — were closed under this rule by
+  #327.)
 - **Only deliberate actions write; a save is WYSIWYG for the owned surfaces.**
   No program start, no update, no migration ever writes a settings file; a
   missing file means shipped defaults until the user saves. Save and Reset are
@@ -1894,9 +1895,8 @@ corrupt-file dialog wording follows; its confirmation, forced values and
 settings-not-data line stand. Respects D-014 (the gated silent language write is
 untouched; no new dialogs), D-008 (precedence untouched), D-015, D-017 (`.env`
 single parser and location), D-023/D-024 (both are precedents of the narrowing
-rule; their old shapes are ladder-guarded per function today and gain
-whole-file coverage through the two or three frozen historical files the
-read-side work adds).
+rule; their old shapes are ladder-guarded per function today and gained
+whole-file coverage through the three frozen historical files #327 added).
 
 ## D-027 — Any supported key binds bare; the only rejection is a combo that cannot fire
 
