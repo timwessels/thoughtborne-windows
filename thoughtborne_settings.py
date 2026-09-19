@@ -428,23 +428,21 @@ class SettingsApp:
         env = settings_io.read_env(config.SCRIPT_DIR / ".env")
         self.groq_var = tk.StringVar(value=env.get("GROQ_API_KEY", ""))
         self.soniox_var = tk.StringVar(value=env.get("SONIOX_API_KEY", ""))
-        # A readable key is already stored iff read_env surfaced one. Feeds _has_any_key,
-        # and through it the pre-save "no key" check and the #201 all-keyless guidance --
-        # no save label rides on it since #271, where every save restarts regardless: a
-        # blank field never clobbers a stored key (settings_io), so an empty field on top
-        # of a stored key is NOT keyless. (An unreadable/ANSI .env reads as no keys here;
-        # that rarer case is caught before the first write since #291 -- _save's
-        # pre-flight aborts such a save and names the file -- and since #294 a keyless
-        # save over one says so too, rather than claiming no key was found anywhere.)
-        self._had_stored_key = settings_io.env_has_key(env)
-        # Per-provider stored-key snapshot for the key-aware engine control (#201).
-        # The console-side predicate is per-engine (config.engine_has_key), so the
-        # engine radios need per-var stored info, not just the _had_stored_key
-        # aggregate. "Keyed" per engine = a non-blank live field OR a key stored for
-        # the engine's backing .env var; a blank field never clobbers a stored key
-        # (settings_io), so both count. This snapshot dict is keyed off API_KEY_ENV;
-        # _live_env and settings_io.env_has_key still name the two vars directly, so a
-        # third key/engine would extend the snapshot but not the whole pipeline for free.
+        # The load-time snapshot of what the two fields were filled with -- per .env
+        # var, because the key-aware engine control (#201) is per-engine
+        # (config.engine_has_key) and needs more than an aggregate. It serves twice
+        # over: "keyed" per engine = a non-blank live field OR a key stored for the
+        # engine's backing var, and since #328 it is the state a save compares the
+        # fields against, so a field the user CLEARED can be told from one that was
+        # empty all along (settings_io.resolve_env_save_updates, D-026). Never
+        # refreshed: after a successful save the window is gone anyway, and after an
+        # aborted one this is still exactly what the fields were shown with. An
+        # unreadable/ANSI .env reads as no keys here -- a save that then writes
+        # something is stopped before the first write (#291, _save's pre-flight names
+        # the file) and a keyless one says so rather than claiming no key was found
+        # anywhere (#294). This dict is keyed off API_KEY_ENV; _live_env and
+        # settings_io.env_has_key still name the two vars directly, so a third
+        # key/engine would extend the snapshot but not the whole pipeline for free.
         self._stored_env = {v: env.get(v, "") for v in set(config.API_KEY_ENV.values())}
 
         self._build_ui()
@@ -1752,30 +1750,43 @@ class SettingsApp:
             pass
 
     def _has_any_key(self):
-        """True iff a key is entered OR one is already stored. The single predicate
-        behind the pre-save no-key warning in _save and the #201 all-keyless guidance
-        under the engine control, so the warning and the guidance can never disagree
-        about what "keyless" means. A blank field never clobbers a stored key
-        (settings_io), so an empty field on top of a stored key still counts as keyed.
-        It no longer reaches the rail: since #271 every save restarts, keyed or not
-        (D-014), so there is no label left for a key to decide."""
-        return bool(self.groq_var.get().strip() or self.soniox_var.get().strip()
-                    or self._had_stored_key)
+        """True iff a key field is filled -- the state the window SHOWS, which since
+        #328 is also the state a save leaves behind (D-026: the fields display the
+        stored keys, so clearing one removes it). The single predicate behind the
+        pre-save no-key warning in _save and the #201 all-keyless guidance under the
+        engine control, so the warning and the guidance can never disagree about what
+        "keyless" means -- and clearing the last key now meets the confirmation that
+        guards saving without one. It no longer reaches the rail: since #271 every
+        save restarts, keyed or not (D-014), so there is no label left for a key to
+        decide."""
+        return bool(self.groq_var.get().strip() or self.soniox_var.get().strip())
 
     def _live_env(self):
         """The two managed key fields as an {ENV_VAR: value} dict, for the per-engine
         keyed test (config.API_KEY_ENV names those vars). Fed to
         settings_io.engine_keyed alongside the load-time _stored_env snapshot, so a
-        key typed this session greys/un-greys the matching engines live (#201).
-
-        Since #291 it is also _save's .env write payload AND the update set the save
-        pre-flight probes with -- the pre-flight only probes .env when this save would
-        actually write it, so the two have to be the same expression or the probe
-        decides about a different save than the write performs.
-        test_settings_io.check_readfail_wiring pins that both call sites still name
-        this method, so a change here that leaves one behind fails the ladder."""
+        key typed this session greys/un-greys the matching engines live (#201), and to
+        _env_save_updates below as the live half of the save's difference rule."""
         return {"GROQ_API_KEY": self.groq_var.get(),
                 "SONIOX_API_KEY": self.soniox_var.get()}
+
+    def _env_save_updates(self):
+        """What THIS save has to say about `.env`, as the difference between the live
+        fields and the state the window was loaded and shown with (#328, D-026):
+        a filled-and-changed field writes, a cleared one deletes its key line, an
+        untouched one says nothing at all -- including the two empties that are no
+        gesture, a never-filled wizard field and fields left empty because the file
+        could not be read. settings_io.resolve_env_save_updates carries the rule and
+        the reasoning.
+
+        The one expression both the #291 pre-flight and write_env are handed: the
+        pre-flight only probes `.env` when this save would actually touch it, so the
+        two have to be the same expression or the probe decides about a different save
+        than the write performs. test_settings_io.check_readfail_wiring pins that the
+        two call sites still say the same thing, so a change that leaves one behind
+        fails the ladder."""
+        return settings_io.resolve_env_save_updates(self._live_env(),
+                                                    self._stored_env)
 
     def update_rail(self, event=None):
         """Recompute the first-run rail. Settings mode is static (a no-op) but the
@@ -1947,10 +1958,9 @@ class SettingsApp:
 
     def _save(self):
         # Pre-save checks (order matters): the file pre-flight first, then no key at
-        # all. A key is present if one is entered OR one is already stored
-        # (_has_any_key -- a blank field never clobbers a stored key, so an empty
-        # field on top of a stored key is NOT keyless, and the "no key" warning must
-        # not fire there).
+        # all. A key is present iff a field shows one (_has_any_key) -- since #328 the
+        # save stores exactly what the fields show, so clearing the last key is a
+        # keyless save and meets the same confirmation.
         #
         # #291: settings_io.unreadable_save_target -- its docstring carries the why.
         # It runs HERE, ahead of both confirmations, because there is nothing to ask
@@ -1960,7 +1970,7 @@ class SettingsApp:
         # save that CAN happen, over the backup lane below.
         unreadable = settings_io.unreadable_save_target(
             env_path=config.SCRIPT_DIR / ".env",
-            env_updates=self._live_env(),
+            env_updates=self._env_save_updates(),
             ps_path=config.SCRIPT_DIR / "personal_settings.json")
         if unreadable is not None:
             path, err = unreadable
@@ -1976,7 +1986,8 @@ class SettingsApp:
             # this branch cannot tell the two apart on its own. Ask the file HERE, at
             # the moment of the claim and with the pre-flight's own probe, so the two
             # can never disagree about the same save: the pre-flight passed .env over
-            # precisely because two blank fields write nothing to it.
+            # precisely because fields that came up empty over a file nobody could
+            # read carry no instruction, so this save writes nothing to it (#328).
             env_err = settings_io.env_read_failure(config.SCRIPT_DIR / ".env")
             if env_err is not None:
                 title_key = "dlg.nokey.title_unreadable"
@@ -2011,10 +2022,10 @@ class SettingsApp:
             enabled_now=(self.ptt_var.get() == "on"),
             enabled_loaded=self._ptt_enabled_loaded)
         try:
-            # _live_env() is the same expression the pre-flight above probed with, so
-            # the two can never speak about different update sets (#291).
+            # _env_save_updates() is the same expression the pre-flight above probed
+            # with, so the two can never speak about different update sets (#291).
             settings_io.write_env(
-                config.SCRIPT_DIR / ".env", self._live_env(),
+                config.SCRIPT_DIR / ".env", self._env_save_updates(),
                 example_path=config.SCRIPT_DIR / ".env.example")
             backup, losses = settings_io.save_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json",

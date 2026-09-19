@@ -11,8 +11,27 @@ sibling of test_console_ui.py). All file ops happen in a TemporaryDirectory.
 What is covered:
   - settings_io.write_env / read_env: byte-preserving update of one managed key,
     append-when-absent, absent-file seed from the example, malformed-line skip,
-    empty-updates no-op, empty-value-omitted (a blank field never clobbers a
-    stored key), and no temp file left behind (atomicity).
+    empty-updates no-op, empty-value-omitted (a blank value is no instruction), and
+    no temp file left behind (atomicity).
+  - the `.env` round trip (#328, check_env_quoting): a value that needs quoting --
+    a `#`, spaces, a leading quote -- comes back out of the REAL reader unchanged
+    and leaves it without a warning, while an ordinary key still writes bare; the
+    issue's own scene (a quoted value read, shown and saved back) holds; the values
+    this grammar cannot carry are refused loudly, with the file untouched and the
+    value itself nowhere in the message; a line-boundary character riding in on a
+    paste is folded away before the speller can quote it into a line that falls
+    apart (the scrub splits the reader's way, so CR/LF are not the whole list);
+    and a sweep over every short string of the characters that can break a line
+    holds the whole rule -- refused only with cause, or read back exactly and
+    without a warning.
+  - the `.env` deletion lane (#328, D-026, check_env_delete + check_env_save_updates):
+    the REMOVE_ENV_KEY sentinel takes out every uncommented line of a key, the
+    `export` form and all duplicates included, while a commented `# KEY=` note and
+    every other byte stay; a removal over a missing file creates nothing; and an
+    empty STRING still writes nothing and deletes nothing -- the two are held apart
+    by identity. Plus the pure difference rule that derives the sentinel: a field
+    that was filled and is now empty is an instruction, one that was never filled or
+    is empty only because the reader failed is not.
   - settings_io.write_personal_settings / read_personal_settings: surgical merge
     (every unmanaged block + every _comment preserved), hotkeys written as a diff
     vs config.DEFAULT_HOTKEYS (default scheme -> no entries), and the three-valued
@@ -145,8 +164,8 @@ What is covered:
   - settings_io.resolve_first_run / env_has_key (#163): the settings app's window-
     mode decision -- flag OR no stored key -> the first-run wizard, a stored key with
     no flag -> the plain dialog; the shared key-presence predicate and the read_env
-    seam (a readable keyed .env -> plain, an ANSI .env -> wizard, matching
-    _had_stored_key).
+    seam (a readable keyed .env -> plain, an ANSI .env -> wizard, the same way the
+    window's own key fields come up empty over one).
   - the Machine Room reset (#282, D-020): the one forced write -- via the D-026
     backup lane since #263 -- that puts the four app-managed keys back to the
     shipped state: over a dirty-but-valid file (every hand-written block,
@@ -171,8 +190,9 @@ What is covered:
     own guard read. For .env that is unreadable OR undecodable bytes; for
     personal_settings.json only unreadable ones since D-026 -- an ANSI or corrupt
     file is a save that goes through, over the backup lane. With the controls a
-    naive fix breaks: an unreadable .env this save would not write at all (both
-    key fields blank) does not block it. Plus the two halves no display lane reaches,
+    naive fix breaks: an unreadable .env this save has no instruction for does not
+    block it, while a pending key DELETION over one does (#328 -- a removal edits the
+    found file like any write). Plus the two halves no display lane reaches,
     statically: the probe asks with the update set the write uses, and both write
     branches keep dlg.savefail. (That the probe runs before the first write, names the
     file and uses its own title is driven on the real window in
@@ -307,6 +327,325 @@ def check_env(tmp):
     p = tmp / "env6"
     p.write_text("#GROQ_API_KEY=commented\nSONIOX_API_KEY=real\n", encoding="utf-8")
     check(sio.read_env(p) == {"SONIOX_API_KEY": "real"}, ".env commented key not ignored")
+
+
+def check_env_quoting(tmp):
+    """write_env's spelling of a value against the parser that reads it back (#328).
+
+    The bug this closes: the writer wrote every value bare while the shared reader
+    understands quotes and comment tails, so a value carrying a `#` came back cut --
+    silently, on the NEXT read, which is the worst shape a key loss can have. The
+    proof is a round trip through the real reader rather than an assertion about the
+    line's text: config.format_env_value claims to be that parser's inverse, and only
+    the parser can confirm it. The warning count matters as much -- a line this
+    writer produced must never make the tool warn at startup about its own file --
+    and the sweep at the end holds that half as a rule rather than as examples, which
+    is what the hand-picked corpus missed for two leading-quote values.
+
+    Values are invented (`dummy-`, `gsk_`), never a real key. The normal case is
+    pinned too: an ordinary key still writes bare, so nobody's `.env` grows quotes it
+    never had.
+    """
+    hard = ["du # my", "#lead", "dummy#a", "has space", "tab\there", "two  spaces",
+            'du"my', "du'my", "d\"u'y", "'lead", '"lead', '"abc', "${OTHER}"]
+    for i, value in enumerate(hard):
+        p = tmp / f"quote{i}.env"
+        p.write_text("GROQ_API_KEY=placeholder\n", encoding="utf-8")
+        sio.write_env(p, {"GROQ_API_KEY": value})
+        line = p.read_text(encoding="utf-8")
+        values, warnings = config.read_env_file(p)
+        check(values.get("GROQ_API_KEY") == value,
+              f".env round trip lost a value: wrote {value!r}, read back "
+              f"{values.get('GROQ_API_KEY')!r} from the line {line!r}")
+        check(not warnings,
+              f".env round trip: the line this writer produced for {value!r} makes "
+              f"the reader warn at startup: {warnings}")
+        check(sio.read_env(p) == values,
+              f".env round trip: the settings app reads {sio.read_env(p)} where the "
+              f"tool reads {values} -- the two halves disagree about {line!r}")
+
+    # A line-boundary character that rode in on a paste has to be folded away BEFORE
+    # the speller sees it, and the fold has to know every character the reader splits
+    # on -- `str.splitlines()` breaks at a vertical tab, a form feed, a NEL and more,
+    # not just at CR/LF. Scrubbing only CR/LF left the rest to the speller, which
+    # quotes them as whitespace, so the value went to disk in a line the reader then
+    # tore in two: a truncated key plus a startup warning over the writer's own file
+    # (#328). Each of these must come back as one clean line, silently.
+    for i, pasted in enumerate(["dum\x0bmy", "dum\x0cmy", "dum\x1cmy", "dum\x85my",
+                                "dum\u2028my", "dum\r\nmy"]):
+        p = tmp / f"quote_fold{i}.env"
+        p.write_text("GROQ_API_KEY=placeholder\n", encoding="utf-8")
+        sio.write_env(p, {"GROQ_API_KEY": pasted})
+        line = p.read_text(encoding="utf-8")
+        values, warnings = config.read_env_file(p)
+        check(values.get("GROQ_API_KEY") == "dummy" and not warnings,
+              f".env: a value carrying {pasted!r} was written as {line!r} and reads "
+              f"back as {values.get('GROQ_API_KEY')!r} with warnings {warnings} -- "
+              f"the scrub has to fold it into a single clean line")
+        check(line == "GROQ_API_KEY=dummy\n",
+              f".env: the line written for {pasted!r} is {line!r}")
+
+    # The counter-case, so the fold stays the reader's split and does not grow into
+    # "drop every whitespace character": a unit separator is whitespace to the speller
+    # but no line boundary, so it belongs to the value and the quoted line carries it.
+    p = tmp / "quote_fold_keep.env"
+    p.write_text("GROQ_API_KEY=placeholder\n", encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": "dum\x1fmy"})
+    values, warnings = config.read_env_file(p)
+    check(values.get("GROQ_API_KEY") == "dum\x1fmy" and not warnings,
+          f".env: an inner non-breaking control character was dropped from the value: "
+          f"{values.get('GROQ_API_KEY')!r} with warnings {warnings}")
+
+    # An ordinary key stays bare, byte for byte: quoting is for the values that need
+    # it, not a new house style for every line.
+    p = tmp / "quote_plain.env"
+    p.write_text("GROQ_API_KEY=old\n", encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": "gsk_plain"})
+    check(p.read_text(encoding="utf-8") == "GROQ_API_KEY=gsk_plain\n",
+          f".env: an ordinary key no longer writes bare: "
+          f"{p.read_text(encoding='utf-8')!r}")
+
+    # The issue's own scene: a quoted value already in the file, read into the window
+    # and saved back unchanged by a save that has something to write.
+    p = tmp / "quote_existing.env"
+    p.write_text('GROQ_API_KEY="du # my"\nSONIOX_API_KEY=sx_old\n', encoding="utf-8")
+    loaded = sio.read_env(p)
+    check(loaded.get("GROQ_API_KEY") == "du # my",
+          f".env quoting fixture: the reader no longer sees the quoted value: {loaded}")
+    sio.write_env(p, loaded)
+    check(sio.read_env(p) == loaded,
+          f".env read -> save -> read is lossy for a quoted value: {sio.read_env(p)} "
+          f"instead of {loaded} (line: {p.read_text(encoding='utf-8')!r})")
+
+    # The values this grammar cannot carry: they hold BOTH quote characters, so no
+    # pair is free to enclose them, and a leading quote or a comment `#` rules bare
+    # out too. A loud refusal, with the file untouched and the value itself nowhere
+    # in the message (it is an API key field). The two leading-quote forms are the
+    # subtle ones: bare DOES give them back whole, but the reader then warns about an
+    # unterminated quote at every start -- over a line this writer had produced.
+    for i, (bad, fragment) in enumerate([("'a \"b #c'", "b #c"),
+                                         ("\"a'b", "a'b"),
+                                         ("'a\"b", 'a"b')]):
+        p = tmp / f"quote_bad{i}.env"
+        original = "GROQ_API_KEY=keepme\n"
+        p.write_text(original, encoding="utf-8")
+        raised = None
+        try:
+            sio.write_env(p, {"GROQ_API_KEY": bad})
+        except ValueError as e:
+            raised = e
+        check(raised is not None,
+              f"write_env accepted {bad!r}, a value no .env spelling carries -- the "
+              f"silent truncation or the startup warning this change exists to end")
+        check(p.read_text(encoding="utf-8") == original,
+              f".env: the refused write of {bad!r} touched the file anyway")
+        check(raised is None
+              or (bad not in str(raised) and fragment not in str(raised)),
+              f"the refusal echoes the value into a dialog and the log: {raised}")
+
+    # The rule behind those examples, swept rather than sampled: over every string up
+    # to three characters long built from the ones that can break a `.env` line (a
+    # letter, both quotes, a `#`, a space), a value is either refused or comes back
+    # out of the REAL reader exactly AND without a warning. The second half is what
+    # the corpus above missed for two values: bare carried "a'b and 'a"b faithfully,
+    # and the tool still warned at every start over a line this writer had produced.
+    # The counter-rule keeps the refusal honest in the other direction, and it asks
+    # for the WHOLE justification rather than half of it: a value may be turned away
+    # only when no quote pair is free to enclose it AND bare is out too (it opens
+    # with a quote, or carries a `#` where the comment rule cuts). A future speller
+    # that refused more than that would be refusing values it could have carried,
+    # and the old "holds both quote characters" half would have waved it through.
+    alphabet = "a\"'# "
+    sweep = [a for a in alphabet]
+    sweep += [a + b for a in alphabet for b in alphabet]
+    sweep += [a + b + c for a in alphabet for b in alphabet for c in alphabet]
+    p = tmp / "quote_sweep.env"
+    for value in sweep:
+        if value.strip() != value:
+            continue        # write_env strips; such a value never reaches the speller
+        try:
+            spelled = config.format_env_value(value)
+        except ValueError:
+            no_free_pair = '"' in value and "'" in value
+            bare_is_out = value[:1] in ("'", '"') or re.search(r"(^|\s)#", value)
+            check(no_free_pair and bare_is_out,
+                  f"format_env_value refused {value!r}, which one of its spellings "
+                  f"carries (free quote pair: {not no_free_pair}, bare would do: "
+                  f"{not bare_is_out})")
+            continue
+        p.write_text(f"GROQ_API_KEY={spelled}\n", encoding="utf-8")
+        values, warnings = config.read_env_file(p)
+        check(values.get("GROQ_API_KEY") == value and not warnings,
+              f".env: the spelling {spelled!r} of {value!r} reads back as "
+              f"{values.get('GROQ_API_KEY')!r} with warnings {warnings}")
+
+
+def check_env_delete(tmp):
+    """write_env's deletion lane: the REMOVE_ENV_KEY sentinel takes a key's line out
+    of the file (#328, D-026's WYSIWYG deletion), and nothing else moves.
+
+    Deletion is the one operation that cannot be undone from the window, so the
+    surface is pinned close: ALL uncommented occurrences go (the reader is last-wins,
+    so one survivor would revive the value), an `export` form counts, a commented
+    `# KEY=...` note is the user's and stays, the rest of the file is byte-exact, and
+    a delete over a missing file creates nothing -- not even the example seed.
+
+    The control weighs as much as the deletions: an empty STRING still writes nothing
+    and clobbers nothing. That guard did not move with D-026; what changed is that
+    the app no longer sends an empty string where it means "remove", it sends the
+    sentinel (resolve_env_save_updates), and the two are held apart by identity."""
+    R = sio.REMOVE_ENV_KEY
+
+    # 1. the line goes, every other line / comment / blank byte-exact
+    p = tmp / "del1.env"
+    original = ("# header comment\n"
+                "FOO=bar\n"
+                "\n"
+                "GROQ_API_KEY=old_groq\n"
+                "# a comment\n"
+                "SONIOX_API_KEY=old_soniox\n"
+                "UNRELATED=keepme\n")
+    p.write_text(original, encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": R})
+    check(p.read_text(encoding="utf-8") == original.replace("GROQ_API_KEY=old_groq\n", ""),
+          f".env delete is not byte-preserving elsewhere: "
+          f"{p.read_text(encoding='utf-8')!r}")
+    check(sio.read_env(p) == {"SONIOX_API_KEY": "old_soniox"},
+          f".env delete: the key is still readable afterwards: {sio.read_env(p)}")
+
+    # 2. every duplicate, the export form included, and the CRLF endings of the
+    # surviving lines untouched -- while the commented note stays.
+    p = tmp / "del2.env"
+    original2 = ("KEEP=1\r\n"
+                 "GROQ_API_KEY=first\r\n"
+                 "  export GROQ_API_KEY=second\r\n"
+                 "#GROQ_API_KEY=my own note\r\n"
+                 "SONIOX_API_KEY=s\r\n")
+    p.write_bytes(original2.encode("utf-8"))
+    sio.write_env(p, {"GROQ_API_KEY": R})
+    check(p.read_bytes() == b"KEEP=1\r\n#GROQ_API_KEY=my own note\r\nSONIOX_API_KEY=s\r\n",
+          f".env delete: duplicates / export form / CRLF / comment wrong: "
+          f"{p.read_bytes()!r}")
+    check(sio.read_env(p) == {"SONIOX_API_KEY": "s"},
+          f".env delete: a duplicate line revived the value: {sio.read_env(p)}")
+
+    # 3. deleting a key the file does not assign changes no byte
+    p = tmp / "del3.env"
+    original3 = "# only soniox here\nSONIOX_API_KEY=s\n"
+    p.write_text(original3, encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": R})
+    check(p.read_text(encoding="utf-8") == original3,
+          f".env delete of an absent key changed the file: "
+          f"{p.read_text(encoding='utf-8')!r}")
+
+    # 4. deletions only, no file: nothing to delete, and nothing may be CREATED for
+    # the sake of it -- least of all the example seed.
+    p = tmp / "del4.env"
+    sio.write_env(p, {"GROQ_API_KEY": R, "SONIOX_API_KEY": R}, example_path=EXAMPLE_ENV)
+    check(not p.exists(),
+          ".env delete over a missing file created one -- a removal must never seed")
+
+    # 5. a delete beside a write over a missing file: the seed happens for the write,
+    # and the seed's own placeholder line for the deleted key goes with it. (The
+    # app's difference rule never produces this pair -- an empty field over an empty
+    # load is no instruction -- so this pins the writer's rule, not a user's path.)
+    p = tmp / "del5.env"
+    sio.write_env(p, {"GROQ_API_KEY": R, "SONIOX_API_KEY": "xyz"},
+                  example_path=EXAMPLE_ENV)
+    got = p.read_text(encoding="utf-8")
+    check(p.exists() and "Groq API Key" in got,
+          f".env delete+write over a missing file lost the seeded header: {got!r}")
+    check("GROQ_API_KEY=" not in got,
+          f".env delete+write: the deleted key's seeded line survived: {got!r}")
+    check(sio.read_env(p) == {"SONIOX_API_KEY": "xyz"},
+          f".env delete+write read wrong: {sio.read_env(p)}")
+
+    # 6. the two spellings on one fixture: an empty string is not an instruction and
+    # never clobbers, the sentinel removes. Only identity tells them apart.
+    p = tmp / "del6.env"
+    original6 = "GROQ_API_KEY=keepme\n"
+    p.write_text(original6, encoding="utf-8")
+    sio.write_env(p, {"GROQ_API_KEY": ""})
+    check(p.read_text(encoding="utf-8") == original6,
+          ".env: an empty string deleted a key -- only the sentinel may")
+    sio.write_env(p, {"GROQ_API_KEY": R})
+    check(p.read_text(encoding="utf-8") == "",
+          f".env: the sentinel did not remove the line: "
+          f"{p.read_text(encoding='utf-8')!r}")
+    check(p.exists(), ".env: the delete removed the file instead of the line")
+    # idempotent: saving the same pending delete again is a no-op
+    sio.write_env(p, {"GROQ_API_KEY": R})
+    check(p.read_text(encoding="utf-8") == "", ".env: a repeated delete is not a no-op")
+
+
+def check_env_save_updates():
+    """settings_io.resolve_env_save_updates: what a save has to say about `.env`,
+    derived as the DIFFERENCE between the live fields and the state the window was
+    loaded and shown with (#328, D-026).
+
+    The difference is the whole point, and the reason the rule is not the literal
+    "an empty field means delete": `read_env` degrades an unreadable or ANSI `.env`
+    to {}, so both fields come up empty without anyone clearing anything, and a
+    literal reading would take a briefly locked file as an order to wipe both keys.
+    Three cases have to stay apart, and every row below is one of them -- a field
+    that was filled and is now empty (an instruction), a field that was never filled
+    (nothing), and a field that is empty only because the reader failed (nothing).
+
+    Pure, so the whole table runs off Windows. The seam to the real window -- that
+    the app builds this set from its load-time snapshot and hands the same one to
+    both the pre-flight and the writer -- is pinned in check_readfail_wiring and
+    driven for real in test_settings_visibility.test_env_delete_with_display."""
+    R = sio.REMOVE_ENV_KEY
+    G, S = "GROQ_API_KEY", "SONIOX_API_KEY"
+
+    def live(g="", s=""):
+        return {G: g, S: s}
+
+    cases = [
+        # label, live fields, loaded snapshot, expected update set
+        ("wizard, nothing filled in", live(), {}, {}),
+        ("a key typed into an empty field", live(g="gsk_new"), {}, {G: "gsk_new"}),
+        ("both fields untouched", live(g="gsk_a", s="sx_b"), {G: "gsk_a", S: "sx_b"}, {}),
+        ("one key rotated", live(g="gsk_new", s="sx_b"),
+         {G: "gsk_a", S: "sx_b"}, {G: "gsk_new"}),
+        ("one field cleared", live(s="sx_b"), {G: "gsk_a", S: "sx_b"}, {G: R}),
+        ("cleared with spaces left behind", live(g="   ", s="sx_b"),
+         {G: "gsk_a", S: "sx_b"}, {G: R}),
+        ("retyped with padding, same key", live(g=" gsk_a ", s="sx_b"),
+         {G: "gsk_a", S: "sx_b"}, {}),
+        ("both fields cleared", live(), {G: "gsk_a", S: "sx_b"}, {G: R, S: R}),
+        ("empty because the .env could not be read", live(), {}, {}),
+    ]
+    for label, live_fields, loaded, expected in cases:
+        got = sio.resolve_env_save_updates(live_fields, loaded)
+        check(got == expected,
+              f"env save updates ({label}): resolved {got}, expected {expected}")
+
+    # A key the app does not manage cannot ride in through the live fields, and the
+    # managed key missing from them entirely is no instruction either.
+    got = sio.resolve_env_save_updates({G: "gsk_a", "OTHER": "x"}, {})
+    check(got == {G: "gsk_a"},
+          f"env save updates: an unmanaged key survived the resolver: {got}")
+
+    # The docstring's defensive half, pinned: a managed key MISSING from the live
+    # fields reads as a cleared field, exactly like one cleared by hand -- so a
+    # caller that builds the dict from only the widgets it touched would delete the
+    # other key. That is why the app's _live_env always builds both.
+    got = sio.resolve_env_save_updates({G: "dummy-x"},
+                                       {G: "dummy-y", S: "dummy-s"})
+    check(got == {G: "dummy-x", S: R},
+          f"env save updates: a managed key absent from the live fields resolved to "
+          f"{got}, not to the deletion its absence claims to mean")
+    check(got.get(S) is sio.REMOVE_ENV_KEY,
+          f"env save updates: the absent key resolved to {got.get(S)!r} rather than "
+          f"the REMOVE_ENV_KEY sentinel itself")
+
+    # The removal signal is the sentinel ITSELF -- write_env matches it by identity,
+    # so a value that merely compares equal to something must not do.
+    got = sio.resolve_env_save_updates(live(), {G: "gsk_a"})
+    check(got.get(G) is sio.REMOVE_ENV_KEY,
+          f"env save updates: a cleared field resolved to {got.get(G)!r} rather than "
+          f"the REMOVE_ENV_KEY sentinel itself")
 
 
 # ---- personal_settings.json --------------------------------------------------
@@ -986,9 +1325,10 @@ def check_save_preflight(tmp):
     Two control cases matter as much as the failures. A corrupt or ANSI
     personal_settings.json is no read failure since D-026 -- it belongs on the
     backup lane, and diverting it here would resurrect the retired abort. And an
-    unreadable `.env` that this save would not write at all (both key fields blank)
-    must not block it: write_env is a no-op there, so a pure hotkey save over a cp1252
-    `.env` works today and has to keep working."""
+    unreadable `.env` this save has no instruction for must not block it: write_env
+    is a no-op there, so a pure hotkey save over a cp1252 `.env` works today and has to
+    keep working. What is NOT such a case is a pending deletion (#328): it edits the
+    found file like any write, so it probes -- and aborts -- with it."""
     P = sio.unreadable_save_target
     A_KEY = {"GROQ_API_KEY": "gsk_new"}
     BLANK = {"GROQ_API_KEY": "  ", "SONIOX_API_KEY": ""}
@@ -1110,7 +1450,30 @@ def check_save_preflight(tmp):
           "pre-flight: with .env out of the picture an ANSI personal_settings.json "
           "blocked the save -- since D-026 it goes through over the backup lane")
 
-    # 8 -- the locked lane. chmod(0) only enforces this where the filesystem and the
+    # 8 -- a pending DELETION is a touch (#328): nothing to write, a key to remove,
+    # and the same cp1252 .env. It has to abort exactly like a write would --
+    # D-026's "a present-but-unreadable or undecodable .env still aborts the save"
+    # holds for removals too, and a delete line-edits the found file just as much.
+    REMOVE = {"GROQ_API_KEY": sio.REMOVE_ENV_KEY}
+    got = P(env_path=env_5, env_updates=REMOVE, ps_path=ps_5)
+    check(isinstance(got, tuple) and Path(got[0]) == env_5
+          and isinstance(got[1], UnicodeDecodeError),
+          f"pre-flight: a pending .env deletion over an unreadable file was waved "
+          f"through -- the blank-field skip rule must not swallow a removal: {got!r}")
+    check(env_5.read_bytes() == ANSI_ENV, "pre-flight: the .env probe wrote something")
+
+    # 9 -- and over a healthy .env the same removal clears the pre-flight, with the
+    # write that follows really taking the line out (the writer half of the pair).
+    env_10 = tmp / "pf_delete.env"
+    env_10.write_text("GROQ_API_KEY=gsk_old\nSONIOX_API_KEY=sx_old\n", encoding="utf-8")
+    check(P(env_path=env_10, env_updates=REMOVE, ps_path=ps_ok) is None,
+          "pre-flight: a removal over a readable .env was reported as a failure")
+    sio.write_env(env_10, REMOVE)
+    check(sio.read_env(env_10) == {"SONIOX_API_KEY": "sx_old"},
+          f"pre-flight fixture: the removal it cleared did not remove the key: "
+          f"{sio.read_env(env_10)}")
+
+    # 10 -- the locked lane. chmod(0) only enforces this where the filesystem and the
     # user honor it (never as root), so guard it and skip loudly rather than pass
     # falsely -- the same shape the B1 lane above uses.
     env_8 = tmp / "pf_locked.env"
@@ -1221,7 +1584,7 @@ def check_nokey_unreadable(tmp):
                                        env_updates={"GROQ_API_KEY": "", "SONIOX_API_KEY": ""},
                                        ps_path=ps_ok)
     check(blank is None and F(ansi) is not None,
-          "nokey: with both key fields blank the pre-flight passes the broken .env over "
+          "nokey: with nothing to write the pre-flight passes the broken .env over "
           "(write_env would not touch it) -- if env_read_failure went silent there too, "
           "nothing in the app would say the file exists")
 
@@ -2146,9 +2509,11 @@ def check_engine_keyed():
     """engine_keyed(api, live_fields, stored_env): the per-engine "has a usable key"
     test the key-aware engine control greys off (#201). live_fields/stored_env map
     {ENV_VAR: value}; a non-blank live field OR a stored key on the engine's backing
-    var means keyed, with a blank live field falling back to the stored value (a blank
-    never clobbers a stored key). Delegates to config.engine_has_key so the settings
-    control and the #200 console lineup can never disagree."""
+    var means keyed, with a blank live field falling back to the stored value -- the
+    control shows the key the tool has, not the one the next save will leave (a field
+    cleared for deletion since #328 therefore stays keyed until that save takes
+    effect). Delegates to config.engine_has_key so the settings control and the #200
+    console lineup can never disagree."""
     E = sio.engine_keyed
     SON, GRQ = "SONIOX_API_KEY", "GROQ_API_KEY"
     empty = {SON: "", GRQ: ""}
@@ -2163,7 +2528,8 @@ def check_engine_keyed():
     check(not E("soniox-live", live_grq, empty),
           "keyed: a typed Groq field does not key Soniox")
     check(E("soniox", {SON: "  "}, {SON: "s_stored"}),
-          "keyed: a blank field over a stored key stays keyed (blank never clobbers)")
+          "keyed: a blank field over a stored key stays keyed (the control shows what "
+          "is stored, not what the next save will leave behind)")
     check(not E("soniox", {SON: "   "}, empty),
           "keyed: a whitespace-only field with nothing stored is not keyed")
     both = {SON: "s", GRQ: "g"}
@@ -2418,12 +2784,13 @@ def check_fixed_entry_engine():
           "entry: a Groq key typed this session must key the landing spot")
 
     # Blank-over-stored stays keyed (mirrors engine_keyed), so a blanked Soniox field
-    # over a stored Soniox key leaves the shown engine keyed -> no move.
+    # over a stored Soniox key leaves the shown engine keyed -> no move. (That a save
+    # would now DELETE that key is the #201 question #328 left open on purpose.)
     check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
             live_fields={SON: "   ", GRQ: "g"},
             stored_env={SON: "s_stored", GRQ: ""}) is None,
           "entry: a blanked field over a stored key keeps the shown engine keyed "
-          "(a blank never clobbers) -> no move")
+          "(it falls back to the stored one) -> no move")
 
     # The invariant sweep: across every flip state, seed and key layout, a move can
     # only fire in the remember->fixed cell -- the one whose save writes the pin
@@ -3340,8 +3707,7 @@ def check_save_always_restarts():
 
 # ---- first-run mode decision (#163) ------------------------------------------
 def check_first_run_decision(tmp):
-    # env_has_key: the shared key-presence predicate (also feeds the GUI's
-    # _had_stored_key, so the mode decision can never drift from it).
+    # env_has_key: the shared key-presence predicate behind the window-mode decision.
     check(not sio.env_has_key({}), "env_has_key: empty env is no key")
     check(sio.env_has_key({"GROQ_API_KEY": "g"}), "env_has_key: Groq key not seen")
     check(sio.env_has_key({"SONIOX_API_KEY": "s"}), "env_has_key: Soniox key not seen")
@@ -3362,17 +3728,18 @@ def check_first_run_decision(tmp):
     check(sio.resolve_first_run(False, {"GROQ_API_KEY": "  "}) is True,
           "a whitespace-only key is no key -> wizard")
 
-    # Seam to the real reader: read_env feeds the decision as it does _had_stored_key.
+    # Seam to the real reader: read_env feeds the decision, exactly as it feeds the
+    # window's key fields.
     p = tmp / "env_fr_key"
     p.write_text("GROQ_API_KEY=gsk_real\n", encoding="utf-8")
     check(sio.resolve_first_run(False, sio.read_env(p)) is False,
           "a readable .env with a key -> plain dialog")
-    # an ANSI/cp1252 .env degrades to {} in read_env -> no key -> wizard, matching
-    # _had_stored_key (reuses the B3 cp1252 pattern from check_regressions).
+    # an ANSI/cp1252 .env degrades to {} in read_env -> no key -> wizard, the same way
+    # the window's fields come up empty over one (the B3 cp1252 pattern again).
     p = tmp / "env_fr_ansi"
     p.write_bytes("# Umlaut-Kommentar: Präfix\nGROQ_API_KEY=secret\n".encode("cp1252"))
     check(sio.resolve_first_run(False, sio.read_env(p)) is True,
-          "an ANSI .env reads as no key -> wizard (consistent with _had_stored_key)")
+          "an ANSI .env reads as no key -> wizard (as the empty key fields over one)")
 
 
 def _show():
@@ -3393,6 +3760,8 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         check_env(tmp)
+        check_env_quoting(tmp)
+        check_env_delete(tmp)
         check_personal_settings(tmp)
         check_ui_language(tmp)
         check_ui_language_gate(tmp)
@@ -3418,6 +3787,7 @@ def main():
     check_i18n_gap_proof()
     check_readme_anchors()
     check_preselect()
+    check_env_save_updates()
     check_engine_keyed()
     check_engine_save_signal()
     check_fixed_entry_engine()

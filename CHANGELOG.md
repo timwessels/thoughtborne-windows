@@ -83,6 +83,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings window and in both READMEs, which now also list the two toggles in the order the
   UI shows them.
 
+- **Clearing a key field now removes the stored key on save (#328, D-026).** The two key
+  fields display the stored keys, so a cleared field is an instruction like every other
+  state the window shows: the save takes that key's line out of `.env` and leaves
+  everything around it — comments, unmanaged lines, the file's own line endings —
+  untouched. Clearing the last key meets the confirmation a save without any key has
+  always met. Two kinds of empty are deliberately not an instruction: a wizard field
+  never filled in, and fields that come up empty only because `.env` could not be read
+  (a locked or wrongly encoded file still aborts the save rather than being rewritten).
+  A field nobody touched leaves its line exactly as found now, quoting and comment tails
+  included, so a hotkey-only save no longer rewrites the key lines at all — and the note
+  under the fields says what saving does instead of pointing at the file.
+
 ### Removed
 
 - **The settings window no longer makes statements about file health (#326, D-026).** Three
@@ -113,6 +125,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing at all. The placeholder loop now walks only the keys both tables share, the pins and
   the probes report a missing key as a failure of their own, and a per-run proof plants both
   gap shapes in memory to hold `check_i18n` to reporting-and-returning.
+
+- **A key value that needs quoting survives a save (#328).** The settings app wrote every
+  value into `.env` bare, while both halves of Thoughtborne read that file with quotes and
+  comment tails in mind — so a value carrying a `#` came back cut on the next read, one
+  save after it was entered and without a word anywhere. Such a value is now written in
+  quotes, which that reader takes literally, so read → save → read loses nothing; the few
+  values no spelling of the format can carry are refused with a message instead of being
+  written in a spelling the reader would cut short or warn about at every start, and a
+  value pasted with a line break in it is folded into one line first — in every shape a
+  line break comes in, not just the two common ones. An
+  unterminated quote in a hand-edited file (a `"` or `'` with no partner on
+  the line) keeps its meaning — the character stays part of the value, as it always did —
+  but now leaves a start-up warning instead of passing in silence.
 
 ## [1.2.0rc1] - 2026-09-16
 

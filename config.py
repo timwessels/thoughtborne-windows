@@ -244,6 +244,10 @@ VERSION_LOG = (VERSION or "unknown") + (
 # A `#` that starts the value or follows whitespace begins a comment; one with a
 # non-whitespace neighbour on its left belongs to the value (`abc#def`).
 _ENV_COMMENT_RE = re.compile(r"(^|\s)#")
+# The writer's side of the same grammar (#328): a value carrying whitespace or a `#`
+# is spelled in quotes rather than bare -- see format_env_value below, which is this
+# parser's inverse and lives beside it so the two cannot drift apart.
+_ENV_NEEDS_QUOTES = re.compile(r"\s|#")
 
 
 def read_env_file(path, *, encoding="utf-8-sig") -> tuple:
@@ -255,8 +259,10 @@ def read_env_file(path, *, encoding="utf-8-sig") -> tuple:
     uncommented lines only; an optional leading `export ` is dropped; the split is at
     the first `=`, key and value whitespace-stripped; a value in one pair of matching
     quotes is taken literally between them (anything after the closing quote is
-    ignored); an unquoted value loses a `#` comment that starts it or follows
-    whitespace; `${VAR}` is NOT expanded; a duplicate key is last-wins; a blank value
+    ignored), while a lone quote character with no partner on the line is no quoting
+    at all -- it stays part of the value, and a warning says so (#328); an unquoted
+    value loses a `#` comment that starts it or follows whitespace; `${VAR}` is NOT
+    expanded; a duplicate key is last-wins; a blank value
     counts as no key at all and is left OUT of the dict -- so "no key" has exactly one
     shape and no caller can invent a distinction between missing and empty. A value is
     therefore never None either, which settings_io.env_has_key relies on (it calls
@@ -313,6 +319,13 @@ def read_env_file(path, *, encoding="utf-8-sig") -> tuple:
             # inside quotes belongs to the value.
             value = value[1:value.find(quote, 1)]
         else:
+            if quote in ("'", '"'):
+                # An opening quote with no partner (`KEY="abc`). The value keeps the
+                # character -- changing that would change what a running tool reads
+                # out of files that exist today -- but it no longer does so in silence
+                # (#328). The key NAME is safe to print, the value never is.
+                warnings.append(f"{path}: unterminated quote in the value of {key}; "
+                                f"the quote character is kept as part of the value")
             cut = _ENV_COMMENT_RE.search(value)
             value = (value[:cut.start()] if cut else value).strip()
         if value:
@@ -321,6 +334,54 @@ def read_env_file(path, *, encoding="utf-8-sig") -> tuple:
             values.pop(key, None)     # ... and a later blank line clears an earlier
                                       # value, so the LAST line always decides
     return values, warnings
+
+
+def format_env_value(value: str) -> str:
+    """Spell `value` for the right-hand side of a `KEY=...` line so that the parser
+    above reads it back unchanged (#328) -- its inverse, living beside it because the
+    two are one grammar: a change to the reading rules is a change here, on the same
+    screen. `settings_io.write_env`, the only writer of `.env` (D-002), is the caller.
+
+    `value` arrives cleaned the way that writer cleans one: a single line, stripped
+    (settings_io._clean_env_updates). Edge whitespace is therefore ruled out before
+    this function, not by it -- the quoted spelling would carry it back exactly, since
+    the parser strips the line and the raw right-hand side but never inside a pair of
+    quotes.
+
+    Bare wherever bare reads back both EXACTLY and SILENTLY, so a normal API key's
+    line stays byte-identical to what it always was. Quoted -- in one pair of a quote
+    character the value does not itself contain, which the parser then takes literally
+    between them -- when the value carries whitespace or a `#`, or opens with a quote
+    character: the `#` and the leading quote are the real misreads (a comment cut, the
+    quoted lane), while inner whitespace is quoted on top of them so an
+    `export KEY=...` line stays shell-sourceable (D-002: change the value, not the
+    line's form).
+
+    Raises ValueError for the values no spelling of this grammar carries: they hold
+    BOTH quote characters -- so no pair is free to enclose them -- together with a
+    leading quote or a `#` the comment rule would cut at, either of which rules bare
+    out too. A leading quote rules it out in both its shapes: with a partner further
+    in, the parser's quoted lane cuts the value; without one the value does come back
+    whole, but the reader warns about an unterminated quote at every start -- over a
+    line this writer produced, which is the one thing it may not leave behind. The
+    message names the problem and never echoes the value (it travels into the settings
+    app's save-failure dialog) -- a loud refusal beats the silently truncated key this
+    function exists to rule out."""
+    leads_quote = value[:1] in ("'", '"')
+    if not _ENV_NEEDS_QUOTES.search(value) and not leads_quote:
+        return value
+    for quote in ('"', "'"):
+        if quote not in value:
+            return quote + value + quote
+    # Both quote characters are in the value, so neither can enclose it. Bare is the
+    # last resort, and only where the parser hands the line back exactly AND without
+    # a warning -- which rules out a leading quote either way (cut by the quoted lane,
+    # or warned about as unterminated) and a `#` the comment rule would cut at.
+    if not leads_quote and _ENV_COMMENT_RE.search(value) is None:
+        return value
+    raise ValueError("a value that holds both quote characters together with a '#' "
+                     "or a leading quote cannot be stored in .env unambiguously -- "
+                     "remove one of them and save again")
 
 
 _ENV_VALUES, _env_warnings = read_env_file(SCRIPT_DIR / ".env", encoding="utf-8-sig")

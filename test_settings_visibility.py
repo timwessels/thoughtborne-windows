@@ -106,6 +106,15 @@ single dialog, the fresh write-time probe (the #239 pattern) proven on the real
 window. Like the #239 lane it WRITES and runs against a tempdir-patched
 `config.SCRIPT_DIR`.
 
+Its sibling `test_env_delete_with_display` drives the other half of the save's `.env`
+lane, D-026's WYSIWYG deletion (#328): over a file whose Groq line is deliberately
+exotic -- `export`, quoted, with a comment tail -- a save that touches no field leaves
+that line byte-identical, clearing ONE field removes exactly its line without a
+question, and a fresh window over the result that clears the LAST key meets the
+keyless confirmation once, in its ordinary wording, before the second line goes too.
+`test_settings_io.py` proves every piece apart; only the built window shows the chain
+closing from the load-time snapshot through the resolver into the file.
+
 A seventh, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
 (#281). Three of its four checks are one-liners against couplings the code can only
 state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has entries
@@ -1847,11 +1856,12 @@ def test_save_readfail_with_display():
             check(not list(tmp.glob("personal_settings.backup-*.json")),
                   "the aborted save created a backup")
 
-            # C -- CONTROL: the same broken .env, but both key fields blank, which is
-            # what a hotkey-only save looks like. write_env is a no-op there, so this
-            # save never touches the file and must go through -- a pre-flight that
-            # blocks it would break a save that works today. Healthy target: no
-            # backup either.
+            # C -- CONTROL: the same broken .env, but both key fields blank over a
+            # load that held no key either -- which is what a hotkey-only save looks
+            # like, and since #328 exactly the difference that is no instruction.
+            # write_env is a no-op there, so this save never touches the file and must
+            # go through -- a pre-flight that blocks it would break a save that works
+            # today. Healthy target: no backup either.
             app.groq_var.set("")
             app.soniox_var.set("")
             dialogs, questions, r0 = len(errors), len(asked), len(restarts)
@@ -1926,6 +1936,147 @@ def test_save_readfail_with_display():
             root.destroy()
         except Exception:
             pass
+
+
+def test_env_delete_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. D-026's WYSIWYG deletion (#328) through the REAL app: the fields display
+    # the stored keys, so clearing one and saving removes that key's line from `.env`.
+    # test_settings_io.py proves each piece on its own -- the difference rule, the
+    # writer's removal lane, the pre-flight -- but only the built window shows the
+    # chain closing: the load-time snapshot the window really took, the fields the
+    # user really cleared, the file that really loses the line. It is the gap a
+    # resolver test cannot close (the test_typed_cap_wiring shape).
+    #
+    # The fixture's Groq line is deliberately exotic -- an `export` form, a quoted
+    # value, a comment tail -- because that is what makes case A sharp: a save with
+    # nothing to say about `.env` has to leave that line byte-identical, which a
+    # writer that re-composes both key lines on every save could not do.
+    #
+    # WRITES, so config.SCRIPT_DIR is patched to a tempdir before the app is built.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped env-delete check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped env-delete check: no display)")
+        return
+    root2 = None
+    try:
+        import settings_strings as sstr
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped env-delete check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _askyesno = ts.messagebox.askyesno
+    try:
+        errors, asked = [], []
+        ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
+        ts.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
+
+        import settings_io as sio_mod
+
+        with _app_sandbox() as tmp:
+            ps = tmp / "personal_settings.json"
+            ps.write_text(json.dumps({"vocabulary": {"terms": ["Grüße"]}},
+                                     indent=2, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+            env = tmp / ".env"
+            original = ('# my own note\n'
+                        'export GROQ_API_KEY="gsk_stored"   # rotated by hand\n'
+                        'SONIOX_API_KEY=sx_stored\n'
+                        'MY_OWN=keepme\n')
+            env.write_text(original, encoding="utf-8")
+
+            root.geometry("900x860")
+            app = ts.SettingsApp(root, first_run=False)
+            root.update()
+            restarts = []
+            app._restart_and_relaunch = lambda: restarts.append(True)
+
+            # The premise of the whole rule: the fields really show the stored keys.
+            check(app.groq_var.get() == "gsk_stored"
+                  and app.soniox_var.get() == "sx_stored",
+                  f"the window does not show the stored keys, so nothing it saves "
+                  f"can be WYSIWYG: {app.groq_var.get()!r} / {app.soniox_var.get()!r}")
+
+            # A -- a save that touches neither field says nothing about `.env`, so the
+            # file stays byte-identical: quotes, comment tail, `export` and all.
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:] and not asked[q0:],
+                  f"an ordinary save raised a dialog: {errors[e0:]!r} {asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the ordinary save did not restart")
+            check(env.read_text(encoding="utf-8") == original,
+                  f"a save with nothing to say about .env rewrote its key lines: "
+                  f"{env.read_text(encoding='utf-8')!r}")
+
+            # B -- clear ONE field: that key's whole line goes, every other line is
+            # byte-exact, the save restarts, and nothing is asked -- the accepted
+            # trade-off of D-026 (a key still remains, so there is no keyless
+            # threshold to cross).
+            app.groq_var.set("")
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:] and not asked[q0:],
+                  f"clearing one key field raised a dialog: {errors[e0:]!r} "
+                  f"{asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the deleting save did not restart")
+            check(env.read_text(encoding="utf-8")
+                  == '# my own note\nSONIOX_API_KEY=sx_stored\nMY_OWN=keepme\n',
+                  f"the cleared field did not remove exactly its own line: "
+                  f"{env.read_text(encoding='utf-8')!r}")
+            check(sio_mod.read_env(env) == {"SONIOX_API_KEY": "sx_stored"},
+                  f"the removed key is still readable: {sio_mod.read_env(env)}")
+
+            # C -- a fresh window over the now one-keyed file, the last key cleared:
+            # exactly one keyless confirmation, and the ordinary body rather than the
+            # unreadable twin (#294 -- the file reads fine, it is being emptied on
+            # purpose). Yes -> the second line goes too, the user's own lines stay.
+            root.destroy()
+            root2 = tk.Tk()
+            root2.geometry("900x860")
+            app2 = ts.SettingsApp(root2, first_run=False)
+            root2.update()
+            app2._restart_and_relaunch = lambda: restarts.append(True)
+            check(app2.soniox_var.get() == "sx_stored" and app2.groq_var.get() == "",
+                  f"the second window does not show the file it opened over: "
+                  f"{app2.groq_var.get()!r} / {app2.soniox_var.get()!r}")
+            app2.soniox_var.set("")
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app2._save()
+            check(len(asked) == q0 + 1,
+                  f"clearing the last stored key did not meet the keyless "
+                  f"confirmation: {asked[q0:]!r}")
+            check(asked[q0:q0 + 1] == [sstr.t("dlg.nokey.body", app2.lang)],
+                  f"the keyless confirmation used the wrong body over a perfectly "
+                  f"readable .env: {asked[q0:]!r}")
+            check(not errors[e0:], f"the emptying save raised an error dialog: "
+                                   f"{errors[e0:]!r}")
+            check(len(restarts) == r0 + 1, "the emptying save did not restart")
+            check(env.read_text(encoding="utf-8") == '# my own note\nMY_OWN=keepme\n',
+                  f"the last removal took more or less than its own line: "
+                  f"{env.read_text(encoding='utf-8')!r}")
+            check(sio_mod.read_env(env) == {},
+                  f"a key survived the emptying save: {sio_mod.read_env(env)}")
+    finally:
+        ts.messagebox.showerror = _showerror
+        ts.messagebox.askyesno = _askyesno
+        for r in (root, root2):
+            try:
+                if r is not None:
+                    r.destroy()
+            except Exception:
+                pass
 
 
 def test_callback_error_log_with_display():
@@ -2192,6 +2343,7 @@ def main():
     test_language_toggle_gate_with_display()
     test_reset_with_display()
     test_save_readfail_with_display()
+    test_env_delete_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
 
@@ -2213,7 +2365,8 @@ def main():
           "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
           "through the D-026 backup lane (asymmetric fixture, mutation-measured), "
           "the save lane's D-026 backup-and-rewrite with the .env abort kept and "
-          "the mid-session-corruption scene (#263), and the #240 callback / "
+          "the mid-session-corruption scene (#263), the #328 WYSIWYG key deletion "
+          "from the untouched save to the last key cleared, and the #240 callback / "
           "pre-mainloop crash logging all pass")
     return 0
 

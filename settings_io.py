@@ -11,8 +11,11 @@ on plain Python (the `console_ui.py` + `test_console_ui.py` house style).
 Write policy (DECISIONS.md D-002): surgical merge, never a full
 rewrite.
   - `.env` is edited line-wise -- only the two managed keys, every other line /
-    comment / blank / order preserved; an empty value is omitted so a blank field
-    never clobbers a stored key.
+    comment / blank / order preserved; a value is spelled so the shared reader reads
+    it back unchanged (`config.format_env_value`), an empty one is omitted because a
+    blank value is no instruction, and the distinct `REMOVE_ENV_KEY` sentinel deletes
+    a key's line -- D-026's WYSIWYG deletion, which only `resolve_env_save_updates`
+    derives, from a field the user cleared.
   - `personal_settings.json` keeps every unmanaged block and every `_comment`
     untouched; hotkeys are written as a diff against `config.DEFAULT_HOTKEYS` (the
     default scheme writes no hotkey entries), unless `hotkeys_effective` is None,
@@ -79,6 +82,14 @@ TK_STATE_ALT     = 0x20000
 # =============================================================================
 ENV_KEYS = ("GROQ_API_KEY", "SONIOX_API_KEY")   # the only keys this app manages
 
+# The "delete this key's line" signal for write_env (#328, D-026's WYSIWYG deletion),
+# built like the `defaults.api` one (REMOVE_API_PIN, D-002 addendum): a sentinel object
+# matched by IDENTITY, never by equality. The empty string is exactly the value that
+# must not mean delete on its own -- it is what an unreadable .env and a never-filled
+# wizard field both look like -- so only resolve_env_save_updates below, which can tell
+# a cleared field from an empty one, ever turns a value into this.
+REMOVE_ENV_KEY = object()
+
 
 def read_env(path) -> dict:
     """Return {KEY: value} for the managed keys (ENV_KEYS) the `.env` at `path`
@@ -103,25 +114,74 @@ def read_env(path) -> dict:
 
 
 def _clean_env_updates(updates: dict) -> dict:
-    """The part of `updates` write_env would actually write: unmanaged keys dropped,
-    every value stripped of surrounding whitespace and of any embedded newline (a
+    """The part of `updates` write_env would actually act on: unmanaged keys dropped,
+    every value folded back into ONE line and stripped of surrounding whitespace (a
     value must be a single .env line, and a pasted key is trimmed before it could
-    reach an Authorization header, S4), and an empty result dropped -- a blank field
-    must never clobber a stored key.
+    reach an Authorization header, S4), an empty result dropped, and the
+    REMOVE_ENV_KEY sentinel carried through untouched.
 
-    An empty return therefore means "this save does not touch .env at all". Both
-    write_env's no-op and unreadable_save_target's decision not to probe the file rest
-    on that answer, which is why the rule lives here rather than inline in the writer:
-    a pre-flight that answered it differently would block saves the writer never
-    touches .env for."""
+    The fold goes through `str.splitlines()` -- the reader's own split, rather than a
+    second list of characters beside it -- so it removes exactly what would tear the
+    written line apart on the way back in: CR and LF, but a vertical tab, a form feed
+    or a NEL just as much (#328). Missing one of those was a quiet loss, not a stray
+    character: the speller quotes it (it is whitespace), and the line then comes back
+    cut off at it, with a startup warning about the writer's own file.
+
+    The two rules are one decision seen from both sides: a blank VALUE is not an
+    instruction and never clobbers a stored key, while a deletion is an instruction
+    and has to be spelled as the sentinel (#328). That keeps the writer's own defence
+    line independent of whoever computed the update set.
+
+    An empty return therefore means "this save does not touch .env at all" -- and a
+    pending deletion is a touch. Both write_env's no-op and unreadable_save_target's
+    decision not to probe the file rest on that answer, which is why the rule lives
+    here rather than inline in the writer: a pre-flight that answered it differently
+    would block saves the writer never touches .env for."""
     cleaned = {}
     for k, v in updates.items():
         if k not in ENV_KEYS:
             continue
-        value = str(v).replace("\r", "").replace("\n", "").strip()
+        if v is REMOVE_ENV_KEY:
+            cleaned[k] = v
+            continue
+        value = "".join(str(v).splitlines()).strip()
         if value:
             cleaned[k] = value
     return cleaned
+
+
+def resolve_env_save_updates(live_fields: dict, loaded_env: dict) -> dict:
+    """The `.env` update set of one save under D-026's WYSIWYG rule, read as a
+    DIFFERENCE (#328): for each managed key, the field's live value against the value
+    the window was loaded and shown with (`read_env` at open). Both dicts map
+    {ENV_VAR: value}; the live side is cleaned by the one shared rule above first, so
+    "cleared" and "cleared with spaces" are the same gesture. A managed key MISSING
+    from `live_fields` reads as a cleared field, so a caller must pass every key it
+    does not mean to delete -- the app's `_live_env` always builds both.
+
+      - live == loaded           -> the key is absent from the result: this save
+        leaves its line exactly as found (an untouched field is no instruction, the
+        house contract every other control follows -- and it covers the two empties
+        that are not gestures: a wizard field never filled, and the pair that reads
+        empty only because the .env could not be read at all)
+      - live non-empty, differs  -> that value, to be written
+      - live empty, loaded was not -> REMOVE_ENV_KEY: the user cleared a field that
+        showed a stored key, so the save deletes that key's line (D-026)
+
+    The premise of the last rule is that the field really displays what is stored --
+    which is why the comparison is against the loaded snapshot rather than against
+    emptiness: an unreadable `.env` degrades to {} in `read_env`, and a literal
+    "empty means delete" would read a briefly locked file as an order to wipe both
+    keys. Pure, so the whole table is off-Windows testable."""
+    cleaned = _clean_env_updates(live_fields)
+    updates = {}
+    for key in ENV_KEYS:
+        live = cleaned.get(key, "")
+        loaded = loaded_env.get(key, "")
+        if live == loaded:
+            continue
+        updates[key] = live if live else REMOVE_ENV_KEY
+    return updates
 
 
 def write_env(path, updates: dict, *, example_path=None) -> None:
@@ -133,9 +193,23 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
     duplicate must not survive); else `KEY=value` is appended. File absent: seed
     from `example_path` (keeping its helpful header), else start empty, then apply
     updates. A value is stripped of surrounding whitespace and any embedded newline;
-    an empty result is dropped -- a blank field must never clobber a stored key, and
-    a pasted key is trimmed before it could reach an Authorization header. An empty
+    an empty result is dropped -- a blank value is not an instruction here, and a
+    pasted key is trimmed before it could reach an Authorization header. An empty
     effective update set is a no-op (the file is not touched).
+
+    The REMOVE_ENV_KEY sentinel as a value DELETES that key instead (#328, D-026's
+    WYSIWYG deletion): every uncommented line assigning it goes away -- all
+    duplicates, since one survivor would revive the value -- while a commented-out
+    `# KEY=...` line is a user's note and stays, exactly as it does for an update.
+    Deleting a key an absent file cannot hold writes nothing and creates no file, not
+    even the example seed. Only the sentinel deletes, and it is matched by identity:
+    the app's cleared-field gesture is resolved into it by resolve_env_save_updates,
+    which is the one place that can tell a cleared field from an empty one.
+
+    The value written is spelled by config.format_env_value, the reader's own inverse,
+    so a value carrying a `#`, spaces or a leading quote survives read -> save -> read
+    (#328) instead of being cut on the way back in; a value that grammar cannot carry
+    raises ValueError from there, before anything is written.
 
     An existing-but-UNREADABLE target aborts the save (the read error propagates) so
     a locked/unreadable `.env` is never rewritten with just the new key, losing the
@@ -149,6 +223,11 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
     updates = _clean_env_updates(updates)
     if not updates:
         return
+    removes = {k for k, v in updates.items() if v is REMOVE_ENV_KEY}
+    # Spell every value before a single line is composed, so a value this grammar
+    # cannot carry aborts while nothing is prepared and nothing is on disk.
+    writes = {k: config.format_env_value(v)
+              for k, v in updates.items() if k not in removes}
 
     # Read the target byte-faithfully: newline="" keeps \r\n intact (S5) and
     # utf-8-sig drops a BOM if present (S6). A MISSING target falls back to the
@@ -159,6 +238,11 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
         with open(path, encoding="utf-8-sig", newline="") as f:
             lines = f.read().splitlines(keepends=True)
     except FileNotFoundError:
+        if not writes:
+            # Deletions only, and no file to delete from: there is nothing to do, and
+            # least of all to CREATE one (the example seed included) for the sake of
+            # removing a line that was never there.
+            return
         lines = []
         if example_path is not None:
             try:
@@ -201,8 +285,8 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
             return "\n"
         return ""
 
-    # Replace the value on EVERY uncommented occurrence of a managed key (S3);
-    # append only a key that never appeared.
+    # Replace the value on EVERY uncommented occurrence of a managed key (S3), drop
+    # every occurrence of a deleted one; append only a key that never appeared.
     seen = set()
     new_lines = []
     for line in lines:
@@ -212,13 +296,15 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
             if p is not None:
                 matched, prefix = k, p
                 break
+        if matched in removes:
+            continue
         if matched is not None:
-            new_lines.append(f"{prefix}{matched}={updates[matched]}{_line_ending(line)}")
+            new_lines.append(f"{prefix}{matched}={writes[matched]}{_line_ending(line)}")
             seen.add(matched)
         else:
             new_lines.append(line)
 
-    remaining = {k: v for k, v in updates.items() if k not in seen}
+    remaining = {k: v for k, v in writes.items() if k not in seen}
     if remaining and new_lines and not new_lines[-1].endswith(("\n", "\r\n")):
         new_lines[-1] = new_lines[-1] + append_ending
     for key, value in remaining.items():
@@ -232,12 +318,11 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
 # =============================================================================
 def env_has_key(env: dict) -> bool:
     """True iff a read_env() result holds a non-empty managed API key (Groq or
-    Soniox). The single key-presence predicate: the settings app's _had_stored_key
-    and resolve_first_run below both flow from it, so the window-mode decision can
-    never drift from what the app treats as "a key is stored". A blank/whitespace
-    value is no key (mirrors write_env dropping a blank so it never clobbers a stored
-    key); an unreadable/ANSI .env, which read_env already degrades to {}, reads as no
-    key here too."""
+    Soniox). The single key-presence predicate behind resolve_first_run below, so the
+    window-mode decision can never drift from what the app treats as "a key is
+    stored". A blank/whitespace value is no key (the reader leaves a blank value out
+    of the dict entirely, so "no key" has one shape); an unreadable/ANSI .env, which
+    read_env already degrades to {}, reads as no key here too."""
     return bool(env.get("GROQ_API_KEY", "").strip()
                 or env.get("SONIOX_API_KEY", "").strip())
 
@@ -277,9 +362,11 @@ def engine_keyed(api, live_fields: dict, stored_env: dict) -> bool:
     """True iff engine `api` has a usable key for the settings app's key-aware engine
     control (#201): a non-blank live field for its backing .env var (config.API_KEY_ENV),
     or a key already stored there. `live_fields` and `stored_env` map {ENV_VAR: value}.
-    A blank/whitespace live field falls back to the stored value -- a blank never
-    clobbers a stored key (mirrors write_env), so an empty field on top of a stored key
-    still counts as keyed. Delegates the var lookup + stored check to
+    A blank/whitespace live field falls back to the stored value, so an empty field on
+    top of a stored key still counts as keyed -- the control shows what the tool has,
+    not yet what this save will leave behind (a field cleared for deletion since #328
+    therefore keeps its engines selectable until the save takes effect). Delegates the
+    var lookup + stored check to
     `config.engine_has_key` (the #200 console primitive), so the settings control and
     the console lineup can never disagree on 'keyed'. An engine outside
     `config.API_KEY_ENV` -> False (defensive). Pure -> off-Windows testable."""
@@ -787,12 +874,15 @@ def unreadable_save_target(*, env_path, env_updates, ps_path):
     rewritten. Asking first buys both and keeps the save all-or-nothing, which is
     what lets the dialog say that nothing was changed.
 
-    `.env` is probed ONLY when this save would actually write it: write_env is a no-op
-    for an empty effective update set, so two blank key fields must not let an
-    unreadable `.env` block a save that never touches it -- a pure hotkey save over a
-    cp1252 `.env` works today and keeps working. `_clean_env_updates`, write_env's own
-    rule rather than a second copy, answers that. `.env` comes first because it is
-    written first, so the file named is the one that would have failed.
+    `.env` is probed ONLY when this save would actually touch it: write_env is a no-op
+    for an empty effective update set, so key fields that carry no instruction must not
+    let an unreadable `.env` block a save that never touches it -- a pure hotkey save
+    over a cp1252 `.env` works today and keeps working. `_clean_env_updates`,
+    write_env's own rule rather than a second copy, answers that -- and it counts a
+    pending DELETION as a touch (#328), which is how D-026's "a present-but-unreadable
+    or undecodable .env still aborts the save" keeps holding for removals too. `.env`
+    comes first because it is written first, so the file named is the one that would
+    have failed.
 
     This is not a lock: a file that turns unreadable between the probe and the write
     falls back to the writers' own abort and the caller's write-failure message --

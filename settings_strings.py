@@ -124,8 +124,8 @@ _EN = {
     "provider.reveal.show": "Show",
     "provider.reveal.hide": "Hide",
     "provider.keep_note": (
-        "Saving never deletes a key — a cleared field leaves the stored key "
-        "untouched. To remove a key, edit the .env file directly."),
+        "These fields show the stored keys, and a save stores exactly what they "
+        "show. To remove a key, clear its field and save."),
     "btn.test_key": "Test key",
     "test.testing": "Testing…",
     "test.valid": "Key works",
@@ -377,9 +377,10 @@ _EN = {
     # ---- dialogs & warnings ----
     "dlg.nokey.title": "No API key",
     "dlg.nokey.body": (
-        "No API key is entered, and none was found on this PC — Thoughtborne can't "
-        "transcribe without one. Your hotkeys and preferences will still be saved, and "
-        "Thoughtborne restarts so they take effect — as long as no key is entered, "
+        "No API key is entered, and after this save none will be stored — "
+        "Thoughtborne can't transcribe without one. Your hotkeys and preferences will "
+        "still be saved, and Thoughtborne restarts so they take effect — as long as "
+        "no key is stored, "
         "this setup window opens again afterwards. You can add a key any time — reopen "
         "settings from the running tool with Ctrl+Alt+G. Save and restart now?"),
     "dlg.nokey.title_unreadable": "Key file couldn't be read",
@@ -547,9 +548,9 @@ _DE = {
     "provider.reveal.show": "Anzeigen",
     "provider.reveal.hide": "Verbergen",
     "provider.keep_note": (
-        "Speichern löscht nie einen Key – ein geleertes Feld lässt den "
-        "gespeicherten Key unangetastet. Zum Entfernen den Key direkt in der Datei "
-        ".env löschen."),
+        "Diese Felder zeigen die gespeicherten Keys, und gespeichert wird genau "
+        "das, was sie zeigen. Zum Entfernen eines Keys das Feld leeren und "
+        "speichern."),
     "btn.test_key": "Key testen",
     "test.testing": "Teste…",
     "test.valid": "Key funktioniert",
@@ -812,10 +813,11 @@ _DE = {
     # ---- dialogs & warnings ----
     "dlg.nokey.title": "Kein API-Key",
     "dlg.nokey.body": (
-        "Es ist kein API-Key eingetragen, und es wurde keiner gefunden – ohne Key "
-        "kann Thoughtborne nicht transkribieren. Deine Hotkeys und Einstellungen "
+        "Es ist kein API-Key eingetragen, und nach diesem Speichern ist keiner "
+        "hinterlegt – ohne Key kann Thoughtborne nicht transkribieren. "
+        "Deine Hotkeys und Einstellungen "
         "werden trotzdem gespeichert, und Thoughtborne startet neu, damit sie greifen "
-        "– solange kein Key eingetragen ist, öffnet sich diese Einrichtung danach "
+        "– solange kein Key hinterlegt ist, öffnet sich diese Einrichtung danach "
         "wieder. Einen Key kannst du jederzeit ergänzen – öffne die Einstellungen "
         "aus dem laufenden Tool mit Ctrl+Alt+G. Jetzt speichern und neu starten?"),
     "dlg.nokey.title_unreadable": "Key-Datei nicht lesbar",

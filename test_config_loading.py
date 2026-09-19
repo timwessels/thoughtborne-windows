@@ -592,6 +592,13 @@ _ENV_CORPUS = [
     ("hash-in-value",      "GROQ_API_KEY=dummy#a",       {"GROQ_API_KEY": "dummy#a"}, 0),
     ("hash-in-quotes",     'GROQ_API_KEY="du # my"',     {"GROQ_API_KEY": "du # my"}, 0),
     ("comment-after-quote", 'GROQ_API_KEY="dummy-a" # note', {"GROQ_API_KEY": "dummy-a"}, 0),
+    # An opening quote with no partner is no quoting at all: the character stays in
+    # the value, and since #328 the reader says so rather than keeping it silently.
+    # The semantics are pinned deliberately -- changing them would change what a
+    # running tool reads out of files that exist today (stability first).
+    ("unterminated-quote", 'GROQ_API_KEY="dummy-a', {"GROQ_API_KEY": '"dummy-a'}, 1),
+    ("unterminated-quote-comment", 'GROQ_API_KEY="dummy #x',
+     {"GROQ_API_KEY": '"dummy'}, 1),
     ("interpolation",      "GROQ_API_KEY=${SONIOX_API_KEY}\nSONIOX_API_KEY=dummy-b",
      {"GROQ_API_KEY": "${SONIOX_API_KEY}", "SONIOX_API_KEY": "dummy-b"}, 0),
     ("blank",              "GROQ_API_KEY=",              {}, 0),
