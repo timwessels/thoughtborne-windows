@@ -20,8 +20,8 @@ from pathlib import Path
 # runtime. hotkey_parse imports nothing Windows-bound, so config stays importable
 # off-Windows (the test drivers depend on that).
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
-    KEY_INVALID,
+    parse_hotkey_lexical, canonical_combo, classify_key, dead_combo_reason,
+    HotkeyParseError, KEY_INVALID,
 )
 
 # Import-time warnings, collected instead of logged (#206): at `import config` no
@@ -692,6 +692,14 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                 f"hotkeys.{action}: '{value}' has an unrecognized key '{key}'; "
                 f"keeping default")
             continue
+        # The one dead combo class (#325): registers, can never fire. Rejected
+        # before the collision loop, so ctrl+pause and ctrl+scrolllock -- both
+        # VK_CANCEL to Windows -- can never alias into the effective set.
+        reason = dead_combo_reason(_mods, key)
+        if reason:
+            warnings.append(
+                f"hotkeys.{action}: '{value}' -- {reason}; keeping default")
+            continue
         # One spelling for every effective combo (#272/#275): modifiers in the
         # fixed order ctrl, alt, shift, win, aliases and case collapsed, inner
         # spaces dropped. The registrar strips and parses either way -- this is
@@ -962,14 +970,17 @@ KEY_RELEASE_DELAY = 0.05  # seconds
 # ===== HOTKEYS =====
 # German QWERTZ keyboard layout consideration:
 # - 'y' key is where 'z' is on US keyboards
-# Note: The only bindable keys are letters, digits, and F-keys (hotkey_parse.VK_MAP)
-#       -- static VK codes, layout-independent. Special characters like '#' and
-#       non-ASCII letters like 'ä' or 'ü' can get typed into some apps, and having no
-#       static VK code they would have to be resolved against the ACTIVE layout at
-#       startup; they are rejected at config time with a log warning (the action keeps
-#       its default). The old layout-resolved override lane (VkKeyScanW) went with
-#       D-023 (#317); the self-test default had already moved off the umlaut in #211
-#       (D-012).
+# Note: The bindable keys are letters, digits, F-keys, the navigation cluster,
+#       arrows, the numpad, Pause and Scroll Lock (hotkey_parse.VK_MAP, #325) --
+#       static VK codes, layout-independent, each bindable bare or with modifiers.
+#       Special characters like '#' and non-ASCII letters like 'ä' or 'ü' can get
+#       typed into some apps, and having no static VK code they would have to be
+#       resolved against the ACTIVE layout at startup; they are rejected at config
+#       time with a log warning (the action keeps its default). The old layout-
+#       resolved override lane (VkKeyScanW) went with D-023 (#317); the self-test
+#       default had already moved off the umlaut in #211 (D-012). One combo class
+#       is rejected the same way: ctrl with pause or scrolllock -- held Ctrl turns
+#       both keys into VK_CANCEL, so the combo would register but never fire (#325).
 # Dict order = THE canonical action order (D-019): every surface -- console grid,
 # strips, settings tab, registration log, README tables -- follows it by iteration.
 DEFAULT_HOTKEYS = {

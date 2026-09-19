@@ -50,8 +50,8 @@ from pathlib import Path
 
 import config
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, classify_key, HotkeyParseError,
-    KEY_INVALID,
+    parse_hotkey_lexical, canonical_combo, classify_key, dead_combo_reason,
+    HotkeyParseError, KEY_INVALID, VK_TO_TOKEN,
 )
 
 # ---- Tk event.state modifier bits (decode_key_event) -----------------------
@@ -776,10 +776,11 @@ def normalize_combo(raw: str) -> str:
 
 def validate_combo(raw: str) -> tuple:
     """(ok, message). Parses via parse_hotkey_lexical + classify_key. ok=False
-    with a human message on an unparseable combo (no key / multiple keys) or a
-    key outside the static set (letters, digits, F-keys) -- since D-023
-    classify_key knows only static and invalid, so config-time acceptance
-    matches runtime registrability."""
+    with a human message on an unparseable combo (no key / multiple keys), a
+    key outside the static set (since D-023 classify_key knows only static and
+    invalid, so config-time acceptance matches runtime registrability), or the
+    one dead combo class -- ctrl with pause/scrolllock, shared with the JSON
+    lane via hotkey_parse.dead_combo_reason (#325)."""
     if not isinstance(raw, str) or not raw.strip():
         return False, "empty combo"
     try:
@@ -788,59 +789,43 @@ def validate_combo(raw: str) -> tuple:
         return False, str(e)
     if classify_key(key) == KEY_INVALID:
         return False, f"unrecognized key '{key}'"
+    reason = dead_combo_reason(_mods, key)
+    if reason:
+        return False, reason
     return True, ""
 
 
-# Tk keysyms that are themselves modifiers -- a keypress reporting one means only
-# a modifier is down, so there is no key to bind yet.
-_MODIFIER_KEYSYMS = frozenset({
-    "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
-    "Meta_L", "Meta_R", "Super_L", "Super_R", "Hyper_L", "Hyper_R",
-    "ISO_Level3_Shift", "Caps_Lock", "Num_Lock", "Scroll_Lock", "Win_L", "Win_R",
-})
+# Virtual keys that are themselves modifiers -- a keypress reporting one means
+# only a modifier is down, there is no key to bind yet (the capture widget
+# stays armed, silently). Windows Tk fills event.keycode with the WM_KEYDOWN
+# wParam, which for modifiers is the generic VK (Shift 0x10, Ctrl 0x11, Alt
+# 0x12); the side-specific codes (0xA0-0xA5) and the Win keys (0x5B/0x5C) are
+# included defensively. Caps Lock (0x14) and Num Lock (0x90) are deliberately
+# NOT here: they are no modifiers, and since #325 they report honestly as
+# unbindable instead of being swallowed.
+MODIFIER_VKS = frozenset({0x10, 0x11, 0x12, 0x5B, 0x5C,
+                          0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5})
 
 
-def _keysym_to_token(keysym: str):
-    """Map a Tk keysym to a bindable key token, or None. ASCII letters -> lowercase
-    letter; digits -> the digit; 'F1'..'F24' -> 'f1'..'f24'. Everything else
-    (punctuation, non-ASCII letters, AltGr-typed symbol keysyms like
-    'at'/'EuroSign', unknown names) -> None."""
-    if not keysym:
-        return None
-    if len(keysym) == 1:
-        # .isascii() guards the single-char letter branch: if a Tk build ever reports
-        # an umlaut as a raw 1-char keysym (instead of the named 'adiaeresis'), it
-        # must NOT become a bindable non-ASCII combo (N8) -- and since D-023 no
-        # non-ASCII key is bindable at all.
-        if keysym.isalpha() and keysym.isascii():
-            return keysym.lower()
-        if keysym.isdigit():
-            return keysym
-        return None
-    if keysym[0] in ("F", "f") and keysym[1:].isdigit():
-        n = int(keysym[1:])
-        return f"f{n}" if 1 <= n <= 24 else None
-    return None
-
-
-def decode_key_event(state_bits: int, keysym: str, char: str):
+def decode_key_event(state_bits: int, keycode: int):
     """PURE decode of a Tk <KeyPress> event into a combo string (e.g.
-    'ctrl+alt+p', or a bare 'f9'), or None when only modifiers are down or the key
-    is not bindable. Takes the raw event fields as plain int/str so it is unit-
-    testable off-Windows with synthetic inputs -- the capture widget (Checkpoint
-    2) just feeds it real `event.state` / `event.keysym` / `event.char`.
+    'ctrl+alt+p', or a bare 'home'), or None when the key is not bindable --
+    a lone modifier included, since no modifier VK is a VK_MAP token.
 
-    Modifiers come from the TK_STATE_* bits. AltGr on QWERTZ
-    (reported as Control+Alt from the right-Alt key) types symbols like @ \\ { }
-    [ ] | euro ~ -- whose keysyms are non-bindable names ('at', 'EuroSign', ...)
-    that _keysym_to_token maps to None, so those presses decode to None. This is
-    the Tk-level equivalent of the project's AltGr filter.
+    On Windows Tk, event.keycode IS the virtual-key code (Tk stores the
+    WM_KEYDOWN wParam there), so capture and registration share
+    hotkey_parse.VK_MAP by construction (#325) -- a capturable-but-
+    unregistrable key cannot exist, and the numpad is capturable at all
+    (Windows Tk has no KP_* keysyms). Off Windows the keycode is a hardware
+    code, not a VK: the tests feed VK numbers as plain ints, and the real-
+    event leg is Windows-only by design. Modifiers come from the TK_STATE_*
+    bits, as before.
 
-    `char` (the produced glyph) is part of the Tk event contract and accepted for
-    interface completeness; the decode itself is keysym-driven."""
-    if keysym in _MODIFIER_KEYSYMS:
-        return None
-    token = _keysym_to_token(keysym)
+    Keycode-driven, AltGr (reported as Ctrl+Alt from the right-Alt key)
+    decodes to the live ctrl+alt+<key> combo it is -- and fires as -- rather
+    than being filtered on its symbol keysym; the old keysym lane and its
+    parallel key table went with it (#325)."""
+    token = VK_TO_TOKEN.get(keycode)
     if token is None:
         return None
     parts = []

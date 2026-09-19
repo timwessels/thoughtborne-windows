@@ -1391,11 +1391,29 @@ def check_app_call_sites():
 _MODS = [n for n, _ in hp._CANONICAL_MODIFIERS]
 _STRESS_PREFIXES = [_MODS[:i] for i in range(len(_MODS) + 1)]
 _NARROW_KEYS = [chr(ord("a") + i) for i in range(12)]        # 1 cell
-_WIDE_KEYS = [f"f{i}" for i in range(10, 22)]                # the widest static keys
+# The 12 display-widest static keys, derived rather than listed (#325) -- minus
+# pause and scrolllock, so the sweep only renders schemes a legal config can
+# hold (ctrl+...+pause is rejected at validation: hp.dead_combo_reason). Width
+# is measured on the DISPLAY name, since that is what a surface renders.
+_WIDE_KEYS = sorted((t for t in hp.VK_MAP if t not in hp._CTRL_SHIFTED_KEYS),
+                    key=lambda t: (-len(format_combo(t)), t))[:12]
+
+
+def _widest_legal_display(token):
+    """The widest displayed combo a legal config can put on this key: every
+    canonical modifier dead_combo_reason allows, then the key, in display form.
+    Display names, not tokens (#325): 'scrolllock' is the longest token, but
+    ctrl is dead on it and its display 'ScrLk' is narrower than 'NumDec' -- a
+    token-derived maximum would measure the guarantee against something no
+    surface ever renders."""
+    mods = [m for m in _MODS
+            if hp.dead_combo_reason(hp.MODIFIER_MAP[m], token) is None]
+    return format_combo(canonical_combo("+".join(mods + [token])))
+
+
 # The longest combo a legal config can hold, derived from hotkey_parse rather
-# than pinned: every canonical modifier plus the widest key it maps.
-MAX_COMBO = format_combo(canonical_combo(
-    "+".join(_MODS + [max(sorted(hp.VK_MAP), key=len)])))
+# than pinned: 'Ctrl+Alt+Shift+Win+NumDec', 25 cells.
+MAX_COMBO = max((_widest_legal_display(t) for t in hp.VK_MAP), key=len)
 
 _STRESS_KEY_ACTION = {"switch_key": "switch_api", "start_key": "start_recording",
                       "paste_key": "stop_recording_clipboard",

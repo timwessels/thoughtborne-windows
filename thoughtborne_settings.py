@@ -32,8 +32,9 @@ are hands-on, #151); it must `py_compile` cleanly.
 
 Known capture limits, mirrored from state-144 / the #151 hands-on list (not shown
 in the UI): Win-modifier combos cannot be captured (no Tk state bit -- hand-edit
-path only), Shift+digit rows depend on Tk keysym behavior, and `TK_STATE_ALT`
-(0x20000) plus AltGr-as-Ctrl+Alt need real-Windows confirmation. A combo the
+path only), and `TK_STATE_ALT` (0x20000) plus the keycode-is-the-VK contract of
+the #325 capture decode rest on real-Windows behavior the off-Windows ladder
+cannot prove. AltGr captures as the Ctrl+Alt combo it is since #325. A combo the
 RUNNING tool already holds as a global hotkey cannot be captured here either --
 Windows RegisterHotKey consumes that keypress system-wide, so it fires the action
 instead of ever reaching the capture widget; capture a free combo, or stop the
@@ -1368,22 +1369,16 @@ class SettingsApp:
     def _on_capture_key(self, event, name):
         if self._armed != name:
             return
-        combo = settings_io.decode_key_event(event.state, event.keysym, event.char)
+        combo = settings_io.decode_key_event(event.state, event.keycode)
         if combo is None:
-            if event.keysym in settings_io._MODIFIER_KEYSYMS:
+            if event.keycode in settings_io.MODIFIER_VKS:
                 return "break"   # a bare modifier is down: stay armed, silently
             self.capture_lbl.config(text=strings.t("capture.unbindable", self.lang))
             return "break"
 
-        # GUI modifier guard: a non-F-key needs Ctrl and/or Alt, else it would
-        # globally steal a bare letter/digit from every app. F-keys pass bare.
-        parts = combo.split("+")
-        key, mods = parts[-1], parts[:-1]
-        is_fkey = len(key) >= 2 and key[0] == "f" and key[1:].isdigit()
-        if not is_fkey and "ctrl" not in mods and "alt" not in mods:
-            self.capture_lbl.config(text=strings.t("capture.need_modifier", self.lang))
-            return "break"
-
+        # No modifier guard (#325): any supported key binds bare, in both lanes
+        # -- a deliberate maintainer call. A globally stolen bare letter is the
+        # user's to notice and undo; this window stays reachable by its hotkey.
         ok, msg = settings_io.validate_combo(combo)
         if not ok:
             self.capture_lbl.config(

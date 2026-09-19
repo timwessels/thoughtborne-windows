@@ -597,10 +597,11 @@ def render_rec_strip(stops, *, ansi):
     """stops: the five (action_name, display_combo) stop pairs in canonical order
     (paste, paste+Enter, keep only, type, cancel). The #115 key list in a 3/2
     split -- the strip's own reading rhythm, hence an argument to _key_lines and
-    not a second copy of the flow-or-cells rule. The cell fallback is unreachable
-    with canonical combos and today's words (widest case: 67 of 68 cells) -- it
-    guards copy growth, and the honest form when it does trigger is the no-lead
-    one."""
+    not a second copy of the flow-or-cells rule. Since #325 widened the key set,
+    the cell fallback is reachable in configuration: a long lead over a wide key
+    name overflows the flow form (Ctrl+Alt+Shift+Win+NumDec wants 76 of 68
+    cells), and the honest form it falls back to is the no-lead one -- full
+    combos, `[...]`-shortened, inside the frame."""
     return [
         *_strip_open(ansi),
         sline([("  ", ()), ("REC", (BOLD, YELLOW)), ("  recording...", ())], ansi),
@@ -685,11 +686,11 @@ def render_saved_strip(duration, retry_key, *, ansi):
         *_strip_open(ansi),
         sline([("  ", ()), ("SAVED", (BOLD, YELLOW)),
                (f"  the recording was still running -- audio saved ({dur})", ())], ansi),
-        # Budget = INNER minus the indent, so the widest legal combo (22 cells)
-        # still reads in full: the guard is against copy growth (#277), not a
-        # frame break any configuration can reach.
+        # Budget = INNER minus the indent, so the widest legal combo (25 cells
+        # since #325) still reads in full: the guard is against copy growth
+        # (#277), not a frame break any configuration can reach.
         sline("  " + truncate_end(
-            f"next start: press {retry_key} to transcribe & insert it", INNER - 2), ansi),
+            f"next start: press {retry_key} to transcribe & insert", INNER - 2), ansi),
         sbot(ansi),
     ]
 

@@ -197,9 +197,9 @@ _EN = {
     "btn.use_preset": "Use this preset",
     "hotkeys.custom.heading": "Individual actions",
     "hotkeys.custom.body": (
-        "Click Change next to an action, then press the new combo. Letters, "
-        "digits and F1–F24 work — F-keys also bare, everything else with Ctrl "
-        "and/or Alt."),
+        "Click Change next to an action, then press the new combo — with or "
+        "without modifiers. Letters, digits, F1–F24, the navigation and arrow "
+        "keys, the numpad, Pause and Scroll Lock work."),
     "hotkeys.col.action": "Action",
     "hotkeys.col.combo": "Shortcut",
     "hotkeys.capture_limit": (
@@ -208,9 +208,9 @@ _EN = {
         "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
     "btn.change_key": "Change…",
     "capture.prompt": "Press the combo … (Esc)",
-    "capture.unbindable": "This key can't be bound — use letters, digits or F1–F24.",
-    "capture.need_modifier": (
-        "Letters and digits need Ctrl and/or Alt — only F-keys work bare."),
+    "capture.unbindable": (
+        "This key can't be bound — use letters, digits, F1–F24, the navigation "
+        "and arrow keys, the numpad, Pause or Scroll Lock."),
     "capture.invalid": "Not a usable combo ({detail}).",
     "capture.collision": "Already used by: {action}",
     "hotkeys.status.ok": "All hotkeys are valid — no collisions.",
@@ -636,9 +636,9 @@ _DE = {
     "btn.use_preset": "Dieses Schema übernehmen",
     "hotkeys.custom.heading": "Einzelne Aktionen",
     "hotkeys.custom.body": (
-        "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken. "
-        "Buchstaben, Ziffern und F1–F24 funktionieren – F-Tasten auch blank, "
-        "alles andere mit Ctrl und/oder Alt."),
+        "Neben einer Aktion auf Ändern klicken und die neue Kombination drücken "
+        "– mit oder ohne Modifier. Buchstaben, Ziffern, F1–F24, Navigations- und "
+        "Pfeiltasten, Ziffernblock, Pause und Rollen funktionieren."),
     "hotkeys.col.action": "Aktion",
     "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
@@ -649,11 +649,9 @@ _DE = {
     "btn.change_key": "Ändern…",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (
-        "Diese Taste lässt sich nicht belegen – Buchstaben, Ziffern oder F1–F24 "
+        "Diese Taste lässt sich nicht belegen – Buchstaben, Ziffern, F1–F24, "
+        "Navigations- und Pfeiltasten, Ziffernblock, Pause oder Rollen "
         "verwenden."),
-    "capture.need_modifier": (
-        "Buchstaben und Ziffern brauchen Ctrl und/oder Alt – nur F-Tasten gehen "
-        "ohne."),
     "capture.invalid": "Keine verwendbare Kombination ({detail}).",
     "capture.collision": "Schon vergeben an: {action}",
     "hotkeys.status.ok": "Alle Hotkeys sind gültig – keine Kollisionen.",

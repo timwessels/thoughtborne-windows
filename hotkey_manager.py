@@ -22,7 +22,7 @@ import ctypes.wintypes
 import logging
 import threading
 
-# The modifier flags, the modifier map, the static VK map (letters/digits/F-keys)
+# The modifier flags, the modifier map, the static VK map (the whole bindable key set)
 # and the structural parser live in the pure, ctypes-free hotkey_parse module (#55)
 # so config can share the exact same lexical layer without importing this
 # Windows-bound module. Re-exported here (imported names) so any consumer of
@@ -77,7 +77,7 @@ GetAsyncKeyState.restype = ctypes.c_short
 GetCurrentThreadId = kernel32.GetCurrentThreadId
 
 # ===== VK Code Maps =====
-# MODIFIER_MAP and VK_MAP (letters, digits, and F-keys) come from hotkey_parse (#55).
+# MODIFIER_MAP and VK_MAP (the whole static key set) come from hotkey_parse (#55).
 
 # Modifier string -> VK code (for GetAsyncKeyState)
 VK_KEY_MAP = {
@@ -88,8 +88,9 @@ VK_KEY_MAP = {
     'win': 0x5B,        # VK_LWIN
     'windows': 0x5B,
 }
-# Merge letter/digit/F-key codes into VK_KEY_MAP for is_key_pressed. F-keys ride
-# along automatically now that VK_MAP carries them, so is_key_pressed('f9') works.
+# Merge every VK_MAP code into VK_KEY_MAP for is_key_pressed. The whole static key
+# set rides along automatically, so is_key_pressed('f9') -- or 'home', 'num0' -- works
+# off the one table, with no second list to keep in step.
 VK_KEY_MAP.update(VK_MAP)
 
 # Side-specific VK codes for the push-to-talk detector (#66). The name-keyed
@@ -122,8 +123,8 @@ def is_vk_pressed(vk: int) -> bool:
 
 def _resolve_vk_code(key_str: str) -> int:
     """
-    Resolve a key string to a VK code via the static VK_MAP (letters, digits,
-    F-keys) -- the only key lane since D-023 removed the layout-resolved one.
+    Resolve a key string to a VK code via the static VK_MAP -- the only key
+    lane since D-023 removed the layout-resolved one.
 
     Args:
         key_str: Key name (e.g. 'w', '4', 'f9')

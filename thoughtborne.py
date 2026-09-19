@@ -96,7 +96,7 @@ def _build_ptt_foreign_vks() -> frozenset:
     trigger press never reads as its own foreign key -- this matters when the
     trigger is Left-Alt (0xA4), which is in this base set. Everything else --
     letters, digits, the other modifiers, OEM punctuation, space, the
-    nav/function block -- disarms.
+    nav/function block, the numpad, Pause and Scroll Lock -- disarms.
     """
     vks = set()
     vks.update(range(0x41, 0x5B))   # A-Z
@@ -107,6 +107,8 @@ def _build_ptt_foreign_vks() -> frozenset:
     vks.add(0x20)                   # Space
     vks.update({0x08, 0x09, 0x0D, 0x1B})  # Backspace, Tab, Enter, Esc
     vks.update(range(0x21, 0x2F))   # PageUp/Down, End, Home, arrows, Ins, Del, ...
+    vks.update(range(0x60, 0x70))   # numpad digits, operators, separator, decimal (#325)
+    vks.add(0x13); vks.add(0x91)    # Pause, Scroll Lock (#325)
     vks.update(range(0x70, 0x88))   # F1-F24
     vks.update(range(0xBA, 0xC1))   # OEM ; = , - . / `
     vks.update(range(0xDB, 0xE0))   # OEM [ \ ] '

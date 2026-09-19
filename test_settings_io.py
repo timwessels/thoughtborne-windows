@@ -68,8 +68,10 @@ What is covered:
     a non-UTF-8 (ANSI/cp1252) config file does not crash the readers and aborts the
     save byte-unchanged rather than destroying its vocabulary (B3).
   - the pure hotkey helpers: normalize_combo (the canonicalizer of #275, with its
-    never-raise fallback for the diff path), validate_combo, decode_key_event on
-    synthetic Tk events, and the diff <-> apply_hotkey_overrides round-trip
+    never-raise fallback for the diff path), validate_combo (including the #325
+    dead-combo rejection of ctrl+pause / ctrl+scrolllock), decode_key_event on
+    synthetic keycode events (#325: VK ints, the exact values Windows Tk puts in
+    event.keycode), and the diff <-> apply_hotkey_overrides round-trip
     (exercising BOTH bare-F-key and modifier-chord combos, that an alias-spelled
     default diffs to nothing, and that a pre-D-024 file whose value is still a
     one-element list loads and saves back as that one combo).
@@ -162,7 +164,10 @@ What is covered:
     name btn.save_restart.
 
 Hands-on gates (a separate test issue, not reachable here): the real Tk state-bit
-values in decode_key_event, and the live "Test key" round-trip against real keys.
+values in decode_key_event, the keycode-is-the-VK contract behind it (#325 --
+Windows Tk stores the WM_KEYDOWN wParam in event.keycode; off Windows the field
+carries hardware codes, so only a real-Windows keypress proves it), and the live
+"Test key" round-trip against real keys.
 """
 import ast
 import inspect
@@ -893,7 +898,9 @@ def check_hotkey_helpers():
     check(sio.normalize_combo("ctrl+alt+a+b") == "ctrl+alt+a+b",
           "normalize_combo fallback (two keys)")
 
-    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12"):
+    for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12",
+                 # #325: the extended set, bare included -- both lanes permissive
+                 "ctrl+alt+home", "pause", "scrolllock", "num5", "shift+insert"):
         ok, msg = sio.validate_combo(good)
         check(ok, f"validate_combo rejected a good combo {good!r}: {msg}")
     # D-023 (#317): no layout-resolved keys -- the umlaut and its old 'ue' alias
@@ -902,23 +909,45 @@ def check_hotkey_helpers():
                 "ctrl+alt+ü", "ctrl+alt+ue"):
         ok, _ = sio.validate_combo(bad)
         check(not ok, f"validate_combo accepted a bad combo {bad!r}")
+    # #325's one dead combo class, via the shared hotkey_parse.dead_combo_reason:
+    # rejected with the message the capture feedback shows verbatim.
+    for dead in ("ctrl+pause", "ctrl+shift+scrolllock"):
+        ok, msg = sio.validate_combo(dead)
+        check(not ok and "never fire" in msg,
+              f"validate_combo must reject {dead!r} as dead, got ({ok}, {msg!r})")
 
     C, A, S = sio.TK_STATE_CONTROL, sio.TK_STATE_ALT, sio.TK_STATE_SHIFT
+    # Keycode-driven since #325: the second field is the virtual-key code
+    # (event.keycode IS the VK on Windows Tk; off Windows these are synthetic).
     cases = [
-        ((C | A, "p", "\x10"), "ctrl+alt+p"),
-        ((0, "F9", ""), "f9"),                    # bare F-key
-        ((C | A, "6", ""), "ctrl+alt+6"),
-        ((C | A, "udiaeresis", ""), None),        # the ü lane is gone (D-023)
-        ((C | A | S, "A", ""), "ctrl+alt+shift+a"),
-        ((C | A, "at", "@"), None),               # AltGr-typed symbol -> filtered
-        ((C | A, "Alt_L", ""), None),             # only modifiers down
-        ((C, "Control_L", ""), None),             # only modifiers down
-        ((0, "period", "."), None),               # non-bindable key
+        ((C | A, 0x50), "ctrl+alt+p"),
+        ((0, 0x78), "f9"),                  # bare F-key
+        ((C | A, 0x36), "ctrl+alt+6"),
+        ((C | A | S, 0x41), "ctrl+alt+shift+a"),
+        ((C | A, 0x67), "ctrl+alt+num7"),   # numpad -- capturable at all since #325
+        ((0, 0x24), "home"),                # bare nav key: permissive in both lanes
+        ((0, 0x91), "scrolllock"),          # no longer swallowed as a "modifier"
+        ((C | A, 0x51), "ctrl+alt+q"),      # AltGr+Q reports Ctrl+Alt -- binds as
+                                            # the combo it is and fires as (#325)
+        ((C, 0x03), None),                  # VK_CANCEL: what a physical Ctrl+Pause
+                                            # actually sends -- unbindable
+        ((0, 0x11), None),                  # bare Ctrl: only a modifier is down
+        ((0, 0xA0), None),                  # side-specific Shift, same
+        ((C | A, 0xDE), None),              # OEM key (the ü position) -- D-023
+        ((0, 0x14), None),                  # Caps Lock: honestly unbindable now
     ]
-    for (state, keysym, char), expected in cases:
-        got = sio.decode_key_event(state, keysym, char)
+    for (state, keycode), expected in cases:
+        got = sio.decode_key_event(state, keycode)
         check(got == expected,
-              f"decode_key_event({state:#x}, {keysym!r}) = {got!r}, expected {expected!r}")
+              f"decode_key_event({state:#x}, {keycode:#x}) = {got!r}, expected {expected!r}")
+    # The widget's stay-armed-silently branch keys on MODIFIER_VKS: the real
+    # modifiers are in, the lock keys are not (they report as unbindable).
+    for vk in (0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA5):
+        check(vk in sio.MODIFIER_VKS, f"MODIFIER_VKS is missing {vk:#x}")
+    for vk in (0x13, 0x14, 0x90, 0x91):
+        check(vk not in sio.MODIFIER_VKS,
+              f"MODIFIER_VKS must not swallow {vk:#x} -- Pause/locks are keys, "
+              "not modifiers (#325)")
 
     # round-trip: the F-key preset diff, fed back through the production loader,
     # reproduces the preset -- exercising both the bare and the chord shapes.

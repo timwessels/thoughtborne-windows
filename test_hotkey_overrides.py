@@ -9,13 +9,18 @@ durable regression guard, sibling of `test_console_ui.py`).
     python3 test_hotkey_overrides.py --show    # also print a few effective sets
 
 Layer A -- `hotkey_parse` (the ctypes-free lexical layer): the static VK map
-(letters, digits, F1-F24), the structural parser `parse_hotkey_lexical`,
-`classify_key`, and the one spelling a combo is stored and shown in --
-`canonical_combo`, `format_combo` (#275), including the guard that both shipped
-schemes (`DEFAULT_HOTKEYS` and `settings_io.PRESET_FKEYS`) are written
-canonically themselves -- and the drift guard that keeps the README twins'
-`## Hotkeys` tables on `DEFAULT_HOTKEYS`, order and combos (D-019). `first_combo`,
-the picker the list shape needed, is pinned as retired (D-024).
+(letters, digits, F1-F24, and since #325 the navigation cluster, arrows, the
+numpad, Pause and Scroll Lock -- injective, so `VK_TO_TOKEN`, the capture
+decode's inversion, loses nothing), the structural parser
+`parse_hotkey_lexical`, `classify_key`, `dead_combo_reason` (the one dead
+combo class: ctrl with pause/scrolllock arrives as VK_CANCEL and could never
+fire), and the one spelling a combo is stored and shown in --
+`canonical_combo`, `format_combo` with its `KEY_DISPLAY` short names (#275,
+#325), including the guard that both shipped schemes (`DEFAULT_HOTKEYS` and
+`settings_io.PRESET_FKEYS`) are written canonically themselves -- and the
+drift guard that keeps the README twins' `## Hotkeys` tables on
+`DEFAULT_HOTKEYS`, order and combos (D-019). `first_combo`, the picker the
+list shape needed, is pinned as retired (D-024).
 
 Layer B -- `config.apply_hotkey_overrides` (the pure production loader config
 calls verbatim): partial override by action name, warn-and-keep-default on every
@@ -102,6 +107,29 @@ def test_vk_map_fkeys_and_statics():
     assert hp.VK_MAP['4'] == 0x34     # digit still resolves
 
 
+def test_vk_map_extended_keys():
+    # #325: navigation cluster, arrows, numpad, Pause, Scroll Lock -- spot checks
+    assert hp.VK_MAP['insert'] == 0x2D
+    assert hp.VK_MAP['pageup'] == 0x21
+    assert hp.VK_MAP['left'] == 0x25
+    assert hp.VK_MAP['num0'] == 0x60
+    assert hp.VK_MAP['num9'] == 0x69
+    assert hp.VK_MAP['numadd'] == 0x6B
+    assert hp.VK_MAP['pause'] == 0x13
+    assert hp.VK_MAP['scrolllock'] == 0x91
+    # the numpad digits are their own VKs, not the digit row's
+    assert hp.VK_MAP['num7'] != hp.VK_MAP['7']
+    # no alias spellings -- one token per key, like everywhere else
+    for absent in ('numpad0', 'pgup', 'pgdn', 'ins', 'del', 'arrowleft', 'break'):
+        assert absent not in hp.VK_MAP, absent
+    # VK_MAP stays injective -- VK_TO_TOKEN (the capture decode's inversion,
+    # #325) loses nothing exactly as long as this holds.
+    assert len(set(hp.VK_MAP.values())) == len(hp.VK_MAP), \
+        "VK_MAP is no longer injective -- VK_TO_TOKEN silently drops a token"
+    assert len(hp.VK_TO_TOKEN) == len(hp.VK_MAP)
+    assert hp.VK_TO_TOKEN[0x24] == 'home' and hp.VK_TO_TOKEN[0x78] == 'f9'
+
+
 def test_parse_modifiers_and_key():
     mods, key = hp.parse_hotkey_lexical('ctrl+alt+w')
     assert key == 'w'
@@ -166,10 +194,41 @@ def test_format_combo():
     assert hp.format_combo('ctrl+alt+6') == 'Ctrl+Alt+6'
     assert hp.format_combo('f9') == 'F9'
     assert hp.format_combo('ctrl+alt') == 'Ctrl+Alt'   # a bare prefix formats too
-    # The widest combo any surface can be handed, now that the aliases collapse:
-    # 22 cells, not the 29 of 'Control+Alt+Shift+Windows+F24' -- the layout budget
-    # of the later display steps rests on this.
+    # #325: KEY_DISPLAY feeds format_combo the short names capitalize() cannot
+    # spell; tokens outside the table keep the capitalize() grammar.
+    assert hp.format_combo('ctrl+alt+pageup') == 'Ctrl+Alt+PgUp'
+    assert hp.format_combo('scrolllock') == 'ScrLk'
+    assert hp.format_combo('num7') == 'Num7'
+    assert hp.format_combo('ctrl+numadd') == 'Ctrl+NumAdd'
+    assert hp.format_combo('alt+shift+pause') == 'Alt+Shift+Pause'
+    # KEY_DISPLAY's two hard rules: never a '+' in a name (every display
+    # consumer splits combos on '+'), never over 6 cells (the console cells'
+    # width arithmetic) -- and no ghost entries outside VK_MAP.
+    for token, name in hp.KEY_DISPLAY.items():
+        assert token in hp.VK_MAP, f"KEY_DISPLAY names a non-token {token!r}"
+        assert '+' not in name, f"KEY_DISPLAY[{token!r}] = {name!r} carries a '+'"
+        assert len(name) <= 6, f"KEY_DISPLAY[{token!r}] = {name!r} is over 6 cells"
+    # The widest combos any surface can be handed, now that the aliases collapse:
+    # the all-modifier F-key chord keeps its 22 cells, and the #325 numpad names
+    # top out at 25 -- the layout budget of the later display steps rests on this
+    # (test_console_ui derives its MAX_COMBO from the same display names).
     assert len(hp.format_combo(hp.canonical_combo('windows+shift+alt+control+f24'))) == 22
+    assert len(hp.format_combo(hp.canonical_combo('win+shift+alt+control+numdecimal'))) == 25
+
+
+def test_dead_combo_reason():
+    # #325's one technical rejection: held Ctrl shifts the scancode of Pause and
+    # Scroll Lock, so both arrive as VK_CANCEL -- the combo registers, never fires
+    # (the #308/D-022 "assignable but dead" class).
+    for combo in ('ctrl+pause', 'ctrl+alt+scrolllock', 'ctrl+shift+pause',
+                  'ctrl+alt+shift+win+scrolllock'):
+        mods, key = hp.parse_hotkey_lexical(combo)
+        assert hp.dead_combo_reason(mods, key), f"{combo!r} should be dead"
+    # ...and nothing else is: ctrl-free siblings, bare keys, ctrl with any other key.
+    for combo in ('alt+pause', 'shift+scrolllock', 'pause', 'scrolllock',
+                  'ctrl+alt+home', 'ctrl+p', 'ctrl+alt+numadd'):
+        mods, key = hp.parse_hotkey_lexical(combo)
+        assert hp.dead_combo_reason(mods, key) is None, f"{combo!r} should be live"
 
 
 def test_first_combo_retired():
@@ -272,6 +331,30 @@ def test_fkey_names_bare_and_legacy_list():
     assert warns == [], warns
 
 
+def test_extended_keys_through_loader():
+    # #325: the new keys load like any other -- bare included. The permissive
+    # rule as a fixture: any supported key may be bound without modifiers, in
+    # both lanes; a misconfigured bare arrow is the user's to notice and undo.
+    eff, warns = run({'start_recording': 'ctrl+alt+pageup', 'switch_api': 'left',
+                      'open_history': 'num5', 'test_transcription': 'pause'})
+    only_changed(eff, {'start_recording': 'ctrl+alt+pageup', 'switch_api': 'left',
+                       'open_history': 'num5', 'test_transcription': 'pause'})
+    assert warns == [], warns
+
+
+def test_ctrl_pause_scrolllock_rejected():
+    # The one dead combo class (#325) through the production loader: the usual
+    # warn-and-keep-default path, same as every other bad entry.
+    for combo in ('ctrl+pause', 'ctrl+alt+scrolllock'):
+        eff, warns = run({'switch_api': combo})
+        only_changed(eff, {})
+        assert len(warns) == 1 and 'never fire' in warns[0], (combo, warns)
+    # ...while the ctrl-free siblings load warning-free.
+    eff, warns = run({'switch_api': 'alt+pause', 'open_history': 'shift+scrolllock'})
+    only_changed(eff, {'switch_api': 'alt+pause', 'open_history': 'shift+scrolllock'})
+    assert warns == [], warns
+
+
 def test_duplicate_override_vs_untouched_default():
     # ctrl+alt+4 is exit_program's default -> start_recording reverts, exit stays
     eff, warns = run({'start_recording': 'ctrl+alt+4'})
@@ -369,12 +452,14 @@ def test_umlaut_override_rejected():
 
 CASES = [
     test_vk_map_fkeys_and_statics,
+    test_vk_map_extended_keys,
     test_parse_modifiers_and_key,
     test_parse_bare_fkey,
     test_parse_raises_structural,
     test_classify_key,
     test_canonical_combo,
     test_format_combo,
+    test_dead_combo_reason,
     test_first_combo_retired,
     test_shipped_defaults_are_static,
     test_shipped_combos_are_canonical,
@@ -390,6 +475,8 @@ CASES = [
     test_bad_combos_keep_default,
     test_wrong_value_types_keep_default,
     test_fkey_names_bare_and_legacy_list,
+    test_extended_keys_through_loader,
+    test_ctrl_pause_scrolllock_rejected,
     test_duplicate_override_vs_untouched_default,
     test_duplicate_two_overrides_same_combo,
     test_duplicate_case_and_order_normalized,

@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **27 more bindable keys (#325).** The navigation cluster (Insert, Delete, Home, End,
+  PageUp, PageDown), the arrow keys, the numpad (digits, operators and decimal), Pause and
+  Scroll Lock can now be hotkeys — in the `hotkeys` block of `personal_settings.json` and in
+  the settings app's capture field alike. Any supported key binds bare, without modifiers,
+  in both lanes (D-027): the capture field's F-keys-only restriction is gone, and a
+  globally bound bare letter is the user's call to make and undo. The one technical
+  exception: Ctrl combined with Pause or Scroll Lock is rejected with the usual warning —
+  with Ctrl held, Windows delivers a different key code (VK_CANCEL), so such a combo would
+  register but never fire. The console and the settings app show the new keys in short form (Ins, PgUp,
+  NumDec, ScrLk, …); the README twins carry the practical notes (Scroll Lock still toggles
+  its lock state, numpad hotkeys need Num Lock on, RDP client shortcuts).
+
 ### Changed
+
+- **The hotkey capture reads key codes, not key names (#325).** The settings app's capture
+  field decodes the virtual-key code Windows reports (`event.keycode`) instead of
+  translating Tk keysym names, so capture accepts exactly what registration accepts — the
+  numpad becomes capturable at all — and AltGr+key is now captured as the Ctrl+Alt combo it
+  is (and fires as) instead of being turned away.
 
 - **The settings window's texts, revised — and the Windows Terminal tray recipe corrected
   (#324).** A pass over the window's prose in both languages. The free lane is now named for

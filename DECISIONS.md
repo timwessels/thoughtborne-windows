@@ -43,6 +43,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
 | D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active |
+| D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active |
 
 ---
 
@@ -1896,4 +1897,37 @@ single parser and location), D-023/D-024 (both are precedents of the narrowing
 rule; their old shapes are ladder-guarded per function today and gain
 whole-file coverage through the two or three frozen historical files the
 read-side work adds).
+
+## D-027 — Any supported key binds bare; the only rejection is a combo that cannot fire
+
+Decided 2026-09-19, settled with the maintainer while specifying #325 (the key-set
+extension). It records where the hotkey surface draws its validation line:
+permissive binding, and rejection reserved for what Windows cannot deliver.
+
+- **Every key in `hotkey_parse.VK_MAP` may be bound without modifiers**, and both
+  lanes behave identically: the `hotkeys` block of `personal_settings.json` always
+  allowed it, and the settings app's capture field gives up the guard that demanded
+  Ctrl and/or Alt for anything but an F-key (its `capture.need_modifier` string goes
+  with it). One rule, one answer, whichever lane the user takes.
+- **No gatekeeping of unwise-but-working combos.** A bare `a` really does take that
+  letter from every app system-wide — and that is the user's call to make and to
+  undo: the effect is immediate and obvious, the settings window stays reachable by
+  its own hotkey, and `personal_settings.json` is a text file. Guarding against it
+  would mean guessing which combos a user *really* wants, for a target user who
+  wants the tool to bend to the workflow (`VISION.md`).
+- **The one technical rejection** is `ctrl` together with `pause` or `scrolllock`:
+  held Ctrl makes both keys arrive as `VK_CANCEL`, so such a combo registers and can
+  never fire. That is D-022's "assignable but dead" class — a combo the software
+  knows is broken, not one it dislikes — and it takes the ordinary path: one log
+  warning, the action keeps its default; in the settings app, the usual
+  invalid-combo feedback. `hotkey_parse.dead_combo_reason` is the single place both
+  lanes ask, so they cannot drift.
+
+Do not reintroduce: a modifier requirement in the capture widget or anywhere else, a
+"needs Ctrl and/or Alt" message, or a rejection lane for a combo that merely looks
+unwise (a bare letter, a shadowed OS shortcut). A *new* technical rejection meets the
+same bar as the one above: a documented reason why the combo cannot fire. Changing
+the permissive rule itself is a supersede discussion citing this entry. Respects
+D-023 (the static key set, which this entry does not touch) and D-022, whose dead-key
+class it applies to the keyboard.
 

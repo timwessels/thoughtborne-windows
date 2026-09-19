@@ -5,8 +5,9 @@ Shared by hotkey_manager (runtime RegisterHotKey resolution) and config
 (config-time override validation), so config-time acceptance equals runtime
 registrability. No Windows imports -> importable off-Windows, which keeps
 config import-safe for the test drivers (test_console_ui.py etc.). Every
-bindable key -- letters, digits, and F-keys, with ctrl/alt/shift/win modifiers
--- resolves against the static VK_MAP here; there is no layout-resolved key
+bindable key -- letters, digits, F-keys, the navigation cluster, arrows, the
+numpad, Pause and Scroll Lock (#325), with ctrl/alt/shift/win modifiers --
+resolves against the static VK_MAP here; there is no layout-resolved key
 lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one).
 
 Because every layer passes through here, this is also where a combo gets its one
@@ -44,6 +45,27 @@ for _i in range(10):
 # (bare 'f9') expressible, which RegisterHotKey supports.
 for _i in range(24):
     VK_MAP[f"f{_i + 1}"] = 0x70 + _i
+# Navigation cluster, arrows, numpad, Pause and Scroll Lock (#325) -- all
+# static VKs, the same on every layout, so D-023 holds: still one kind of key.
+VK_MAP.update({
+    'insert': 0x2D, 'delete': 0x2E, 'home': 0x24, 'end': 0x23,
+    'pageup': 0x21, 'pagedown': 0x22,
+    'left': 0x25, 'up': 0x26, 'right': 0x27, 'down': 0x28,
+    'pause': 0x13, 'scrolllock': 0x91,
+})
+# Numpad digits (VK_NUMPAD0..9) -- their own VKs, distinct from the digit row.
+for _i in range(10):
+    VK_MAP[f"num{_i}"] = 0x60 + _i
+VK_MAP.update({
+    'numdecimal': 0x6E, 'numdivide': 0x6F, 'nummultiply': 0x6A,
+    'numsubtract': 0x6D, 'numadd': 0x6B,
+})
+
+# VK -> token: the exact inverse of VK_MAP (#325). The settings capture reads
+# event.keycode (which on Windows Tk IS the virtual-key code) and must land on
+# the very token the registrar resolves -- built by inversion so the two cannot
+# drift. VK_MAP is injective (test-guarded), so the inversion loses nothing.
+VK_TO_TOKEN = {vk: token for token, vk in VK_MAP.items()}
 
 
 class HotkeyParseError(ValueError):
@@ -92,12 +114,32 @@ KEY_INVALID = "invalid"  # cannot be a key at all -> reject
 def classify_key(key_token: str) -> str:
     """Classify a parsed key token for config-time validation.
 
-    STATIC keys -- letters, digits and F-keys, which since D-023 are the whole
+    STATIC keys -- letters, digits, F-keys, the navigation cluster, arrows,
+    the numpad, Pause and Scroll Lock, which since D-023 are the whole
     bindable set -- are certainly registrable off-Windows. Everything else is
     INVALID: rejected at config time with a warning, the action keeping its
     default.
     """
     return KEY_STATIC if key_token in VK_MAP else KEY_INVALID
+
+
+# Held Ctrl shifts the scancode of Pause and of Scroll Lock, so both keys reach
+# Windows as VK_CANCEL (0x03): a ctrl+ combo on either registers fine and can
+# never fire -- the #308/D-022 "assignable but dead" class. The one technical
+# rejection of #325, shared by both validation lanes (config's JSON overrides
+# and the settings capture) so they cannot drift.
+_CTRL_SHIFTED_KEYS = frozenset({'pause', 'scrolllock'})
+
+
+def dead_combo_reason(modifiers: int, key_token: str) -> "str | None":
+    """A human-readable reason when (modifiers, key) would register but never
+    fire, or None for a live combo. Takes the parsed pair both callers already
+    hold; `modifiers` are the RegisterHotKey flags parse_hotkey_lexical returns.
+    """
+    if modifiers & MOD_CONTROL and key_token in _CTRL_SHIFTED_KEYS:
+        return (f"'{key_token}' cannot combine with ctrl -- Windows delivers "
+                f"VK_CANCEL instead, so the hotkey would never fire")
+    return None
 
 
 # The one modifier order every stored and displayed combo is written in (#272).
@@ -119,8 +161,8 @@ def canonical_combo(hotkey_str: str) -> str:
     existing error paths.
 
     With every effective combo canonical, common_prefix sees one spelling per
-    prefix, format_combo needs no name table, and a comparison against the
-    defaults compares bindings rather than notations.
+    prefix, format_combo maps token-wise off exactly one spelling, and a
+    comparison against the defaults compares bindings rather than notations.
     """
     modifiers, key = parse_hotkey_lexical(hotkey_str)
     parts = [name for name, flag in _CANONICAL_MODIFIERS if modifiers & flag]
@@ -128,15 +170,32 @@ def canonical_combo(hotkey_str: str) -> str:
     return '+'.join(parts)
 
 
-def format_combo(combo: str) -> str:
-    """Display spelling of a canonical combo: 'ctrl+alt+f10' -> 'Ctrl+Alt+F10'.
+# Token -> display name, for the tokens capitalize() spells wrong (#325).
+# Every other combo part keeps the capitalize() grammar, so this table is part
+# of the one display grammar (D-019), not a second one. Two hard rules, test-
+# guarded: a name never contains '+' (every display consumer splits combos on
+# '+' -- console_ui._display_prefix/_bare and common_prefix below), and never
+# exceeds 6 cells (the console key cells' width arithmetic, pinned by the
+# ladder's stress checks).
+KEY_DISPLAY = {
+    'insert': 'Ins', 'delete': 'Del', 'pageup': 'PgUp', 'pagedown': 'PgDn',
+    'numdecimal': 'NumDec', 'numdivide': 'NumDiv', 'nummultiply': 'NumMul',
+    'numsubtract': 'NumSub', 'numadd': 'NumAdd',
+    'scrolllock': 'ScrLk',
+}
 
-    capitalize() per part is enough once the input is canonical (ctrl/alt/shift/
-    win, a letter, a digit, or f1-f24), and it formats a bare prefix
-    ('ctrl+alt' -> 'Ctrl+Alt') the same way. The one display formatter: console,
-    settings app and tests share it, so no surface invents a second spelling.
+
+def format_combo(combo: str) -> str:
+    """Display spelling of a canonical combo: 'ctrl+alt+f10' -> 'Ctrl+Alt+F10',
+    'ctrl+alt+pageup' -> 'Ctrl+Alt+PgUp'.
+
+    capitalize() per part, except where KEY_DISPLAY names the short form
+    (#325); a bare prefix ('ctrl+alt' -> 'Ctrl+Alt') formats the same way. The
+    one display formatter: console, settings app and tests share it, so no
+    surface invents a second spelling.
     """
-    return '+'.join(part.capitalize() for part in combo.split('+'))
+    return '+'.join(KEY_DISPLAY.get(part, part.capitalize())
+                    for part in combo.split('+'))
 
 
 def common_prefix(combos) -> "str | None":
