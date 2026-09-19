@@ -42,7 +42,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
-| D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active |
+| D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active; 2026-09-20 addendum — the warn duty ends at what a reader discards, a never-read key stays silent (#333 declined) |
 | D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active |
 | D-028 | Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic | Active |
 
@@ -1900,6 +1900,16 @@ untouched; no new dialogs), D-008 (precedence untouched), D-015, D-017 (`.env`
 single parser and location), D-023/D-024 (both are precedents of the narrowing
 rule; their old shapes are ladder-guarded per function today and gained
 whole-file coverage through the three frozen historical files #327 added).
+
+**2026-09-20 addendum (settled with the maintainer, closing #333).** The warn
+duty deliberately ends at what a reader discards: a key the reader never asks
+for — a mistyped key name inside a known block, `push_to_talk.enabeld` — stays
+silent, and the setting the user meant simply keeps its default. Warning there
+would take a maintained list of every known inner key plus its own drift
+guard: a second truth, bought for a benign case never observed in real logs.
+Evaluated in full and declined. The rule stays one sentence: what a reader
+takes in hand and discards is named with its location; what it never reads it
+does not see.
 
 ## D-027 — Any supported key binds bare; the only rejection is a combo that cannot fire
 
