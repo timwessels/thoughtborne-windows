@@ -338,48 +338,6 @@ def resolve_first_run(flag: bool, env: dict) -> bool:
 
 
 # =============================================================================
-# startup-engine preselection (#178)
-# =============================================================================
-def preselect_startup_api(groq_present: bool, soniox_present: bool) -> str:
-    """Which startup engine matches the keys the user just entered -- a
-    preselection only; the settings app still lets an explicit engine pick win. A
-    Groq key with no Soniox key -> 'groq-large' (Groq Whisper Large v3), the same
-    engine the running tool falls back to when Soniox is absent, so the
-    preselection just makes explicit what the tool would do anyway (and "accurate"
-    beats "fast" for the dictation quality bar). Every other case -- Soniox present,
-    both keys, or neither -- keeps config.BUILTIN_DEFAULT_API (Soniox Live), the
-    shipped default. Pure: reads and writes no file, so it stays off-Windows testable
-    and respects D-002."""
-    if groq_present and not soniox_present:
-        return "groq-large"
-    return config.BUILTIN_DEFAULT_API
-
-
-# =============================================================================
-# key-aware engine control (#201)
-# =============================================================================
-def engine_keyed(api, live_fields: dict, stored_env: dict) -> bool:
-    """True iff engine `api` has a usable key for the settings app's key-aware engine
-    control (#201): a non-blank live field for its backing .env var (config.API_KEY_ENV),
-    or a key already stored there. `live_fields` and `stored_env` map {ENV_VAR: value}.
-    A blank/whitespace live field falls back to the stored value, so an empty field on
-    top of a stored key still counts as keyed -- the control shows what the tool has,
-    not yet what this save will leave behind (a field cleared for deletion since #328
-    therefore keeps its engines selectable until the save takes effect). Delegates the
-    var lookup + stored check to
-    `config.engine_has_key` (the #200 console primitive), so the settings control and
-    the console lineup can never disagree on 'keyed'. An engine outside
-    `config.API_KEY_ENV` -> False (defensive). Pure -> off-Windows testable."""
-    var = config.API_KEY_ENV.get(api)
-    if not var:
-        return False
-    live = live_fields.get(var, "")
-    if live and live.strip():
-        return True
-    return config.engine_has_key(api, stored_env)
-
-
-# =============================================================================
 # personal_settings.json (surgical merge)
 # =============================================================================
 # The blocks whose `_comment` lead the managed-skeleton seeds on an absent-file
@@ -924,82 +882,33 @@ def env_read_failure(path):
     return None
 
 
-def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_loaded,
-                               remember_display_now, remember_display_loaded):
-    """Derive the two on-save engine signals for the #198 two-mode control.
-
-    Returns `(default_api_signal, memory_api)`:
-      - `default_api_signal` is the write lanes' `default_api`; the app hands it to
-        `save_personal_settings`: `None` (leave `defaults.api` as found),
-        `REMOVE_API_PIN` (drop the pin), or an engine id (write it verbatim, the
-        built-in default included).
-      - `memory_api` is the engine to record via `engine_memory.write_last_engine`,
-        or `None` to leave the memory untouched.
+def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_loaded):
+    """Derive the on-save `defaults.api` signal for the #198 two-mode control -- the
+    value the app hands `save_personal_settings` as `default_api`: `None` (leave
+    `defaults.api` as found), `REMOVE_API_PIN` (drop the pin), or an engine id (write
+    it verbatim, the built-in default included).
 
     Pure so the whole table is off-Windows testable -- the GUI itself is hands-on
     only, and this is the riskiest logic in the field. `mode` is "fixed" or
-    "remember"; `engine_*` is the fixed-dropdown engine id; `remember_display_*` is
-    the engine shown next to the remember radio, moved only by the #178 wizard
-    preselect.
+    "remember"; `engine_*` is the fixed-picker engine id.
 
     Fixed-mode writes the pin whenever the mode or the chosen engine actually changed
-    (an untouched fixed pin stays byte-identical via `None`), and never writes the
-    memory -- the written pin is what makes the choice take effect. Leaving a pin for
-    remember-mode drops it and leaves the memory alone (the untouched memory keeps
-    deciding, truthfully). Staying in remember-mode writes the memory only when the
-    wizard preselect actually moved the remembered display (D-008: the app's sole
-    memory write); an otherwise untouched remember save touches neither file. The two
-    return values are mutually exclusive by construction -- a `REMOVE` only fires when
-    a pin was left (`mode_loaded == "fixed"`), a memory write only when staying in
-    remember-mode -- so a save never does both.
-    """
+    (an untouched fixed pin stays byte-identical via `None`). Leaving a pin for
+    remember-mode drops it, so the untouched memory keeps deciding, truthfully; an
+    untouched remember save writes nothing at all.
+
+    Key-agnostic by signature (D-028): no key state reaches this decision, so a pin on
+    an engine without a key is written like any other and resolves at the next start
+    through the carousel (#40/#200). There is no memory signal either -- the settings
+    app writes no engine memory at all (D-028 retired the #178 wizard preselect, its
+    one memory write)."""
     if mode_now == "fixed":
         if mode_loaded != "fixed" or engine_now != engine_loaded:
-            return engine_now, None
-        return None, None
+            return engine_now
+        return None
     # remember mode
     if mode_loaded == "fixed":
-        return REMOVE_API_PIN, None
-    if remember_display_now != remember_display_loaded:
-        return None, remember_display_now
-    return None, None
-
-
-def resolve_fixed_entry_engine(*, mode_now, mode_loaded, shown_api,
-                               live_fields, stored_env):
-    """Where the fixed-mode engine selection lands when the user clicks a mode radio
-    (#207): an engine id to move the selection to, or None to leave it where it is.
-
-    A move happens only when entering fixed mode from a LOADED remember state while
-    the shown engine has no usable key. That selection is then a seed nobody
-    key-checked (the remembered engine or the built-in default), and the save right
-    after the flip pins it unconditionally, so without the move "always start with"
-    can store an engine that cannot start. The landing spot is the first keyed engine
-    in config.AVAILABLE_APIS order -- the order the #200 startup fall-through walks
-    and the #178 preselect picks from -- so the written pin names the engine the tool
-    would have started anyway.
-
-    Everything else returns None. `mode_loaded` is the file's state at load, never the
-    click path: a pin loaded from the file is the user's own deliberate state, so
-    re-entering fixed mode over it shows it unmoved, keyless or not (D-002 -- its
-    flip-away-and-back has to leave defaults.api byte-identical). A keyed shown engine
-    stays put; an all-keyless environment has nowhere to land (the save's own "no key"
-    dialog owns that case); flipping to remember never moves anything. Key-awareness
-    delegates to engine_keyed, so the move can never disagree with the radios' greying
-    (#201).
-
-    By construction a non-None return implies (mode_now, mode_loaded) ==
-    ("fixed", "remember") -- the one cell where resolve_engine_save_signal writes the
-    pin unconditionally -- so the move only ever changes WHICH engine an inevitable
-    write records, never whether an untouched save writes (D-002). Pure ->
-    off-Windows testable."""
-    if mode_now != "fixed" or mode_loaded == "fixed":
-        return None
-    if engine_keyed(shown_api, live_fields, stored_env):
-        return None
-    for api in config.AVAILABLE_APIS:
-        if engine_keyed(api, live_fields, stored_env):
-            return api
+        return REMOVE_API_PIN
     return None
 
 

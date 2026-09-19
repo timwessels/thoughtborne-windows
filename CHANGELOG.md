@@ -134,6 +134,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were — the tool's console and `thoughtborne.log` — and the safety net for a broken file is
   #263's backup-before-loss lane, not a dialog.
 
+- **The settings window no longer reacts to the key fields — the engine picker is
+  key-agnostic (#332, D-028).** An edit in a key field now changes nothing but that field's
+  own verdict until it is saved. Three lanes are gone with it: the greying of engines without
+  a key in the *Always start with* list and the amber line under it pointing at the *Provider
+  & API key* tab (#201), the automatic jump onto a keyed engine when switching to *Always
+  start with* (#207), and the first-run wizard's preselect, which moved the startup engine to
+  Groq for a user who had entered only a Groq key (#178). Every engine in that list is
+  selectable now, whatever the key fields hold; switching between the two modes never moves
+  the selection by itself; and the settings app writes no engine memory at all —
+  `runtime_state.json` belongs to the `Ctrl+Alt+L` switch alone. A pin on an engine without a
+  key is saved exactly as the list shows it: the next start skips that engine and opens on
+  the first one that has a key, its greyed row in the console lineup telling the story
+  (#40/#200). That visible resolution at the next start is why the window needs no guard of
+  its own — and it makes the state behind the original report unrepresentable rather than
+  fixed: since #328 a cleared key field means "delete this key on save", while the picker
+  went on judging by the stored copy and could pin a keyless engine without a word.
+  Unchanged: the *Test key* button and its verdict reset on edit, the confirmation before a
+  save without any key, the key-awareness of the console lineup, and the hotkey capture's
+  refusal of a combo another action already holds. The startup fall-through this leans on is
+  now held by a test driver of its own.
+
 ### Fixed
 
 - **Stopping with one hotkey no longer mutes another one's "insert last text" (#152).**
@@ -188,16 +209,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the line) keeps its meaning — the character stays part of the value, as it always did —
   but now leaves a start-up warning instead of passing in silence.
 
-- **Three places that said the wrong thing about the engine and the settings file (#327).**
+- **Two places that said the wrong thing about the engine and the settings file (#327).**
   The startup log's `Configuration: Default API=…` line named the *configured* default while
   the `Startup engine:` line above it named the engine the start actually uses — so a start
   on a remembered engine read like two contradicting entries. It now says `default engine=…`
-  and whether that is the built-in one or a pin from `personal_settings.json`.
-  `runtime_state.json` told its reader it records "the engine you last selected with the
-  switch hotkey", though the settings app writes it too; it now names both ways, as does the
-  module behind it. And the settings window's load-failure dialog no longer blames an
-  unexpected encoding: since the backup lane (D-026) a wrongly encoded file does not land
-  there at all, so the dialog names the case that does — a file another program holds locked.
+  and whether that is the built-in one or a pin from `personal_settings.json`. The settings
+  window's load-failure dialog no longer blames an unexpected encoding either: since the
+  backup lane (D-026) a wrongly encoded file does not land there at all, so the dialog names
+  the case that does — a file another program holds locked.
 
 - **Comments in the vocabulary block no longer reach Soniox (#329, respects D-026).** A key
   starting with `_` is the JSON-comment convention of `personal_settings.json`, and it holds

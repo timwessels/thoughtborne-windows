@@ -368,41 +368,29 @@ class SettingsApp:
         remembered = engine_memory.read_last_engine(
             engine_memory.state_path(config.SCRIPT_DIR), config.AVAILABLE_APIS)
         # Two-mode engine control (#198): "fixed" means a defaults.api pin is in
-        # force (the fixed dropdown), "remember" means start on the engine last
+        # force (the fixed-mode radio list), "remember" means start on the engine last
         # switched to with Ctrl+Alt+L (the #193 memory, shown read-only). A valid
         # pin's PRESENCE decides the loaded mode -- a hand-written pin is itself a
         # prior explicit "always start with X" choice (D-008: presence, not
         # difference from the built-in default).
         self._mode_loaded = "fixed" if self._pinned_api is not None else "remember"
-        # The fixed-mode dropdown selection. Seeded to the pin, else the
+        # The fixed-mode radio-list selection (#201). Seeded to the pin, else the
         # remembered/built-in engine, so a later flip to fixed starts on a sensible
         # engine rather than the first carousel slot.
         shown = self._pinned_api or remembered or config.BUILTIN_DEFAULT_API
         self.engine_index = config.AVAILABLE_APIS.index(shown)
         # Save-time engine-selection check (#193): only a field an engine was actually
-        # SELECTED in -- by the user, or by #178's preselect below -- is persisted,
-        # so merely displaying a remembered engine never promotes it into a pin.
+        # SELECTED in by the user is persisted, so merely displaying a remembered
+        # engine never promotes it into a pin.
         self._engine_index_loaded = self.engine_index
         # The engine named next to the remember radio: the real memory if one
         # exists, else the built-in default (so the user sees exactly what remember
-        # mode will start on before saving). Moved only by the #178 wizard preselect;
-        # _loaded is frozen at load so _save can tell whether it actually moved --
-        # a move writes the memory (not a pin), the app's sole memory write (D-008).
+        # mode will start on before saving). Read-only -- nothing in the window moves
+        # it, and the app writes no engine memory at all (D-028).
         self._remember_display_api = remembered or config.BUILTIN_DEFAULT_API
-        self._remember_display_loaded_api = self._remember_display_api
         # Whether a real Ctrl+Alt+L memory backs the remember display -- picks the
-        # "currently remembered" vs "no switch recorded yet" wording. (A wizard
-        # preselect moving the display to a non-default engine also earns the
-        # "remembered" wording -- see _render_engine_control -- since it is what the
-        # next start will use once saved.)
+        # "currently remembered" vs "no switch recorded yet" wording.
         self._has_memory = remembered is not None
-        # #178 engine preselection: in the first-run wizard, entering a key can
-        # preselect the matching startup engine -- until the user picks one
-        # explicitly. A pin is itself a prior explicit choice, so start locked when
-        # one exists (presence, not difference -- D-008); a fresh wizard without a
-        # pin stays unlocked so the key can preselect, and a merely remembered
-        # engine does not block it either (a keyless newcomer is who #178 serves).
-        self._engine_user_chose = self._pinned_api is not None
 
         ui = personal.get("ui")
         lang = ui.get("language") if isinstance(ui, dict) else None
@@ -428,13 +416,10 @@ class SettingsApp:
         env = settings_io.read_env(config.SCRIPT_DIR / ".env")
         self.groq_var = tk.StringVar(value=env.get("GROQ_API_KEY", ""))
         self.soniox_var = tk.StringVar(value=env.get("SONIOX_API_KEY", ""))
-        # The load-time snapshot of what the two fields were filled with -- per .env
-        # var, because the key-aware engine control (#201) is per-engine
-        # (config.engine_has_key) and needs more than an aggregate. It serves twice
-        # over: "keyed" per engine = a non-blank live field OR a key stored for the
-        # engine's backing var, and since #328 it is the state a save compares the
-        # fields against, so a field the user CLEARED can be told from one that was
-        # empty all along (settings_io.resolve_env_save_updates, D-026). Never
+        # The load-time snapshot of what the two fields were filled with, per .env
+        # var: since #328 it is the state a save compares the fields against, so a
+        # field the user CLEARED can be told from one that was empty all along
+        # (settings_io.resolve_env_save_updates, D-026). Never
         # refreshed: after a successful save the window is gone anyway, and after an
         # aborted one this is still exactly what the fields were shown with. An
         # unreadable/ANSI .env reads as no keys here -- a save that then writes
@@ -1067,13 +1052,13 @@ class SettingsApp:
         # Editing a field voids any pending/shown verdict: bump the generation so an
         # in-flight test's result is discarded when it lands, reset the indicator to
         # idle, and re-enable the test button (so a mid-test edit can't leave it stuck
-        # disabled).
+        # disabled). That verdict is ALL an edit touches (D-028): it describes this
+        # field's exact text, while nothing else in the window reads a key field
+        # before the save.
         self._test_gen[provider] += 1
         self._test_state[provider] = None
         self._test_btns[provider].config(state="normal")
         self._render_indicator(provider)
-        self._maybe_preselect_engine()   # #178: key-driven startup-engine preselect
-        self._render_engine_control()    # #201: live grey/un-grey + guidance as keys change
 
     def _test_key(self, provider):
         var = self.groq_var if provider == "groq" else self.soniox_var
@@ -1408,16 +1393,10 @@ class SettingsApp:
         # Two-mode engine control (#198): remember-mode (start on the Ctrl+Alt+L
         # memory, shown read-only) vs fixed-mode (a defaults.api pin). A shared
         # StringVar drives the mode radio pair. The fixed picker is a radio per engine
-        # (#201, replacing the #198 combobox -- a combobox cannot disable individual
-        # rows): all four engines stay visible so the user learns they exist, and one
-        # without a key renders greyed + unselectable. #155 keeps the whole control in
-        # a card. The control LOGIC is unchanged -- _render_engine_control / _on_mode /
-        # _on_engine keep D-008/#198 semantics; only the widget changed. A container
-        # holds the card + the all-keyless guidance line, so toggling that line's
-        # visibility never reorders it below the tab's later sections.
-        ctrl = ttk.Frame(f)
-        ctrl.pack(fill="x")
-        card = self._card(ctrl)
+        # (#201's widget, replacing the #198 combobox): all four engines stay visible
+        # so the user learns they exist, and all four are always selectable -- the
+        # picker is key-agnostic (D-028). #155 keeps the whole control in a card.
+        card = self._card(f)
         card.pack(fill="x")
         remember_rb = ttk.Radiobutton(card, style="Card.TRadiobutton", value="remember",
                                       variable=self.mode_var, command=self._on_mode)
@@ -1432,11 +1411,12 @@ class SettingsApp:
                                   variable=self.mode_var, command=self._on_mode)
         self._reg(fixed_rb, "behavior.engine.mode.fixed")
         fixed_rb.pack(anchor="w")
-        # One radio per engine. The label (engine name + descriptor) is language- and
-        # state-dependent, so it is composed in _render_engine_control, not _reg-istered
-        # here. engine_var holds the selected engine id; a programmatic .set() fires no
-        # command, so RENDERING the selection -- even a greyed keyless pin -- is never a
-        # user pick, which is the basis of the D-002 byte-identity of an untouched save.
+        # One radio per engine. The label (engine name + descriptor) is language-
+        # dependent and composed from two sources, so _render_engine_control builds it
+        # by hand rather than _reg-istering a single key here. engine_var holds the
+        # selected engine id; a programmatic .set() fires no command, so RENDERING the
+        # selection is never a user pick, which is the basis of the D-002
+        # byte-identity of an untouched save.
         self.engine_var = tk.StringVar(value=config.AVAILABLE_APIS[self.engine_index])
         self._engine_radios = {}
         for a in config.AVAILABLE_APIS:
@@ -1444,13 +1424,6 @@ class SettingsApp:
                                  variable=self.engine_var, command=self._on_engine)
             rb.pack(anchor="w", padx=(sp(24), 0), pady=(sp(1), 0))
             self._engine_radios[a] = rb
-
-        # #201 all-keyless guidance: a calm, borderless amber line (Hint.TLabel) under
-        # the control, shown only when no key is stored and none entered. Built here
-        # unpacked; _render_engine_control toggles its visibility off _has_any_key.
-        # Via _prose it wraps through the #203 coalesced pass and re-renders on a
-        # language switch.
-        self.engine_guidance = self._prose(ctrl, "behavior.engine.keyless", surface="Hint.")
 
         # The 12-line tray wall is split into three digestible blocks (#155); the
         # third is the honest-limits caveat, so it is muted.
@@ -1612,38 +1585,30 @@ class SettingsApp:
             text=strings.t("hotkeys.capture_limit", self.lang).format(exit_key=ex))
 
     def _render_engine_control(self):
-        # Each engine radio (#201): (re)compose its label + descriptor for the current
-        # language, then set its state. Enabled iff fixed-mode AND the engine is keyed
-        # (a non-blank field or a stored key for its backing var); otherwise disabled
-        # (greyed, unselectable) -- in remember-mode every engine radio is disabled,
-        # since the fixed picker is inactive there. Setting engine_var shows the current
-        # selection; a programmatic set fires no command, so this never counts as a user
-        # pick (D-002): engine_index and _engine_user_chose stay untouched, so an
-        # untouched save (even a greyed keyless pin) still writes byte-identically.
+        # Each engine radio: (re)compose its label + descriptor for the current
+        # language, then set its state. Enabled iff fixed-mode -- the engine list is
+        # the "always start with" radio's own argument, so mode pair and list are one
+        # composite control and the list is inactive as a whole in remember-mode --
+        # and never by key state: the picker is key-agnostic (D-028). A pin on an
+        # engine without a key is the user's call; the next start resolves it through
+        # the carousel (#40/#200), which is why the window needs no guard of its own.
+        # Setting engine_var shows the current selection; a programmatic set fires no
+        # command, so this never counts as a user pick (D-002): engine_index stays
+        # untouched, so an untouched save still writes byte-identically.
         mode_fixed = self.mode_var.get() == "fixed"
-        live = self._live_env()
         for a in config.AVAILABLE_APIS:
             rb = self._engine_radios[a]
             rb.config(text=f"{config.API_DISPLAY[a]['label']} — "
                            f"{strings.t('engine.desc.' + a, self.lang)}")
-            keyed = settings_io.engine_keyed(a, live, self._stored_env)
-            rb.state(["!disabled"] if (mode_fixed and keyed) else ["disabled"])
+            rb.state(["!disabled"] if mode_fixed else ["disabled"])
         self.engine_var.set(config.AVAILABLE_APIS[self.engine_index])
 
-        # All-keyless guidance: shown iff fully keyless (no field, no stored key).
-        # _has_any_key is exactly that negation, so it is the single source here too.
-        if self._has_any_key():
-            self.engine_guidance.pack_forget()
-        else:
-            self.engine_guidance.pack(fill="x", pady=(self.theme.sp(6), 0))
-
-        # The remember label names the engine remember-mode will start on -- the
-        # "currently remembered" wording when a real memory OR a wizard preselect names
-        # a specific engine (the display differs from the built-in default), else the
-        # "no switch recorded yet -> built-in default" wording (so that wording only
-        # ever renders when the shown engine IS the built-in default, keeping it true).
+        # The remember label names the engine remember-mode will start on: the real
+        # Ctrl+Alt+L memory when one exists, else the built-in default under the "no
+        # switch recorded yet" wording. Read-only -- the settings app never writes the
+        # memory (D-028 retired its one write lane, the #178 wizard preselect).
         disp = config.API_DISPLAY[self._remember_display_api]["label"]
-        if self._has_memory or self._remember_display_api != config.BUILTIN_DEFAULT_API:
+        if self._has_memory:
             key = "behavior.engine.remember.current"
         else:
             key = "behavior.engine.remember.none"
@@ -1651,47 +1616,16 @@ class SettingsApp:
 
     def _on_engine(self):
         # A command callback (no event arg): only reachable by clicking an ENABLED
-        # radio -- a disabled (keyless, or remember-mode) radio ignores the click, so
-        # this can never fire for a keyless engine. Track selection by index into
-        # AVAILABLE_APIS. An explicit pick locks out the #178 key-driven preselection
-        # for good.
+        # radio -- in remember-mode the radios are disabled and ignore the click.
+        # Track selection by index into AVAILABLE_APIS.
         self.engine_index = config.AVAILABLE_APIS.index(self.engine_var.get())
-        self._engine_user_chose = True
 
     def _on_mode(self):
-        # An explicit mode choice is explicit engagement -> stop the #178 key-driven
-        # preselect from moving the remembered engine under the user, then re-render
-        # so the dropdown enables/disables and the remember label reflects the mode.
-        self._engine_user_chose = True
-        # Entering fixed mode with no pin loaded must not inherit a keyless seed as the
-        # pin-to-be (#207): land on the first keyed engine instead and let that count as
-        # the pick it is. Only here, on the explicit mode click -- the renderer stays
-        # free of selection side effects (D-002) -- and the resolver gets _mode_loaded
-        # (the file's state, never the click path), which is what keeps a loaded pin
-        # unmoved when the user flips away and back.
-        target = settings_io.resolve_fixed_entry_engine(
-            mode_now=self.mode_var.get(), mode_loaded=self._mode_loaded,
-            shown_api=config.AVAILABLE_APIS[self.engine_index],
-            live_fields=self._live_env(), stored_env=self._stored_env)
-        if target is not None:
-            self.engine_index = config.AVAILABLE_APIS.index(target)
+        # Re-render so the engine radios enable/disable with the mode. A mode switch
+        # never moves the selection itself (D-028 retired #207's keyed-engine
+        # auto-move): what "always start with" pins is the engine the list shows,
+        # keyed or not.
         self._render_engine_control()
-
-    def _maybe_preselect_engine(self):
-        # #178: in the first-run wizard, let the entered key preselect the matching
-        # startup engine -- Groq-only -> Groq Whisper Large v3, else the built-in
-        # default (Soniox Live). In the two-mode control (#198) a fresh wizard user
-        # starts in remember mode, so the preselect moves the *remembered* engine
-        # (written to the memory on save, not a pin) -- and the fixed dropdown too, so
-        # a later flip to fixed starts on the same engine. Preselection only: gated to
-        # first-run and skipped once the user engaged an engine or mode explicitly.
-        if not self.first_run or self._engine_user_chose:
-            return
-        target = settings_io.preselect_startup_api(
-            bool(self.groq_var.get().strip()), bool(self.soniox_var.get().strip()))
-        self._remember_display_api = target
-        self.engine_index = config.AVAILABLE_APIS.index(target)
-        self._render_engine_control()   # reflect live, even off-tab
 
     def _open_install_folder(self):
         # The install folder in Explorer (#281) -- the tool's own Ctrl+Alt+6 pattern
@@ -1752,21 +1686,17 @@ class SettingsApp:
     def _has_any_key(self):
         """True iff a key field is filled -- the state the window SHOWS, which since
         #328 is also the state a save leaves behind (D-026: the fields display the
-        stored keys, so clearing one removes it). The single predicate behind the
-        pre-save no-key warning in _save and the #201 all-keyless guidance under the
-        engine control, so the warning and the guidance can never disagree about what
-        "keyless" means -- and clearing the last key now meets the confirmation that
-        guards saving without one. It no longer reaches the rail: since #271 every
-        save restarts, keyed or not (D-014), so there is no label left for a key to
-        decide."""
+        stored keys, so clearing one removes it). The predicate behind the pre-save
+        no-key warning in _save -- a check of the save GESTURE itself (D-028), which
+        is why clearing the last key now meets the confirmation that guards saving
+        without one. It no longer reaches the rail: since #271 every save restarts,
+        keyed or not (D-014), so there is no label left for a key to decide."""
         return bool(self.groq_var.get().strip() or self.soniox_var.get().strip())
 
     def _live_env(self):
-        """The two managed key fields as an {ENV_VAR: value} dict, for the per-engine
-        keyed test (config.API_KEY_ENV names those vars). Fed to
-        settings_io.engine_keyed alongside the load-time _stored_env snapshot, so a
-        key typed this session greys/un-greys the matching engines live (#201), and to
-        _env_save_updates below as the live half of the save's difference rule."""
+        """The two managed key fields as an {ENV_VAR: value} dict (config.API_KEY_ENV
+        names those vars): the live half of the save's difference rule in
+        _env_save_updates below, against the load-time _stored_env snapshot."""
         return {"GROQ_API_KEY": self.groq_var.get(),
                 "SONIOX_API_KEY": self.soniox_var.get()}
 
@@ -1999,21 +1929,17 @@ class SettingsApp:
                                        strings.t(body_key, self.lang)):
                 return
 
-        # Engine field (#193/#198, D-008): derive the two on-save signals from the
-        # two-mode control in one pure, off-Windows-tested place. `default_api_signal`
-        # is what defaults.api gets -- None (leave as found) / REMOVE_API_PIN (drop
-        # the pin) / an id (write verbatim, built-in default included). `memory_api`
-        # is the engine to record in runtime_state.json, or None. The two are
-        # mutually exclusive: the app's only memory write is the #178 wizard preselect
-        # in remember mode; a fixed pick records no memory -- its written pin is what
-        # takes effect (that pin now writes even on the built-in default, D-002).
+        # Engine field (#193/#198, D-008): derive the on-save signal from the two-mode
+        # control in one pure, off-Windows-tested place. It is what defaults.api gets
+        # -- None (leave as found) / REMOVE_API_PIN (drop the pin) / an id (write
+        # verbatim, built-in default included, keyed or not -- D-028). The save writes
+        # no engine memory: runtime_state.json records what the user switched to while
+        # dictating, and this window never moves that.
         engine_now = config.AVAILABLE_APIS[self.engine_index]
         engine_loaded = config.AVAILABLE_APIS[self._engine_index_loaded]
-        default_api_signal, memory_api = settings_io.resolve_engine_save_signal(
+        default_api_signal = settings_io.resolve_engine_save_signal(
             mode_now=self.mode_var.get(), mode_loaded=self._mode_loaded,
-            engine_now=engine_now, engine_loaded=engine_loaded,
-            remember_display_now=self._remember_display_api,
-            remember_display_loaded=self._remember_display_loaded_api)
+            engine_now=engine_now, engine_loaded=engine_loaded)
         # Push-to-talk (#233): None unless the toggle actually moved, so a save that
         # never touched it leaves the whole block -- comment, trigger, insert, the
         # three timings -- exactly as found (D-002). Pure and off-Windows tested, like
@@ -2054,15 +1980,6 @@ class SettingsApp:
                 strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
             return
         self._log_backup(backup, losses)
-
-        if memory_api is not None:
-            # After the settings files are safely on disk, and best-effort by
-            # contract (never raises, returns False on failure): a lost memory
-            # write costs only the remembered value, never the save -- so it stays
-            # silent rather than firing an error dialog over the saved settings.
-            engine_memory.write_last_engine(
-                engine_memory.state_path(config.SCRIPT_DIR), memory_api,
-                config.AVAILABLE_APIS)
 
         # Post-save action: every save restarts (#271, D-014). The settings are on
         # disk; the #202 handshake performs the start that picks them up (D-002 --

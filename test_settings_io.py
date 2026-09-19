@@ -58,19 +58,21 @@ What is covered:
     list collapse create NO backup, and the silent language toggle never enters
     the lane at all. Plus the #294 seed hardening: a cp1252 example file can no
     longer abort a save with a raw exception, on either writer.
-  - settings_io.resolve_engine_save_signal (#198): the pure on-save derivation of
-    (default_api_signal, memory_api) across the whole two-mode decision table,
-    including the #201 named regression that an untouched fixed pin on a now-keyless
-    engine still resolves to (None, None) -- defaults.api byte-identical (D-002).
-  - settings_io.engine_keyed (#201): the per-engine "has a usable key" predicate the
-    key-aware engine control greys off -- stored vs live field per provider, a blank
-    field falling back to the stored key, all-keyless, and an unknown engine id.
-  - settings_io.resolve_fixed_entry_engine (#207): the landing table for the mode
-    flip -- a remember->fixed click over a keyless seed moves the selection to the
-    first keyed engine in carousel order, while a loaded pin (whose flip-away-and-back
-    must stay byte-identical, D-002), a keyed seed and an all-keyless environment
-    never move -- plus the AST guard that _on_mode applies it with mode_loaded from
-    the frozen load state, and that _render_engine_control stays move-free.
+  - settings_io.resolve_engine_save_signal (#198, D-008/D-028): the pure on-save
+    derivation of the single `defaults.api` signal across the whole two-mode decision
+    table, including that a flip into fixed mode pins whichever engine the list shows
+    -- a keyless one included, since no key state reaches the decision. Key-agnosticism
+    is pinned on the signature itself, and a sweep over every cell holds the shape of
+    the answer (None / REMOVE_API_PIN / an engine id -- never a tuple again). Plus the
+    three helpers D-028 retired (engine_keyed, preselect_startup_api and
+    resolve_fixed_entry_engine), which must stay gone.
+  - the window's "an unsaved edit has no effect" wiring (D-028), pinned on
+    thoughtborne_settings.py's syntax tree -- the GUI is hands-on only, and a stale
+    call in a Tk callback raises into the log rather than into any test: a field edit
+    touches nothing but its own verdict, a mode switch never moves the selection, the
+    renderer stays move-free, _save hands the writer the RESOLVED engine signal, no
+    retired helper is called anywhere in the file, and the app writes no engine
+    memory at all (it only reads it, for the remember-mode display).
   - the push-to-talk toggle's persistence (#233, D-002 addendum): the three-valued
     `ptt_enabled` merge -- an untouched toggle leaves the file byte-identical (a
     hand-typed invalid `enabled` included), a bool writes ONLY `enabled` so a
@@ -2114,14 +2116,14 @@ def check_i18n():
               f"i18n: engine.desc.{api} EN must equal API_DISPLAY descriptor "
               f"({sstr.t(f'engine.desc.{api}', 'en')!r} != {disp['descriptor']!r})")
 
-    # behavior.engine.keyless (#201) names the Provider tab by its label; guard that
-    # coupling in BOTH languages so a future rename of provider.tab can't leave the
-    # guidance line silently pointing at a tab name that no longer exists (same coupling
-    # style as the engine.desc guard above).
-    for lang in ("en", "de"):
-        check(sstr.t("provider.tab", lang) in sstr.t("behavior.engine.keyless", lang),
-              f"i18n: behavior.engine.keyless ({lang}) must name the provider tab exactly "
-              f"as provider.tab renders it ({sstr.t('provider.tab', lang)!r})")
+    # D-028: the engine picker is key-agnostic, so the window carries no all-keyless
+    # guidance line any more -- the line whose wording this table used to couple to the
+    # Provider tab's name. A returning key means a returning surface, i.e. the window
+    # reacting to unsaved key fields again.
+    check("behavior.engine.keyless" not in sstr._EN
+          and "behavior.engine.keyless" not in sstr._DE,
+          "behavior.engine.keyless is back -- D-028 removed the window's key-aware "
+          "guidance under the engine control (#332)")
 
     # #233: the push-to-talk fine print points the user at the JSON block by name in
     # both languages -- guard that coupling so a rename of the block can never leave
@@ -2487,60 +2489,6 @@ def check_ui_language_gate(tmp):
           "belongs to the deliberate actions alone (D-026)")
 
 
-# ---- startup-engine preselection (#178) --------------------------------------
-def check_preselect():
-    P = sio.preselect_startup_api
-    check(P(True, False) == "groq-large", "preselect: Groq-only -> groq-large")
-    check(P(False, True) == config.BUILTIN_DEFAULT_API,
-          "preselect: Soniox-only -> built-in default")
-    check(P(True, True) == config.BUILTIN_DEFAULT_API,
-          "preselect: both keys -> built-in default (explicit pick wins in the UI)")
-    check(P(False, False) == config.BUILTIN_DEFAULT_API,
-          "preselect: neither key -> built-in default")
-    # Both returned tokens must be selectable engines -- the UI does
-    # AVAILABLE_APIS.index(target), which would raise on an unknown token.
-    for token in ("groq-large", config.BUILTIN_DEFAULT_API):
-        check(token in config.AVAILABLE_APIS,
-              f"preselect: {token!r} is not in AVAILABLE_APIS")
-
-
-# ---- key-aware engine control predicate (#201) -------------------------------
-def check_engine_keyed():
-    """engine_keyed(api, live_fields, stored_env): the per-engine "has a usable key"
-    test the key-aware engine control greys off (#201). live_fields/stored_env map
-    {ENV_VAR: value}; a non-blank live field OR a stored key on the engine's backing
-    var means keyed, with a blank live field falling back to the stored value -- the
-    control shows the key the tool has, not the one the next save will leave (a field
-    cleared for deletion since #328 therefore stays keyed until that save takes
-    effect). Delegates to config.engine_has_key so the settings control and the #200
-    console lineup can never disagree."""
-    E = sio.engine_keyed
-    SON, GRQ = "SONIOX_API_KEY", "GROQ_API_KEY"
-    empty = {SON: "", GRQ: ""}
-    stored_son = {SON: "s_stored", GRQ: ""}
-    check(E("soniox-live", empty, stored_son) and E("soniox", empty, stored_son),
-          "keyed: a stored Soniox key keys both Soniox engines")
-    check(not E("groq", empty, stored_son) and not E("groq-large", empty, stored_son),
-          "keyed: a stored Soniox key does not key the Groq engines")
-    live_grq = {SON: "", GRQ: "g_typed"}
-    check(E("groq", live_grq, empty) and E("groq-large", live_grq, empty),
-          "keyed: a typed Groq field keys both Groq engines live")
-    check(not E("soniox-live", live_grq, empty),
-          "keyed: a typed Groq field does not key Soniox")
-    check(E("soniox", {SON: "  "}, {SON: "s_stored"}),
-          "keyed: a blank field over a stored key stays keyed (the control shows what "
-          "is stored, not what the next save will leave behind)")
-    check(not E("soniox", {SON: "   "}, empty),
-          "keyed: a whitespace-only field with nothing stored is not keyed")
-    both = {SON: "s", GRQ: "g"}
-    check(all(E(a, empty, both) for a in config.AVAILABLE_APIS),
-          "keyed: both stored keys key all four engines")
-    check(not any(E(a, empty, empty) for a in config.AVAILABLE_APIS),
-          "keyed: no key anywhere -> every engine keyless (the guidance-line case)")
-    check(not E("whisper-9000", both, both),
-          "keyed: an unknown engine id is never keyed")
-
-
 # ---- settings_io defaults.api merge (#193, D-008) ----------------------------
 def check_engine_pin(tmp):
     """The three-valued `default_api` contract (#193/#198, D-008/D-002).
@@ -2658,171 +2606,87 @@ def check_engine_pin(tmp):
           f"PIN-remove-siblings: sibling keys not preserved: {data.get('defaults')}")
 
 
-# ---- on-save engine signal (#198, D-008/D-002) -------------------------------
+# ---- on-save engine signal (#198, D-008/D-002/D-028) -------------------------
 def check_engine_save_signal():
     """resolve_engine_save_signal across the whole two-mode decision table -- the
     riskiest logic in the field, exhaustively tested off-Windows (the GUI itself is
-    hands-on only). Returns (default_api_signal, memory_api): None=leave /
-    REMOVE_API_PIN=drop / an id=verbatim-write for the pin, and an id or None for
-    the memory. The two never fire together."""
+    hands-on only). One answer: None=leave defaults.api as found / REMOVE_API_PIN=drop
+    the pin / an engine id=write it verbatim. No key state enters this decision and
+    none may (D-028) -- a pin on an engine without a key is written like any other and
+    resolves at the next start through the carousel (#40/#200), which is why the
+    signature itself is pinned below."""
     R = sio.resolve_engine_save_signal
     B = config.BUILTIN_DEFAULT_API
 
-    # fixed, untouched (mode + engine unchanged) -> leave the pin, no memory
+    # fixed, untouched (mode + engine unchanged) -> leave the pin exactly as found
     check(R(mode_now="fixed", mode_loaded="fixed", engine_now="groq",
-            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
-          == (None, None),
-          "signal: untouched fixed should leave the pin (None) and write no memory")
+            engine_loaded="groq") is None,
+          "signal: untouched fixed should leave the pin as found (None)")
 
-    # fixed, engine changed -> write the new id verbatim, no memory
+    # fixed, engine changed -> write the new id verbatim
     check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox",
-            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
-          == ("soniox", None),
-          "signal: a changed fixed engine should write it verbatim, no memory")
+            engine_loaded="groq") == "soniox",
+          "signal: a changed fixed engine should write it verbatim")
 
-    # remember -> fixed, any engine incl. the built-in default -> write it verbatim
-    check(R(mode_now="fixed", mode_loaded="remember", engine_now=B,
-            engine_loaded=B, remember_display_now=B, remember_display_loaded=B)
-          == (B, None),
-          "signal: flipping to fixed on the built-in default should write it verbatim, no memory")
+    # remember -> fixed: whatever the list shows is pinned VERBATIM -- every engine,
+    # the built-in default and a keyless one included. This is the acceptance
+    # criterion of D-028's key-agnostic picker, stated as a table rather than as an
+    # example: the resolver cannot even tell which engines have a key.
+    for api in config.AVAILABLE_APIS:
+        check(R(mode_now="fixed", mode_loaded="remember", engine_now=api,
+                engine_loaded=api) == api,
+              f"signal: flipping to fixed on {api!r} must pin exactly that engine "
+              "verbatim -- key state is none of this decision's business (D-028)")
 
-    # fixed -> remember (a pin was left) -> REMOVE the pin, no memory
+    # fixed -> remember (a pin was left) -> REMOVE the pin. Identity, not equality:
+    # the sentinel is what the writer recognizes.
     check(R(mode_now="remember", mode_loaded="fixed", engine_now="groq",
-            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
-          == (sio.REMOVE_API_PIN, None),
-          "signal: leaving a pin for remember-mode should drop it (REMOVE_API_PIN), no memory")
+            engine_loaded="groq") is sio.REMOVE_API_PIN,
+          "signal: leaving a pin for remember-mode should drop it (REMOVE_API_PIN)")
 
-    # remember, untouched -> touch neither file
+    # remember, untouched -> write nothing at all, even when the (inactive) fixed
+    # list shows another engine than the one it was seeded with.
     check(R(mode_now="remember", mode_loaded="remember", engine_now="groq",
-            engine_loaded="groq", remember_display_now=B, remember_display_loaded=B)
-          == (None, None),
-          "signal: an untouched remember save should touch neither file")
-
-    # remember, wizard preselect moved the remembered display -> memory only, no pin
-    check(R(mode_now="remember", mode_loaded="remember", engine_now="groq-large",
-            engine_loaded=B, remember_display_now="groq-large", remember_display_loaded=B)
-          == (None, "groq-large"),
-          "signal: a moved wizard preselect should write the memory only, no pin")
+            engine_loaded=B) is None,
+          "signal: an untouched remember save should write nothing")
 
     # round-trip fixed -> remember -> fixed, same engine -> no spurious rewrite
     check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox-live",
-            engine_loaded="soniox-live", remember_display_now=B, remember_display_loaded=B)
-          == (None, None),
+            engine_loaded="soniox-live") is None,
           "signal: a same-engine fixed round-trip should not rewrite the pin")
 
-    # #201: a fixed pin on an engine that is NOW keyless (its key was removed) is still
-    # an untouched save when nothing moved -> (None, None) -> defaults.api left byte-
-    # identical (D-002). The signal derivation is key-agnostic on purpose; the greying
-    # is display-only, so showing a greyed selected pin-radio must not read as a pick.
-    check(R(mode_now="fixed", mode_loaded="fixed", engine_now="soniox-live",
-            engine_loaded="soniox-live", remember_display_now=B, remember_display_loaded=B)
-          == (None, None),
-          "signal: an untouched fixed pin (even on a now-keyless engine) leaves it as found")
+    # Key-agnostic BY SIGNATURE, and with no memory signal left: the settings app
+    # writes no engine memory at all since D-028 retired the #178 preselect, its one
+    # write. A parameter added here re-opens that decision rather than adding a
+    # detail, so the whole parameter set is pinned.
+    params = set(inspect.signature(R).parameters)
+    check(params == {"mode_now", "mode_loaded", "engine_now", "engine_loaded"},
+          f"signal: resolve_engine_save_signal takes {sorted(params)} -- it is handed "
+          "neither key state nor memory state on purpose (D-028)")
 
-    # REMOVE and the memory write are mutually exclusive by construction -- even
-    # when the display also moved, a fixed->remember flip drops the pin and never
-    # records a memory.
-    sig, mem = R(mode_now="remember", mode_loaded="fixed", engine_now="groq",
-                 engine_loaded="soniox", remember_display_now="groq-large",
-                 remember_display_loaded=B)
-    check(sig is sio.REMOVE_API_PIN and mem is None,
-          "signal: REMOVE must never coincide with a memory write")
-
-
-# ---- fixed-mode entry move (#207) --------------------------------------------
-def check_fixed_entry_engine():
-    """resolve_fixed_entry_engine: where the fixed-mode selection lands when the user
-    clicks a mode radio (#207). It moves only when entering fixed mode from a LOADED
-    remember state over a keyless shown engine, and then onto the first keyed engine
-    in AVAILABLE_APIS order; a loaded pin never moves (its flip-away-and-back
-    round-trip has to stay byte-identical, D-002), a keyed seed stays put, and an
-    all-keyless environment has nowhere to land. The sweep at the end pins the
-    property the D-002 argument rests on: a move can only fire in the one
-    (mode_now, mode_loaded) cell whose save writes the pin unconditionally anyway,
-    and it lands on a selectable, keyed engine that is exactly what that save writes.
-    """
-    F = sio.resolve_fixed_entry_engine
-    SON, GRQ = "SONIOX_API_KEY", "GROQ_API_KEY"
-    empty = {SON: "", GRQ: ""}
-    grq_stored = {SON: "", GRQ: "g_stored"}
-
-    # The #207 gap: Groq-only, no pin loaded, the seed sitting on the keyless built-in
-    # default -> land on groq-large, the FIRST keyed engine in carousel order (the one
-    # the #200 fall-through starts and #178 preselects), never groq.
-    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
-            live_fields=empty, stored_env=grq_stored) == "groq-large",
-          "entry: a Groq-only remember->fixed flip must land on groq-large (the first "
-          "keyed engine in carousel order), not stay on the keyless seed")
-
-    # A LOADED pin is the user's own state: re-entering fixed mode over it shows it
-    # unmoved, keyless or not, so the round-trip save stays (None, None) (D-002).
-    check(F(mode_now="fixed", mode_loaded="fixed", shown_api="soniox-live",
-            live_fields=empty, stored_env=grq_stored) is None,
-          "entry: a loaded (now-keyless) pin must never be moved off -- its "
-          "flip-away-and-back round-trip has to stay byte-identical (D-002)")
-
-    # A keyed shown engine stays -- the flip inherits a working selection.
-    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
-            live_fields=empty, stored_env={SON: "s_stored", GRQ: ""}) is None,
-          "entry: a keyed shown engine must be left where it is")
-
-    # All-keyless: nowhere to land -> None, never an invented target (and never an
-    # AVAILABLE_APIS.index(None) crash in the caller).
-    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
-            live_fields=empty, stored_env=empty) is None,
-          "entry: an all-keyless environment must return None, not a bogus target")
-
-    # Flipping TO remember never moves, whatever the key state.
-    check(F(mode_now="remember", mode_loaded="remember", shown_api="soniox-live",
-            live_fields=empty, stored_env=grq_stored) is None,
-          "entry: entering remember mode must never move the selection")
-
-    # A key typed this session counts like a stored one (engine_keyed's live lane), so
-    # the flip right after entering the first key lands correctly.
-    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
-            live_fields={SON: "", GRQ: "g_typed"}, stored_env=empty) == "groq-large",
-          "entry: a Groq key typed this session must key the landing spot")
-
-    # Blank-over-stored stays keyed (mirrors engine_keyed), so a blanked Soniox field
-    # over a stored Soniox key leaves the shown engine keyed -> no move. (That a save
-    # would now DELETE that key is the #201 question #328 left open on purpose.)
-    check(F(mode_now="fixed", mode_loaded="remember", shown_api="soniox-live",
-            live_fields={SON: "   ", GRQ: "g"},
-            stored_env={SON: "s_stored", GRQ: ""}) is None,
-          "entry: a blanked field over a stored key keeps the shown engine keyed "
-          "(it falls back to the stored one) -> no move")
-
-    # The invariant sweep: across every flip state, seed and key layout, a move can
-    # only fire in the remember->fixed cell -- the one whose save writes the pin
-    # unconditionally -- so it can change WHICH engine an inevitable write records,
-    # never whether an untouched save writes at all (D-002). And whatever it returns
-    # must be selectable, keyed, and exactly what that save then writes.
-    envs = (empty, grq_stored, {SON: "s", GRQ: ""}, {SON: "s", GRQ: "g"})
+    # The SHAPE of every answer, swept over the whole table: one signal, never a tuple
+    # again, and an engine id only ever one the app can index AVAILABLE_APIS with.
     for mn in ("fixed", "remember"):
         for ml in ("fixed", "remember"):
-            for shown in config.AVAILABLE_APIS:
-                for stored in envs:
-                    got = F(mode_now=mn, mode_loaded=ml, shown_api=shown,
-                            live_fields=empty, stored_env=stored)
-                    if got is None:
-                        continue
-                    check((mn, ml) == ("fixed", "remember"),
-                          f"entry: a move fired outside the remember->fixed flip: "
-                          f"{(mn, ml)} -- only that cell's save writes the pin anyway")
-                    check(got in config.AVAILABLE_APIS,
-                          f"entry: {got!r} is not a selectable engine id -- the app "
-                          "indexes AVAILABLE_APIS with it")
-                    check(sio.engine_keyed(got, empty, stored),
-                          f"entry: landed on {got!r}, which has no key -- pinning "
-                          "exactly that is what #207 is about")
-                    check(sio.resolve_engine_save_signal(
-                              mode_now=mn, mode_loaded=ml, engine_now=got,
-                              engine_loaded=shown,
-                              remember_display_now=config.BUILTIN_DEFAULT_API,
-                              remember_display_loaded=config.BUILTIN_DEFAULT_API)
-                          == (got, None),
-                          f"entry: the moved engine {got!r} is not what the flip's save "
-                          "writes -- the shown selection and the written pin must agree")
+            for now in config.AVAILABLE_APIS:
+                for loaded in config.AVAILABLE_APIS:
+                    got = R(mode_now=mn, mode_loaded=ml, engine_now=now,
+                            engine_loaded=loaded)
+                    check(got is None or got is sio.REMOVE_API_PIN
+                          or got in config.AVAILABLE_APIS,
+                          f"signal: {(mn, ml, now, loaded)} answered {got!r} -- the "
+                          "only answers are None, REMOVE_API_PIN and a selectable "
+                          "engine id")
+
+    # The three helpers D-028 retired, guarded the way check_i18n guards the retired
+    # detect_ui_language. A returning name means a returning behaviour: the window
+    # judging engines by keys (#201, with the stored-.env fallback behind #332's
+    # original report), moving the selection on a mode flip (#207), or preselecting an
+    # engine from a key that is not saved yet (#178).
+    for name in ("engine_keyed", "preselect_startup_api", "resolve_fixed_entry_engine"):
+        check(not hasattr(sio, name),
+              f"settings_io.{name} is back -- D-028 retired it (#332): the engine "
+              "picker is key-agnostic and an unsaved edit moves nothing")
 
 
 # ---- settings_io push_to_talk.enabled merge (#233, D-002) --------------------
@@ -3072,9 +2936,8 @@ def check_reset_defaults(tmp):
     # tool warns about at every start. The reset is the only way out.
     check(sio.resolve_engine_save_signal(
         mode_now="remember", mode_loaded="remember", engine_now="soniox-live",
-        engine_loaded="soniox-live", remember_display_now="groq",
-        remember_display_loaded="groq") == (None, None),
-        "reset-invalid: an untouched engine control no longer signals (None, None) -- "
+        engine_loaded="soniox-live") is None,
+        "reset-invalid: an untouched engine control no longer signals None -- "
         "the premise of the forced write below has changed, re-read D-002/D-008")
     check(sio.resolve_ptt_save_signal(enabled_now=False, enabled_loaded=False) is None,
           "reset-invalid: an untouched push-to-talk toggle no longer signals None -- "
@@ -3377,19 +3240,27 @@ def check_ptt_save_signal():
           "ptt-signal: switching it off must write False")
 
 
-def _settings_app_methods(prefix):
-    """The SettingsApp methods of thoughtborne_settings.py as a {name: FunctionDef}
-    map, or {} after recording a failure. The settings app imports tkinter at module
-    level and cannot be imported from this ladder, so its call sites are checked on
-    the source -- as a syntax tree rather than as text, so renaming a local or
-    reflowing a call proves nothing while a real regression still goes red (the idiom
-    of the thoughtborne.py guards in test_restart_signal.py, one step more precise)."""
+def _settings_app_tree(prefix):
+    """thoughtborne_settings.py as a syntax tree, or None after recording a failure.
+    The settings app imports tkinter at module level and cannot be imported from this
+    ladder, so its call sites are checked on the source -- as a syntax tree rather
+    than as text, so renaming a local or reflowing a call proves nothing while a real
+    regression still goes red (the idiom of the thoughtborne.py guards in
+    test_restart_signal.py, one step more precise)."""
     src_path = config.SCRIPT_DIR / "thoughtborne_settings.py"
     try:
-        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+        return ast.parse(src_path.read_text(encoding="utf-8"))
     except Exception as e:
         failures.append(f"{prefix}: could not parse thoughtborne_settings.py: "
                         f"{type(e).__name__}: {e}")
+        return None
+
+
+def _settings_app_methods(prefix):
+    """The SettingsApp methods of thoughtborne_settings.py as a {name: FunctionDef}
+    map, or {} after recording a failure."""
+    tree = _settings_app_tree(prefix)
+    if tree is None:
         return {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "SettingsApp":
@@ -3402,6 +3273,30 @@ def _calls_to(method, name):
     """Every `<something>.name(...)` call inside one method's syntax tree."""
     return [c for c in ast.walk(method) if isinstance(c, ast.Call)
             and getattr(c.func, "attr", None) == name]
+
+
+def _self_calls(method):
+    """The names of the own methods one method calls -- `self.name(...)` only, so a
+    `self._dict[key].config(...)` on a widget is not one of them."""
+    return {c.func.attr for c in ast.walk(method) if isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Attribute)
+            and isinstance(c.func.value, ast.Name) and c.func.value.id == "self"}
+
+
+def _self_assigns(method):
+    """The `self.<attr>` names one method assigns to (plain and augmented). A
+    `self.<dict>[key] = ...` is a subscript, not an attribute, so it is none of
+    these -- which is what lets a guard speak about window STATE alone."""
+    names = set()
+    for node in ast.walk(method):
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign))
+                   else [])
+        for t in targets:
+            if (isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+                    and t.value.id == "self"):
+                names.add(t.attr)
+    return names
 
 
 def check_ptt_wiring():
@@ -3494,131 +3389,169 @@ def check_lang_writer_signature():
           "a positional one does (D-002)")
 
 
-# ---- the fixed-mode entry move's wiring (#207) -------------------------------
-def check_mode_flip_wiring():
-    """That _on_mode really applies resolve_fixed_entry_engine's verdict to
-    engine_index, pinned statically for the same reason as check_ptt_wiring: the table
-    above is decoration unless the mode click uses it, and feeding the resolver
-    `mode_var` instead of `_mode_loaded` -- the click path instead of the loaded state
-    -- would move a loaded pin on flip-away-and-back and rewrite it on save (D-002).
-    Plus the other half of that guarantee: _render_engine_control must stay MOVE-free.
-    "A programmatic set is not a pick" is what keeps an untouched save byte-identical,
-    which is exactly why #207 puts the move in the click handler alone. And one crash
-    lane rather than a D-002 one: the move has to stay behind a test on the resolver's
-    verdict, since all-keyless -- the first-run wizard's normal state -- resolves to
-    None."""
-    methods = _settings_app_methods("mode-flip-wiring")
+# ---- the engine control's D-028 wiring ---------------------------------------
+def check_engine_control_wiring():
+    """That the window really leaves an unsaved edit without effect (D-028), pinned
+    statically on thoughtborne_settings.py's syntax tree. Nothing else can see it: the
+    window is hands-on only, and an exception raised inside a Tk callback lands in the
+    log rather than in any test run -- a call left behind to a retired helper would
+    therefore leave the whole ladder green while the control is broken in the field.
+
+    One guard per way the retired behaviour could return: a key-field edit touches
+    nothing but its own verdict (#178's preselect and #201's re-render are gone from
+    it), a mode click only re-renders (#207's auto-move is gone), the renderer never
+    moves the selection (D-002 -- a programmatic set is not a pick), _save hands the
+    writer the RESOLVED signal, no retired helper is called anywhere in the file, and
+    the app writes no engine memory at all while still READING one for the display."""
+    methods = _settings_app_methods("engine-control-wiring")
     if not methods:
         return
+    tree = _settings_app_tree("engine-control-wiring")
+    if tree is None:
+        return
+    # The engine control's own state: what a move would have to touch to survive the
+    # save. The window may render freely; these are the values the save reads.
+    SELECTION = {"engine_index", "_engine_index_loaded", "_mode_loaded",
+                 "_remember_display_api"}
+
+    # ---- a field edit touches nothing but its own verdict ----
+    edit = methods.get("_on_field_edit")
+    if edit is None:
+        failures.append("engine-control-wiring: SettingsApp._on_field_edit not found -- "
+                        "the key-field callback was renamed and this guard no longer "
+                        "guards anything")
+    else:
+        # An allowlist, not a denylist, and deliberately so: D-028 says an edit changes
+        # nothing but its own field, so a NEW callee is the thing to notice. Whoever
+        # needs one extends this set together with the reason it does not cross the
+        # rule. The equality also keeps the handler from going empty, which would make
+        # the verdict invalidation itself disappear unnoticed.
+        callees = _self_calls(edit)
+        check(callees == {"_render_indicator"},
+              f"engine-control-wiring: _on_field_edit calls {sorted(callees)} -- the "
+              "one thing a key-field edit may touch is its own verdict indicator "
+              "(D-028: an unsaved edit has no other effect; the #178 preselect and the "
+              "#201 key-aware re-render were removed from here)")
+        moved = _self_assigns(edit) & SELECTION
+        check(not moved,
+              f"engine-control-wiring: _on_field_edit assigns {sorted(moved)} -- typing "
+              "a key may not move the engine selection (D-028)")
+
+    # ---- a mode click re-renders, and moves nothing ----
     on_mode = methods.get("_on_mode")
     if on_mode is None:
-        failures.append("mode-flip-wiring: SettingsApp._on_mode not found -- the mode "
-                        "handler was renamed and this guard no longer guards anything")
-        return
+        failures.append("engine-control-wiring: SettingsApp._on_mode not found -- the "
+                        "mode handler was renamed and this guard no longer guards "
+                        "anything")
+    else:
+        moved = _self_assigns(on_mode) & SELECTION
+        check(not moved,
+              f"engine-control-wiring: _on_mode assigns {sorted(moved)} -- switching "
+              "between remember- and fixed-mode may never move the selection by itself "
+              "(D-028 retired #207's keyed-engine auto-move): what 'always start with' "
+              "pins is the engine the list shows, keyed or not")
+        check("_render_engine_control" in _self_calls(on_mode),
+              "engine-control-wiring: _on_mode no longer re-renders the engine control "
+              "-- the radios would then keep the previous mode's enabled state, and the "
+              "guard above would pass over a handler that does nothing at all")
 
-    calls = _calls_to(on_mode, "resolve_fixed_entry_engine")
-    check(len(calls) == 1,
-          f"mode-flip-wiring: expected exactly one resolve_fixed_entry_engine call in "
-          f"_on_mode, found {len(calls)} -- without it a remember->fixed flip pins "
-          "whatever keyless engine the seed happened to show (#207)")
-    for call in calls:
-        passed = {k.arg: k.value for k in call.keywords if k.arg}
-        ml = passed.get("mode_loaded")
-        check(isinstance(ml, ast.Attribute) and ml.attr == "_mode_loaded"
-              and isinstance(ml.value, ast.Name) and ml.value.id == "self",
-              "mode-flip-wiring: the resolver must be fed mode_loaded=self._mode_loaded, "
-              f"not {ast.unparse(ml) if ml is not None else '<missing>'} -- the CLICK "
-              "path (mode_var) would move a loaded pin on flip-away-and-back and let "
-              "the save rewrite it (D-002)")
-        # The mirror image, and the one the checks below cannot notice: mode_now is the
-        # live click path. Hand it anything else -- most plausibly self._mode_loaded,
-        # once someone "unifies" the two arguments -- and the resolver's first clause
-        # answers None to every click (either mode_now is not "fixed", or mode_loaded
-        # is), so the move never fires again while everything else here stays green:
-        # the call is present, its result is assigned, engine_index is set.
-        mn = passed.get("mode_now")
-        check(isinstance(mn, ast.Call) and getattr(mn.func, "attr", None) == "get"
-              and isinstance(mn.func.value, ast.Attribute)
-              and mn.func.value.attr == "mode_var"
-              and isinstance(mn.func.value.value, ast.Name)
-              and mn.func.value.value.id == "self",
-              "mode-flip-wiring: the resolver must be fed mode_now=self.mode_var.get(), "
-              f"not {ast.unparse(mn) if mn is not None else '<missing>'} -- only the "
-              "live click path can tell the resolver the user is ENTERING fixed mode; "
-              "fed the loaded state instead it returns None on every click and #207's "
-              "move dies in silence (#207)")
-
-    resolved = set()
-    for node in ast.walk(on_mode):
-        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
-                and getattr(node.value.func, "attr", None) == "resolve_fixed_entry_engine"):
-            resolved |= {t.id for t in node.targets if isinstance(t, ast.Name)}
-    check(resolved,
-          "mode-flip-wiring: _on_mode never assigns resolve_fixed_entry_engine(...) to a "
-          "local -- its None case (all-keyless) has to be handled before the result can "
-          "index AVAILABLE_APIS (#207)")
-    moves = []
-    for node in ast.walk(on_mode):
-        if not isinstance(node, ast.Assign):
-            continue
-        for t in node.targets:
-            if (isinstance(t, ast.Attribute) and t.attr == "engine_index"
-                    and isinstance(t.value, ast.Name) and t.value.id == "self"
-                    and {n.id for n in ast.walk(node.value)
-                         if isinstance(n, ast.Name)} & resolved):
-                moves.append(node)
-    check(moves,
-          "mode-flip-wiring: _on_mode never assigns self.engine_index from the "
-          "resolver's result -- the decision table above then guards nothing (#207)")
-
-    # ...and that move stays behind a decision on the resolver's local. The verdict is
-    # None whenever there is nothing keyed to land on -- the all-keyless environment a
-    # first-run wizard normally starts in -- so an unguarded
-    # AVAILABLE_APIS.index(target) raises ValueError on the very first fixed click,
-    # with every check above still green. Both guard shapes count (the assignment
-    # nested under an `if <local>...`, and the `if <local> is None: return` clause a
-    # refactor might prefer); what may not vanish is the decision itself.
-    parents = {}
-    for node in ast.walk(on_mode):
-        for child in ast.iter_child_nodes(node):
-            parents[child] = node
-
-    def _reads_local(node):
-        return bool({n.id for n in ast.walk(node) if isinstance(n, ast.Name)} & resolved)
-
-    def _guarded(assign):
-        node = parents.get(assign)
-        while node is not None:          # nested under a test on the local
-            if isinstance(node, ast.If) and _reads_local(node.test):
-                return True
-            node = parents.get(node)
-        return any(isinstance(n, ast.If) and _reads_local(n.test)   # or a guard clause
-                   and any(isinstance(s, (ast.Return, ast.Raise)) for s in n.body)
-                   and (n.end_lineno or n.lineno) <= assign.lineno
-                   for n in ast.walk(on_mode))
-
-    check(all(_guarded(m) for m in moves),
-          "mode-flip-wiring: _on_mode assigns self.engine_index from the resolver's "
-          "result without ever testing that result -- an all-keyless environment "
-          "(the first-run wizard's normal state) resolves to None, and "
-          "AVAILABLE_APIS.index(None) then raises ValueError on the first click into "
-          "fixed mode (#207)")
-
+    # ---- the renderer stays move-free (D-002) and key-blind (D-028) ----
     render = methods.get("_render_engine_control")
     if render is None:
-        failures.append("mode-flip-wiring: SettingsApp._render_engine_control not found "
-                        "-- the engine renderer was renamed and the move-free half of "
-                        "this guard no longer guards anything")
-        return
-    dirty = sorted({t.attr for node in ast.walk(render) if isinstance(node, ast.Assign)
-                    for t in node.targets
-                    if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
-                    and t.value.id == "self"
-                    and t.attr in ("engine_index", "_engine_user_chose")})
-    check(not dirty and not _calls_to(render, "resolve_fixed_entry_engine"),
-          f"mode-flip-wiring: _render_engine_control gained a selection side effect "
-          f"({dirty or 'a resolve_fixed_entry_engine call'}) -- the renderer must stay "
-          "move-free so a programmatic set never counts as a pick (D-002)")
+        failures.append("engine-control-wiring: SettingsApp._render_engine_control not "
+                        "found -- the engine renderer was renamed and the move-free "
+                        "half of this guard no longer guards anything")
+    else:
+        dirty = sorted(_self_assigns(render) & SELECTION)
+        check(not dirty,
+              f"engine-control-wiring: _render_engine_control gained a selection side "
+              f"effect ({dirty}) -- the renderer must stay move-free so a programmatic "
+              "set never counts as a pick and an untouched save stays byte-identical "
+              "(D-002)")
+        # The greying regression itself, caught where the greying would live: the two
+        # key fields, their load-time snapshot, the names the retired key-aware control
+        # read, and the ways past all of them straight to the .env or the process
+        # environment. Reading any of these here is the picker judging engines by keys
+        # again -- a D-028 supersede discussion, not a detail.
+        #
+        # Unlike the _on_field_edit allowlist above this is a denylist, and it can only
+        # name routes somebody has thought of: a renderer that reaches key state some
+        # other way walks past it. What closes that gap is the real window in
+        # test_settings_visibility.py, which measures the greying itself rather than the
+        # way to it; this half is the one that also runs where no display does.
+        KEY_STATE = {"engine_has_key", "env_has_key", "_live_env", "_has_any_key",
+                     "_stored_env", "groq_var", "soniox_var",
+                     "read_env", "environ", "getenv"}
+        reads = sorted({n.attr for n in ast.walk(render) if isinstance(n, ast.Attribute)
+                        and n.attr in KEY_STATE})
+        check(not reads,
+              f"engine-control-wiring: _render_engine_control reads {reads} -- the "
+              "engine picker is key-agnostic (D-028): every engine stays selectable "
+              "whatever the key fields hold, and a pin without a key resolves at the "
+              "next start through the carousel (#40/#200)")
+
+    # ---- _save writes the RESOLVED signal, not the raw selection ----
+    save = methods.get("_save")
+    if save is None:
+        failures.append("engine-control-wiring: SettingsApp._save not found -- the save "
+                        "path was renamed and this guard no longer guards anything")
+    else:
+        resolved = set()
+        for node in ast.walk(save):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                    and getattr(node.value.func, "attr", None)
+                    == "resolve_engine_save_signal"):
+                resolved |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        check(resolved,
+              "engine-control-wiring: _save never assigns "
+              "settings_io.resolve_engine_save_signal(...) to a local -- the table above "
+              "is decoration unless the save actually asks it (#198, D-008)")
+        writes = _calls_to(save, "save_personal_settings")
+        check(writes,
+              "engine-control-wiring: _save makes no save_personal_settings call -- the "
+              "settings write was renamed or routed elsewhere, and the default_api "
+              "guard below would then hold an empty set to account (#263 put the save "
+              "through the D-026 backup lane, which is this call)")
+        for call in writes:
+            value = {k.arg: k.value for k in call.keywords if k.arg}.get("default_api")
+            check(isinstance(value, ast.Name) and value.id in resolved,
+                  "engine-control-wiring: _save passes default_api="
+                  f"{ast.unparse(value) if value is not None else '<missing>'}, not the "
+                  f"resolve_engine_save_signal result "
+                  f"({' / '.join(sorted(resolved)) or 'none'}) -- the raw selection "
+                  "would rewrite defaults.api on every save (D-002)")
+
+    # ---- nothing calls what D-028 retired, anywhere in the file ----
+    # pyflakes reports undefined NAMES, not missing attributes, so a leftover
+    # `settings_io.engine_keyed(...)` or `self._maybe_preselect_engine()` is legal to
+    # every other lane on the ladder and raises only in the user's log. This is the
+    # lane that sees it.
+    retired = {"engine_keyed": "#201's key-aware greying",
+               "preselect_startup_api": "#178's wizard preselect",
+               "resolve_fixed_entry_engine": "#207's mode-flip auto-move",
+               "_maybe_preselect_engine": "#178's wizard preselect",
+               "_engine_user_chose": "#178's explicit-pick lock",
+               "_remember_display_loaded_api": "the retired memory-write comparison",
+               "engine_guidance": "#201's all-keyless guidance line"}
+    seen = sorted({n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)
+                   and n.attr in retired})
+    check(not seen,
+          "engine-control-wiring: thoughtborne_settings.py still names "
+          + ", ".join(f"{n} ({retired[n]})" for n in seen)
+          + " -- D-028 retired these (#332), and a stale reference here raises inside a "
+            "Tk callback, i.e. into the log and past every test")
+
+    # ---- the app reads the engine memory, and never writes it ----
+    writes = _calls_to(tree, "write_last_engine")
+    check(not writes,
+          "engine-control-wiring: the settings app writes the engine memory -- since "
+          "D-028 it writes none at all (runtime_state.json records what the user "
+          "switched to while dictating, and this window never moves that)")
+    check(len(_calls_to(tree, "read_last_engine")) == 1,
+          f"engine-control-wiring: expected exactly one read_last_engine call (the "
+          f"remember-mode display), found {len(_calls_to(tree, 'read_last_engine'))} -- "
+          "without it the guard above would pass over an app that no longer touches "
+          "the memory at all, and the remember radio would name the wrong engine")
 
 
 # ---- every save restarts (#271) ----------------------------------------------
@@ -3786,16 +3719,13 @@ def main():
     check_i18n()
     check_i18n_gap_proof()
     check_readme_anchors()
-    check_preselect()
     check_env_save_updates()
-    check_engine_keyed()
     check_engine_save_signal()
-    check_fixed_entry_engine()
     check_ptt_read()
     check_ptt_save_signal()
     check_ptt_wiring()
     check_lang_writer_signature()
-    check_mode_flip_wiring()
+    check_engine_control_wiring()
     check_save_always_restarts()
     check_reset_wiring()
     check_readfail_wiring()

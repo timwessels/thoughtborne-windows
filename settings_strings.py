@@ -256,8 +256,6 @@ _EN = {
     "behavior.engine.remember.current": "Currently remembered: {engine}",
     "behavior.engine.remember.none": (
         "No switch recorded yet — starts on the built-in default ({engine})"),
-    "behavior.engine.keyless": (
-        "▸  Enter an API key on the “Provider & API key” tab to enable dictation."),
     "engine.desc.soniox-live": "verbatim, instant",
     "engine.desc.soniox": "polished, takes longer",
     "engine.desc.groq-large": "accurate, free",
@@ -684,9 +682,6 @@ _DE = {
     "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
     "behavior.engine.remember.none": (
         "Noch kein Wechsel gemerkt – startet auf dem Standard ({engine})"),
-    "behavior.engine.keyless": (
-        "▸  Trage auf dem Tab „Anbieter & API-Key“ einen API-Key ein, "
-        "um das Diktieren zu aktivieren."),
     "engine.desc.soniox-live": "wortgetreu, sofort fertig",
     "engine.desc.soniox": "poliert, braucht länger",
     "engine.desc.groq-large": "genau, kostenlos",

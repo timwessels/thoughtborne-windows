@@ -24,7 +24,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-005 | Settings-app launcher: venv-first (probed), system Python is the rescue lane | Retired 2026-08-21 by D-014 (#223) with the standalone lane; the stdlib-only constraint on the settings-app import chain still holds |
 | D-006 | Release assets: two fixed-name files, the ZIP is `git archive` of the tag | Active |
 | D-007 | In-place update never overwrites the running `setup.bat` | Active |
-| D-008 | Startup engine: an explicit `defaults.api` outranks the remembered one | Active; extended 2026-08-16 (#198); the built-in-default `(default)` marker and the fallback note retired by #200, a distinct active-pin tag added 2026-08-21 (#219); precedence untouched |
+| D-008 | Startup engine: an explicit `defaults.api` outranks the remembered one | Active; extended 2026-08-16 (#198); the built-in-default `(default)` marker and the fallback note retired by #200, a distinct active-pin tag added 2026-08-21 (#219); precedence untouched; the #178 wizard-preselect lane retired 2026-09-19 by D-028 (#332) |
 | D-009 | Settings app: one window, focus don't refuse; ignore extends to pending inserts | Active; focus remedy strengthened 2026-08-16 (#203); narrowed 2026-08-21 (#217) — the recording-active ignore is gone |
 | D-010 | Settings app leaves the native ttk theme for `clam` + an explicit style module | Active, partly reversed — the light-over-dark call reversed by the 2026-08-22 addendum (#228); the clam / single-source / WCAG mechanics stand |
 | D-011 | Uninstaller keeps user data by default; the silent lane can never delete it | Active |
@@ -44,6 +44,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-025 | German user-facing text says du | Active |
 | D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active |
 | D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active |
+| D-028 | Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic | Active |
 
 ---
 
@@ -587,7 +588,9 @@ it the next time it starts — but only where nothing is configured:
     moves the remembered engine (the Groq-only case) records it as the *memory* rather
     than a pin, keeping the newcomer in the #193 zero-config world while preserving
     #178's no-visible-skip first start. This changes #178's earlier pin+memory write
-    to a memory-only write (CHANGELOG).
+    to a memory-only write (CHANGELOG). *(Retired 2026-09-19 by D-028 (#332): the
+    preselect lane is removed — a fresh user picks by hand, and the app writes no
+    memory at all.)*
   The on-save signal derivation is extracted to a pure, off-Windows-tested
   `settings_io.resolve_engine_save_signal(...)`. Precedence (config > memory > default)
   and the leave-as-found (`default_api=None`) data-safety contract are **extended, not
@@ -1931,3 +1934,42 @@ the permissive rule itself is a supersede discussion citing this entry. Respects
 D-023 (the static key set, which this entry does not touch) and D-022, whose dead-key
 class it applies to the keyboard.
 
+## D-028 — Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic
+
+Decided 2026-09-19 (maintainer, post-batch-run dialog session; implemented by #332).
+
+An edit in the settings window changes nothing but its own field until the save:
+not the options or values of other controls, not the window's guidance, not the
+running tool. Settings apply on save — which restarts the tool (D-014) — full stop.
+
+- **The engine picker is key-agnostic.** Every engine is always selectable,
+  whatever the key fields hold. The #201 window-side key-aware greying (with its
+  live all-keyless guidance line), the #207 keyed-engine auto-move on the mode
+  switch and the #178 wizard preselect are removed, and with them the
+  stored-`.env` fallback in `settings_io.engine_keyed` — the lane behind #332's
+  original report, where a pending key delete could pin a keyless engine. A pin
+  on a keyless engine is written verbatim and resolves at the next start through
+  the carousel (#40/#200): the tool opens on the first keyed engine and the
+  console's greyed rows tell the story. That graceful, visible runtime resolution
+  is exactly why the window needs no guard of its own.
+- **Why.** Less logic and fewer edge states (the pending-delete inconsistency
+  becomes unrepresentable rather than fixed), and the user keeps the freedom to
+  set intent independent of the keys currently stored. A pin without a key is the
+  user's own call; the honest signal is the console, which reads saved state.
+- **The one exception is hotkey duplicate detection.** Two actions must not share
+  a combo: at runtime one keypress cannot trigger both, one action would lose
+  silently, and there is no carousel-like resolution — so the capture dialog
+  keeps rejecting an already-assigned combo.
+- **Not touched by this rule:** the key test button and its verdict reset on edit
+  (the verdict describes the field's exact text — one widget's self-integrity,
+  not cross-influence); the save-time no-key confirmation (a check of the save
+  gesture itself, at exactly the boundary this rule names); the console lineup's
+  key-awareness (#200 — saved state); the window's own display-language toggle
+  (view state of the window, not a setting acting on another).
+
+Amends D-008's 2026-08-16 #198 addendum — the #178 preselect memory-write lane
+retires, so the settings app writes no engine memory at all; D-008's precedence
+(config > memory > default) and every other write rule stand. D-002 is untouched:
+this entry extends its "no live reload" stance from the tool into the window
+itself. A future control that wants to react to unsaved state of another control
+is a supersede discussion citing this entry.

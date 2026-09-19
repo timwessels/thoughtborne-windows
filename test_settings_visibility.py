@@ -115,6 +115,32 @@ keyless confirmation once, in its ordinary wording, before the second line goes 
 `test_settings_io.py` proves every piece apart; only the built window shows the chain
 closing from the load-time snapshot through the resolver into the file.
 
+Beside them, `test_engine_picker_key_agnostic_with_display` holds D-028 at the window
+(#332): an unsaved edit has no effect until it is saved, and the engine picker is
+key-agnostic. Four scenes -- the fresh wizard over an empty folder, a Groq-only `.env`
+with no pin, the wizard with a key typed into it, and a keyless pin loaded beside a real
+memory -- assert that all four engines take a click with no key stored anywhere, that no
+mode switch and no field gesture moves the selection, the remember label or anything else
+in the window (measured as a full-tree snapshot of what each widget shows: class, text,
+disabled, placed -- driven in FIXED mode too, where an enabled radio has something to
+lose), that an edit still voids its own field's verdict and only that one, that a pin on a
+keyless engine reaches `defaults.api` verbatim, and that no `runtime_state.json` is
+written or touched -- since D-028 the app writes no engine memory at all.
+
+Which half of the net that snapshot is, is worth naming. Since D-028 a key-field edit does
+not reach the engine renderer at all, so the snapshot's finding after a gesture is that
+nothing else in the window grew a key-driven redraw of its own; against the retired call
+simply coming back it is the AST allowlist on `_on_field_edit` in `test_settings_io.py`
+that holds, off-display and per callee. The other way round for what lives INSIDE the
+renderer: no syntax tree can say what a render really paints, so the radios' enabled
+state, the remember line and the absence of the retired guidance line are pinned here, on
+the built window, wherever a load or a mode switch drives the renderer for real.
+
+Each scene ends on the sandbox log: Tk swallows a callback's exception into an
+`[SETTINGS] error:` line and carries on, so a call left behind to a removed method would
+pass every widget check in silence. Like the lanes above it WRITES, in a tempdir-patched
+`config.SCRIPT_DIR`.
+
 A seventh, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
 (#281). Three of its four checks are one-liners against couplings the code can only
 state in a comment: the notebook must carry as many pages as `_TAB_KEYS` has entries
@@ -2079,6 +2105,421 @@ def test_env_delete_with_display():
                 pass
 
 
+def _window_state(root):
+    """A built window as {tk path: (class, text, disabled, placed)} -- the snapshot
+    D-028's "an unsaved edit has no effect until it is saved" is measured against.
+
+    Three properties, one per way the retired key-aware control used to speak: the
+    `text` a widget carries (the all-keyless guidance line, the remember label), whether
+    it is disabled (#201's greying) and whether it is placed at all (the guidance line
+    was packed and unpacked as the fields changed). A key field's own CONTENT is outside
+    this by construction -- an Entry keeps it in a textvariable, not in an option -- which
+    is exactly the "except that field" the acceptance criterion carves out, so a lane can
+    demand the whole snapshot back unchanged after typing into one.
+    """
+    import tkinter as tk
+    state = {}
+
+    def walk(widget):
+        try:
+            carries_text = "text" in widget.keys()
+        except tk.TclError:
+            carries_text = False
+        try:
+            text = str(widget.cget("text")) if carries_text else None
+        except tk.TclError:
+            text = None
+        try:
+            disabled = widget.instate(["disabled"])     # ttk widgets only
+        except (AttributeError, tk.TclError):
+            disabled = None
+        try:
+            placed = widget.winfo_manager() != ""
+        except tk.TclError:
+            placed = False
+        state[str(widget)] = (widget.winfo_class(), text, disabled, placed)
+        for child in widget.winfo_children():
+            walk(child)
+
+    walk(root)
+    return state
+
+
+def _window_moves(before, after, names, exempt=()):
+    """What moved between two `_window_state` snapshots, named via `_widget_names` and
+    readable in a failure line; `exempt` holds the tk paths a check allows to move."""
+    moved = []
+    for path in sorted(set(before) | set(after)):
+        if path in exempt or before.get(path) == after.get(path):
+            continue
+        moved.append(f"{names.get(path, path)}: {before.get(path)!r} -> {after.get(path)!r}")
+    return moved
+
+
+def _settings_error_lines(tmp):
+    """The sandbox log's `[SETTINGS] error:` lines -- the needle for an exception Tk
+    swallowed. Tk hands anything a callback raises to `_report_callback_exception`,
+    which logs it and lets the window carry on, so a call left behind to a method that
+    no longer exists costs nothing a widget check can see: the app just stops doing the
+    rest of that callback. The lane below reads it after every scene (#240)."""
+    log = tmp / "thoughtborne.log"
+    if not log.exists():
+        return []
+    return [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
+            if "[SETTINGS] error:" in line]
+
+
+def test_engine_picker_key_agnostic_with_display():
+    # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
+    # cleanly. D-028 at the REAL window (#332): an unsaved edit has no effect until it is
+    # saved, and the engine picker is key-agnostic -- every engine always selectable,
+    # whatever the key fields hold. `test_settings_io.py` pins the pure resolver and
+    # guards the app's syntax tree (no key state in the renderer, no selection move in a
+    # field edit); what only the built window shows is the chain closing -- the radios a
+    # user can really click, the selection surviving a mode switch, the keyless pin
+    # reaching the file verbatim, and the memory file that stays absent.
+    #
+    # Two things shape the cases. In remember-mode all four radios are disabled anyway
+    # (mode pair and list are one composite control), so a snapshot comparison there has
+    # no force against re-introduced greying -- every field gesture is therefore driven a
+    # second time in FIXED mode, where an enabled radio has something to lose. And Tk
+    # swallows exceptions from callbacks into the log, so each case ends on
+    # `_settings_error_lines`: a call left behind to a removed method would otherwise
+    # leave the ladder green.
+    #
+    # WRITES, so config.SCRIPT_DIR and config.LOG_FILE are patched to a tempdir before
+    # any app is built.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped engine-picker check: tkinter unavailable)")
+        return
+    try:
+        root_a = tk.Tk()
+    except tk.TclError:
+        print("  (skipped engine-picker check: no display)")
+        return
+    roots = [root_a]
+    try:
+        import config
+        import engine_memory
+        import settings_strings as sstr
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped engine-picker check: cannot import the app: {e})")
+        try:
+            root_a.destroy()
+        except Exception:
+            pass
+        return
+
+    _showerror = ts.messagebox.showerror
+    _askyesno = ts.messagebox.askyesno
+    try:
+        errors, asked, restarts = [], [], []
+        ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
+        ts.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
+
+        def gestures(app, root, baseline, names, where):
+            """The three key-field gestures, each followed by the demand that the whole
+            window came back unchanged: type a key, clear both, put the Groq-only
+            fixture's stored key back. Ends where it started, so a save right after
+            still has nothing to say about `.env`."""
+            steps = (("typing a Soniox key", lambda: app.soniox_var.set("sx_typed")),
+                     ("clearing both key fields",
+                      lambda: (app.soniox_var.set(""), app.groq_var.set(""))),
+                     ("putting the stored Groq key back",
+                      lambda: app.groq_var.set("gsk_stored")))
+            for what, gesture in steps:
+                gesture()
+                root.update()
+                moved = _window_moves(baseline, _window_state(root), names)
+                check(not moved,
+                      f"in {where}, {what} moved something else in the window -- an "
+                      f"unsaved edit has no effect until it is saved (D-028), and the "
+                      f"engine picker in particular is key-agnostic: {moved}")
+
+        # -- A: the fresh wizard over an empty folder, nothing keyed at all. The sharpest
+        # form of "always selectable": not one engine could start, and all four still
+        # take a click and end up in the file.
+        with _app_sandbox() as tmp:
+            root_a.geometry("900x860")
+            app = ts.SettingsApp(root_a, first_run=True)
+            root_a.update()
+            app._restart_and_relaunch = lambda: restarts.append(True)
+            names = _widget_names(app)
+
+            # The dead guard for everything below: in remember-mode the list is inactive
+            # as a whole, so the key-agnostic claim is only worth measuring in fixed mode.
+            check(all(app._engine_radios[a].instate(["disabled"])
+                      for a in config.AVAILABLE_APIS),
+                  "the engine radios are live in remember-mode -- the mode pair and the "
+                  "list are one composite control, and every key-agnostic check below "
+                  "would lose its force if the list were enabled in both modes")
+            before = config.AVAILABLE_APIS[app.engine_index]
+            app._engine_radios["groq"].invoke()
+            check(config.AVAILABLE_APIS[app.engine_index] == before,
+                  "a click on a remember-mode radio moved the selection although the "
+                  "radio is disabled -- the checks below drive invoke() as the user's "
+                  "click and would be measuring nothing")
+
+            app.mode_var.set("fixed")
+            app._on_mode()
+            root_a.update()
+            check(config.AVAILABLE_APIS[app.engine_index] == before,
+                  f"entering fixed-mode moved the selection from {before} to "
+                  f"{config.AVAILABLE_APIS[app.engine_index]} -- a mode switch never "
+                  "moves it by itself (D-028 retired #207's keyed-engine auto-move); "
+                  "what 'always start with' pins is the engine the list shows")
+            check(not any(app._engine_radios[a].instate(["disabled"])
+                          for a in config.AVAILABLE_APIS),
+                  "an engine radio is greyed in fixed-mode although not one key is "
+                  "entered or stored -- every engine is always selectable (D-028)")
+            for a in config.AVAILABLE_APIS:
+                app._engine_radios[a].invoke()
+                check(app.engine_var.get() == a
+                      and config.AVAILABLE_APIS[app.engine_index] == a,
+                      f"clicking the {a} radio did not select it "
+                      f"(var={app.engine_var.get()!r}, "
+                      f"index={config.AVAILABLE_APIS[app.engine_index]!r}) -- all four "
+                      "engines are selectable regardless of the key fields")
+            check(not hasattr(app, "engine_guidance"),
+                  "the #201 all-keyless guidance line is back under the engine control "
+                  "-- D-028 retired it: the window makes no live statement about keys")
+
+            app._engine_radios["groq"].invoke()      # a keyless pin, on purpose
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:], f"the keyless save raised an error dialog: "
+                                   f"{errors[e0:]!r}")
+            check(asked[q0:] == [sstr.t("dlg.nokey.body", app.lang)],
+                  f"a save without a key asked something other than the one no-key "
+                  f"confirmation, in its ordinary wording: {asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the keyless save did not restart")
+            ps = tmp / "personal_settings.json"
+            saved = json.loads(ps.read_text(encoding="utf-8")) if ps.exists() else {}
+            check(saved.get("defaults", {}).get("api") == "groq",
+                  f"a fixed pin on an engine without a key was not written verbatim: "
+                  f"{saved.get('defaults')!r} -- the pin is the user's own call, and the "
+                  "next start resolves it through the carousel (#40/#200)")
+            check(not engine_memory.state_path(tmp).exists(),
+                  "the settings app wrote an engine memory -- since D-028 it writes none "
+                  "at all (the #178 wizard preselect was its one memory write)")
+            check(not _settings_error_lines(tmp),
+                  f"a callback raised during the wizard scene: {_settings_error_lines(tmp)}")
+
+        # -- B: a Groq-only .env, no pin, no memory -- the scene the original #332 report
+        # came from. Every gesture is driven in both modes, and the save has to pin the
+        # keyless engine the window shows rather than the one engine that could start.
+        root_b = tk.Tk()
+        roots.append(root_b)
+        with _app_sandbox() as tmp:
+            env = tmp / ".env"
+            env.write_text("GROQ_API_KEY=gsk_stored\n", encoding="utf-8")
+            ps = tmp / "personal_settings.json"
+            ps.write_text(json.dumps({"vocabulary": {"terms": ["Grüße"]}}, indent=2,
+                                     ensure_ascii=False) + "\n", encoding="utf-8")
+            root_b.geometry("900x860")
+            app = ts.SettingsApp(root_b, first_run=False)
+            root_b.update()
+            app._restart_and_relaunch = lambda: restarts.append(True)
+            names = _widget_names(app)
+
+            gestures(app, root_b, _window_state(root_b), names, "remember-mode")
+
+            app.mode_var.set("fixed")
+            app._on_mode()
+            root_b.update()
+            check(config.AVAILABLE_APIS[app.engine_index] == "soniox-live",
+                  f"entering fixed-mode moved the selection to "
+                  f"{config.AVAILABLE_APIS[app.engine_index]} -- the shown engine has no "
+                  "key here, and D-028 retired exactly that auto-move (#207): the "
+                  "selection is the user's, keyed or not")
+            check(not any(app._engine_radios[a].instate(["disabled"])
+                          for a in config.AVAILABLE_APIS),
+                  "an engine radio is greyed in fixed-mode over a one-key .env -- the "
+                  "picker reads no key state at all (D-028)")
+            gestures(app, root_b, _window_state(root_b), names, "fixed-mode")
+
+            # The one thing an edit DOES touch: its own field's verdict. The other
+            # provider's is part of the snapshot below, so it is pinned as unmoved on
+            # screen and in the state the window keeps.
+            app._test_state["groq"] = "testing"
+            app._test_btns["groq"].config(state="disabled")
+            app._render_indicator("groq")
+            app._test_state["soniox"] = ts.KeyStatus.VALID
+            app._render_indicator("soniox")
+            root_b.update()
+            base = _window_state(root_b)
+            groq_gen, soniox_gen = app._test_gen["groq"], app._test_gen["soniox"]
+            app.groq_var.set("gsk_edited")
+            root_b.update()
+            moved = _window_moves(base, _window_state(root_b), names,
+                                  exempt={str(app._indicators["groq"]),
+                                          str(app._test_btns["groq"])})
+            check(not moved,
+                  f"editing the Groq field moved more than its own verdict widgets: "
+                  f"{moved} -- the verdict describes that field's exact text (one "
+                  f"widget's self-integrity), and nothing else in the window may read a "
+                  "key field before the save (D-028)")
+            check(app._test_state["groq"] is None
+                  and app._test_gen["groq"] == groq_gen + 1
+                  and str(app._test_btns["groq"].cget("state")) == "normal",
+                  f"the edited field's own verdict was not voided: "
+                  f"state={app._test_state['groq']!r}, "
+                  f"gen+{app._test_gen['groq'] - groq_gen}, "
+                  f"button={str(app._test_btns['groq'].cget('state'))!r}")
+            check(app._test_state["soniox"] == ts.KeyStatus.VALID
+                  and app._test_gen["soniox"] == soniox_gen,
+                  f"editing the Groq field reset the SONIOX verdict "
+                  f"({app._test_state['soniox']!r}, "
+                  f"gen+{app._test_gen['soniox'] - soniox_gen}) -- an edit touches its "
+                  "own field's verdict and nothing else")
+            app.groq_var.set("gsk_stored")      # back to the stored value for the save
+
+            app.mode_var.set("remember")
+            app._on_mode()
+            app.mode_var.set("fixed")
+            app._on_mode()
+            root_b.update()
+            check(config.AVAILABLE_APIS[app.engine_index] == "soniox-live",
+                  f"a flip away from fixed-mode and back moved the selection to "
+                  f"{config.AVAILABLE_APIS[app.engine_index]} -- switching modes never "
+                  "moves it by itself (D-028)")
+
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:] and not asked[q0:],
+                  f"the save raised a dialog although a key is stored: "
+                  f"{errors[e0:]!r} {asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the save did not restart")
+            saved = json.loads(ps.read_text(encoding="utf-8"))
+            check(saved.get("defaults", {}).get("api") == "soniox-live",
+                  f"the fixed pin was not written verbatim: {saved.get('defaults')!r} -- "
+                  "the shown engine is what 'always start with' pins, and a save may "
+                  "never substitute the one engine that happens to have a key")
+            check(env.read_text(encoding="utf-8") == "GROQ_API_KEY=gsk_stored\n",
+                  f"the save rewrote .env although every field ended where it started: "
+                  f"{env.read_text(encoding='utf-8')!r}")
+            check(not engine_memory.state_path(tmp).exists(),
+                  "the settings app wrote an engine memory -- since D-028 it writes none "
+                  "at all")
+            check(not _settings_error_lines(tmp),
+                  f"a callback raised during the Groq-only scene: "
+                  f"{_settings_error_lines(tmp)}")
+
+        # -- C: the fresh wizard again, one Groq key typed -- the #178 preselect scene.
+        # The key is what used to move both the selection and the remembered engine, and
+        # a save then wrote the memory. Nothing may move, and no memory may appear.
+        root_c = tk.Tk()
+        roots.append(root_c)
+        with _app_sandbox() as tmp:
+            root_c.geometry("900x860")
+            app = ts.SettingsApp(root_c, first_run=True)
+            root_c.update()
+            app._restart_and_relaunch = lambda: restarts.append(True)
+            names = _widget_names(app)
+
+            base = _window_state(root_c)
+            app.groq_var.set("gsk_typed")
+            root_c.update()
+            moved = _window_moves(base, _window_state(root_c), names)
+            check(not moved,
+                  f"typing a Groq key into the fresh wizard moved something: {moved} -- "
+                  "D-028 retired the #178 preselect, so a key entered here preselects "
+                  "nothing; a fresh user picks by hand")
+            check(config.AVAILABLE_APIS[app.engine_index] == config.BUILTIN_DEFAULT_API,
+                  f"the typed key moved the selection to "
+                  f"{config.AVAILABLE_APIS[app.engine_index]}")
+            check(app.remember_lbl.cget("text")
+                  == sstr.t("behavior.engine.remember.none", app.lang).format(
+                      engine=config.API_DISPLAY[config.BUILTIN_DEFAULT_API]["label"]),
+                  f"the remember label followed the typed key: "
+                  f"{app.remember_lbl.cget('text')!r} -- with no switch recorded it names "
+                  "the built-in default, whatever the fields hold")
+
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:] and not asked[q0:],
+                  f"the wizard save raised a dialog although a key was typed: "
+                  f"{errors[e0:]!r} {asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the wizard save did not restart")
+            check((tmp / ".env").read_text(encoding="utf-8") == "GROQ_API_KEY=gsk_typed\n",
+                  f"the typed key did not reach .env: "
+                  f"{(tmp / '.env').read_text(encoding='utf-8')!r}")
+            ps = tmp / "personal_settings.json"
+            saved = json.loads(ps.read_text(encoding="utf-8")) if ps.exists() else {}
+            check("api" not in saved.get("defaults", {}),
+                  f"an untouched remember-mode save wrote a pin: {saved.get('defaults')!r}")
+            check(not engine_memory.state_path(tmp).exists(),
+                  "the wizard save wrote an engine memory -- D-028 retired that lane "
+                  "(#178), so the app writes none at all: the memory records what the "
+                  "user switched to while dictating, and this window never moves it")
+            check(not _settings_error_lines(tmp),
+                  f"a callback raised during the wizard-with-key scene: "
+                  f"{_settings_error_lines(tmp)}")
+
+        # -- D: a keyless pin already in the file, with a real Ctrl+Alt+L memory beside
+        # it. It opens on that pin, enabled like every other engine, and an untouched
+        # save leaves both files exactly as found.
+        root_d = tk.Tk()
+        roots.append(root_d)
+        with _app_sandbox() as tmp:
+            (tmp / ".env").write_text("SONIOX_API_KEY=sx_stored\n", encoding="utf-8")
+            ps = tmp / "personal_settings.json"
+            ps.write_text(json.dumps({"defaults": {"api": "groq"}}, indent=2) + "\n",
+                          encoding="utf-8")
+            engine_memory.write_last_engine(engine_memory.state_path(tmp), "groq-large",
+                                            config.AVAILABLE_APIS)
+            state_before = engine_memory.state_path(tmp).read_bytes()
+            root_d.geometry("900x860")
+            app = ts.SettingsApp(root_d, first_run=False)
+            root_d.update()
+            app._restart_and_relaunch = lambda: restarts.append(True)
+
+            check(app.mode_var.get() == "fixed"
+                  and config.AVAILABLE_APIS[app.engine_index] == "groq",
+                  f"the loaded pin is not what the window shows: mode="
+                  f"{app.mode_var.get()!r}, "
+                  f"engine={config.AVAILABLE_APIS[app.engine_index]!r}")
+            check(not app._engine_radios["groq"].instate(["disabled"])
+                  and app.engine_var.get() == "groq",
+                  f"the loaded pin is not shown as a live, selected choice (greyed="
+                  f"{app._engine_radios['groq'].instate(['disabled'])}, the radios read "
+                  f"{app.engine_var.get()!r} as selected) -- an engine without a key is "
+                  "selectable like any other (D-028), and rendering a pin the user "
+                  "cannot even see selected is how the old control lost the state")
+            check(app.remember_lbl.cget("text")
+                  == sstr.t("behavior.engine.remember.current", app.lang).format(
+                      engine=config.API_DISPLAY["groq-large"]["label"]),
+                  f"the remember label does not name the real memory: "
+                  f"{app.remember_lbl.cget('text')!r}")
+
+            e0, q0, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[e0:] and not asked[q0:],
+                  f"the untouched save raised a dialog: {errors[e0:]!r} {asked[q0:]!r}")
+            check(len(restarts) == r0 + 1, "the untouched save did not restart")
+            saved = json.loads(ps.read_text(encoding="utf-8"))
+            check(saved.get("defaults", {}).get("api") == "groq",
+                  f"the keyless pin did not survive an untouched save: "
+                  f"{saved.get('defaults')!r}")
+            check(engine_memory.state_path(tmp).read_bytes() == state_before,
+                  "the save rewrote runtime_state.json -- the settings app only READS "
+                  "the memory (D-028); the tool's switch hotkey is its one writer")
+            check(not _settings_error_lines(tmp),
+                  f"a callback raised during the loaded-pin scene: "
+                  f"{_settings_error_lines(tmp)}")
+    finally:
+        ts.messagebox.showerror = _showerror
+        ts.messagebox.askyesno = _askyesno
+        for r in roots:
+            try:
+                r.destroy()
+            except Exception:
+                pass
+
+
 def test_callback_error_log_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
     # cleanly. Acceptance bullet 1 of #240, against the REAL wiring: an exception raised
@@ -2344,6 +2785,7 @@ def main():
     test_reset_with_display()
     test_save_readfail_with_display()
     test_env_delete_with_display()
+    test_engine_picker_key_agnostic_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
 
@@ -2366,7 +2808,10 @@ def main():
           "through the D-026 backup lane (asymmetric fixture, mutation-measured), "
           "the save lane's D-026 backup-and-rewrite with the .env abort kept and "
           "the mid-session-corruption scene (#263), the #328 WYSIWYG key deletion "
-          "from the untouched save to the last key cleared, and the #240 callback / "
+          "from the untouched save to the last key cleared, the D-028 key-agnostic "
+          "engine picker over four scenes (all four selectable with no key at all, no "
+          "unsaved edit moving anything but its own verdict, the keyless pin written "
+          "verbatim, no engine memory written), and the #240 callback / "
           "pre-mainloop crash logging all pass")
     return 0
 

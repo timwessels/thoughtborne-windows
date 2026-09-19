@@ -177,10 +177,6 @@ def apply_theme(root):
     st.configure("H1.TLabel", font=th.h1_font, foreground=ACCENT)
     st.configure("H2.TLabel", font=th.h2_font)
     st.configure("Title.TLabel", font=th.title_font, foreground=ACCENT)
-    # A borderless amber guidance line (#201): AMBER text on the page, no box -- a
-    # calm "next step" note. AMBER on PAGE (and CARD) is WCAG-checked in
-    # test_settings_theme.py. Inherits background=PAGE + body font from TLabel.
-    st.configure("Hint.TLabel", foreground=AMBER)
     # Card twins: only the background differs; foreground/font inherit by dotted
     # style-name fallback (Card.Muted.TLabel -> Muted.TLabel -> TLabel).
     for suffix in ("TLabel", "Muted.TLabel", "Small.TLabel", "H1.TLabel", "H2.TLabel"):
@@ -253,10 +249,11 @@ def apply_theme(root):
            indicatorbackground=[("selected", FIELD), ("active", CARD_HOVER)],
            upperbordercolor=[("selected", ACCENT)], lowerbordercolor=[("selected", ACCENT)])
     st.configure("Card.TRadiobutton", background=CARD)
-    # A disabled engine radio (#201, key-aware control) greys its label to MUTED --
-    # a deliberate palette token (D-010 single source), already WCAG-covered; clam's
-    # bare disabled foreground would be an off-palette grey. The greyed indicator +
-    # non-interactivity carry "disabled" too, so this is not the only signal.
+    # A disabled engine radio (the whole list, while remember-mode is on) greys its
+    # label to MUTED -- a deliberate palette token (D-010 single source), already
+    # WCAG-covered; clam's bare disabled foreground would be an off-palette grey. The
+    # greyed indicator + non-interactivity carry "disabled" too, so this is not the
+    # only signal.
     st.map("Card.TRadiobutton", background=[("active", CARD)],
            foreground=[("disabled", MUTED)])
     st.configure("TSeparator", background=LINE)
