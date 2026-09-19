@@ -335,8 +335,10 @@ class SettingsApp:
             personal, warning = settings_io.read_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json")
         except Exception as e:
-            # A locked / non-UTF-8 file: continue with empty state; every save will
-            # abort the same way until the user fixes it (nothing is clobbered).
+            # A locked file (the bytes cannot be read): continue with empty state;
+            # every save will abort the same way until the user fixes it (nothing
+            # is clobbered). A non-UTF-8 file lands in `warning` instead since
+            # D-026: it is a whole-file loss class a save backs up and rewrites.
             personal, warning, load_error = {}, None, e
 
         hk = personal.get("hotkeys")
@@ -1760,10 +1762,12 @@ class SettingsApp:
         # guard, Cancel/[X] just close, so a toggle not written now would be lost. A
         # narrow ui.language-only surgical write -- hotkeys/defaults/unmanaged blocks
         # stay exactly as found, so a session that only ever toggles the language leaves
-        # every other block byte-identical. Gated since #239: over a corrupt-but-decodable
-        # file write_ui_language is a byte-identical no-op instead of skeletoning over
-        # hand-written blocks -- warn-then-overwrite is the explicit Save's branch alone
-        # (D-002), and the warn strip already on screen says the language is not
+        # every other block byte-identical. Gated since #239: over a file it cannot
+        # carry (corrupt or undecodable -- one warning class since D-026)
+        # write_ui_language is a byte-identical no-op instead of skeletoning over
+        # hand-written blocks -- rewriting such a file, backup included, belongs to
+        # the deliberate actions alone (D-026), and the warn strip already on screen
+        # says the language is not
         # remembered until the file is fixed. One rule for both modes: the language radios
         # live in the shared header, so this fires in the wizard and the everyday dialog
         # alike. Best-effort -- a gated or failed write costs only the remembered display
@@ -1942,6 +1946,35 @@ class SettingsApp:
             "app.title.firstrun" if self.first_run else "app.title.settings", self.lang))
 
     # ------------------------------------------------------------- save / restart
+    def _log_backup(self, backup, losses):
+        """The D-026 log duty of the two deliberate writes: the window says nothing
+        about file health, the log does. One `[SETTINGS] backup:` line per save
+        that could not carry the found personal_settings.json fully -- where the
+        old bytes went (the backup's name) and why one was owed (the losses; the
+        vanished-race case says so instead). No line for a healthy save (noise),
+        and best-effort like every log write (append_log_line never raises)."""
+        if not losses:
+            return
+        if backup is not None:
+            body = f"personal_settings.json -> {backup.name} ({'; '.join(losses)})"
+        else:
+            body = ("personal_settings.json vanished between probe and rename; "
+                    f"saved without backup ({'; '.join(losses)})")
+        settings_visibility.append_log_line(
+            config.LOG_FILE, settings_visibility.format_settings_line(
+                time.strftime("%Y-%m-%d %H:%M:%S"), "backup", body))
+
+    def _log_write_abort(self, tag, error):
+        """The abort twin of _log_backup: a settings write that raised (a locked
+        file, a failed backup rename, a failed atomic write -- in _save the .env
+        write included) leaves a `save-abort` / `reset-abort` line beside the
+        dialog, so a later log read can tell an aborted save from one that never
+        happened (D-026)."""
+        settings_visibility.append_log_line(
+            config.LOG_FILE, settings_visibility.format_settings_line(
+                time.strftime("%Y-%m-%d %H:%M:%S"), tag,
+                f"settings write failed: {error}"))
+
     def _save(self):
         # Pre-save checks (order matters): the file pre-flight first, then no key at
         # all, then hotkey warnings. A key is present if one is entered OR one is
@@ -1952,7 +1985,9 @@ class SettingsApp:
         # #291: settings_io.unreadable_save_target -- its docstring carries the why.
         # It runs HERE, ahead of both confirmations, because there is nothing to ask
         # about a save that cannot happen: the user would confirm and then be told it
-        # did not take place.
+        # did not take place. Since D-026 its personal_settings half fires only for
+        # bytes that cannot be READ (locked) -- an undecodable or corrupt file is a
+        # save that CAN happen, over the backup lane below.
         unreadable = settings_io.unreadable_save_target(
             env_path=config.SCRIPT_DIR / ".env",
             env_updates=self._live_env(),
@@ -2015,28 +2050,33 @@ class SettingsApp:
             settings_io.write_env(
                 config.SCRIPT_DIR / ".env", self._live_env(),
                 example_path=config.SCRIPT_DIR / ".env.example")
-            settings_io.write_personal_settings(
+            backup, losses = settings_io.save_personal_settings(
                 config.SCRIPT_DIR / "personal_settings.json",
                 hotkeys_effective=self.hotkeys_state,
                 default_api=default_api_signal,
                 example_path=config.SCRIPT_DIR / "personal_settings.example.json",
                 # language self-persists on toggle (D-014); the save never writes it --
-                # ui_language=None leaves any existing ui block exactly as found.
+                # ui_language=None leaves a healthy file's ui block exactly as found
+                # (an invalid one the lane normalizes to the shown English, D-026).
                 ui_language=None,
                 ptt_enabled=ptt_signal)
         except Exception as e:
             # A write failure: the pre-flight above already caught the unreadable
             # target and named it (#291), so what is left here is the write itself --
-            # or a target that turned unreadable in between, the one race a probe
-            # cannot close. Atomic writes + abort-on-unreadable (CP1) mean no file is
-            # left half-written or corrupted. .env is written before
-            # personal_settings.json, so a failure of the second still leaves the
-            # first's (valid) update on disk -- hence the message speaks of atomicity,
-            # not "nothing was overwritten".
+            # a target that turned unreadable in between (the one race a probe
+            # cannot close), or a D-026 backup rename that failed: no backup, no
+            # overwrite, so the save aborts with the file still in place. Atomic
+            # writes + abort-on-unreadable (CP1) mean no file is left half-written
+            # or corrupted. .env is written before personal_settings.json, so a
+            # failure of the second still leaves the first's (valid) update on
+            # disk -- hence the message speaks of atomicity, not "nothing was
+            # overwritten".
+            self._log_write_abort("save-abort", e)
             messagebox.showerror(
                 strings.t("dlg.savefail.title", self.lang),
                 strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
             return
+        self._log_backup(backup, losses)
 
         if memory_api is not None:
             # After the settings files are safely on disk, and best-effort by
@@ -2083,23 +2123,23 @@ class SettingsApp:
         try:
             _data, corrupt = settings_io.read_personal_settings(ps_path)
         except Exception as e:
-            # Unreadable or undecodable bytes: the write below aborts on the same read
-            # (B1), so say so now instead of after a confirmation -- and say it as what
-            # it is, a read that failed, with a way out (#291). This read IS this
-            # path's pre-flight (it has to happen anyway, to choose the confirmation
-            # body); _save runs settings_io.unreadable_save_target because it has no
-            # read of its own, and both land in the same strings.
+            # Unreadable bytes (locked / permission-denied): the write below aborts
+            # on the same read (B1), so say so now instead of after a confirmation --
+            # and say it as what it is, a read that failed, with a way out (#291).
+            # This read IS this path's pre-flight (it has to happen anyway, to choose
+            # the confirmation body); _save runs settings_io.unreadable_save_target
+            # because it has no read of its own, and both land in the same strings.
             messagebox.showerror(
                 strings.t("dlg.readfail.title", self.lang),
                 strings.t("dlg.readfail.body", self.lang).format(file=ps_path.name)
                 + "\n\n" + str(e))
             return
-        # Corrupt-but-decodable: the reset takes D-002's warn-then-overwrite branch
-        # like any explicit save, so the hand-written blocks really are lost here. The
-        # confirmation then says exactly that instead of promising they survive -- the
-        # way out stays open (flattening a broken file is a legitimate thing to want),
-        # it just must not lie in the moment the user clicks. The #239 gate covers the
-        # SILENT language write; this one the user confirms twice.
+        # A file the read cannot carry -- corrupt JSON, non-object, undecodable
+        # bytes: the reset takes D-026's backup lane like any deliberate write, so
+        # the hand-written blocks live on in the timestamped backup and the second
+        # confirmation body promises exactly that (it stopped claiming they are
+        # lost). The #239 gate covers the SILENT language write; this one the user
+        # confirms.
         body_key = "dlg.reset.body_corrupt" if corrupt is not None else "dlg.reset.body"
         # icon + default follow D-011's shape: the action cannot be undone, so the
         # preselected answer is the preserving one and there is no click-through path.
@@ -2108,7 +2148,7 @@ class SettingsApp:
                                    icon=messagebox.WARNING, default=messagebox.NO):
             return
         try:
-            settings_io.write_personal_settings(
+            backup, losses = settings_io.save_personal_settings(
                 ps_path,
                 # The shipped scheme: its diff vs config.DEFAULT_HOTKEYS is empty, so
                 # the block keeps only its _comment and any parked "_" key, or drops.
@@ -2125,12 +2165,15 @@ class SettingsApp:
                 # the three timings survive (D-002 addendum, #233).
                 ptt_enabled=False)
         except Exception as e:
-            # _save's lane: the write is atomic and aborts on an unreadable target, so
-            # nothing is left half-written and the window stays open to fix the file.
+            # _save's lane: the write is atomic, aborts on an unreadable target and
+            # on a failed D-026 backup rename (no backup, no overwrite), so nothing
+            # is left half-written and the window stays open to fix the file.
+            self._log_write_abort("reset-abort", e)
             messagebox.showerror(
                 strings.t("dlg.savefail.title", self.lang),
                 strings.t("dlg.savefail.body", self.lang) + "\n\n" + str(e))
             return
+        self._log_backup(backup, losses)
         self._restart_and_relaunch()   # owns the window from here (wait -> relaunch)
 
     def _launch_tool(self):

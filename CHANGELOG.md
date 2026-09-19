@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Backup before loss: the settings save protects what it cannot carry (#263, D-026).**
+  A save or reset that meets a `personal_settings.json` it cannot fully carry into its
+  result — corrupt JSON, a file saved in the wrong encoding, or single invalid entries in
+  the app-managed settings — first renames the found file to a timestamped
+  `personal_settings.backup-YYYY-MM-DD_HHMMSS.json` in the same folder and only then
+  writes. No backup, no overwrite: if that rename fails, the save aborts with the file
+  untouched. The file is probed fresh at write time, so one that broke *while the settings
+  window was open* is caught too — the case where nothing warned at all. A normal save
+  over a healthy file creates no backup, backups are never auto-deleted and never read by
+  any loader, and the log records every backup with the reasons; the window itself stays
+  silent about file health.
+
 - **27 more bindable keys (#325).** The navigation cluster (Insert, Delete, Home, End,
   PageUp, PageDown), the arrow keys, the numpad (digits, operators and decimal), Pause and
   Scroll Lock can now be hotkeys — in the `hotkeys` block of `personal_settings.json` and in
@@ -35,6 +47,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**
+  An ANSI/cp1252 file used to dead-end the save and the reset in an abort dialog; now it
+  is treated like corrupt JSON — backed up byte-exact and rewritten cleanly — so the
+  intact vocabulary lives on in the backup while the user gets a working file. Opening
+  the settings window over such a file raises the same warning strip as a corrupt one
+  instead of a load-failure dialog. Invalid values in the app-managed entries
+  (`defaults.api`, `push_to_talk.enabled`, `ui.language`) are normalized on save to the
+  defaults the window showed for them, safe now because the backup keeps the trace;
+  everything hand-written and every valid entry stays leave-as-found. The reset's
+  corrupt-file confirmation promises the backup instead of claiming the hand-written
+  blocks are lost, and the uninstaller keeps the backup files like every other piece of
+  user data (D-011). A locked or unreadable `.env` still aborts the save exactly as
+  before — that file stays outside the model.
+
 - **The hotkey capture reads key codes, not key names (#325).** The settings app's capture
   field decodes the virtual-key code Windows reports (`event.keycode`) instead of
   translating Tk keysym names, so capture accepts exactly what registration accepts — the
@@ -58,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   UI shows them.
 
 ### Fixed
+
+- **A hand-broken example file can no longer crash the save (#294, via #263).** Both
+  writers may seed a fresh file from a shipped example (`.env.example`,
+  `personal_settings.example.json`) and caught only locked-file errors while reading it,
+  so an example hand-saved in ANSI escaped as a raw exception into the *Saving failed*
+  dialog. The examples are optional documentation, not user data: a broken one now
+  simply means no seeded header comments, and the save goes through.
 
 - **A broken string table now reads as failure messages, not a traceback (#313).** When an
   EN key lost its DE partner, `test_settings_io.py`'s `check_i18n` recorded the clean parity

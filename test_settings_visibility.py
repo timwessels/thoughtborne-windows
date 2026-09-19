@@ -69,32 +69,42 @@ which is both the dead guard against an over-broad gate and the proof that the c
 is probed fresh per write rather than latched at load. It runs against a tempdir-patched
 `config.SCRIPT_DIR`; unlike the read-only display checks above, this one WRITES.
 
-A fifth, `test_reset_with_display`, drives the #282 reset through the real window: the
-Machine Room button exists in the everyday dialog and not in the wizard, follows the
-language switch, and sits behind a confirmation that really is the gate -- a declined
-one leaves the file byte-identical, and over a CORRUPT personal_settings.json it asks
-with the second body, the one that says the hand-written blocks are about to be lost
-instead of promising they survive. A confirmed one puts the four managed keys back,
-leaves the vocabulary and the .env alone and reaches the restart handshake (stubbed --
-unstubbed it would write a real restart signal and destroy the root mid-test). Over
-bytes it cannot decode at all -- an ANSI/cp1252 file, B1's case -- it stops before the
-confirmation: nothing asked, nothing written, no restart, and (#291) the one error it
-raises names the file and the failed READ rather than announcing a failure to save
-something the user never asked it to save. And the restart freeze disables the button,
-which the rail freeze alone does not reach. Like the #239 lane it WRITES and runs
-against a tempdir-patched `config.SCRIPT_DIR`.
+A fifth, `test_reset_with_display`, drives the #282 reset through the real window --
+since #263 over the D-026 backup lane. The Machine Room button exists in the everyday
+dialog and not in the wizard, follows the language switch, and sits behind a
+confirmation that really is the gate: a declined one leaves the file byte-identical.
+The fixture is deliberately ASYMMETRIC (the #312 cross-read) -- German window,
+push-to-talk ON -- so the two forced literals ("en", False) differ observably from any
+derivation from the form, and the lane proves its own sensitivity per run by driving
+each derivation as a mutation (red), then taking it back (green). A confirmed reset
+over the healthy file puts the four managed keys back, leaves the vocabulary, the
+hand-tuned trigger and the .env alone, creates NO backup and reaches the restart
+handshake (stubbed -- unstubbed it would write a real restart signal and destroy the
+root mid-test). Over a file it cannot carry -- corrupt JSON and undecodable
+ANSI/cp1252 bytes alike since D-026 -- it asks with the backup-promising second body,
+parks the exact old bytes in a timestamped backup, writes clean, restarts and leaves
+the `[SETTINGS] backup:` log line. The OSError read failure stays alive over a
+directory in the file's place: readfail dialog naming the file, nothing asked,
+nothing written (#291). And the restart freeze disables the button, which the rail
+freeze alone does not reach. Like the #239 lane it WRITES and runs against a
+tempdir-patched `config.SCRIPT_DIR`.
 
 A sixth, `test_save_readfail_with_display`, drives the everyday Save through the real
-window over files whose bytes cannot be read -- an ANSI/cp1252 `personal_settings.json`,
-then an ANSI `.env` -- and asserts the other half of #291: the dialog names the read
-failure and which of the two files it is about, no restart follows, and `.env` comes out
-byte-identical although it is the file written FIRST (before the fix the freshly typed
-key was already on disk while the dialog claimed the save had failed). Two controls
-carry as much weight as the failures: the same broken `.env` with both key fields blank
--- a hotkey-only save, which `write_env` never touches the file for -- still goes
-through and reaches the restart, and over an unreadable file the keyless confirmation is
-not asked first and disappointed afterwards. Like the #239 lane it WRITES and runs
-against a tempdir-patched `config.SCRIPT_DIR`.
+window. Since #263 an undecodable `personal_settings.json` no longer blocks it: case A
+saves over one with BOTH key fields filled with distinct values (the #312 asymmetry)
+and asserts backup + clean rewrite + both keys in `.env` + restart + the backup log
+line with no dialog anywhere -- measured per run by two mutations (suppress the
+backup / drop the Soniox half of the update set): set, red, take back, green. The
+`.env` abort of #291 stays: an ANSI `.env` with a key to write stops the save under
+the read title, `.env` byte-identical although it is written FIRST, no backup. The
+controls: the same broken `.env` with both fields blank -- a hotkey-only save
+`write_env` never touches the file for -- goes through backup-free; over an
+undecodable settings file the keyless confirmation now FIRES (nothing blocks that
+save anymore) and a yes ends in backup + rewrite + restart; and the issue's opening
+scene -- the file breaks WHILE the window is open -- ends the same way with not a
+single dialog, the fresh write-time probe (the #239 pattern) proven on the real
+window. Like the #239 lane it WRITES and runs against a tempdir-patched
+`config.SCRIPT_DIR`.
 
 A seventh, `test_tab_layout_with_display`, guards the sixth tab and the strip it sits in
 (#281). Three of its four checks are one-liners against couplings the code can only
@@ -1340,11 +1350,16 @@ def test_language_toggle_gate_with_display():
 
 def test_reset_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
-    # cleanly. The #282 reset through the REAL app: test_settings_io.py proves the write
-    # contract and pins the call site on the syntax tree, but only the built window
-    # shows that the button exists in the mode it is meant for, that the confirmation is
-    # really the gate in front of it, and that the dialog tells the truth over a corrupt
-    # file -- the promise "your vocabulary stays" is the one the app cannot keep there.
+    # cleanly. The #282 reset through the REAL app -- since #263 over the D-026 backup
+    # lane: test_settings_io.py proves the write contract and pins the call site on the
+    # syntax tree, but only the built window shows that the button exists in the mode it
+    # is meant for, that the confirmation is really the gate in front of it, and that
+    # over a file the reset cannot carry the second body promises the backup that
+    # really appears. The fixture is deliberately ASYMMETRIC (the #312 cross-read): it
+    # opens the window in German with push-to-talk ON, so the two forced literals
+    # ("en", False) differ observably from any derivation from the form -- and the lane
+    # proves its own sensitivity per run by driving each derivation as a mutation
+    # (red), then taking it back (green), the test_undefined_names #269 idiom.
     #
     # WRITES, like the #239 lane above, so config.SCRIPT_DIR is patched to a tempdir
     # BEFORE the app is built and restored in finally; otherwise this check would reset
@@ -1381,13 +1396,21 @@ def test_reset_with_display():
         ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
         shown = []      # the body text each confirmation was asked with
 
+        import settings_io as sio_mod
+
         with _app_sandbox() as tmp:
             ps = tmp / "personal_settings.json"
-            ps.write_text(json.dumps(
+            # The asymmetric healthy fixture (#312): German window, push-to-talk
+            # ON, a pin, a hotkey override, hand-written vocabulary and a
+            # hand-tuned trigger sibling -- every forced value now differs from
+            # what a derivation from the form would write.
+            asym = json.dumps(
                 {"vocabulary": {"terms": ["Grüße"]},
                  "hotkeys": {"start_recording": "ctrl+alt+p"},
-                 "defaults": {"api": "groq"}}, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8")
+                 "defaults": {"api": "groq"},
+                 "push_to_talk": {"enabled": True, "trigger": "rctrl"},
+                 "ui": {"language": "de"}}, indent=2, ensure_ascii=False) + "\n"
+            ps.write_text(asym, encoding="utf-8")
             env = tmp / ".env"
             env.write_text("GROQ_API_KEY=gsk_secret\n", encoding="utf-8")
             env_before = env.read_bytes()
@@ -1395,115 +1418,207 @@ def test_reset_with_display():
             root.geometry("900x860")
             app = ts.SettingsApp(root, first_run=False)
             root.update()
+            # The asymmetry is only worth something while it really holds.
+            check(app.lang == "de" and app.ptt_var.get() == "on",
+                  f"the fixture lost its asymmetry (lang={app.lang}, "
+                  f"ptt={app.ptt_var.get()}) -- the mutations below would then "
+                  f"measure nothing (#312)")
             check(app.reset_btn is not None,
                   "the everyday settings dialog has no reset button -- #282 builds it "
                   "on the Machine Room tab")
             if app.reset_btn is None:
                 return
-            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "en"),
+            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "de"),
                   f"the reset button does not carry btn.reset_defaults: "
                   f"{app.reset_btn.cget('text')!r}")
             # It re-renders with the window's language, i.e. it really hangs in the
             # text registry rather than carrying a text set once at build time.
-            app.lang = "de"
+            app.lang = "en"
             app.render_all()
             root.update()
-            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "de"),
+            check(app.reset_btn.cget("text") == sstr.t("btn.reset_defaults", "en"),
                   "the reset button did not follow the language switch -- it is not "
                   "registered for re-render")
-            app.lang = "en"
+            app.lang = "de"
             app.render_all()
             root.update()
 
             # Declining is the gate: the file must come out byte-identical, and the
-            # dialog must have asked with the ordinary body (a readable file keeps
-            # every hand-written block, which is what that text promises).
+            # dialog must have asked with the ordinary body -- in the window's
+            # language, German here, so the body really is plumbed from app.lang.
             ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), False)[1]
             before = ps.read_bytes()
             app._reset_to_defaults()
             check(ps.read_bytes() == before,
                   "a DECLINED reset still rewrote personal_settings.json -- the "
                   "confirmation is the only thing between a mis-click and the file")
-            check(shown[-1:] == [sstr.t("dlg.reset.body", "en")],
+            check(shown[-1:] == [sstr.t("dlg.reset.body", "de")],
                   f"the confirmation over a healthy file used the wrong body: "
                   f"{shown[-1:]!r}")
 
-            # Over a CORRUPT file the same reset takes D-002's warn-then-overwrite
-            # branch, so the hand-written blocks really are lost -- and the dialog has
-            # to say that instead of promising they survive. The way out stays open;
-            # it just may not lie in the moment the user clicks.
+            # Confirming over the healthy asymmetric file: the four managed facts
+            # land as the FORCED literals, the hand-written content and the .env
+            # do not move, NO backup appears (a reset over valid values is
+            # instruction, not loss -- D-026), and the restart handshake fires
+            # (stubbed -- unstubbed it writes a real restart signal, shells out
+            # on Windows and destroys the root mid-test). The assertions live in
+            # a local function so the mutations below can measure the lane.
+            calls = []
+            ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), True)[1]
+            app._restart_and_relaunch = lambda: calls.append(True)
+
+            def problems():
+                """Reseed the asymmetric fixture, run one confirmed reset, and
+                list everything wrong with the outcome ([] == all green)."""
+                ps.write_text(asym, encoding="utf-8")
+                for b in tmp.glob("personal_settings.backup-*.json"):
+                    b.unlink()
+                n_restarts = len(calls)
+                app._reset_to_defaults()
+                probs = []
+                try:
+                    data = json.loads(ps.read_text(encoding="utf-8"))
+                except Exception as e:
+                    return [f"the reset left no readable file: {e}"]
+                if [k for k in data.get("hotkeys", {}) if not k.startswith("_")]:
+                    probs.append(f"hotkeys not shipped: {data.get('hotkeys')}")
+                if "api" in data.get("defaults", {}):
+                    probs.append(f"the pin survived: {data.get('defaults')}")
+                if data.get("ui", {}).get("language") != "en":
+                    probs.append(f"ui.language not forced to 'en': {data.get('ui')}")
+                if data.get("push_to_talk", {}).get("enabled") is not False:
+                    probs.append(f"push_to_talk not forced off: "
+                                 f"{data.get('push_to_talk')}")
+                if data.get("push_to_talk", {}).get("trigger") != "rctrl":
+                    probs.append(f"the hand-tuned trigger was lost: "
+                                 f"{data.get('push_to_talk')}")
+                if data.get("vocabulary", {}).get("terms") != ["Grüße"]:
+                    probs.append(f"the vocabulary was lost: {data.get('vocabulary')}")
+                if list(tmp.glob("personal_settings.backup-*.json")):
+                    probs.append("a reset over a healthy file created a backup")
+                if env.read_bytes() != env_before:
+                    probs.append(".env changed")
+                if len(calls) != n_restarts + 1:
+                    probs.append(f"restarts fired: {len(calls) - n_restarts}")
+                return probs
+
+            base = problems()
+            check(base == [],
+                  f"the confirmed reset over the healthy asymmetric file failed: {base}")
+
+            # The two #312 mutations: replace each forced literal by its
+            # derivation from the form, see the lane go red, take it back.
+            real_save = sio_mod.save_personal_settings
+
+            def derive_lang(path, **kw):
+                kw["ui_language"] = app.lang            # the derivation D-015 forbids
+                return real_save(path, **kw)
+
+            sio_mod.save_personal_settings = derive_lang
+            try:
+                mutated = problems()
+            finally:
+                sio_mod.save_personal_settings = real_save
+            check(mutated != [],
+                  "the reset lane cannot see a derived window language -- the "
+                  "fixture no longer separates the forced 'en' from app.lang (#312)")
+
+            def derive_ptt(path, **kw):
+                kw["ptt_enabled"] = (app.ptt_var.get() == "on")
+                return real_save(path, **kw)
+
+            sio_mod.save_personal_settings = derive_ptt
+            try:
+                mutated = problems()
+            finally:
+                sio_mod.save_personal_settings = real_save
+            check(mutated != [],
+                  "the reset lane cannot see a derived push-to-talk state -- the "
+                  "fixture no longer separates the forced False from the ON toggle "
+                  "(#312)")
+            base = problems()
+            check(base == [],
+                  f"after taking the mutations back the lane is not green: {base}")
+
+            # Over a CORRUPT file the reset takes D-026's backup lane. The
+            # confirmation is the new second body -- the one that PROMISES the
+            # backup -- a decline stays byte-still and creates none, a confirm
+            # parks the exact old bytes, writes clean, restarts and logs.
+            ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), False)[1]
             ps.write_text('{\n  "vocabulary": {"terms": ["Grüße"]},\n', encoding="utf-8")
             broken = ps.read_bytes()
             app._reset_to_defaults()
             check(ps.read_bytes() == broken,
                   "a declined reset over a corrupt file still rewrote it")
-            check(shown[-1:] == [sstr.t("dlg.reset.body_corrupt", "en")],
-                  f"the confirmation over a CORRUPT personal_settings.json promised "
-                  f"the hand-written blocks would survive, which is exactly the case "
-                  f"where they do not: {shown[-1:]!r}")
-            ps.write_text(json.dumps(
-                {"vocabulary": {"terms": ["Grüße"]},
-                 "hotkeys": {"start_recording": "ctrl+alt+p"},
-                 "defaults": {"api": "groq"}}, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8")
+            check(shown[-1:] == [sstr.t("dlg.reset.body_corrupt", "de")],
+                  f"the confirmation over a CORRUPT personal_settings.json is not "
+                  f"the backup-promising second body: {shown[-1:]!r}")
+            check(not list(tmp.glob("personal_settings.backup-*.json")),
+                  "a DECLINED reset already created a backup")
 
-            # Confirming: the four managed facts land, the hand-written vocabulary and
-            # the .env do not move, and the restart handshake is really triggered. The
-            # handshake itself MUST be stubbed -- unstubbed it writes a real restart
-            # signal, shells out on Windows and destroys the root mid-test.
-            calls = []
             ts.messagebox.askyesno = lambda title, msg, **k: (shown.append(msg), True)[1]
-            app._restart_and_relaunch = lambda: calls.append(True)
+            n_restarts, n_dialogs = len(calls), len(errors)
             app._reset_to_defaults()
-            data = json.loads(ps.read_text(encoding="utf-8"))
-            check(not [k for k in data.get("hotkeys", {}) if not k.startswith("_")]
-                  and "api" not in data.get("defaults", {})
-                  and data.get("ui", {}).get("language") == "en"
-                  and data.get("push_to_talk", {}).get("enabled") is False,
-                  f"the confirmed reset did not put all four managed keys back at "
-                  f"their shipped value: {data}")
-            check(data.get("vocabulary", {}).get("terms") == ["Grüße"],
-                  f"the reset destroyed the hand-written vocabulary: {data.get('vocabulary')}")
-            check(env.read_bytes() == env_before,
-                  "the reset wrote the .env -- the API keys are the user's data and "
-                  "the reset never goes near the code that writes them (D-020)")
-            check(calls == [True],
-                  "the confirmed reset did not trigger the restart -- pickup is "
-                  "start-based, so the defaults would sit on disk unapplied (#271)")
+            backups = list(tmp.glob("personal_settings.backup-*.json"))
+            check(len(backups) == 1 and backups[0].read_bytes() == broken,
+                  f"the confirmed reset did not park the corrupt bytes byte-exact "
+                  f"in a backup: {backups}")
+            check(json.loads(ps.read_text(encoding="utf-8"))
+                  .get("ui", {}).get("language") == "en"
+                  and len(calls) == n_restarts + 1 and len(errors) == n_dialogs,
+                  "the corrupt-file reset did not write the clean state, restart, "
+                  "and stay dialog-free")
+            try:
+                log_text = (tmp / "thoughtborne.log").read_text(encoding="utf-8")
+            except OSError:
+                log_text = ""
+            check("[SETTINGS] backup: personal_settings.json ->" in log_text,
+                  f"the backup left no [SETTINGS] backup: log line -- the log is "
+                  f"the one place D-026 lets the app speak about file health: "
+                  f"{log_text!r}")
+            for b in backups:
+                b.unlink()
 
-            # Bytes that cannot be DECODED at all -- the real case is an ANSI/cp1252
-            # personal_settings.json whose German vocabulary is intact, just in the
-            # wrong encoding (D-002's B1) -- abort the reset before the confirmation:
-            # the write would fail on the same read, so nothing is asked, nothing is
-            # written and no restart is triggered. Only the error dialog appears
-            # (stubbed out above, like every modal in this lane).
+            # Bytes that cannot be DECODED -- the ANSI/cp1252 file whose German
+            # vocabulary is intact -- stopped aborting: since D-026 they are the
+            # same whole-file class as corrupt JSON, so the reset asks with the
+            # same second body and the confirm parks the ANSI bytes byte-exact.
             ps.write_bytes('{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252"))
             undecodable = ps.read_bytes()
-            asked, restarts, dialogs = len(shown), len(calls), len(errors)
+            n_asked, n_restarts, n_dialogs = len(shown), len(calls), len(errors)
             app._reset_to_defaults()
-            check(ps.read_bytes() == undecodable,
-                  "a reset over an undecodable personal_settings.json rewrote it -- "
-                  "the read that guards the write failed, so the vocabulary in there "
-                  "is still rescuable and must not be skeletoned over (B1)")
-            check(len(shown) == asked,
-                  "the reset asked for confirmation over a file it cannot read -- the "
-                  "question would promise an outcome the write cannot deliver")
-            check(len(calls) == restarts,
-                  "the reset restarted Thoughtborne after failing to read the file -- "
-                  "nothing was written, so there is nothing for a start to pick up")
-            # ... and what it says is the #291 half of this issue: the failure is a
-            # READ that failed, named as one and naming the file, not "Saving failed"
-            # over an action the user never asked to save.
-            check(len(errors) == dialogs + 1,
-                  f"the reset over an unreadable file raised {len(errors) - dialogs} "
-                  f"error dialogs, expected exactly one")
-            check(errors[-1:] and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
-                  f"the reset reported a file it cannot READ under the wrong title -- "
-                  f"after a click on Reset, 'Saving failed' names neither the failure "
-                  f"nor the action (#291): {errors[-1:]!r}")
-            check(errors[-1:] and "personal_settings.json" in errors[-1][1],
-                  f"the dialog does not name the file that could not be read: "
-                  f"{errors[-1:]!r}")
+            check(len(shown) == n_asked + 1
+                  and shown[-1] == sstr.t("dlg.reset.body_corrupt", "de"),
+                  "an undecodable file did not take the corrupt-file confirmation "
+                  "-- the D-026 whole-file class replaced the old readfail abort")
+            backups = list(tmp.glob("personal_settings.backup-*.json"))
+            check(len(backups) == 1 and backups[0].read_bytes() == undecodable,
+                  f"the ANSI bytes are not byte-exact in the backup -- preserving "
+                  f"them is the whole point of retiring the abort (D-026): {backups}")
+            check(len(calls) == n_restarts + 1 and len(errors) == n_dialogs,
+                  "the undecodable-file reset did not restart, or raised a dialog")
+            for b in backups:
+                b.unlink()
+
+            # The OSError read failure stays alive (#291): a target whose BYTES
+            # cannot be read -- here a directory in the file's place
+            # (IsADirectoryError under Linux/Xvfb) -- aborts before the
+            # confirmation, under the read title, naming the file. No backup is
+            # ever attempted: a directory must never be renamed aside.
+            ps.unlink()
+            ps.mkdir()
+            n_asked, n_restarts, n_dialogs = len(shown), len(calls), len(errors)
+            app._reset_to_defaults()
+            check(len(shown) == n_asked and len(calls) == n_restarts,
+                  "the reset asked or restarted over a target it cannot read")
+            check(len(errors) == n_dialogs + 1
+                  and errors[-1][0] == sstr.t("dlg.readfail.title", "de")
+                  and "personal_settings.json" in errors[-1][1],
+                  f"the unreadable target was not reported as a READ failure "
+                  f"naming the file (#291): {errors[n_dialogs:]!r}")
+            check(not list(tmp.glob("personal_settings.backup-*.json")),
+                  "the unreadable target grew a backup")
+            ps.rmdir()
 
             # The restart freeze reaches the button. It sits on a tab, so the rail
             # freeze does not cover it, and a second click during the responsive wait
@@ -1537,13 +1652,21 @@ def test_reset_with_display():
 
 def test_save_readfail_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
-    # cleanly. The save half of #291 through the REAL app: test_settings_io.py proves
-    # what the pre-flight decides and pins its call site on the syntax tree, but only
-    # the built window shows that the two meet -- that a click on Save over bytes the
-    # app cannot read really ends in the read-failure dialog, naming the file, and that
-    # .env is still untouched when it does. That last part is the substance of the fix:
-    # .env is written FIRST, so before #291 an unreadable personal_settings.json left
-    # the newly typed key on disk behind a dialog claiming the save had failed.
+    # cleanly. The everyday Save through the REAL app, over files it cannot carry or
+    # cannot read: test_settings_io.py proves what the pre-flight and the D-026 backup
+    # lane decide and pins the call sites on the syntax tree, but only the built window
+    # shows that they meet. Since #263 an undecodable personal_settings.json no longer
+    # blocks the save -- case A drives it through backup + rewrite + restart with BOTH
+    # key fields filled with distinct values (the #312 cross-read: a lane that only
+    # ever fills Groq cannot see a mutation in the Soniox half), and proves its own
+    # sensitivity per run with two mutations (suppress the backup / drop the Soniox
+    # half): set, red, take back, green. The `.env` abort (#291) stays: an ANSI .env
+    # with a key to write still stops the save under the read title with .env
+    # untouched although it is written FIRST. Case D shows the keyless confirmation
+    # now FIRES over an undecodable file (nothing blocks the save anymore), case E the
+    # issue's opening scene -- the file breaks WHILE the window is open, and the fresh
+    # write-time probe catches it without any dialog (D-026: the app is silent about
+    # file health; the log is not).
     #
     # WRITES, like the #239 and #282 lanes above, so config.SCRIPT_DIR is patched to a
     # tempdir BEFORE the app is built and restored in finally; otherwise this check
@@ -1580,16 +1703,19 @@ def test_save_readfail_with_display():
         ts.messagebox.showerror = lambda title, body, *a, **k: errors.append((title, body))
         ts.messagebox.askyesno = lambda title, msg, **k: (asked.append(msg), True)[1]
 
+        import settings_io as sio_mod
+
         with _app_sandbox() as tmp:
             ps = tmp / "personal_settings.json"
             healthy = json.dumps({"vocabulary": {"terms": ["Grüße"]}},
                                  indent=2, ensure_ascii=False) + "\n"
             ps.write_text(healthy, encoding="utf-8")
             # No key stored yet, so the keyless confirmation is live -- which is what
-            # makes case D's "nothing was asked" mean something.
+            # makes case C's and D's asked-counts mean something.
             env = tmp / ".env"
             env.write_text("# no key yet\n", encoding="utf-8")
-            env_before = env.read_bytes()
+            undecodable = '{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252")
+            log_file = tmp / "thoughtborne.log"
 
             root.geometry("900x860")
             app = ts.SettingsApp(root, first_run=False)
@@ -1599,33 +1725,109 @@ def test_save_readfail_with_display():
             # root mid-test (the #282 lane's reason too).
             app._restart_and_relaunch = lambda: restarts.append(True)
 
-            # A -- personal_settings.json in bytes the app cannot decode (an ANSI file
-            # whose German vocabulary is intact, B1's case), with a key freshly typed
-            # into the field. The save has to stop at the pre-flight.
-            ps.write_bytes('{"vocabulary": {"terms": ["Grüße"]}}\n'.encode("cp1252"))
-            undecodable = ps.read_bytes()
-            app.groq_var.set("gsk_typed_now")
-            app._save()
-            check(ps.read_bytes() == undecodable,
-                  "the save rewrote an undecodable personal_settings.json -- the "
-                  "vocabulary in there is still rescuable (B1, D-002)")
-            check(env.read_bytes() == env_before,
-                  "the save wrote the typed key into .env and only THEN found out that "
-                  "personal_settings.json cannot be read -- the dialog would be saying "
-                  "nothing was changed over a file that already changed (#291)")
-            check(not restarts, "the save restarted Thoughtborne after aborting")
-            check(errors[-1:] and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
-                  f"the read failure came up under the wrong title: {errors[-1:]!r}")
-            check(errors[-1:] and "personal_settings.json" in errors[-1][1],
-                  f"the dialog does not name the file that could not be read, so the "
-                  f"user cannot tell which of the two to repair: {errors[-1:]!r}")
+            # A -- personal_settings.json in bytes the app cannot decode (an ANSI
+            # file whose German vocabulary is intact), BOTH key fields freshly
+            # filled with distinct values. Since D-026 this save GOES THROUGH:
+            # the old bytes land byte-exact in a backup, a clean file and both
+            # keys are written, the restart fires, no dialog of any kind appears,
+            # and the log carries the backup line. As a local function so the
+            # mutations below can measure the lane itself.
+            def case_a_problems():
+                ps.write_bytes(undecodable)
+                env.write_text("# no key yet\n", encoding="utf-8")
+                for b in tmp.glob("personal_settings.backup-*.json"):
+                    b.unlink()
+                try:
+                    log_file.unlink()
+                except OSError:
+                    pass
+                app.groq_var.set("gsk_typed_now")
+                app.soniox_var.set("sonx_typed_now")
+                e0, q0, r0 = len(errors), len(asked), len(restarts)
+                app._save()
+                probs = []
+                backups = list(tmp.glob("personal_settings.backup-*.json"))
+                if len(backups) != 1 or backups[0].read_bytes() != undecodable:
+                    probs.append(f"backup missing or not byte-exact: {backups}")
+                try:
+                    envtext = env.read_text(encoding="utf-8")
+                except Exception as e:
+                    envtext = ""
+                    probs.append(f".env unreadable after the save: {e}")
+                if "GROQ_API_KEY=gsk_typed_now" not in envtext:
+                    probs.append("the Groq key did not land in .env")
+                if "SONIOX_API_KEY=sonx_typed_now" not in envtext:
+                    probs.append("the Soniox key did not land in .env")
+                try:
+                    json.loads(ps.read_text(encoding="utf-8"))
+                except Exception as e:
+                    probs.append(f"the rewrite is not valid JSON: {e}")
+                if errors[e0:]:
+                    probs.append(f"error dialog(s) fired: {errors[e0:]!r}")
+                if asked[q0:]:
+                    probs.append(f"confirmation(s) fired: {asked[q0:]!r}")
+                if len(restarts) != r0 + 1:
+                    probs.append(f"restarts fired: {len(restarts) - r0}")
+                try:
+                    log_text = log_file.read_text(encoding="utf-8")
+                except OSError:
+                    log_text = ""
+                if "[SETTINGS] backup: personal_settings.json ->" not in log_text:
+                    probs.append(f"no [SETTINGS] backup: log line: {log_text!r}")
+                return probs
 
-            # B -- the other file: a readable personal_settings.json, an ANSI .env, and
-            # a key to write into it. Same dialog, the other name.
+            base = case_a_problems()
+            check(base == [],
+                  f"case A (undecodable file, both keys typed) failed: {base}")
+
+            # The two mutations (set, red, take back, green -- the #269 idiom).
+            # First: a save that skips the backup -- the lane's backup half must
+            # see it.
+            real_save = sio_mod.save_personal_settings
+
+            def no_backup(path, **kw):
+                bak, losses = real_save(path, **kw)
+                if bak is not None:
+                    bak.unlink()
+                return None, losses
+
+            sio_mod.save_personal_settings = no_backup
+            try:
+                mutated = case_a_problems()
+            finally:
+                sio_mod.save_personal_settings = real_save
+            check(mutated != [],
+                  "the save lane cannot see a suppressed backup -- its backup "
+                  "assertions guard nothing")
+            # Second: an update set reduced to the Groq half -- the #312
+            # asymmetry this lane's both-keys fixture exists for.
+            real_live = app._live_env
+
+            def groq_only():
+                return {"GROQ_API_KEY": app.groq_var.get()}
+
+            app._live_env = groq_only
+            try:
+                mutated = case_a_problems()
+            finally:
+                app._live_env = real_live
+            check(mutated != [],
+                  "the save lane cannot see the Soniox half of the update set "
+                  "going missing (#312)")
+            base = case_a_problems()
+            check(base == [],
+                  f"after taking the mutations back case A is not green: {base}")
+
+            # B -- the `.env` abort stays (#291): a readable personal_settings.json,
+            # an ANSI .env, and a key to write into it. The read-failure dialog
+            # names .env, nothing moves -- although .env is written FIRST -- and
+            # no backup appears.
             ps.write_text(healthy, encoding="utf-8")
+            for b in tmp.glob("personal_settings.backup-*.json"):
+                b.unlink()
             env.write_bytes("# Umlaut-Kommentar: Präfix\n".encode("cp1252"))
             env_ansi = env.read_bytes()
-            dialogs = len(errors)
+            dialogs, r0 = len(errors), len(restarts)
             app._save()
             check(len(errors) == dialogs + 1,
                   f"the save over an unreadable .env raised {len(errors) - dialogs} "
@@ -1635,15 +1837,18 @@ def test_save_readfail_with_display():
                   f"an unreadable .env was not reported as itself: {errors[-1:]!r}")
             check(env.read_bytes() == env_ansi and ps.read_bytes() == healthy.encode("utf-8"),
                   "the aborted save touched a file anyway")
-            check(not restarts, "the save restarted Thoughtborne after aborting")
+            check(len(restarts) == r0, "the save restarted Thoughtborne after aborting")
+            check(not list(tmp.glob("personal_settings.backup-*.json")),
+                  "the aborted save created a backup")
 
             # C -- CONTROL: the same broken .env, but both key fields blank, which is
             # what a hotkey-only save looks like. write_env is a no-op there, so this
             # save never touches the file and must go through -- a pre-flight that
-            # blocks it would break a save that works today.
+            # blocks it would break a save that works today. Healthy target: no
+            # backup either.
             app.groq_var.set("")
             app.soniox_var.set("")
-            dialogs, questions = len(errors), len(asked)
+            dialogs, questions, r0 = len(errors), len(asked), len(restarts)
             app._save()
             check(len(errors) == dialogs,
                   f"a save that does not write .env at all was blocked over it: "
@@ -1651,32 +1856,63 @@ def test_save_readfail_with_display():
             check(len(asked) == questions + 1,
                   "the keyless confirmation did not fire on the save that went "
                   "through -- this lane no longer proves the pre-flight let it past")
-            check(restarts == [True],
+            check(len(restarts) == r0 + 1,
                   "the save that went through did not reach the restart handshake")
             check(env.read_bytes() == env_ansi,
                   "the save rewrote the .env it had nothing to write to")
             check(json.loads(ps.read_text(encoding="utf-8"))
                   .get("vocabulary", {}).get("terms") == ["Grüße"],
                   "the save that went through did not keep the hand-written vocabulary")
+            check(not list(tmp.glob("personal_settings.backup-*.json")),
+                  "the healthy hotkey-only save created a backup")
 
-            # D -- the order: over a file that cannot be read, the user is not asked
-            # first and told afterwards. Both fields are still blank and no key is
-            # stored, so the keyless confirmation WOULD fire -- it fired in C -- and
-            # here it must not, because there is nothing to ask about a save that
-            # cannot happen.
+            # D -- an undecodable file with both fields blank and no key stored:
+            # since D-026 nothing blocks this save, so the keyless confirmation
+            # now FIRES (it fired in C over a healthy file -- same question, same
+            # answer path), and a yes ends in backup + rewrite + restart with no
+            # readfail dialog anywhere. (The "never ask about a save that cannot
+            # happen" order of #291 lives on in case B's .env abort.)
             ps.write_bytes(undecodable)
-            dialogs, questions = len(errors), len(asked)
+            dialogs, questions, r0 = len(errors), len(asked), len(restarts)
             app._save()
-            check(len(asked) == questions,
-                  "the save asked its keyless confirmation before finding out that it "
-                  "cannot write at all -- the user confirms, and is then told it did "
-                  "not happen (#291)")
-            check(len(errors) == dialogs + 1
-                  and errors[-1][0] == sstr.t("dlg.readfail.title", "en"),
-                  f"the save over an unreadable file did not report the read failure: "
-                  f"{errors[dialogs:]!r}")
-            check(ps.read_bytes() == undecodable,
-                  "the save rewrote the undecodable file")
+            check(len(asked) == questions + 1,
+                  "the keyless confirmation did not fire over an undecodable "
+                  "personal_settings.json -- nothing blocks that save anymore (D-026)")
+            check(len(errors) == dialogs,
+                  f"the save over an undecodable file raised a dialog -- the abort "
+                  f"it announces was retired by D-026: {errors[dialogs:]!r}")
+            backups = list(tmp.glob("personal_settings.backup-*.json"))
+            check(len(backups) == 1 and backups[0].read_bytes() == undecodable,
+                  f"the confirmed keyless save did not park the old bytes: {backups}")
+            check(len(restarts) == r0 + 1,
+                  "the confirmed keyless save did not reach the restart handshake")
+            for b in backups:
+                b.unlink()
+
+            # E -- the scene from #263's opening post: the file is HEALTHY when
+            # the window opens (this lane's build fixture) and breaks while it is
+            # open. The fresh write-time probe (the #239 pattern) catches it:
+            # backup + rewrite + restart, and not a single dialog -- D-026's "the
+            # app is silent about file health, the log is not", proven on the
+            # real window.
+            env.write_text("# no key yet\n", encoding="utf-8")
+            broke_live = b'{\n  "vocabulary": { "terms": ["Gr\xc3\xbc\xc3\x9fe"],\n'
+            ps.write_bytes(broke_live)
+            app.groq_var.set("gsk_after_break")
+            app.soniox_var.set("")
+            dialogs, questions, r0 = len(errors), len(asked), len(restarts)
+            app._save()
+            check(not errors[dialogs:] and not asked[questions:],
+                  f"the save over a file that broke mid-session raised a dialog -- "
+                  f"the app is silent about file health (D-026): "
+                  f"{errors[dialogs:]!r} {asked[questions:]!r}")
+            backups = list(tmp.glob("personal_settings.backup-*.json"))
+            check(len(backups) == 1 and backups[0].read_bytes() == broke_live,
+                  f"the mid-session corruption was not parked byte-exact: {backups}")
+            check(len(restarts) == r0 + 1,
+                  "the save over the mid-session corruption did not restart")
+            check("GROQ_API_KEY=gsk_after_break" in env.read_text(encoding="utf-8"),
+                  "the typed key did not land beside the backed-up settings file")
     finally:
         ts.messagebox.showerror = _showerror
         ts.messagebox.askyesno = _askyesno
@@ -1969,9 +2205,10 @@ def main():
           "strip width, the #299 empty-text sweep over both modes and "
           "languages, the #216 maximize->restore content-vanish guard, the #231 "
           "verdict-line wrap, the #239 language-toggle gate, the #282 reset control "
-          "with its confirmation gate, the #291 read-failure dialog on both save "
-          "paths with .env left untouched, and the #240 callback / pre-mainloop "
-          "crash logging all pass")
+          "through the D-026 backup lane (asymmetric fixture, mutation-measured), "
+          "the save lane's D-026 backup-and-rewrite with the .env abort kept and "
+          "the mid-session-corruption scene (#263), and the #240 callback / "
+          "pre-mainloop crash logging all pass")
     return 0
 
 

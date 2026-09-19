@@ -22,7 +22,23 @@ What is covered:
     included (the two-mode fixed pin -- "always start with X"); and REMOVE_API_PIN
     force-drops the key, preserving siblings + _comment. Plus the absent-file minimal
     dict that must NOT contain the example's placeholder vocabulary (a real data
-    bug), and the corrupt-JSON warning (not a crash).
+    bug), the whole-file warning (corrupt JSON / non-object / non-UTF-8 -- never a
+    crash), and the D-026 hardening: the raw writer REFUSES such a file (ValueError)
+    instead of skeletoning over it -- only the backup lane below may rewrite it.
+  - settings_io.save_personal_settings, the D-026 backup lane (check_backup_lane):
+    backup before loss, no backup -> no overwrite. A file the save cannot carry --
+    corrupt JSON, non-object, undecodable bytes, or invalid entries in the owned
+    surfaces -- is renamed to a timestamped personal_settings.backup-...json
+    (collision -> -2/-3 suffix) with the old bytes byte-exact, then rewritten; a
+    failed rename aborts the save with the target untouched; a vanished target
+    saves on without a backup; a failed write after a successful backup rolls the
+    backup back and re-raises. Invalid owned entries with a leave-as-found signal
+    are normalized to the shown defaults (no pin / OFF / "en"), siblings and
+    _comments preserved. The controls weigh as much: a healthy file, a
+    default-equal hotkey entry, a deliberately dropped pin, a BOM and the D-024
+    list collapse create NO backup, and the silent language toggle never enters
+    the lane at all. Plus the #294 seed hardening: a cp1252 example file can no
+    longer abort a save with a raw exception, on either writer.
   - settings_io.resolve_engine_save_signal (#198): the pure on-save derivation of
     (default_api_signal, memory_api) across the whole two-mode decision table,
     including the #201 named regression that an untouched fixed pin on a now-keyless
@@ -50,13 +66,15 @@ What is covered:
     thoughtborne_settings.py's syntax tree (the GUI is hands-on only): _save must
     pass the RESOLVED signal.
   - settings_io.write_ui_language (#239, D-002/D-014): the SILENT language-toggle
-    persist, gated. A corrupt-but-decodable target -- the bytes read fine, the JSON is
-    invalid -- is left BYTE-identical and unwritten, so a language click can no longer
-    skeleton over hand-written vocabulary / soniox_endpointing; warn-then-overwrite
-    stays the explicit Save's branch alone. A healthy target still takes the surgical
-    ui.language write with every other block as found, a missing one still takes the
-    first-run skeleton lane (the gate keys on the warning, not on empty state), and an
-    undecodable one still raises for the caller's best-effort lane. Plus that
+    persist, gated. A target it cannot carry -- corrupt JSON, a non-object top
+    level, undecodable bytes (one warning class since D-026) -- is left
+    BYTE-identical and unwritten with NO backup created: a language click may
+    neither skeleton over hand-written vocabulary / soniox_endpointing nor take
+    the backup lane, which belongs to the deliberate actions alone. A healthy
+    target still takes the surgical ui.language write with every other block as
+    found, a missing one still takes the first-run skeleton lane (the gate keys
+    on the warning, not on empty state), and an unREADABLE one (OSError) still
+    raises for the caller's best-effort lane. Plus that
     writer's signature, which stays too narrow to write anything but ui.language --
     that the toggle really goes through it is driven on the real window in
     test_settings_visibility.py.
@@ -64,9 +82,13 @@ What is covered:
     byte-faithfully (S5), duplicate managed-key lines are ALL rewritten (S3), a
     whitespace-only value is dropped and a pasted key stripped (S4), a UTF-8 BOM is
     tolerated on read and healed on write for both files (S6), a present-but-
-    unreadable file aborts the save instead of clobbering it (B1, chmod-guarded), and
-    a non-UTF-8 (ANSI/cp1252) config file does not crash the readers and aborts the
-    save byte-unchanged rather than destroying its vocabulary (B3).
+    unreadable file aborts the save instead of clobbering it (B1, chmod-guarded, on
+    the raw writer AND the backup lane -- no backup attempt over unreadable bytes),
+    and the non-UTF-8 (ANSI/cp1252) lane (B3): read_env still degrades to {}
+    without crashing, an ANSI .env still aborts write_env byte-unchanged, while an
+    ANSI personal_settings.json now WARNS out of the reader, makes the raw writer
+    refuse (ValueError), and rides the backup lane -- its intact vocabulary
+    byte-exact in the backup instead of dead-ending in an abort (D-026).
   - the pure hotkey helpers: normalize_combo (the canonicalizer of #275, with its
     never-raise fallback for the diff path), validate_combo (including the #325
     dead-combo rejection of ctrl+pause / ctrl+scrolllock), decode_key_event on
@@ -124,26 +146,31 @@ What is covered:
     no flag -> the plain dialog; the shared key-presence predicate and the read_env
     seam (a readable keyed .env -> plain, an ANSI .env -> wizard, matching
     _had_stored_key).
-  - the Machine Room reset (#282, D-020): the one forced write that puts the four
-    app-managed keys back to the shipped state -- over a dirty file (every hand-
-    written block, `_comment` and parked `_` hotkey key preserved, order included,
-    an unknown block among them), over the hand-typed invalid values no ordinary
-    save can clear (the reason the values are forced rather than derived, asserted
-    against the two save signals that return None there), over no file at all
-    (the canonical all-defaults file, still without the example's placeholder
-    vocabulary), twice in a row (idempotent bytes), and with a .env beside it that
+  - the Machine Room reset (#282, D-020): the one forced write -- via the D-026
+    backup lane since #263 -- that puts the four app-managed keys back to the
+    shipped state: over a dirty-but-valid file (every hand-written block,
+    `_comment` and parked `_` hotkey key preserved, order included, an unknown
+    block among them, and NO backup -- valid values a reset changes are
+    instruction, not loss), over the hand-typed invalid values no ordinary save
+    can clear (the reason the values are forced rather than derived, asserted
+    against the two save signals that return None there -- backup owed and
+    byte-exact), over no file at all (the canonical all-defaults file, still
+    without the example's placeholder vocabulary), twice in a row (idempotent
+    bytes, no backup either time), and with a .env beside it that
     must not move. Plus the part of the call site the display lane in
     test_settings_visibility.py cannot see, statically: the two shipped values written
-    as literals (its fixture cannot tell a forced one from a derived one), no
+    as literals (its fixture cannot tell a forced one from a derived one), the
+    backup lane called and the raw writer unreachable, no
     write_env, no engine-memory write, no window destroy, the confirmation's warning
     icon and preselected answer, and the restart as the tail.
   - the save pre-flight and its dialog (#291): settings_io.unreadable_save_target
-    fires exactly where a writer would abort on a target whose bytes cannot be read
-    or UTF-8-decoded and stays silent exactly where a write goes through -- each case
-    asserted against the real writers on the same fixture, so the .env probe cannot
-    drift from write_env's own guard read. With the two controls that a naive fix
-    breaks: a corrupt-but-decodable personal_settings.json stays on D-002's warn-then-
-    overwrite branch, and an unreadable .env this save would not write at all (both
+    fires exactly where a writer would abort on its target and stays silent
+    exactly where a write goes through -- each case asserted against the real
+    writers on the same fixture, so the .env probe cannot drift from write_env's
+    own guard read. For .env that is unreadable OR undecodable bytes; for
+    personal_settings.json only unreadable ones since D-026 -- an ANSI or corrupt
+    file is a save that goes through, over the backup lane. With the controls a
+    naive fix breaks: an unreadable .env this save would not write at all (both
     key fields blank) does not block it. Plus the two halves no display lane reaches,
     statically: the probe asks with the update set the write uses, and both write
     branches keep dlg.savefail. (That the probe runs before the first write, names the
@@ -180,6 +207,7 @@ import stat
 import sys
 import tempfile
 import threading
+import types
 from pathlib import Path
 
 # Silence config's import-time settings warnings -- importing config parses the
@@ -342,17 +370,36 @@ def check_personal_settings(tmp):
     check(data["defaults"].get("_comment") == example["defaults"]["_comment"],
           "C: absent-file defaults _comment lead missing")
 
-    # D -- unreadable file -> warning (not a crash); a save overwrites it cleanly
+    # D -- corrupt file -> warning (not a crash). The raw writer REFUSES it (the
+    # D-026 hardening: no overwrite path over a broken file but the backup lane),
+    # and the backup lane rewrites it cleanly with the old bytes in the backup.
     p = tmp / "ps_bad.json"
-    p.write_text("{ this is : not valid json ", encoding="utf-8")
+    corrupt_bytes = "{ this is : not valid json ".encode("utf-8")
+    p.write_bytes(corrupt_bytes)
     data, warn = sio.read_personal_settings(p)
-    check(data == {} and isinstance(warn, str) and warn, "D: unreadable file did not warn")
-    sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
-                                default_api=config.BUILTIN_DEFAULT_API, example_path=EXAMPLE_PS)
+    check(data == {} and isinstance(warn, str) and warn, "D: corrupt file did not warn")
+    raised = False
+    try:
+        sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                    default_api=config.BUILTIN_DEFAULT_API,
+                                    example_path=EXAMPLE_PS)
+    except ValueError:
+        raised = True
+    check(raised and p.read_bytes() == corrupt_bytes,
+          "D: the raw writer overwrote a corrupt file -- since D-026 only the "
+          "backup lane may rewrite one")
+    bak, losses = sio.save_personal_settings(
+        p, hotkeys_effective=sio.preset_ctrl_alt(),
+        default_api=config.BUILTIN_DEFAULT_API, example_path=EXAMPLE_PS)
+    check(bak is not None and bak.exists() and bak.read_bytes() == corrupt_bytes,
+          f"D: the backup lane did not park the corrupt bytes byte-exact: {bak}")
+    check(losses and "personal_settings.json" in losses[0],
+          f"D: the whole-file loss was not returned for the caller's log: {losses}")
     _, warn2 = sio.read_personal_settings(p)
-    check(warn2 is None, "D: write over an unreadable file did not produce valid JSON")
+    check(warn2 is None, "D: the backup-lane rewrite did not produce valid JSON")
     check("Project Name" not in p.read_text(encoding="utf-8"),
           "D: overwrite leaked the placeholder vocabulary")
+    bak.unlink()   # keep the tempdir glob-clean for the later backup asserts
 
     # E -- a pre-#318 file: the F-key preset used to write a one-element LIST for
     # cancel_recording. It must load as the identical binding, silently (D-024),
@@ -366,8 +413,12 @@ def check_personal_settings(tmp):
     eff, warns = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, data["hotkeys"])
     check(eff["cancel_recording"] == "ctrl+f9" and not warns,
           f"E: legacy one-element list did not collapse silently (warns={warns})")
-    sio.write_personal_settings(p, hotkeys_effective=eff, default_api=None,
-                                example_path=EXAMPLE_PS)
+    bak, losses = sio.save_personal_settings(p, hotkeys_effective=eff,
+                                             default_api=None,
+                                             example_path=EXAMPLE_PS)
+    check(bak is None and losses == [],
+          f"E: the D-024 one-element-list collapse counted as a loss -- shape "
+          f"normalization is meaning-preserving and owes no backup: {losses}")
     data2, _ = sio.read_personal_settings(p)
     check(data2["hotkeys"].get("cancel_recording") == "ctrl+f9",
           f"E: the save kept a list shape: {data2['hotkeys'].get('cancel_recording')!r}")
@@ -510,16 +561,29 @@ def check_regressions(tmp):
                                         example_path=EXAMPLE_PS)
         except OSError:
             raised_write = True
+        # ...and so must the D-026 backup lane: unreadable bytes leave nothing to
+        # decide, so the OSError propagates BEFORE any backup attempt.
+        raised_save = False
+        try:
+            sio.save_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
+                                       default_api=config.BUILTIN_DEFAULT_API,
+                                       example_path=EXAMPLE_PS)
+        except OSError:
+            raised_save = True
         os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)
         check(raised_read, "B1: read_personal_settings on an unreadable file did not raise")
         check(raised_write, "B1: write_personal_settings over an unreadable file did not raise")
+        check(raised_save, "B1: save_personal_settings over an unreadable file did not raise")
+        check(not list(tmp.glob("ps_locked.backup-*.json")),
+              "B1: save_personal_settings attempted a backup of unreadable bytes")
         check(p.read_text(encoding="utf-8") == orig,
               "B1: write_personal_settings clobbered an unreadable file")
 
-    # B3 -- a non-UTF-8 (ANSI/cp1252) config file must not crash the readers, and an
-    # undecodable personal_settings holds INTACT recoverable data (German vocabulary in
-    # the wrong encoding) -> it is treated like B1 (abort the save, never overwrite),
-    # NOT like corrupt-JSON warn-then-overwrite.
+    # B3 -- a non-UTF-8 (ANSI/cp1252) config file must not crash the readers. An
+    # undecodable personal_settings holds INTACT recoverable data (German vocabulary
+    # in the wrong encoding): since D-026 that is one whole-file loss class with
+    # corrupt JSON -- warn, refuse the raw writer, back up + rewrite on the
+    # deliberate lane -- while an undecodable .env stays B1's abort.
     # (a) read_env on a cp1252 .env (umlaut in a comment) returns {} without raising.
     p = tmp / "env_cp1252"
     p.write_bytes("# Umlaut-Kommentar: Präfix\nGROQ_API_KEY=secret\n".encode("cp1252"))
@@ -532,8 +596,10 @@ def check_regressions(tmp):
     check(not raised_e, "B3: read_env on a cp1252 file raised instead of returning {}")
     check(got_e == {}, f"B3: read_env on a cp1252 file should return {{}}, got {got_e!r}")
 
-    # (b) write_personal_settings over an ANSI file ABORTS with the file byte-unchanged
-    # (same shape as the chmod-0 B1 test) -- overwriting would destroy the vocabulary.
+    # (b) the raw writer still REFUSES an ANSI file byte-unchanged -- as the D-026
+    # ValueError hardening now, not a UnicodeDecodeError -- while the backup lane
+    # carries it: the save GOES THROUGH with the intact vocabulary byte-exact in
+    # the backup, which is the whole point of D-026's reversal of the old abort.
     p = tmp / "ps_ansi.json"
     ansi_bytes = '{\n  "vocabulary": {"terms": ["Grüße", "Präfix"]}\n}\n'.encode("cp1252")
     p.write_bytes(ansi_bytes)
@@ -542,20 +608,364 @@ def check_regressions(tmp):
         sio.write_personal_settings(p, hotkeys_effective=sio.preset_ctrl_alt(),
                                     default_api=config.BUILTIN_DEFAULT_API,
                                     example_path=EXAMPLE_PS)
-    except (UnicodeError, OSError):
+    except ValueError:   # covers the UnicodeDecodeError subclass too
         raised_w = True
-    check(raised_w, "B3: write_personal_settings over an ANSI file did not abort/raise")
+    check(raised_w, "B3: write_personal_settings over an ANSI file did not refuse")
     check(p.read_bytes() == ansi_bytes,
           "B3: write_personal_settings clobbered an ANSI file (destroyed vocabulary)")
+    bak, losses = sio.save_personal_settings(
+        p, hotkeys_effective=sio.preset_ctrl_alt(),
+        default_api=config.BUILTIN_DEFAULT_API, example_path=EXAMPLE_PS)
+    check(bak is not None and bak.read_bytes() == ansi_bytes,
+          "B3: save_personal_settings did not park the ANSI bytes byte-exact -- "
+          "the intact vocabulary is exactly what the backup exists for (D-026)")
+    check(sio.read_personal_settings(p)[1] is None,
+          "B3: the backup-lane rewrite over an ANSI file is not valid JSON")
+    bak.unlink()
 
-    # (c) read_personal_settings on that file RAISES -- it must not return a
-    # skeleton-triggering ({}, None) that would let a save skeleton over it.
-    raised_r = False
+    # (c) read_personal_settings on an ANSI file WARNS -- one whole-file loss
+    # class with corrupt JSON since D-026, no longer a raise. The warning must
+    # name the encoding: it is what the backup log line carries.
+    p2 = tmp / "ps_ansi_read.json"
+    p2.write_bytes(ansi_bytes)
+    data_r, warn_r = sio.read_personal_settings(p2)
+    check(data_r == {} and isinstance(warn_r, str) and "UTF-8" in warn_r,
+          f"B3: read_personal_settings on an ANSI file should warn naming the "
+          f"encoding, got ({data_r!r}, {warn_r!r})")
+
+
+# ---- the D-026 backup lane (#263) --------------------------------------------
+def check_backup_lane(tmp):
+    """settings_io.save_personal_settings, D-026's "backup before loss -- no
+    backup, no overwrite" write lane, completely off-Windows. Every fixture lives
+    in its own subdirectory so the backup globs cannot see each other.
+
+    The mechanics: a corrupt file is renamed to its timestamped backup byte-exact
+    and rewritten to the managed state, the return carries (Path, losses) for the
+    caller's log; a name collision (timestamp frozen via a patched sio.time) walks
+    -2/-3; a failed rename (os.rename -> PermissionError) aborts the save with
+    the target byte-unchanged and NOTHING else in the directory; the vanished
+    race (os.rename -> FileNotFoundError) saves on and returns (None, losses);
+    a failed atomic write AFTER a successful backup rolls the backup back and
+    re-raises, leaving the target at its place and no backup behind.
+
+    Normalize-on-save: each invalid owned entry with a leave-as-found signal --
+    an unknown engine pin, a quoted `enabled`, an unknown ui.language, a
+    non-dict block of any of the four surfaces, and the hotkey loss classes
+    (unknown action, unparseable combo, collision, multi-element list) -- lands
+    at the shown default with siblings and `_comment` preserved, backup owed and
+    byte-exact each time.
+
+    The controls carry D-026's no-backup clause: a healthy file, a default-equal
+    hotkey entry falling out of the diff, a valid pin deliberately dropped via
+    REMOVE_API_PIN, and a BOM heal create NO backup; an EMPTY file is corrupt
+    like any other and backs up its zero bytes (uniform, deliberately no special
+    case). The #294 seeds: a cp1252 example file aborts neither writer. And the
+    silent lane never enters: write_ui_language over a corrupt file returns
+    False, byte-still, with no backup anywhere."""
+    corrupt = b'{\n  "vocabulary": { "terms": ["Gr\xc3\xbc\xc3\x9fe"],\n'
+
+    # 1 -- corrupt -> backup + rewrite.
+    d = tmp / "bl1"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+    bak, losses = sio.save_personal_settings(
+        ps, hotkeys_effective=sio.preset_fkeys(), default_api="groq",
+        example_path=EXAMPLE_PS)
+    check(bak is not None and bak.parent == d
+          and re.fullmatch(r"personal_settings\.backup-\d{4}-\d{2}-\d{2}_\d{6}\.json",
+                           bak.name) is not None,
+          f"BL1: the backup name is not the D-026 shape: {bak}")
+    check(bak is not None and bak.read_bytes() == corrupt,
+          "BL1: the old bytes are not byte-exact in the backup")
+    check(len(losses) == 1 and "not valid JSON" in losses[0],
+          f"BL1: the whole-file loss was not returned: {losses}")
+    data, warn = sio.read_personal_settings(ps)
+    check(warn is None and data.get("hotkeys", {}).get("start_recording") == "f9"
+          and data.get("defaults", {}).get("api") == "groq",
+          f"BL1: the rewrite is not the managed state: {data}")
+
+    # 2 -- collision: timestamp frozen, two names taken -> -3. sio.time is
+    # replaced by a shim (not a strftime patch on the real module, which every
+    # other module shares) and restored in finally.
+    d = tmp / "bl2"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+    taken = d / "personal_settings.backup-2026-09-19_120000.json"
+    taken.write_bytes(b"taken")
+    taken2 = d / "personal_settings.backup-2026-09-19_120000-2.json"
+    taken2.write_bytes(b"taken2")
+    real_time = sio.time
+    sio.time = types.SimpleNamespace(strftime=lambda fmt: "2026-09-19_120000")
     try:
-        sio.read_personal_settings(p)
-    except UnicodeError:
-        raised_r = True
-    check(raised_r, "B3: read_personal_settings on an ANSI file did not raise")
+        bak, _ = sio.save_personal_settings(
+            ps, hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+            example_path=EXAMPLE_PS)
+    finally:
+        sio.time = real_time
+    check(bak is not None
+          and bak.name == "personal_settings.backup-2026-09-19_120000-3.json"
+          and bak.read_bytes() == corrupt,
+          f"BL2: the collision suffix did not walk to -3: {bak}")
+    check(taken.read_bytes() == b"taken" and taken2.read_bytes() == b"taken2",
+          "BL2: an existing backup was clobbered -- backups are never overwritten")
+
+    # 3 -- a failed rename aborts the save: no backup, no overwrite (D-026's
+    # core clause). os.rename is the only rename in the lane (_atomic_write uses
+    # os.replace, tempfile no rename), so the patch is narrow; restored in finally.
+    d = tmp / "bl3"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+
+    def _deny(*a, **k):
+        raise PermissionError("locked by another process (test)")
+
+    real_rename = os.rename
+    os.rename = _deny
+    try:
+        raised = False
+        try:
+            sio.save_personal_settings(ps, hotkeys_effective=sio.preset_ctrl_alt(),
+                                       default_api=None, example_path=EXAMPLE_PS)
+        except PermissionError:
+            raised = True
+    finally:
+        os.rename = real_rename
+    check(raised, "BL3: a failed backup rename did not abort the save")
+    check(ps.read_bytes() == corrupt
+          and sorted(x.name for x in d.iterdir()) == ["personal_settings.json"],
+          f"BL3: 'no backup, no overwrite' violated -- directory holds "
+          f"{sorted(x.name for x in d.iterdir())}")
+
+    # 4 -- the vanished race: what was deleted externally no rename can save, so
+    # the save goes through without a backup and says so in the return.
+    d = tmp / "bl4"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+
+    def _vanish(*a, **k):
+        raise FileNotFoundError("vanished between probe and rename (test)")
+
+    real_rename = os.rename
+    os.rename = _vanish
+    try:
+        bak, losses = sio.save_personal_settings(
+            ps, hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+            example_path=EXAMPLE_PS)
+    finally:
+        os.rename = real_rename
+    check(bak is None and losses,
+          f"BL4: the vanished race must save on and return (None, losses): "
+          f"({bak}, {losses})")
+    check(sio.read_personal_settings(ps)[1] is None
+          and not list(d.glob("personal_settings.backup-*")),
+          "BL4: the vanished race left no clean file, or a phantom backup")
+
+    # 5 -- a failed write AFTER a successful backup rolls the backup back: the
+    # target must not be missing from its place after an aborted save.
+    d = tmp / "bl5"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+
+    def _diskfull(path, content):
+        raise OSError("no space left on device (test)")
+
+    real_aw = sio._atomic_write
+    sio._atomic_write = _diskfull
+    try:
+        raised = False
+        try:
+            sio.save_personal_settings(ps, hotkeys_effective=sio.preset_ctrl_alt(),
+                                       default_api=None, example_path=EXAMPLE_PS)
+        except OSError:
+            raised = True
+    finally:
+        sio._atomic_write = real_aw
+    check(raised, "BL5: the failed write was swallowed")
+    check(ps.exists() and ps.read_bytes() == corrupt,
+          "BL5: the rollback did not put the target back in place -- the savefail "
+          "dialog's 'everything is still there' would be false of the file")
+    check(sorted(x.name for x in d.iterdir()) == ["personal_settings.json"],
+          f"BL5: the rollback left a backup behind: "
+          f"{sorted(x.name for x in d.iterdir())}")
+
+    # 6 -- healthy -> no backup, content carried (D-026's no-backup clause).
+    d = tmp / "bl6"; d.mkdir()
+    ps = d / "personal_settings.json"
+    healthy = {"vocabulary": {"terms": ["keepme"]}, "defaults": {"api": "groq"}}
+    ps.write_text(json.dumps(healthy, indent=2, ensure_ascii=False) + "\n",
+                  encoding="utf-8")
+    bak, losses = sio.save_personal_settings(
+        ps, hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+        example_path=EXAMPLE_PS)
+    check(bak is None and losses == []
+          and sorted(x.name for x in d.iterdir()) == ["personal_settings.json"],
+          f"BL6: a save over a healthy file owed a backup: ({bak}, {losses})")
+    data, _ = sio.read_personal_settings(ps)
+    check(data.get("vocabulary") == healthy["vocabulary"]
+          and data.get("defaults", {}).get("api") == "groq",
+          f"BL6: the healthy save did not leave content as found: {data}")
+
+    # 7 -- normalize-on-save: invalid owned entries with a leave-as-found signal
+    # land at the shown defaults, siblings + _comment preserved, backup owed and
+    # byte-exact each time. Losses are checked by substring: the very loader
+    # warning the tool would log is what the backup log line carries.
+    def norm(name, content, expect_loss, verify, **overrides):
+        nd = tmp / name
+        nd.mkdir()
+        nps = nd / "personal_settings.json"
+        raw = (json.dumps(content, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        nps.write_bytes(raw)
+        kwargs = dict(hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+                      example_path=EXAMPLE_PS)
+        kwargs.update(overrides)
+        nbak, nlosses = sio.save_personal_settings(nps, **kwargs)
+        check(nbak is not None and nbak.read_bytes() == raw,
+              f"{name}: backup missing or not byte-exact: {nbak}")
+        check(any(expect_loss in l for l in nlosses),
+              f"{name}: expected a loss naming {expect_loss!r}, got {nlosses}")
+        ndata, nwarn = sio.read_personal_settings(nps)
+        check(nwarn is None, f"{name}: the rewrite is not valid JSON")
+        verify(ndata)
+
+    norm("bl7_pin", {"defaults": {"_comment": "keep", "api": "grok", "note": 1},
+                     "vocabulary": {"terms": ["keepme"]}},
+         "unknown engine",
+         lambda data: check(
+             "api" not in data.get("defaults", {})
+             and data.get("defaults", {}).get("_comment") == "keep"
+             and data.get("defaults", {}).get("note") == 1
+             and data.get("vocabulary", {}).get("terms") == ["keepme"],
+             f"bl7_pin: the invalid pin was not normalized away with siblings "
+             f"kept: {data}"))
+    norm("bl7_ptt", {"push_to_talk": {"_comment": "keep", "enabled": "yes",
+                                      "trigger": "rctrl", "tap_window_s": 0.5}},
+         "JSON boolean",
+         lambda data: check(
+             data.get("push_to_talk", {}).get("enabled") is False
+             and data.get("push_to_talk", {}).get("_comment") == "keep"
+             and data.get("push_to_talk", {}).get("trigger") == "rctrl"
+             and data.get("push_to_talk", {}).get("tap_window_s") == 0.5,
+             f"bl7_ptt: the quoted enabled was not normalized to the shown OFF "
+             f"with siblings kept: {data}"))
+    norm("bl7_lang", {"ui": {"_comment": "keep", "language": "fr"}},
+         "ui.language",
+         lambda data: check(
+             data.get("ui", {}).get("language") == "en"
+             and data.get("ui", {}).get("_comment") == "keep",
+             f"bl7_lang: the unknown language was not normalized to the shown "
+             f"English: {data}"))
+    norm("bl7_defjunk", {"defaults": "junk"}, "not a JSON object",
+         lambda data: check("defaults" not in data,
+                            f"bl7_defjunk: the non-dict defaults survived: {data}"))
+    norm("bl7_uijunk", {"ui": ["x"]}, "not a JSON object",
+         lambda data: check(data.get("ui", {}).get("language") == "en",
+                            f"bl7_uijunk: the non-dict ui block was not replaced "
+                            f"by the shown English: {data}"))
+    norm("bl7_pttjunk", {"push_to_talk": 5}, "not a JSON object",
+         lambda data: check(data.get("push_to_talk", {}).get("enabled") is False,
+                            f"bl7_pttjunk: the non-dict push_to_talk block was "
+                            f"not replaced by the shown OFF: {data}"))
+    norm("bl7_hkjunk", {"hotkeys": "x"}, "not a JSON object",
+         lambda data: check("hotkeys" not in data,
+                            f"bl7_hkjunk: the non-dict hotkeys block survived: "
+                            f"{data}"))
+    norm("bl7_action", {"hotkeys": {"strat_recording": "ctrl+alt+w"}},
+         "unknown action",
+         lambda data: check("hotkeys" not in data,
+                            f"bl7_action: the unknown action survived: {data}"))
+    norm("bl7_combo", {"hotkeys": {"start_recording": "ctrl+alt"}},
+         "not a valid combo",
+         lambda data: check("hotkeys" not in data,
+                            f"bl7_combo: the unparseable combo survived: {data}"))
+    norm("bl7_clash", {"hotkeys": {"start_recording": "ctrl+alt+4"}},
+         "collides",
+         lambda data: check("hotkeys" not in data,
+                            f"bl7_clash: the collision loser survived: {data}"))
+    norm("bl7_list", {"hotkeys": {"cancel_recording": ["ctrl+f9", "f9"]}},
+         "exactly one combo",
+         lambda data: check("hotkeys" not in data,
+                            f"bl7_list: the multi-element list survived: {data}"))
+
+    # 8 -- the no-backup controls. (a) a valid entry equal to its default falls
+    # out of the diff -- meaning preserved, no backup owed.
+    d = tmp / "bl8a"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_text(json.dumps({"hotkeys": {"start_recording":
+                                          config.DEFAULT_HOTKEYS["start_recording"]},
+                              "vocabulary": {"terms": ["keepme"]}},
+                             indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    eff = config.apply_hotkey_overrides(
+        config.DEFAULT_HOTKEYS,
+        json.loads(ps.read_text(encoding="utf-8"))["hotkeys"])[0]
+    bak, losses = sio.save_personal_settings(ps, hotkeys_effective=eff,
+                                             default_api=None,
+                                             example_path=EXAMPLE_PS)
+    check(bak is None and losses == [],
+          f"BL8a: a default-equal hotkey entry counted as a loss -- falling out "
+          f"of the diff preserves its meaning: ({bak}, {losses})")
+    # (b) a valid pin deliberately dropped: instruction, not inability.
+    d = tmp / "bl8b"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_text(json.dumps({"defaults": {"api": "groq"}}) + "\n", encoding="utf-8")
+    bak, losses = sio.save_personal_settings(ps, hotkeys_effective=sio.preset_ctrl_alt(),
+                                             default_api=sio.REMOVE_API_PIN,
+                                             example_path=EXAMPLE_PS)
+    check(bak is None and losses == []
+          and "api" not in sio.read_personal_settings(ps)[0].get("defaults", {}),
+          f"BL8b: dropping a VALID pin on the caller's signal owed a backup -- "
+          f"a deliberate change is no loss: ({bak}, {losses})")
+    # (c) a BOM heals without a backup (tolerated on read, dropped on write).
+    d = tmp / "bl8c"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(b"\xef\xbb\xbf" + json.dumps({"vocabulary": {"terms": ["k"]}})
+                   .encode("utf-8"))
+    bak, losses = sio.save_personal_settings(ps, hotkeys_effective=sio.preset_ctrl_alt(),
+                                             default_api=None, example_path=EXAMPLE_PS)
+    check(bak is None and losses == []
+          and not ps.read_bytes().startswith(b"\xef\xbb\xbf"),
+          f"BL8c: the BOM heal owed a backup, or did not heal: ({bak}, {losses})")
+    # (d) an EMPTY file is corrupt like any other: its zero bytes go to a backup
+    # -- uniform, deliberately no special case.
+    d = tmp / "bl8d"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(b"")
+    bak, losses = sio.save_personal_settings(ps, hotkeys_effective=sio.preset_ctrl_alt(),
+                                             default_api=None, example_path=EXAMPLE_PS)
+    check(bak is not None and bak.read_bytes() == b"" and losses,
+          f"BL8d: an empty file must back up its zero bytes like any corrupt "
+          f"one: ({bak}, {losses})")
+
+    # 9 -- the #294 seeds: a cp1252 example file aborts neither writer.
+    d = tmp / "bl9"; d.mkdir()
+    env_example = d / "env.example"
+    env_example.write_bytes("# Umlaut-Präfix\nGROQ_API_KEY=\n".encode("cp1252"))
+    envp = d / ".env"
+    sio.write_env(envp, {"GROQ_API_KEY": "gsk_x"}, example_path=env_example)
+    check(envp.exists() and sio.read_env(envp) == {"GROQ_API_KEY": "gsk_x"},
+          "BL9: a cp1252 .env.example aborted the seed write (#294)")
+    ps_example = d / "ps.example.json"
+    ps_example.write_bytes(json.dumps({"hotkeys": {"_comment": "Präfix"}},
+                                      ensure_ascii=False).encode("cp1252"))
+    psp = d / "personal_settings.json"
+    bak, losses = sio.save_personal_settings(psp, hotkeys_effective=sio.preset_fkeys(),
+                                             default_api=None,
+                                             example_path=ps_example)
+    check(bak is None and losses == [] and psp.exists()
+          and sio.read_personal_settings(psp)[1] is None,
+          "BL9: a cp1252 personal_settings example aborted the absent-file save "
+          "(#294) -- the skeleton just loses its seeded comments")
+
+    # 10 -- the silent lane never enters: gated False, byte-still, NO backup.
+    d = tmp / "bl10"; d.mkdir()
+    ps = d / "personal_settings.json"
+    ps.write_bytes(corrupt)
+    check(sio.write_ui_language(ps, "de", example_path=EXAMPLE_PS) is False,
+          "BL10: the silent toggle wrote over a corrupt file")
+    check(ps.read_bytes() == corrupt
+          and sorted(x.name for x in d.iterdir()) == ["personal_settings.json"],
+          f"BL10: the silent lane took the backup lane -- D-026 reserves it for "
+          f"the deliberate actions: {sorted(x.name for x in d.iterdir())}")
 
 
 # ---- the save pre-flight (#291) ----------------------------------------------
@@ -572,9 +982,9 @@ def check_save_preflight(tmp):
     holds it locked" has no equivalent here, so the chmod(0) lane is guarded by
     _still_unreadable (it is a no-op as root) exactly like the B1 lane above.
 
-    Two control cases matter as much as the failures. A corrupt-but-decodable
-    personal_settings.json reads fine at the byte level and must stay on D-002's
-    warn-then-overwrite branch rather than be diverted into a read failure. And an
+    Two control cases matter as much as the failures. A corrupt or ANSI
+    personal_settings.json is no read failure since D-026 -- it belongs on the
+    backup lane, and diverting it here would resurrect the retired abort. And an
     unreadable `.env` that this save would not write at all (both key fields blank)
     must not block it: write_env is a no-op there, so a pure hotkey save over a cp1252
     `.env` works today and has to keep working."""
@@ -611,37 +1021,30 @@ def check_save_preflight(tmp):
     check(env_new.exists() and ps_new.exists(),
           "pre-flight: the first-run save it cleared wrote nothing")
 
-    # 3 -- an ANSI/cp1252 personal_settings.json: its German vocabulary is intact, just
-    # in the wrong encoding (B3), so the write aborts. The pre-flight names it, names
-    # it as a decoding failure, and writes nothing while doing so.
+    # 3 -- an ANSI/cp1252 personal_settings.json: its German vocabulary is intact,
+    # just in the wrong encoding. Since D-026 that is no abort case -- the save
+    # goes through over the backup lane -- so the pre-flight must NOT report it.
     env_3 = tmp / "pf_ansips.env"
     env_3.write_text("GROQ_API_KEY=gsk_old\n", encoding="utf-8")
     ps_3 = tmp / "pf_ansi.json"
     ps_3.write_bytes(ANSI_JSON)
     env_before, ps_before = env_3.read_bytes(), ps_3.read_bytes()
-    got = P(env_path=env_3, env_updates=A_KEY, ps_path=ps_3)
-    check(isinstance(got, tuple) and len(got) == 2 and Path(got[0]) == ps_3,
-          f"pre-flight: an ANSI personal_settings.json was not reported as the failing "
-          f"file: {got!r}")
-    check(got is not None and isinstance(got[1], UnicodeDecodeError),
-          f"pre-flight: the reported error is not the decoding failure the user has to "
-          f"read about: {(got[1] if got else got)!r}")
+    check(P(env_path=env_3, env_updates=A_KEY, ps_path=ps_3) is None,
+          "pre-flight: an ANSI personal_settings.json was reported as a read "
+          "failure -- since D-026 it rides the backup lane, and blocking it here "
+          "would resurrect the retired undecodable-file abort")
     check(env_3.read_bytes() == env_before and ps_3.read_bytes() == ps_before,
-          "pre-flight: the probe itself wrote something -- it exists precisely so that "
-          "the abort happens before the first write")
-    raised = False
-    try:
-        sio.write_personal_settings(ps_3, hotkeys_effective=sio.preset_ctrl_alt(),
-                                    default_api=None, example_path=EXAMPLE_PS)
-    except (UnicodeError, OSError):
-        raised = True
-    check(raised and ps_3.read_bytes() == ps_before,
-          "pre-flight fixture: write_personal_settings no longer aborts on an ANSI "
-          "file, so the pre-flight would now be predicting a failure that never comes")
+          "pre-flight: the probe itself wrote something")
+    bak, _losses = sio.save_personal_settings(
+        ps_3, hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+        example_path=EXAMPLE_PS)
+    check(bak is not None and bak.read_bytes() == ps_before,
+          "pre-flight fixture: the save the pre-flight now clears must really go "
+          "through with the ANSI bytes parked byte-exact in the backup")
+    bak.unlink()
 
-    # 4 -- CONTROL: corrupt but decodable. The bytes read fine; this is D-002's
-    # warn-then-overwrite branch, which the explicit save takes after the app has
-    # warned -- diverting it into a read failure would take the way out away.
+    # 4 -- corrupt but decodable: the same non-failure, now uniformly on the
+    # backup lane. Diverting it into a read failure would take the way out away.
     ps_4 = tmp / "pf_corrupt.json"
     ps_4.write_text('{\n  "vocabulary": {"terms": ["keepme"]},\n', encoding="utf-8")
     _data, warn = sio.read_personal_settings(ps_4)
@@ -649,13 +1052,15 @@ def check_save_preflight(tmp):
           "pre-flight fixture: the corrupt-but-decodable file should warn, not raise")
     check(P(env_path=env_ok, env_updates=A_KEY, ps_path=ps_4) is None,
           "pre-flight: a corrupt-but-decodable personal_settings.json was reported as "
-          "unreadable -- its bytes read fine, and it belongs on D-002's warn-then-"
-          "overwrite branch that the explicit save is allowed to take")
-    sio.write_personal_settings(ps_4, hotkeys_effective=sio.preset_ctrl_alt(),
-                                default_api=None, example_path=EXAMPLE_PS)
+          "unreadable -- it belongs on D-026's backup lane, which the explicit save "
+          "is allowed to take")
+    bak, _losses = sio.save_personal_settings(
+        ps_4, hotkeys_effective=sio.preset_ctrl_alt(), default_api=None,
+        example_path=EXAMPLE_PS)
     _d2, warn2 = sio.read_personal_settings(ps_4)
-    check(warn2 is None,
-          "pre-flight: the save it cleared did not overwrite the corrupt file")
+    check(bak is not None and warn2 is None,
+          "pre-flight: the save it cleared did not back up + overwrite the corrupt file")
+    bak.unlink()
 
     # 5 -- an ANSI/cp1252 .env with a key to write: the same abort at the other file.
     env_5 = tmp / "pf_ansi.env"
@@ -689,18 +1094,20 @@ def check_save_preflight(tmp):
           "pre-flight fixture: write_env is no longer a no-op for a blank update set, "
           "so the rule the probe skips the file on has changed under it")
 
-    # 7 -- both unreadable: the file named is the one written first, so repairing it
-    # is what the next click needs. With nothing to write to .env, the other one.
+    # 7 -- both files ANSI: with a key to write, .env -- the one written first and
+    # still an abort case -- is the one named. With nothing to write to .env, the
+    # ANSI personal_settings.json blocks nothing anymore: the save rides its
+    # backup lane (the ps-names-itself case lives on in the locked lane below,
+    # where the bytes really cannot be read).
     ps_7 = tmp / "pf_both.json"
     ps_7.write_bytes(ANSI_JSON)
     got = P(env_path=env_5, env_updates=A_KEY, ps_path=ps_7)
     check(isinstance(got, tuple) and Path(got[0]) == env_5,
-          f"pre-flight: with both files unreadable it must name .env, the one written "
-          f"first and therefore the one this save fails on: {got!r}")
-    got = P(env_path=env_5, env_updates=BLANK, ps_path=ps_7)
-    check(isinstance(got, tuple) and Path(got[0]) == ps_7,
-          f"pre-flight: with .env out of the picture the unreadable "
-          f"personal_settings.json must be the one named: {got!r}")
+          f"pre-flight: with a key to write the ANSI .env must be named, the one "
+          f"file this save still aborts on: {got!r}")
+    check(P(env_path=env_5, env_updates=BLANK, ps_path=ps_7) is None,
+          "pre-flight: with .env out of the picture an ANSI personal_settings.json "
+          "blocked the save -- since D-026 it goes through over the backup lane")
 
     # 8 -- the locked lane. chmod(0) only enforces this where the filesystem and the
     # user honor it (never as root), so guard it and skip loudly rather than pass
@@ -1690,21 +2097,21 @@ def check_ui_language_gate(tmp):
     check("vocabulary" not in data,
           "GATE-missing: the skeleton seeded a placeholder vocabulary block")
 
-    # (5) An UNDECODABLE file (ANSI/cp1252, its German vocabulary intact) raises out
-    # of the probe rather than being swallowed here: the abort is B1/D-002's, and
-    # swallowing belongs to the caller's best-effort lane (D-014). Bytes untouched.
+    # (5) An UNDECODABLE file (ANSI/cp1252, its German vocabulary intact) gates
+    # like corrupt JSON since D-026 -- one whole-file warning class -- instead of
+    # raising: False, bytes untouched, and NO backup (rescuing a broken file
+    # belongs to the deliberate actions, never to the silent lane).
     p = tmp / "ps_gate_ansi.json"
     ansi_bytes = '{\n  "vocabulary": {"terms": ["Grüße", "Präfix"]}\n}\n'.encode("cp1252")
     p.write_bytes(ansi_bytes)
-    raised = False
-    try:
-        sio.write_ui_language(p, "de", example_path=EXAMPLE_PS)
-    except (UnicodeError, OSError):
-        raised = True
-    check(raised, "GATE-undecodable: write_ui_language swallowed the read error instead "
-                  "of propagating it to the caller's best-effort lane")
+    check(sio.write_ui_language(p, "de", example_path=EXAMPLE_PS) is False,
+          "GATE-undecodable: an ANSI file must gate the silent toggle (False), "
+          "the D-026 warning class it now shares with corrupt JSON")
     check(p.read_bytes() == ansi_bytes,
           "GATE-undecodable: the ANSI file was clobbered (vocabulary destroyed)")
+    check(not list(tmp.glob("ps_gate_ansi.backup-*.json")),
+          "GATE-undecodable: the silent toggle created a backup -- the backup lane "
+          "belongs to the deliberate actions alone (D-026)")
 
 
 # ---- startup-engine preselection (#178) --------------------------------------
@@ -2212,7 +2619,8 @@ def check_reset_defaults(tmp):
     file moves -- and the second half is the one a user notices."""
     # Exactly the call _reset_to_defaults makes (test_settings_visibility's
     # test_reset_with_display drives the real button and asserts the file it leaves
-    # behind): the shipped hotkeys, no pin, English, push-to-talk off.
+    # behind): the shipped hotkeys, no pin, English, push-to-talk off -- through
+    # the D-026 backup lane, like every deliberate write since #263.
     RESET = dict(hotkeys_effective=config.DEFAULT_HOTKEYS,
                  default_api=sio.REMOVE_API_PIN, example_path=EXAMPLE_PS,
                  ui_language="en", ptt_enabled=False)
@@ -2241,7 +2649,11 @@ def check_reset_defaults(tmp):
     }
     p = tmp / "ps_reset_dirty.json"
     p.write_text(json.dumps(dirty, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    sio.write_personal_settings(p, **RESET)
+    bak, losses = sio.save_personal_settings(p, **RESET)
+    check(bak is None and losses == [] and not list(tmp.glob("ps_reset_dirty.backup-*")),
+          f"reset-dirty: a reset over a healthy, fully-understood file owed a "
+          f"backup -- valid values a deliberate action changes are instruction, "
+          f"not loss (D-026): {losses}")
     data, warn = sio.read_personal_settings(p)
     check(warn is None, "reset-dirty: the file did not reload as valid JSON")
     # The hotkeys block keeps its comment lead and the parked "_" key -- the latter is
@@ -2295,7 +2707,14 @@ def check_reset_defaults(tmp):
                              "push_to_talk": {"enabled": "yes"},
                              "vocabulary": {"terms": ["keepme"]}},
                             indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    sio.write_personal_settings(p, **RESET)
+    invalid_before = p.read_bytes()
+    bak, losses = sio.save_personal_settings(p, **RESET)
+    check(bak is not None and bak.read_bytes() == invalid_before,
+          "reset-invalid: clearing hand-typed invalid values owed a backup with "
+          "the old bytes byte-exact (D-026) -- the reset is what discards them")
+    check(len(losses) == 2,
+          f"reset-invalid: expected the two invalid entries as losses: {losses}")
+    bak.unlink()
     data, _ = sio.read_personal_settings(p)
     check("api" not in data.get("defaults", {}),
           f"reset-invalid: an unknown engine id survived the reset -- no ordinary save "
@@ -2310,7 +2729,10 @@ def check_reset_defaults(tmp):
     # documenting through the example's _comment leads -- and WITHOUT the example's
     # placeholder vocabulary, which would otherwise become live Soniox vocabulary.
     p = tmp / "ps_reset_fresh.json"
-    sio.write_personal_settings(p, **RESET)
+    bak, losses = sio.save_personal_settings(p, **RESET)
+    check(bak is None and losses == [],
+          f"reset-fresh: a reset over NO file owed a backup -- nothing exists to "
+          f"lose: {losses}")
     data, warn = sio.read_personal_settings(p)
     check(warn is None, "reset-fresh: the written file is not valid JSON")
     check("vocabulary" not in data,
@@ -2326,19 +2748,21 @@ def check_reset_defaults(tmp):
     # comes back normalized on the FIRST reset; from there the bytes must stand still.
     p = tmp / "ps_reset_twice.json"
     p.write_text(json.dumps(dirty, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    sio.write_personal_settings(p, **RESET)
+    sio.save_personal_settings(p, **RESET)
     once = p.read_bytes()
-    sio.write_personal_settings(p, **RESET)
+    bak, _losses = sio.save_personal_settings(p, **RESET)
     check(p.read_bytes() == once,
           "reset-twice: a second reset changed the file -- the reset is a forced "
           "state, so repeating it must be a no-op on the bytes")
+    check(bak is None and not list(tmp.glob("ps_reset_twice.backup-*")),
+          "reset-twice: a repeated reset owed a backup over its own output")
 
     # (e) .env is untouched. Trivially true (the reset never calls write_env, which
     # check_reset_wiring pins on the source), but it is the feature's loudest promise.
     env = tmp / "ps_reset.env"
     env.write_text("GROQ_API_KEY=gsk_secret\nSONIOX_API_KEY=so_secret\n", encoding="utf-8")
     env_before = env.read_bytes()
-    sio.write_personal_settings(tmp / "ps_reset_dirty.json", **RESET)
+    sio.save_personal_settings(tmp / "ps_reset_dirty.json", **RESET)
     check(env.read_bytes() == env_before,
           "reset-env: the settings write reached the .env -- the keys are the user's "
           "data and the reset must never write them (D-011, D-020)")
@@ -2388,10 +2812,14 @@ def check_reset_wiring():
     # (D-015) and one with push-to-talk on would keep it on. hotkeys_effective and
     # default_api need no literal here: the lane's fixture differs from the shipped
     # value for both, so deriving either turns it red.
-    writes = _calls_to(reset, "write_personal_settings")
+    writes = _calls_to(reset, "save_personal_settings")
     check(len(writes) == 1,
-          f"reset-wiring: _reset_to_defaults makes {len(writes)} settings writes, "
+          f"reset-wiring: _reset_to_defaults makes {len(writes)} backup-lane writes, "
           "expected exactly one -- the reset is one forced write, not a sequence")
+    check(not _calls_to(reset, "write_personal_settings"),
+          "reset-wiring: _reset_to_defaults reaches the raw writer -- a deliberate "
+          "write goes through the D-026 backup lane (save_personal_settings) and "
+          "nothing else, or a corrupt file is discarded without a backup")
     if len(writes) == 1:
         kw = {k.arg: k.value for k in writes[0].keywords}
         for name, want in (("ui_language", "en"), ("ptt_enabled", False)):
@@ -2488,6 +2916,17 @@ def check_readfail_wiring():
               "old title is the correct one")
 
     save = methods["_save"]
+    # The D-026 pins (#263): _save writes personal settings through the backup
+    # lane, exactly once, and never reaches the raw writer -- the structural
+    # guarantee behind "no save discards content without a successful backup".
+    check(len(_calls_to(save, "save_personal_settings")) == 1,
+          "readfail-wiring: _save does not make exactly one save_personal_settings "
+          "call -- the D-026 backup lane is the only personal-settings write a "
+          "deliberate save may take (#263)")
+    check(not _calls_to(save, "write_personal_settings"),
+          "readfail-wiring: _save reaches write_personal_settings -- the raw writer "
+          "refuses a broken file, and routing the save through it would either "
+          "crash there or bypass the backup (D-026, #263)")
     probes = _calls_to(save, "unreadable_save_target")
     check(len(probes) == 1,
           f"readfail-wiring: expected exactly one unreadable_save_target call in _save, "
@@ -2602,8 +3041,9 @@ def check_ptt_wiring():
         return
 
     def writes_in(method):
-        """Every write_personal_settings call inside one method."""
-        return _calls_to(method, "write_personal_settings")
+        """Every save_personal_settings call inside one method (the D-026 backup
+        lane -- the only personal-settings write a deliberate save takes, #263)."""
+        return _calls_to(method, "save_personal_settings")
 
     # ---- _save: ptt_enabled= gets the resolver's result, never the raw toggle ----
     save = methods.get("_save")
@@ -2622,12 +3062,12 @@ def check_ptt_wiring():
           "every save rewrites the push_to_talk block (D-002)")
     save_writes = writes_in(save)
     check(len(save_writes) == 1,
-          f"ptt-wiring: expected exactly one write_personal_settings call in _save, "
+          f"ptt-wiring: expected exactly one save_personal_settings call in _save, "
           f"found {len(save_writes)} -- this guard assumes the single save write")
     for call in save_writes:
         passed = {k.arg: k.value for k in call.keywords if k.arg}
         check("ptt_enabled" in passed,
-              "ptt-wiring: _save's write_personal_settings call passes no ptt_enabled -- "
+              "ptt-wiring: _save's save_personal_settings call passes no ptt_enabled -- "
               "the toggle would never persist")
         value = passed.get("ptt_enabled")
         check(isinstance(value, ast.Name) and value.id in resolved,
@@ -2949,6 +3389,7 @@ def main():
         check_engine_pin(tmp)
         check_ptt_toggle(tmp)
         check_reset_defaults(tmp)
+        check_backup_lane(tmp)
         check_save_preflight(tmp)
         check_nokey_unreadable(tmp)
         check_first_run_decision(tmp)

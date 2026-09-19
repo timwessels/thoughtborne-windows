@@ -48,6 +48,7 @@ $KeepList = @(
     '.env.local',
     '.env.*.local',
     'personal_settings.json',
+    'personal_settings.backup-*.json',
     'runtime_state.json',
     'history',
     'voice_archive',

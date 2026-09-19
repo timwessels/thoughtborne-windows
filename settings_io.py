@@ -38,14 +38,22 @@ rewrite.
     creates none), a bool writes ONLY `enabled` and keeps every sibling the user
     hand-tuned beside it.
 All writes are atomic (temp file in the same dir + `os.replace`). A present-but-
-unreadable target aborts the save (the read error propagates) rather than
-clobbering it, and a UTF-8 BOM is tolerated on read and healed (dropped) on write.
+unreadable target (the bytes cannot be read -- locked / permission-denied) aborts
+the save (the read error propagates) rather than clobbering it, and a UTF-8 BOM is
+tolerated on read and healed (dropped) on write. A `personal_settings.json` whose
+CONTENT cannot be carried (corrupt JSON, a non-object top level, bytes that are
+not UTF-8) is never silently overwritten either: the deliberate actions -- Save and
+Reset -- go through `save_personal_settings` (D-026), which renames the found file
+to a timestamped `personal_settings.backup-...json` first and aborts if that
+rename fails ("no backup, no overwrite"), while the raw merge writer refuses such
+a file outright.
 """
 
 import copy
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import config
@@ -156,7 +164,10 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
             try:
                 with open(example_path, encoding="utf-8-sig", newline="") as f:
                     lines = f.read().splitlines(keepends=True)
-            except OSError:
+            except (OSError, UnicodeDecodeError):
+                # The example is optional shipped docs, not user data: one saved
+                # as ANSI (#294) must not abort the user's save with a raw
+                # exception -- it just means no seeded header.
                 lines = []
 
     append_ending = "\r\n" if any(l.endswith("\r\n") for l in lines) else "\n"
@@ -304,36 +315,34 @@ REMOVE_API_PIN = object()
 
 def read_personal_settings(path) -> tuple:
     """Return (data, warning). A valid file -> (dict, None). A MISSING file ->
-    ({}, None) (a first run is normal, not a warning). Corrupt JSON / a non-object
-    top level (the bytes read fine, the content is just invalid) -> ({}, message) so
-    the GUI can warn 'your settings file is unreadable, saving will overwrite it'.
+    ({}, None) (a first run is normal, not a warning). A file whose CONTENT cannot
+    be carried -- corrupt JSON, a non-object top level, or bytes that do not decode
+    as UTF-8 (an ANSI/cp1252 file) -> ({}, message): since D-026 all three are one
+    whole-file loss class, and a deliberate save backs the file up before rewriting
+    it (`save_personal_settings`; the message is what its backup log line carries).
     A present-but-UNREADABLE file (the bytes cannot be read at all -- locked /
     permission-denied) is NOT masqueraded as absent: the OSError propagates so a
-    caller that would otherwise overwrite it aborts instead, protecting the user's
-    vocabulary (B1). An encoding-undecodable file (ANSI/cp1252 -- its German
-    vocabulary is intact, just in the wrong encoding) is recoverable data too, so its
-    UnicodeDecodeError propagates the same way -> abort; this is distinct from a
-    corrupt-but-utf-8 JSON body, which is unrecoverable and takes the warn-then-
-    overwrite branch below. A UTF-8 BOM is tolerated (utf-8-sig). The distinction is
-    simply whether the bytes could be read + decoded at all."""
+    caller aborts instead of deciding anything over a file it could not even read
+    (B1) -- the backup rename would fail on such a file too. A UTF-8 BOM is
+    tolerated (utf-8-sig)."""
     path = Path(path)
     try:
         with open(path, encoding="utf-8-sig") as f:
             text = f.read()
     except FileNotFoundError:
         return {}, None
-    # A genuine OSError (unreadable bytes / locked file) and a UnicodeDecodeError (an
-    # ANSI/cp1252 file whose data is intact but not utf-8 decodable) are deliberately
-    # NOT caught here: both propagate so write_personal_settings aborts rather than
-    # skeletoning over recoverable user data and destroying its vocabulary (B1). Only
-    # a corrupt-but-utf-8 JSON body (read fine, invalid JSON) takes the warn-then-
-    # overwrite branch below.
+    except UnicodeDecodeError as e:
+        # An ANSI/cp1252 file holds intact data (German vocabulary) in the wrong
+        # encoding -- exactly what the D-026 backup preserves, so this stopped being
+        # an abort case (#263). A genuine OSError still propagates: unreadable
+        # bytes leave nothing to decide over, and nothing a rename could save.
+        return {}, f"personal_settings.json is not UTF-8 ({e}); a save backs it up"
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
-        return {}, f"personal_settings.json is unreadable ({e}); saving will overwrite it"
+        return {}, f"personal_settings.json is not valid JSON ({e}); a save backs it up"
     if not isinstance(data, dict):
-        return {}, "personal_settings.json is not a JSON object; saving will overwrite it"
+        return {}, "personal_settings.json is not a JSON object; a save backs it up"
     return data, None
 
 
@@ -377,12 +386,16 @@ def _managed_skeleton(example_path) -> dict:
     return skeleton
 
 
-def write_personal_settings(path, *, hotkeys_effective, default_api,
-                            example_path=None, ui_language=None,
-                            ptt_enabled=None) -> None:
-    """Merge-write. Load the existing dict (or build a minimal skeleton from the
-    managed blocks' example `_comment` leads -- never the placeholder vocabulary).
-    Replace ONLY the managed blocks:
+def _merge_personal_settings(found: dict, *, hotkeys_effective, default_api,
+                             example_path=None, ui_language=None,
+                             ptt_enabled=None) -> dict:
+    """The one merge behind both write lanes: `found` (a read_personal_settings
+    result; an empty one starts from the managed skeleton) with the managed
+    surfaces applied per the contracts write_personal_settings documents.
+    Extracted (#263) so `save_personal_settings` can compose its result in memory
+    BEFORE the D-026 backup rename; the merge itself is the unchanged D-002
+    surgical merge. May mutate `found` -- both callers pass a fresh read.
+    Replaced are ONLY the managed surfaces:
       - hotkeys (three-valued like ui.language / defaults.api): `hotkeys_effective`
         is written as the diff vs `config.DEFAULT_HOTKEYS` in #55's partial-override
         shape; an empty diff leaves only the block's `_comment` (or drops the block),
@@ -417,21 +430,11 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
         removal sentinel -- there is no "delete the block" state to express.
     Every unmanaged block (vocabulary / soniox_endpointing) and every `_comment` is
     preserved untouched; `push_to_talk` is preserved untouched too unless
-    `ptt_enabled` is set, which touches only its `enabled` key. Serialized
-    json.dump(indent=2, ensure_ascii=False) + trailing newline. Atomic (temp file +
-    os.replace).
-
-    A MISSING target is the normal first-run case (read -> {}), so only the managed
-    skeleton is written. A present-but-UNREADABLE target makes the read raise, which
-    propagates out of here so the save aborts -- the file is never skeletoned over
-    and its vocabulary is never destroyed (B1). A corrupt-JSON target (bytes read
-    fine, invalid JSON) stays the deliberate warn-then-overwrite case:
-    read_personal_settings already handed the GUI the warning, and a save replaces
-    it with a clean managed skeleton -- which is the explicit Save's branch alone, and
-    why the SILENT language toggle goes through write_ui_language below (#239)."""
-    path = Path(path)
-    existing, _warning = read_personal_settings(path)
-    data = existing if existing else _managed_skeleton(example_path)
+    `ptt_enabled` is set, which touches only its `enabled` key. Leave-as-found
+    covers a hand-typed INVALID value too when its signal is None -- the deliberate
+    lane (`save_personal_settings`) converts such a None into the shown default
+    first (D-026's normalize-on-save), backup-covered; this merge stays literal."""
+    data = found if found else _managed_skeleton(example_path)
 
     # ---- hotkeys: write only the diff vs the shipped defaults -----------------
     # hotkeys_effective=None means "leave the hotkeys block exactly as found"
@@ -458,8 +461,9 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
     # rewriting it would run the removed diff rule over a value the user never
     # touched and could delete a hand-written `"api": "soniox-live"` pin on an
     # unrelated save -- and with a remembered engine present that changes the next
-    # start. Leaving it also preserves an INVALID value (the tool warns at every
-    # start, the honest way to surface a typo). REMOVE_API_PIN force-drops the key
+    # start. Leaving it also preserves an INVALID value here (the deliberate lane,
+    # save_personal_settings, converts that None to REMOVE_API_PIN first --
+    # normalize-on-save, D-026). REMOVE_API_PIN force-drops the key
     # (remember-mode chosen over a pin). A real id is written verbatim, the built-in
     # default included -- "always start with X" is the frozen copy that used to be
     # diffed away; the diff-against-the-default gate is intentionally gone here.
@@ -495,7 +499,8 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
     # ---- push_to_talk.enabled: on demand, three-valued (#233, D-002 addendum) ---
     # None -> leave the whole block exactly as found (and create none), so a save
     # that never touched the toggle keeps the file byte-identical and a hand-typed
-    # invalid `enabled` survives (same stance as defaults.api). Anything else -- in
+    # invalid `enabled` survives HERE (the deliberate lane converts that None to
+    # the shown False first -- normalize-on-save, D-026). Anything else -- in
     # practice the bool resolve_ptt_save_signal returns -- writes ONLY
     # `enabled`: the `_comment` and every sibling the user hand-tuned there --
     # trigger, insert, the three thresholds -- are carried over, so disabling and
@@ -514,18 +519,215 @@ def write_personal_settings(path, *, hotkeys_effective, default_api,
         new_ptt["enabled"] = bool(ptt_enabled)
         data["push_to_talk"] = new_ptt
 
+    return data
+
+
+def write_personal_settings(path, *, hotkeys_effective, default_api,
+                            example_path=None, ui_language=None,
+                            ptt_enabled=None) -> None:
+    """The raw merge-write: read the target, apply `_merge_personal_settings`
+    above (its docstring carries the per-surface contracts), serialize with
+    json.dumps(indent=2, ensure_ascii=False) + trailing newline, write atomically
+    (temp file + os.replace).
+
+    A MISSING target is the normal first-run case (read -> {}), so only the
+    managed skeleton is written. A present-but-UNREADABLE target makes the read
+    raise, which propagates so the save aborts -- the file is never skeletoned
+    over and its vocabulary is never destroyed (B1). A target the read cannot
+    CARRY -- corrupt JSON, a non-object top level, undecodable bytes -- raises
+    ValueError instead of skeletoning over it: since D-026 the only path that may
+    write over such a file is the backup lane (`save_personal_settings` below),
+    so this writer refusing outright is what makes "a save that discards content
+    without a successful backup rename" structurally impossible rather than a
+    discipline. In practice the raise is a TOCTOU backstop and a guard against
+    future direct callers: the silent language toggle gates itself off such a
+    file before reaching here (#239/D-014), and the deliberate actions go through
+    the backup lane."""
+    path = Path(path)
+    existing, warning = read_personal_settings(path)
+    if warning is not None:
+        raise ValueError(warning)
+    data = _merge_personal_settings(existing, hotkeys_effective=hotkeys_effective,
+                                    default_api=default_api,
+                                    example_path=example_path,
+                                    ui_language=ui_language,
+                                    ptt_enabled=ptt_enabled)
+    _atomic_write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def _owned_losses(found: dict) -> list:
+    """What a deliberate save CANNOT carry from `found` into its result, per
+    entry and signal-independent -- D-026's per-entry loss classes. The
+    discriminator is "would the tool's loader warn and fall back?": for the
+    hotkeys block the loader itself answers (its warnings ARE the losses --
+    unknown actions, bad shapes, unparseable combos, dead combos, collision
+    losers -- so the two can never drift), for the other owned surfaces the same
+    validity rules the app's load applies. Meaning-preserving normalization is NOT
+    a loss: canonical spellings, the D-024 one-element-list collapse, an entry
+    equal to its default falling out of the diff, BOM healing, re-serialization
+    (the accepted D-020 edge). Neither is a deliberate change the caller signals
+    (a rebind, a dropped pin, a reset over valid values): "cannot carry" is
+    inability, not instruction. Pure -> off-Windows testable."""
+    losses = []
+    hk = found.get("hotkeys")
+    if hk is not None:
+        if isinstance(hk, dict):
+            losses.extend(config.apply_hotkey_overrides(
+                config.DEFAULT_HOTKEYS, hk)[1])
+        else:
+            losses.append("hotkeys: not a JSON object")
+    dblk = found.get("defaults")
+    if dblk is not None:
+        if isinstance(dblk, dict):
+            if "api" in dblk and dblk["api"] not in config.AVAILABLE_APIS:
+                losses.append(f"defaults.api: unknown engine {dblk['api']!r}")
+        else:
+            losses.append("defaults: not a JSON object")
+    ptt = found.get("push_to_talk")
+    if ptt is not None:
+        if isinstance(ptt, dict):
+            if "enabled" in ptt and not isinstance(ptt["enabled"], bool):
+                losses.append(f"push_to_talk.enabled: {ptt['enabled']!r} "
+                              "is not a JSON boolean")
+        else:
+            losses.append("push_to_talk: not a JSON object")
+    ui = found.get("ui")
+    if ui is not None:
+        if isinstance(ui, dict):
+            if "language" in ui and ui["language"] not in ("de", "en"):
+                losses.append(f"ui.language: {ui['language']!r} is not 'de' or 'en'")
+        else:
+            losses.append("ui: not a JSON object")
+    return losses
+
+
+def _normalized_signals(found, default_api, ui_language, ptt_enabled):
+    """D-026's normalize-on-save, expressed entirely through the existing
+    three-valued signal contracts so the merge needs no change: wherever the
+    found value is one the owned surface cannot carry AND the caller passed the
+    leave-as-found None, the signal becomes the shown default -- the value the
+    readers effectively produce for the broken entry (no pin / OFF / English),
+    which is what the window displayed for it. An actively moved control
+    (signal != None) replaces the value anyway; the loss is recorded either way
+    (`_owned_losses` is signal-independent), so the backup keeps the trace.
+    hotkeys need no conversion: a deliberate save passes the full effective dict
+    and the diff rewrite normalizes the block. Pure."""
+    dblk = found.get("defaults")
+    if default_api is None and dblk is not None and (
+            not isinstance(dblk, dict)
+            or ("api" in dblk and dblk["api"] not in config.AVAILABLE_APIS)):
+        default_api = REMOVE_API_PIN
+    ui = found.get("ui")
+    if ui_language is None and ui is not None and (
+            not isinstance(ui, dict)
+            or ("language" in ui and ui["language"] not in ("de", "en"))):
+        ui_language = "en"
+    ptt = found.get("push_to_talk")
+    if ptt_enabled is None and ptt is not None and (
+            not isinstance(ptt, dict)
+            or ("enabled" in ptt and not isinstance(ptt["enabled"], bool))):
+        ptt_enabled = False
+    return default_api, ui_language, ptt_enabled
+
+
+def _backup_aside(path):
+    """Rename `path` to its D-026 backup name
+    (`<stem>.backup-YYYY-MM-DD_HHMMSS<suffix>`, `-2`/`-3`/... on collision) and
+    return the backup Path. None when the file vanished between probe and rename
+    (nothing left to lose -- what was deleted externally no rename can save). Any
+    other rename failure propagates: no backup, no overwrite (D-026).
+
+    The exists-loop instead of a no-clobber primitive (3.10 has none portable):
+    on Windows os.rename raises FileExistsError over an existing target (a safe
+    abort), on POSIX it would clobber -- but this module is the single writer and
+    the app is single-instance (D-009), so the window between the check and the
+    rename is practically empty. os.replace would be wrong here: it clobbers
+    everywhere."""
+    path = Path(path)
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    candidate = path.with_name(f"{path.stem}.backup-{stamp}{path.suffix}")
+    n = 2
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem}.backup-{stamp}-{n}{path.suffix}")
+        n += 1
+    try:
+        os.rename(path, candidate)
+    except FileNotFoundError:
+        return None
+    return candidate
+
+
+def save_personal_settings(path, *, hotkeys_effective, default_api,
+                           example_path=None, ui_language=None,
+                           ptt_enabled=None) -> tuple:
+    """The D-026 write lane for the two deliberate actions, Save and Reset:
+    backup before loss, no backup -> no overwrite. Returns (backup, losses):
+    `backup` is the Path the found file was renamed to (None when no backup was
+    owed, or when the file vanished between probe and rename), `losses` the
+    reasons one was owed -- the whole-file warning, or the per-entry loader
+    warnings -- for the caller to log (this module never logs, D-026 gives the
+    log duty to the app).
+
+    The lane, in order:
+      1. Probe the target FRESH (the #239 pattern): read_personal_settings at
+         write time, so a file that broke while the window was open is caught.
+         An OSError (locked / permission-denied) propagates -> abort before
+         anything happened.
+      2. A whole-file warning (corrupt JSON, non-object, not UTF-8) is the loss;
+         otherwise `_owned_losses` lists what this save cannot carry, and
+         `_normalized_signals` converts leave-as-found Nones over invalid owned
+         entries into the shown defaults -- safe now because the backup keeps
+         the trace.
+      3. The result is composed IN MEMORY, then -- only when there are losses --
+         the found file is renamed aside (`_backup_aside`); a failed rename
+         propagates: no backup, no overwrite, save aborted.
+      4. The atomic write. If THAT fails after a successful backup, the backup
+         is renamed back (best-effort) and the original error re-raised: an
+         aborted save must not leave the target missing from its place -- the
+         savefail dialog's "everything is still there" stays true of the file,
+         and a failed rollback still leaves the data safe in the backup.
+
+    `hotkeys_effective` must be the FULL effective dict here (never None): both
+    deliberate actions have one to pass -- the window state, the shipped
+    defaults -- and the hotkey loss class assumes the block is rewritten as its
+    diff. A normal save over a healthy, fully-understood file creates no backup
+    (D-026); the silent language toggle never takes this lane at all -- its gate
+    refuses any file it cannot carry (write_ui_language, D-014/#239)."""
+    path = Path(path)
+    found, warning = read_personal_settings(path)
+    if warning is not None:
+        losses = [warning]
+    else:
+        losses = _owned_losses(found)
+        default_api, ui_language, ptt_enabled = _normalized_signals(
+            found, default_api, ui_language, ptt_enabled)
+    data = _merge_personal_settings(found, hotkeys_effective=hotkeys_effective,
+                                    default_api=default_api,
+                                    example_path=example_path,
+                                    ui_language=ui_language,
+                                    ptt_enabled=ptt_enabled)
     content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    _atomic_write(path, content)
+    backup = _backup_aside(path) if losses else None
+    try:
+        _atomic_write(path, content)
+    except BaseException:
+        if backup is not None:
+            try:
+                os.rename(backup, path)
+            except OSError:
+                pass
+        raise
+    return backup, losses
 
 
 def write_ui_language(path, language, example_path=None) -> bool:
     """The D-014 language-toggle persist: the ui.language-only surgical write above,
-    gated so the SILENT lane can never take the warn-then-overwrite branch (#239).
-    That branch belongs to the explicit Save alone (D-002): over a corrupt-but-
-    decodable target (the bytes read fine, the JSON is invalid) write_personal_settings
-    starts from a bare managed skeleton, which would destroy hand-written blocks --
-    vocabulary, soniox_endpointing -- for a click the user does not read as saving. So
-    a warning means: return False, file byte-untouched.
+    gated so the SILENT lane never writes over a file it cannot carry (#239) --
+    and, since D-026, never takes the backup lane either: rescuing a broken file
+    belongs to the deliberate actions (save_personal_settings), not to a click the
+    user does not read as saving. So a warning -- corrupt JSON, a non-object top
+    level, undecodable bytes -- means: return False, file byte-untouched, no
+    backup created.
 
     The corruption is probed FRESH on every call rather than carried from load time:
     a file that breaks while the window is open is protected too, and one that is
@@ -536,8 +738,9 @@ def write_ui_language(path, language, example_path=None) -> bool:
 
     A MISSING file is not a warning and stays the normal first-run lane (managed
     skeleton + ui.language), so a wizard toggle still persists. A present-but-
-    unreadable/undecodable one raises out of the probe, exactly as the write itself
-    would: swallowing that belongs to the caller's best-effort lane (D-014), not here.
+    unreadable one (the bytes cannot be read, OSError) raises out of the probe,
+    exactly as the write itself would: swallowing that belongs to the caller's
+    best-effort lane (D-014), not here.
 
     The signature is deliberately narrow -- no hotkeys, no engine pin, no push-to-talk:
     the silent lane structurally cannot write anything but ui.language. Returns True
@@ -569,26 +772,28 @@ def _probe_env_readable(path) -> None:
 
 def unreadable_save_target(*, env_path, env_updates, ps_path):
     """The pre-flight an explicit save runs BEFORE it writes anything (#291): return
-    `(path, error)` for the first file this save would abort on because its bytes
-    cannot be read or UTF-8-decoded, else `None`. Nothing is written either way.
+    `(path, error)` for the first file this save would abort on, else `None`.
+    Nothing is written either way. For `.env` that is bytes that cannot be read OR
+    UTF-8-decoded (that file stays outside the D-026 backup model); for
+    `personal_settings.json` only bytes that cannot be READ at all (OSError) --
+    an undecodable or corrupt one is no abort case anymore, it rides the backup
+    lane (save_personal_settings, D-026).
 
-    Both writers already abort on such a target rather than clobber it (B1, D-002) --
-    write_env by letting every read error but FileNotFoundError propagate,
-    write_personal_settings through read_personal_settings, which this function calls
-    itself so the two can never drift. What that abort cannot do is tell the CALLER
-    apart from a write failure (`_atomic_write` raises OSError too) or name the file,
-    and it fires only once `.env` has already been rewritten. Asking first buys both
-    and keeps the save all-or-nothing, which is what lets the dialog say that nothing
-    was changed.
+    Both writers abort on the targets probed here rather than clobber them (B1,
+    D-002/D-026) -- write_env by letting every read error but FileNotFoundError
+    propagate, the personal-settings lane through read_personal_settings, which
+    this function calls itself so the two can never drift. What that abort cannot
+    do is tell the CALLER apart from a write failure (`_atomic_write` raises
+    OSError too) or name the file, and it fires only once `.env` has already been
+    rewritten. Asking first buys both and keeps the save all-or-nothing, which is
+    what lets the dialog say that nothing was changed.
 
     `.env` is probed ONLY when this save would actually write it: write_env is a no-op
     for an empty effective update set, so two blank key fields must not let an
     unreadable `.env` block a save that never touches it -- a pure hotkey save over a
     cp1252 `.env` works today and keeps working. `_clean_env_updates`, write_env's own
     rule rather than a second copy, answers that. `.env` comes first because it is
-    written first, so the file named is the one that would have failed. A
-    corrupt-but-decodable personal_settings.json is NOT a failure here: its bytes read
-    fine, and it stays on D-002's warn-then-overwrite branch.
+    written first, so the file named is the one that would have failed.
 
     This is not a lock: a file that turns unreadable between the probe and the write
     falls back to the writers' own abort and the caller's write-failure message --
@@ -635,9 +840,10 @@ def resolve_engine_save_signal(*, mode_now, mode_loaded, engine_now, engine_load
     """Derive the two on-save engine signals for the #198 two-mode control.
 
     Returns `(default_api_signal, memory_api)`:
-      - `default_api_signal` is handed to `write_personal_settings`: `None` (leave
-        `defaults.api` as found), `REMOVE_API_PIN` (drop the pin), or an engine id
-        (write it verbatim, the built-in default included).
+      - `default_api_signal` is the write lanes' `default_api`; the app hands it to
+        `save_personal_settings`: `None` (leave `defaults.api` as found),
+        `REMOVE_API_PIN` (drop the pin), or an engine id (write it verbatim, the
+        built-in default included).
       - `memory_api` is the engine to record via `engine_memory.write_last_engine`,
         or `None` to leave the memory untouched.
 
@@ -709,11 +915,14 @@ def resolve_fixed_entry_engine(*, mode_now, mode_loaded, shown_api,
 
 
 def resolve_ptt_save_signal(*, enabled_now, enabled_loaded):
-    """The on-save push-to-talk signal for write_personal_settings' `ptt_enabled`
-    (#233). `None` when the toggle still sits where it was loaded: the file's
-    `push_to_talk` block is then left exactly as found, so a save about something
-    else stays byte-identical there and a hand-typed invalid `enabled` survives
-    (D-002). A real change returns the new bool, which writes only `enabled`.
+    """The on-save push-to-talk signal for the write lanes' `ptt_enabled` (#233);
+    the app hands it to `save_personal_settings`. `None` when the toggle still sits
+    where it was loaded: the file's `push_to_talk` block is then left exactly as
+    found, so a save about something else stays byte-identical there. Over a
+    hand-typed INVALID `enabled` that None no longer means "it survives" -- the
+    deliberate lane converts it into the shown default, OFF (D-026's
+    normalize-on-save), backup-covered; only the raw merge stays literal there.
+    A real change returns the new bool, which writes only `enabled`.
 
     Pure, so the whole table is off-Windows tested (the GUI is hands-on only).
     Deliberately NOT symmetric with resolve_engine_save_signal's REMOVE sentinel:

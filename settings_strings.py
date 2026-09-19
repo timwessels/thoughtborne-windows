@@ -408,11 +408,11 @@ _EN = {
         "not yet saved is discarded. Thoughtborne restarts right afterwards. "
         "Reset now?"),
     "dlg.reset.body_corrupt": (
-        "personal_settings.json cannot be read — it is no longer valid JSON, so the "
-        "reset replaces it with a clean file and everything hand-written in it is "
-        "lost: the recognition vocabulary, the Soniox endpointing block, the "
-        "push-to-talk trigger and timings, your own comments. To keep them, stop "
-        "here and repair the file in a text editor first. Your API keys are not "
+        "personal_settings.json cannot be read as it stands — it is not valid JSON, "
+        "or not saved as UTF-8. The reset first renames it to a "
+        "personal_settings.backup-….json file in the same folder and then writes a "
+        "clean file, so everything hand-written in it — vocabulary, endpointing, "
+        "your own comments — stays available in that backup. Your API keys are not "
         "touched either way. Thoughtborne restarts right afterwards. Reset now?"),
     "dlg.savefail.title": "Saving failed",
     "dlg.savefail.body": (
@@ -858,13 +858,12 @@ _DE = {
         "ist, geht dabei verloren. Thoughtborne startet gleich danach neu. "
         "Jetzt zurücksetzen?"),
     "dlg.reset.body_corrupt": (
-        "Die personal_settings.json lässt sich nicht lesen – sie ist kein gültiges "
-        "JSON mehr. Das Zurücksetzen ersetzt sie deshalb durch eine saubere Datei, "
-        "und alles von Hand Geschriebene darin geht verloren: das "
-        "Erkennungs-Vokabular, der Soniox-Endpointing-Block, die Trigger-Taste und "
-        "die Zeitschwellen von Push-to-talk, deine eigenen Kommentare. Wenn du das "
-        "behalten willst, brich hier ab und repariere die Datei zuerst im "
-        "Texteditor. Deine API-Keys bleiben in beiden Fällen unangetastet. "
+        "Die personal_settings.json lässt sich gerade nicht lesen – sie ist kein "
+        "gültiges JSON oder nicht als UTF-8 gespeichert. Das Zurücksetzen benennt "
+        "sie zuerst in eine Datei personal_settings.backup-….json im selben Ordner "
+        "um und schreibt dann eine saubere Datei – alles von Hand Geschriebene "
+        "darin (Vokabular, Endpointing, deine eigenen Kommentare) bleibt in diesem "
+        "Backup erhalten. Deine API-Keys bleiben in beiden Fällen unangetastet. "
         "Thoughtborne startet gleich danach neu. Jetzt zurücksetzen?"),
     "dlg.savefail.title": "Speichern fehlgeschlagen",
     "dlg.savefail.body": (

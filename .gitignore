@@ -92,7 +92,10 @@ sandbox/*.local.wsb
 
 # User personalization (Soniox context terms etc.)
 # Template: personal_settings.example.json (committed)
+# The backups are D-026's "backup before loss" copies a save parks beside the
+# file; never auto-deleted, so they must never show up as untracked noise.
 personal_settings.json
+personal_settings.backup-*.json
 
 # Runtime state the tool writes about itself (the last selected engine, #193).
 # Machine-written, not a settings file -- personal_settings.json is the

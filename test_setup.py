@@ -112,7 +112,9 @@ def test_denylist_covers_user_data():
     globs = re.findall(r"'([^']+)'", m.group(1))
     assert globs, "no denylist patterns parsed between the sentinels"
     user_data = [".env", ".env.local", ".env.dev.local",
-                 "personal_settings.json", "runtime_state.json", "history",
+                 "personal_settings.json",
+                 "personal_settings.backup-2026-09-19_120000.json",  # D-026 backups
+                 "runtime_state.json", "history",
                  "thoughtborne.log", "thoughtborne.log.1", ".venv",
                  "voice_archive", "text_archive"]
     for path in user_data:
@@ -885,7 +887,9 @@ def test_uninstall_keeplist_covers_user_data_excludes_venv():
     globs = re.findall(r"'([^']+)'", m.group(1))
     assert globs, "no keep-list patterns parsed between the sentinels"
     user_data = [".env", ".env.local", ".env.dev.local",
-                 "personal_settings.json", "runtime_state.json", "history",
+                 "personal_settings.json",
+                 "personal_settings.backup-2026-09-19_120000.json",  # D-026 backups
+                 "runtime_state.json", "history",
                  "thoughtborne.log", "thoughtborne.log.1",
                  "voice_archive", "text_archive"]
     for path in user_data:

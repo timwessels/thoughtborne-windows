@@ -47,6 +47,7 @@ $DataDenylist = @(
     '.env.local',         # anticipated local override (matches the repo .gitignore)
     '.env.*.local',       # e.g. .env.dev.local (NOT .env* -- that would eat .env.example)
     'personal_settings.json',
+    'personal_settings.backup-*.json',  # D-026 backup-before-loss copies, user data
     'runtime_state.json', # tool-written runtime state (last selected engine, #193)
     'history',            # dir, recursive (recordings + transcripts)
     'voice_archive',      # legacy pre-#50 archive
