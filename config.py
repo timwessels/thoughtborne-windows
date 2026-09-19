@@ -801,6 +801,58 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     return effective, warnings
 
 
+def mistrigger_key_map(hotkeys: dict, candidates, start_action='start_recording') -> list:
+    """Ordered [(key_token, action)] pairs for the mis-trigger safety net (#152).
+
+    The net runs when the start hotkey fires while a recording is already going,
+    and asks which stop key is physically down -- so it needs the key token of
+    each candidate action's EFFECTIVE combo, not the shipped letters. Pure, and
+    raising on no value shape apply_hotkey_overrides can produce, so it can be
+    built at call time (which is what lets a rebind reach it at all) and
+    unit-tested without Windows.
+
+    Emitted in `hotkeys` iteration order -- the canonical action order (D-019),
+    so the net carries no second copy of it -- filtered to `candidates` (any
+    container supporting `in`). Two entries are skipped:
+
+    - A token borne by more than one candidate: polling a key cannot tell which
+      action was meant, so ALL its bearers drop out. Distinct combos can share a
+      token ('ctrl+alt+a' and 'alt+a'), so keying a dict by token would instead
+      silently swallow every bearer but one.
+    - A token equal to the start action's own: that key is physically down on
+      every second press of the start hotkey, so an entry on it would stop the
+      running recording every single time.
+
+    Both rules together can empty the map -- the shipped F-key preset
+    (settings_io.PRESET_FKEYS: start on bare f9, f10 borne by three deliver
+    actions, f9 by two more) is exactly that case. The net is then deliberately
+    inert rather than firing the wrong action; the release-wait guards, not this
+    net, are what that preset gains from #152.
+
+    Defensive by construction for shapes the loader cannot produce (a
+    hand-edited default): an unparseable combo drops that one entry rather than
+    the whole map, a candidate absent from `hotkeys` yields no entry, and a
+    missing or unparseable start action just means no exemption.
+    """
+    try:
+        _mods, start_key = parse_hotkey_lexical(hotkeys[start_action])
+    except (KeyError, HotkeyParseError):
+        start_key = None
+
+    bearers = {}   # key_token -> [action, ...], in canonical action order
+    for action in hotkeys:
+        if action not in candidates:
+            continue
+        try:
+            _mods, key = parse_hotkey_lexical(hotkeys[action])
+        except HotkeyParseError:
+            continue
+        bearers.setdefault(key, []).append(action)
+
+    return [(key, actions[0]) for key, actions in bearers.items()
+            if len(actions) == 1 and key != start_key]
+
+
 # ===== PUSH-TO-TALK (#66) =====
 # Opt-in, DEFAULT OFF. The gesture is: tap the trigger modifier, release, then
 # press-and-HOLD it; recording runs while held, releasing inserts. Built on

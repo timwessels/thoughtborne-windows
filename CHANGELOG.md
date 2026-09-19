@@ -136,6 +136,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stopping with one hotkey no longer mutes another one's "insert last text" (#152).**
+  After a stop, the tool ignores that hotkey's insert-last-text function for two seconds,
+  so a finger lingering on the chord cannot re-insert the previous transcript. That guard
+  was wired across actions: stopping with Ctrl+Alt+D silently swallowed a deliberate
+  Ctrl+Alt+A for those two seconds and the other way round — a dead spot with no log line,
+  on the two hotkeys most likely to be pressed in sequence. Each stop action now guards
+  only itself, and the window expires on time alone, so a stalled recording loop can no
+  longer leave an action's insert switched off until the next restart.
+
+- **Rebound stop keys now reach the insert guard and the mis-trigger net (#152).** Before
+  typing or pasting, the tool waits for the stop hotkey's keys to be released — and that
+  list was the shipped letters, spelled out at seven places; the mis-trigger safety net,
+  which corrects a start press that was meant as a stop, polled A/D/H/Y/X just as
+  literally. Under a rebind — including the settings window's one-click F-key preset —
+  the guard waited for keys nobody was holding and the net watched keys bound to nothing.
+  Both now derive from the effective hotkeys at the moment they run; where two actions
+  share a key, or one sits on the start key, the net skips those entries rather than guess,
+  which under that F-key preset leaves it deliberately inactive. The stop-and-send flow
+  waits for its own key as well now, not just for Ctrl and Alt. Also following the
+  configured keys: push-to-talk's wait key, and the two log lines that still said
+  "A or H" and "Ctrl+Alt+R".
+
 - **A hand-broken example file can no longer crash the save (#294, via #263).** Both
   writers may seed a fresh file from a shipped example (`.env.example`,
   `personal_settings.example.json`) and caught only locked-file errors while reading it,

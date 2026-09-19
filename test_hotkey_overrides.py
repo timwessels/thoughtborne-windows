@@ -20,7 +20,10 @@ fire), and the one spelling a combo is stored and shown in --
 `settings_io.PRESET_FKEYS`) are written canonically themselves -- and the
 drift guard that keeps the README twins' `## Hotkeys` tables on
 `DEFAULT_HOTKEYS`, order and combos (D-019). `first_combo`, the picker the
-list shape needed, is pinned as retired (D-024).
+list shape needed, is pinned as retired (D-024). Since #152 also `combo_keys`,
+the poll-name list a release-wait guard is handed: the canonical modifier order,
+the bare-binding case, and that every name it emits is one `is_key_pressed` can
+resolve.
 
 Layer B -- `config.apply_hotkey_overrides` (the pure production loader config
 calls verbatim): partial override by action name, warn-and-keep-default on every
@@ -29,7 +32,11 @@ D-024 -- a one-element list from an older version collapses silently, any other
 list is rejected), duplicate detection on the *effective* set with
 case/modifier-order normalization, and the guarantees that the defaults dict is
 never mutated and that their order, the canonical action order every surface
-follows (D-019), survives the one loader it passes through.
+follows (D-019), survives the one loader it passes through. Plus
+`config.mistrigger_key_map` (#152), the second pure consumer of an effective
+scheme: the shipped map, both skip rules (a token two candidates share, the
+start action's own key), a partial rebind, and the shipped F-key preset, where
+both rules together leave the net deliberately empty.
 
 The did-the-key-actually-fire check is hands-on (RegisterHotKey needs Windows)
 and is tracked in a separate `test` issue.
@@ -47,7 +54,7 @@ logging.getLogger('Thoughtborne.Config').setLevel(logging.CRITICAL)
 
 import hotkey_parse as hp
 import settings_io
-from config import apply_hotkey_overrides, DEFAULT_HOTKEYS
+from config import apply_hotkey_overrides, mistrigger_key_map, DEFAULT_HOTKEYS
 
 SHOW = "--show" in sys.argv
 
@@ -237,6 +244,44 @@ def test_first_combo_retired():
     # binding and returns one of several is the door back to multi-combo actions.
     assert not hasattr(hp, 'first_combo'), \
         "hotkey_parse.first_combo is back -- D-024 retired it with the list shape"
+
+
+def test_combo_keys():
+    # #152: the poll names a release-wait guard hands is_key_pressed -- modifiers
+    # first in the canonical order, the key last.
+    assert hp.combo_keys('ctrl+alt+h') == ['ctrl', 'alt', 'h']
+    assert hp.combo_keys('f10') == ['f10']            # bare binding: just the key
+    assert hp.combo_keys('ctrl+shift+f10') == ['ctrl', 'shift', 'f10']
+    assert hp.combo_keys('ALT+Ctrl+W') == ['ctrl', 'alt', 'w']   # canonical order
+    assert hp.combo_keys('win+shift+alt+control+f24') == \
+        ['ctrl', 'alt', 'shift', 'win', 'f24']
+    assert hp.combo_keys('ctrl+num7') == ['ctrl', 'num7']
+    # A nav token also reads its numpad twin with Num Lock off ('home' <-> Numpad-7):
+    # a property of the shared VKs, documented in combo_keys, not special-cased.
+    assert hp.combo_keys('home') == ['home']
+    # The contract that makes the list usable: every emitted name resolves in
+    # hotkey_manager.VK_KEY_MAP -- the modifiers as the canonical four, the key as
+    # its VK_MAP token. A name outside it would poll as never-pressed, i.e. a
+    # guard that silently does not guard.
+    for combo in ('ctrl+alt+h', 'f10', 'ctrl+shift+f10', 'shift+win+home',
+                  'win+shift+alt+control+f24', 'num7'):
+        *mods, key = hp.combo_keys(combo)
+        assert set(mods) <= {'ctrl', 'alt', 'shift', 'win'}, combo
+        assert key in hp.VK_MAP, combo
+    # Same spelling source as canonical_combo, and the same error path: never a
+    # modifier-only list.
+    for combo in ('ctrl+alt+h', 'f10', 'CTRL + Alt + 6'):
+        assert '+'.join(hp.combo_keys(combo)) == hp.canonical_combo(combo)
+    for bad in ('ctrl+alt', 'ctrl+alt+a+b'):
+        try:
+            hp.combo_keys(bad)
+            assert False, f"expected HotkeyParseError for {bad!r}"
+        except hp.HotkeyParseError:
+            pass
+    # '' is not a parse error -- it yields the empty key token, which the loader
+    # rejects via classify_key. So what keeps an unpollable name out of a
+    # release-wait list is that validation, not this function.
+    assert hp.combo_keys('') == [''] and hp.classify_key('') == hp.KEY_INVALID
 
 
 def test_common_prefix():
@@ -441,6 +486,91 @@ def test_override_is_canonicalized():
     assert warns == [], warns
 
 
+# The five actions the mis-trigger net can correct to, as thoughtborne.py hands
+# them in -- a container of action names, order irrelevant (the map's order comes
+# from the scheme, D-019).
+MISTRIGGER_CANDIDATES = ('stop_recording_clipboard', 'stop_recording_send',
+                         'stop_recording_no_insert', 'stop_recording_keyboard',
+                         'cancel_recording')
+
+
+def test_mistrigger_map_shipped_scheme():
+    # #152: the net's key list derived from the shipped scheme -- the five
+    # candidates in the canonical action order, each on its own key token.
+    assert mistrigger_key_map(DEFAULT_HOTKEYS, MISTRIGGER_CANDIDATES) == [
+        ('a', 'stop_recording_clipboard'),
+        ('d', 'stop_recording_send'),
+        ('y', 'stop_recording_no_insert'),
+        ('h', 'stop_recording_keyboard'),
+        ('x', 'cancel_recording'),
+    ]
+    # Non-candidates never enter it, whatever they are bound to.
+    assert all(a in MISTRIGGER_CANDIDATES
+               for _k, a in mistrigger_key_map(DEFAULT_HOTKEYS, MISTRIGGER_CANDIDATES))
+
+
+def test_mistrigger_map_partial_rebind():
+    # One action moved: its new token replaces the old one IN PLACE (canonical
+    # order), everything else byte-identical to the shipped map.
+    hk = dict(DEFAULT_HOTKEYS, stop_recording_send='ctrl+shift+f2')
+    assert mistrigger_key_map(hk, MISTRIGGER_CANDIDATES) == [
+        ('a', 'stop_recording_clipboard'),
+        ('f2', 'stop_recording_send'),
+        ('y', 'stop_recording_no_insert'),
+        ('h', 'stop_recording_keyboard'),
+        ('x', 'cancel_recording'),
+    ]
+
+
+def test_mistrigger_map_ambiguous_token_drops_all_bearers():
+    # Two candidates on the same key token via DIFFERENT combos: polling that key
+    # cannot tell which action was meant, so BOTH drop out -- a token-keyed dict
+    # would have kept one of them and fired the wrong action.
+    hk = dict(DEFAULT_HOTKEYS, stop_recording_clipboard='ctrl+alt+p',
+              cancel_recording='alt+p')
+    got = mistrigger_key_map(hk, MISTRIGGER_CANDIDATES)
+    assert all(k != 'p' for k, _a in got), got
+    assert [a for _k, a in got] == ['stop_recording_send',
+                                    'stop_recording_no_insert',
+                                    'stop_recording_keyboard']
+    # Ambiguity is measured within the candidate set only: a non-candidate on the
+    # same token cannot be mis-fired through this net (its own hotkey calls its
+    # own callback), so it must not disarm a healthy entry.
+    hk = dict(DEFAULT_HOTKEYS, open_history='ctrl+alt+shift+a')
+    assert ('a', 'stop_recording_clipboard') in mistrigger_key_map(hk, MISTRIGGER_CANDIDATES)
+
+
+def test_mistrigger_map_exempts_the_start_key():
+    # The start action's own key is physically down on every second press of the
+    # start hotkey, so an entry on it would stop the running recording every time.
+    hk = dict(DEFAULT_HOTKEYS, cancel_recording='ctrl+w')
+    got = mistrigger_key_map(hk, MISTRIGGER_CANDIDATES)
+    assert all(k != 'w' for k, _a in got), got
+    assert len(got) == 4
+    # A scheme without a usable start action simply grants no exemption.
+    hk = {k: v for k, v in DEFAULT_HOTKEYS.items() if k != 'start_recording'}
+    assert len(mistrigger_key_map(hk, MISTRIGGER_CANDIDATES)) == 5
+
+
+def test_mistrigger_map_fkey_preset_is_empty():
+    # The shipped one-click F-key preset: start on bare f9, f10 borne by three
+    # candidates and f9 by two more -- ambiguity plus the start exemption empty
+    # the map. Pinned because it is a shipped configuration, not a hand-edited
+    # corner: the net is deliberately inert there rather than firing the wrong
+    # action, and what that preset gains from #152 is the release-wait lists.
+    assert mistrigger_key_map(settings_io.PRESET_FKEYS, MISTRIGGER_CANDIDATES) == []
+
+
+def test_mistrigger_map_survives_broken_entries():
+    # Never raises on a hand-edited default: an unparseable combo costs its own
+    # entry, not the whole net (which would take the healthy entries with it).
+    hk = dict(DEFAULT_HOTKEYS, stop_recording_keyboard='ctrl+alt')
+    got = mistrigger_key_map(hk, MISTRIGGER_CANDIDATES)
+    assert [a for _k, a in got] == ['stop_recording_clipboard', 'stop_recording_send',
+                                    'stop_recording_no_insert', 'cancel_recording']
+    assert mistrigger_key_map({}, MISTRIGGER_CANDIDATES) == []
+
+
 def test_umlaut_override_rejected():
     # D-023 (#317): the umlaut and its old 'ue' alias are ignored exactly like
     # any unknown key -- one warning, the default stays, never a failed start.
@@ -464,6 +594,7 @@ CASES = [
     test_shipped_defaults_are_static,
     test_shipped_combos_are_canonical,
     test_readme_hotkey_tables_match_defaults,
+    test_combo_keys,
     test_common_prefix,
     test_partial_override,
     test_value_shapes,
@@ -481,6 +612,12 @@ CASES = [
     test_duplicate_two_overrides_same_combo,
     test_duplicate_case_and_order_normalized,
     test_free_then_reuse_no_false_collision,
+    test_mistrigger_map_shipped_scheme,
+    test_mistrigger_map_partial_rebind,
+    test_mistrigger_map_ambiguous_token_drops_all_bearers,
+    test_mistrigger_map_exempts_the_start_key,
+    test_mistrigger_map_fkey_preset_is_empty,
+    test_mistrigger_map_survives_broken_entries,
 ]
 
 

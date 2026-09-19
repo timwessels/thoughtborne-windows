@@ -11,8 +11,9 @@ resolves against the static VK_MAP here; there is no layout-resolved key
 lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one).
 
 Because every layer passes through here, this is also where a combo gets its one
-spelling (`canonical_combo`) and its one display form (`format_combo`) -- the
-grammar the console, the settings app and the tests share (#272).
+spelling (`canonical_combo`), its one display form (`format_combo`) and its one
+poll-name list (`combo_keys`, #152) -- the grammar the console, the settings app,
+the release-wait guards and the tests share (#272).
 """
 
 # ===== Win32 RegisterHotKey modifier flags (plain ints -- no ctypes/DLL) =====
@@ -168,6 +169,29 @@ def canonical_combo(hotkey_str: str) -> str:
     parts = [name for name, flag in _CANONICAL_MODIFIERS if modifiers & flag]
     parts.append(key)
     return '+'.join(parts)
+
+
+def combo_keys(combo: str) -> list:
+    """The poll names of a combo, modifiers first, key last: 'ctrl+alt+h' ->
+    ['ctrl', 'alt', 'h']; a bare 'f10' -> ['f10'] (#152).
+
+    The third derived form of the one combo grammar, beside canonical_combo and
+    format_combo: the names a release-wait guard hands to
+    hotkey_manager.is_key_pressed, so what the tool waits for is what the action
+    is actually bound to. Every emitted name resolves there -- the modifiers as
+    the canonical four, the key as its VK_MAP token. Two properties of that VK
+    table ride along: 'win' is VK_LWIN, so a held RIGHT Win key goes unseen (the
+    same grain _ensure_no_modifiers_pressed polls), and a navigation token shares
+    its VK with the numpad ('home' also reads Numpad-7 with Num Lock off).
+
+    Raises HotkeyParseError exactly like parse_hotkey_lexical, so a caller keeps
+    its existing error path; the list therefore always ends in a key and is never
+    modifiers only.
+    """
+    modifiers, key = parse_hotkey_lexical(combo)
+    keys = [name for name, flag in _CANONICAL_MODIFIERS if modifiers & flag]
+    keys.append(key)
+    return keys
 
 
 # Token -> display name, for the tokens capitalize() spells wrong (#325).

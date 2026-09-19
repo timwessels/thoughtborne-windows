@@ -526,6 +526,12 @@ class _FakeOutput:
 class _FakeApp:
     """Minimal collaborator surface the two worker methods touch, so they can be
     called as unbound methods without constructing the whole ThoughtborneApp."""
+    # Not a fake: retry_recording_thread derives its task's trigger_keys from the
+    # effective HOTKEYS through this method (#152), so the genuine one has to be
+    # here. What it returns is irrelevant to the verdicts below -- that derivation
+    # is test_stop_rebind_wiring.py's subject.
+    _wait_keys = tb.ThoughtborneApp._wait_keys
+
     def __init__(self, fallback_result=None):
         self.transcriber = None
         self.processing_lock = threading.Lock()
