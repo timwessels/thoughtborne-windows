@@ -166,6 +166,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unexpected encoding: since the backup lane (D-026) a wrongly encoded file does not land
   there at all, so the dialog names the case that does — a file another program holds locked.
 
+- **Comments in the vocabulary block no longer reach Soniox (#329, respects D-026).** A key
+  starting with `_` is the JSON-comment convention of `personal_settings.json`, and it holds
+  everywhere in that file — except that a `_comment` inside the `vocabulary` block was handed
+  to the speech model verbatim, as if the note about the block were part of the vocabulary.
+  The context is now built without such keys at the one place it comes into being, so both
+  Soniox engines and the `Context enabled: N terms` log line describe the same thing, and a
+  block left holding only comments sends no context at all. The file on disk keeps every
+  comment untouched — only what goes out is filtered — and the example file's `vocabulary`
+  block now opens with a `_comment` lead like every other block, carrying the block's own
+  documentation that used to sit in the file-wide comment at the top.
+
 ## [1.2.0rc1] - 2026-09-16
 
 ### Added

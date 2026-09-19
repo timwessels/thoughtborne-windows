@@ -35,7 +35,10 @@ rule -- the 2026-04 and 2026-07 shapes and a downgrade file), because a per-rule
 cannot show what a user actually meets, which is one whole file meeting one program.
 And the vocabulary's last mile is measured rather than assumed: what the reader kept
 has to arrive in the real Soniox request -- the async body and the live WebSocket
-config, the endpointing block riding along on the second.
+config, the endpointing block riding along on the second. Since #329 that last mile
+starts one step earlier, at the filter that builds the effective context: the block's
+`_`-prefixed comment keys reach neither request, and a block holding nothing else
+sends no context at all.
 
 `.env` (#238, #269) gets the same treatment for the same reason -- it is written by
 hand or by an assisting agent, on a Windows whose PowerShell defaults are ANSI,
@@ -263,6 +266,48 @@ def test_vocabulary_shape(d):
     values, warnings = load(d, VALID_BYTES)
     check(values.get("vocabulary") == VALID["vocabulary"] and warnings == [],
           f"a valid vocabulary block was not passed through: ({values!r}, {warnings})")
+
+
+def test_effective_soniox_context():
+    """What the reader kept becomes what is sent (#329): `_`-prefixed keys are the
+    file's comment convention, inside a block too, and used to go to Soniox verbatim
+    as context. The function is the production path, so these cases are the contract
+    both send sites and both `Context enabled` log lines inherit.
+
+    Two of them are decisions rather than observations, pinned so that changing
+    either is a decision too. A block left holding only comments yields None, not an
+    empty object: it personalizes nothing, and "no context" keeps one shape -- both
+    consumers gate on truthiness, so such a file sends no context field at all. And
+    the filter is one level deep, the level the convention is documented on, so a
+    `_`-prefixed key inside a `general` entry still goes out."""
+    deep = {"general": [{"key": "domain", "value": "Dictation", "_note": "goes out"}]}
+    cases = [
+        (None, None),                       # absent block, and an explicit null
+        ({}, None),
+        ("Claude-MD", None),                # the loader warns about and drops these
+        (["Claude-MD"], None),              # three before they could ever arrive;
+        (42, None),                         # None here is the defensive twin, silent
+        ({"_comment": "a note"}, None),
+        ({"_comment": "a note", "terms": ["Claude-MD"]}, {"terms": ["Claude-MD"]}),
+        ({"_a": 1, "_b": {"x": 2}, "_c": None, "terms": ["t"]}, {"terms": ["t"]}),
+        (deep, deep),
+    ]
+    for value, expected in cases:
+        got = config.effective_soniox_context(value)
+        check(got == expected,
+              f"effective_soniox_context({value!r}) -> {got!r}, expected {expected!r}")
+
+    # The parsed settings are never mutated, the result is a new object, and the
+    # file's key order survives -- #286's size guard measures json.dumps of this.
+    full = {"_comment": "user prose", "general": [{"key": "domain", "value": "D"}],
+            "terms": ["Claude-MD"], "text": "background"}
+    snapshot = json.dumps(full)
+    got = config.effective_soniox_context(full)
+    check(json.dumps(full) == snapshot,
+          f"the block handed in was modified: {full!r}")
+    check(got is not full, "the context returned IS the parsed block, not a copy")
+    check(list(got) == ["general", "terms", "text"],
+          f"the block's key order did not survive the filter: {list(got)}")
 
 
 def test_never_raises(d):
@@ -677,6 +722,35 @@ def test_settings_values_subprocess():
                                      json.dumps(payload).encode("utf-8"))
             if report is not None:
                 _check_report(f"values {label}", report, n_warnings, fragments, expected)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_vocabulary_filter_subprocess():
+    """The comment filter on the real import path (#329): a file with a `_comment`
+    beside its terms, read by a running tool, and what SONIOX_CONTEXT then holds.
+
+    The lane above it covers the function, this one the wiring -- the build sits at
+    module level, so only a real `import config` runs it. Its own lane rather than a
+    `_VALUE_CASES` entry: those are the two blocks with per-entry validation rules,
+    and this is a whole block becoming (or not becoming) one object. Both fixtures
+    are silent, which is half the point: a comment is not a discarded setting."""
+    tmp = tempfile.mkdtemp(prefix="tb_config_vocabulary_")
+    try:
+        _copy_config_into(tmp)
+        for label, payload, context in (
+                ("beside terms",
+                 {"vocabulary": {"_comment": "my notes about this block",
+                                 "terms": ["Fixture Term"]}},
+                 {"terms": ["Fixture Term"]}),
+                # A block holding nothing else reads like no block at all, so the
+                # request stays the unpersonalized one it always was.
+                ("alone", {"vocabulary": {"_comment": "my notes"}}, None)):
+            report = _probe_settings(f"vocabulary {label}", tmp,
+                                     json.dumps(payload).encode("utf-8"))
+            if report is not None:
+                _check_report(f"vocabulary {label}", report, 0, [],
+                              {"context": context})
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1879,8 +1953,13 @@ def test_soniox_context_async_request():
         httpx.post, httpx.get, httpx.delete = fake_post, fake_get, fake_delete
         audio = Path(tmp) / "fixture.wav"
         audio.write_bytes(b"")
-        for label, ctx in (("with a vocabulary", {"terms": ["Claude-MD"]}),
-                           ("without one", None)):
+        for label, ctx in (
+                ("with a vocabulary", {"terms": ["Claude-MD"]}),
+                # Built by the production filter (#329), so filter and request meet
+                # in one lane: the user's comment is not in what leaves the machine.
+                ("with a commented vocabulary", config.effective_soniox_context(
+                    {"_comment": "user prose", "terms": ["Claude-MD"]})),
+                ("without one", None)):
             bodies.clear()
             transcriber.SONIOX_CONTEXT = ctx
             text = transcriber.SonioxAsyncTranscriber().transcribe(str(audio), 1.0)
@@ -1903,6 +1982,9 @@ def test_soniox_context_async_request():
                 check(body.get("context") == ctx,
                       f"async {label}: the request carries context "
                       f"{body.get('context')!r}, expected {ctx!r}")
+                check("_comment" not in body.get("context", {}),
+                      f"async {label}: the request carries the block's comment as "
+                      f"context: {body.get('context')!r}")
     finally:
         (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
          transcriber.TEXT_ARCHIVE_FOLDER) = saved_tx
@@ -1948,6 +2030,11 @@ def test_soniox_context_live_config():
             ("personalized", {"terms": ["Claude-MD"]}, (-0.3, 0, 900),
              {"context": {"terms": ["Claude-MD"]}, "endpoint_sensitivity": -0.3,
               "endpoint_latency_adjustment_level": 0, "max_endpoint_delay_ms": 900}),
+            # Built by the production filter (#329), so filter and config JSON meet
+            # in one lane: the user's comment is not in what leaves the machine.
+            ("commented", config.effective_soniox_context(
+                {"_comment": "user prose", "terms": ["Claude-MD"]}),
+             (None, None, None), {"context": {"terms": ["Claude-MD"]}}),
             ("plain", None, (None, None, None), {}),
         ]
         for label, ctx, endpointing, expected in cases:
@@ -1972,6 +2059,9 @@ def test_soniox_context_live_config():
                     check(body.get(field) == want,
                           f"live {label}: the config's {field} is "
                           f"{body.get(field)!r}, expected {want!r}")
+                check("_comment" not in (body.get("context") or {}),
+                      f"live {label}: the config carries the block's comment as "
+                      f"context: {body.get('context')!r}")
                 if not expected:
                     strays = sorted(f for f in body if f == "context"
                                     or f.startswith("endpoint_")
@@ -2013,8 +2103,10 @@ TEMPDIR_CASES = [
 ]
 PLAIN_CASES = [
     test_known_blocks_drift,
+    test_effective_soniox_context,
     test_import_subprocess,
     test_settings_values_subprocess,
+    test_vocabulary_filter_subprocess,
     test_frozen_historical_files,
     test_env_loading_subprocess,
     test_env_corpus_subprocess,
@@ -2061,7 +2153,8 @@ def main():
           f"pass (personal_settings: encoding, top-level shape, the block gate with "
           f"its known-blocks guards, vocabulary shape, the push_to_talk and "
           f"soniox_endpointing value rules, three frozen historical files, the "
-          f"vocabulary's arrival in both real Soniox requests, the "
+          f"comment filter on the vocabulary's way out and its arrival in both "
+          f"real Soniox requests, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "

@@ -801,19 +801,13 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     return effective, warnings
 
 
-# SONIOX_CONTEXT is loaded from the "vocabulary" block of an optional
-# personal_settings.json in the project root. See personal_settings.example.json
-# for the format. Personalization is user-specific (names, project terms etc.)
-# and therefore kept out of the repository. When the file is missing, invalid,
-# or has no "vocabulary" block, SONIOX_CONTEXT stays None and no personalization
-# is sent to the Soniox API.
 # ===== PUSH-TO-TALK (#66) =====
 # Opt-in, DEFAULT OFF. The gesture is: tap the trigger modifier, release, then
 # press-and-HOLD it; recording runs while held, releasing inserts. Built on
 # GetAsyncKeyState polling (no low-level keyboard hook -- the hook was removed
 # in early 2026 because Modern Standby silently invalidated it). These are the
 # defaults; the optional "push_to_talk" block of personal_settings.json (same
-# file as the vocabulary above) overrides any of them. Bad values warn and keep
+# file as the vocabulary) overrides any of them. Bad values warn and keep
 # the default. thoughtborne.py imports the (already-overridden) values.
 PTT_ENABLED = False          # master switch; default off (the gesture reads every trigger press)
 PTT_TRIGGER = "lctrl"        # lctrl (default) | rctrl | lalt
@@ -922,7 +916,43 @@ def _load_personal_settings(path):
 _settings, _ps_warnings = _load_personal_settings(_personal_settings_path)
 IMPORT_WARNINGS.extend(_ps_warnings)
 
-SONIOX_CONTEXT = _settings.get("vocabulary")
+
+def effective_soniox_context(vocabulary):
+    """The context object actually sent to Soniox, from a parsed vocabulary block.
+
+    The `_`-prefix comment convention holds for the whole file, inside a block too
+    (#329): a `_comment` there is the user's prose, not vocabulary, and it used to
+    reach Soniox verbatim as context on both engines. It is dropped here, at the one
+    place the effective context comes into being, so both send sites and both
+    "Context enabled: N terms" log lines describe the same object. The file on disk
+    keeps its comments (user land, D-026); only what goes out is filtered, and
+    silently -- a comment is not a discarded setting, exactly like the loader's
+    top-level `_` skip.
+
+    Returns a NEW dict (the parsed settings are never mutated), or None when nothing
+    sendable is left: an absent block, an explicit null, or a block holding only
+    comments. "No context" keeps exactly one shape that way -- the collapse
+    read_version applies to an empty version string -- and both consumers already
+    gate on it, so a comment-only block sends no context field at all rather than an
+    empty one.
+
+    Filtering is one level deep, the level the convention is documented on: the
+    block's own keys. Pure and side-effect-free like apply_hotkey_overrides, so the
+    context size guard (#286) can measure this return value instead of re-deriving
+    what is sent.
+    """
+    if not isinstance(vocabulary, dict):
+        return None
+    effective = {k: v for k, v in vocabulary.items() if not k.startswith("_")}
+    return effective or None
+
+
+# The "vocabulary" block of the optional personal_settings.json in the project root
+# (format: personal_settings.example.json). Personalization is user-specific (names,
+# project terms etc.) and therefore kept out of the repository. A missing or invalid
+# file, no "vocabulary" block, or a block holding nothing but comments all leave
+# SONIOX_CONTEXT None, and no personalization is sent to the Soniox API.
+SONIOX_CONTEXT = effective_soniox_context(_settings.get("vocabulary"))
 
 # Push-to-talk override (#66): read from the same _settings dict so the
 # file is parsed once. Absent block or any invalid field -> the default
