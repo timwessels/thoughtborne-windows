@@ -203,9 +203,9 @@ _EN = {
     "hotkeys.col.action": "Action",
     "hotkeys.col.combo": "Shortcut",
     "hotkeys.capture_limit": (
-        "While Thoughtborne is running, a combo it already holds can't be captured "
-        "here — Windows fires the action instead of passing the key press through. "
-        "Quit Thoughtborne ({exit_key}) first, or pick a combo it doesn't use."),
+        "A combo another application holds system-wide can't be captured here — "
+        "Windows delivers the key press to that application instead of passing it "
+        "through. Pick a combo no other program uses."),
     "btn.change_key": "Change…",
     "capture.prompt": "Press the combo … (Esc)",
     "capture.unbindable": (
@@ -630,10 +630,10 @@ _DE = {
     "hotkeys.col.action": "Aktion",
     "hotkeys.col.combo": "Tastenkombination",
     "hotkeys.capture_limit": (
-        "Solange Thoughtborne läuft, lässt sich eine bereits belegte Kombination "
-        "hier nicht aufnehmen – Windows löst stattdessen die Aktion aus, statt den "
-        "Tastendruck durchzureichen. Vorher Thoughtborne beenden ({exit_key}) oder "
-        "eine unbelegte Kombination wählen."),
+        "Eine Kombination, die eine andere Anwendung systemweit belegt, lässt sich "
+        "hier nicht aufnehmen – Windows reicht den Tastendruck an diese Anwendung "
+        "weiter, statt ihn hier ankommen zu lassen. Wähle eine Kombination, die "
+        "kein anderes Programm nutzt."),
     "btn.change_key": "Ändern…",
     "capture.prompt": "Kombination drücken … (Esc)",
     "capture.unbindable": (

@@ -12,6 +12,8 @@ Public API:
     HotkeyManager:
         register(hotkey_str, callback, name="") -> int
         start() -> bool
+        suspend() -> bool     # release every registration (#335)
+        resume() -> bool      # build them up again
         stop()
 
     is_key_pressed(key_name: str) -> bool
@@ -50,6 +52,15 @@ logger = logging.getLogger('Thoughtborne.HotkeyManager')
 # ===== Win32 Constants =====
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
+
+# Two private messages for the listener thread (#335). Un- and re-registering are
+# thread-affine -- RegisterHotKey(NULL, ...) binds the combo to the CALLING thread,
+# so only the listener may release and rebuild its own registrations -- and the way
+# to reach that thread is the one stop() already uses: post into its message queue.
+# The WM_APP range is reserved for exactly this kind of application-private message.
+WM_APP = 0x8000
+WM_APP_SUSPEND_HOTKEYS = WM_APP + 1
+WM_APP_RESUME_HOTKEYS = WM_APP + 2
 
 # ===== Win32 Functions =====
 # user32 via a private WinDLL(use_last_error=True): ctypes then captures the Win32
@@ -208,6 +219,16 @@ class HotkeyManager:
         self._thread_id = None    # Win32 thread ID for PostThreadMessageW
         self._started = threading.Event()
         self._next_id = 1
+        # The two hooks of the #335 suspend, set by the owner after construction and
+        # called ON THE LISTENER THREAD -- which is what lets the app's ACK file state
+        # a fact rather than an intention. Both sit on the safe side of their edge:
+        # `on_suspended` runs once the registrations are really gone, `on_resuming` as
+        # the rebuild begins, before any combo can fire again. So the ACK the owner
+        # writes and removes in them can be late, never wrong: it exists only while
+        # the hotkeys really are released. Callbacks instead of a file path so this
+        # stays a plain Win32 module that knows nothing about the handshake files.
+        self.on_suspended = None
+        self.on_resuming = None
 
     @property
     def expected_count(self) -> int:
@@ -265,6 +286,30 @@ class HotkeyManager:
 
         return True
 
+    def suspend(self) -> bool:
+        """Ask the listener to release every registration (#335). Post-only.
+
+        True means the message was QUEUED, not that the hotkeys are already free --
+        the listener works its queue in order, so a suspend posted while a callback
+        (a transcription) is running runs after it returns. Whoever needs to know
+        that it really happened waits for `on_suspended`, which fires there.
+
+        `_started` is the sync point: the queue a post needs exists only once the
+        listener has called into user32, which start() waits for. Before that (and
+        after stop()) this returns False and the caller simply tries again.
+        """
+        return self._post_to_listener(WM_APP_SUSPEND_HOTKEYS)
+
+    def resume(self) -> bool:
+        """The mirror of suspend(): ask the listener to register everything again.
+        Post-only, same gating; `on_resuming` fires there as the rebuild begins."""
+        return self._post_to_listener(WM_APP_RESUME_HOTKEYS)
+
+    def _post_to_listener(self, message) -> bool:
+        if self._thread is None or self._thread_id is None or not self._started.is_set():
+            return False
+        return bool(PostThreadMessageW(self._thread_id, message, 0, 0))
+
     def stop(self):
         """Stop the listener thread and unregister all hotkeys."""
         if self._thread is None or self._thread_id is None:
@@ -292,6 +337,58 @@ class HotkeyManager:
         self._thread = None
         self._thread_id = None
 
+    def _register_all(self) -> list:
+        """Register every queued hotkey and return the failures as (hotkey_str, name).
+
+        Thread-affine by contract: RegisterHotKey binds a combo to the CALLING
+        thread, so this only ever runs on the listener -- once at startup, and again
+        on every #335 resume. get_last_error() is read in the failure branch only;
+        after a success it still holds whatever the last failing call left (#165).
+        """
+        failed = []
+        for hotkey_id, hotkey_str, callback, name in self._registrations:
+            try:
+                modifiers, vk_code = _parse_hotkey(hotkey_str)
+                success = RegisterHotKey(None, hotkey_id, modifiers, vk_code)
+                if success:
+                    self._hotkey_map[hotkey_id] = (callback, name)
+                    logger.info(f"  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})", extra={'file_only': True})
+                else:
+                    failed.append((hotkey_str, name))
+                    error_code = ctypes.get_last_error()
+                    if error_code == 1409:
+                        logger.error(f"  FAILED: {hotkey_str} -> {name} - Already registered by another application (Error 1409)", extra={'file_only': True})
+                    else:
+                        logger.error(f"  FAILED: {hotkey_str} -> {name} - RegisterHotKey failed (Error {error_code})", extra={'file_only': True})
+            except ValueError as e:
+                failed.append((hotkey_str, name))
+                logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}", extra={'file_only': True})
+        return failed
+
+    def _unregister_all(self) -> int:
+        """Release every live registration and empty the map; returns how many.
+
+        The count is returned rather than logged because its two callers report very
+        different events: the pump's exit is a shutdown, a #335 suspend is the tool
+        stepping aside for a moment, and a log reader must be able to tell them apart.
+        """
+        released = len(self._hotkey_map)
+        for hotkey_id in self._hotkey_map:
+            UnregisterHotKey(None, hotkey_id)
+        self._hotkey_map.clear()
+        return released
+
+    def _notify(self, callback, label):
+        """Run one of the #335 completion hooks, containing whatever it raises: this
+        is the message pump, so an escaping exception would take every hotkey with it.
+        """
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception as e:
+            logger.error(f"Error in {label} callback: {e}", exc_info=True)
+
     def _listener_thread(self):
         """
         Listener thread: registers hotkeys, runs message pump, unregisters on exit.
@@ -303,26 +400,11 @@ class HotkeyManager:
         self._thread_id = GetCurrentThreadId()
         logger.info(f"HotkeyManager listener thread started (Win32 TID: {self._thread_id})", extra={'file_only': True})
 
-        # Register all hotkeys
-        registered_count = 0
-        for hotkey_id, hotkey_str, callback, name in self._registrations:
-            try:
-                modifiers, vk_code = _parse_hotkey(hotkey_str)
-                success = RegisterHotKey(None, hotkey_id, modifiers, vk_code)
-                if success:
-                    self._hotkey_map[hotkey_id] = (callback, name)
-                    logger.info(f"  Registered: {hotkey_str} -> {name} (id={hotkey_id}, mod=0x{modifiers:04X}, vk=0x{vk_code:02X})", extra={'file_only': True})
-                    registered_count += 1
-                else:
-                    error_code = ctypes.get_last_error()
-                    if error_code == 1409:
-                        logger.error(f"  FAILED: {hotkey_str} -> {name} - Already registered by another application (Error 1409)", extra={'file_only': True})
-                    else:
-                        logger.error(f"  FAILED: {hotkey_str} -> {name} - RegisterHotKey failed (Error {error_code})", extra={'file_only': True})
-            except ValueError as e:
-                logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}", extra={'file_only': True})
-
-        logger.info(f"Hotkey registration complete: {registered_count}/{len(self._registrations)} successful", extra={'file_only': True})
+        # Register all hotkeys. The summary line and _started stay OUT of
+        # _register_all: a #335 resume registers the same set again and must neither
+        # claim a second "registration complete" nor re-arm the startup gate.
+        self._register_all()
+        logger.info(f"Hotkey registration complete: {len(self._hotkey_map)}/{len(self._registrations)} successful", extra={'file_only': True})
 
         # Signal that registration is done
         self._started.set()
@@ -351,8 +433,41 @@ class HotkeyManager:
                     except Exception as e:
                         logger.error(f"Error in hotkey callback '{name}': {e}", exc_info=True)
 
+            elif msg.message == WM_APP_SUSPEND_HOTKEYS:
+                # #335: step aside so the settings app's capture field can see a combo
+                # this tool holds. Idempotent -- a second suspend finds nothing to
+                # release and just confirms again. A WM_HOTKEY already queued behind
+                # this one meets the empty map and is dropped by the guard above,
+                # which is right: that press happened while we still held the combo.
+                released = self._unregister_all()
+                if released:
+                    logger.info(f"Hotkeys released for a settings capture ({released} total)",
+                                extra={'file_only': True})
+                self._notify(self.on_suspended, "on_suspended")
+
+            elif msg.message == WM_APP_RESUME_HOTKEYS:
+                # The hook runs BEFORE the first RegisterHotKey, not after the last:
+                # it is what takes the app's ACK off disk, and an ACK still lying
+                # there while a combo is live again would let the capture field arm on
+                # hotkeys the tool has already taken back. The other order is only
+                # milliseconds wrong on a good day and permanently wrong on a bad one
+                # (a removal that fails). This way the ACK can cost an arm, never
+                # mis-arm one, which is the direction the whole handshake fails in.
+                self._notify(self.on_resuming, "on_resuming")
+                if not self._hotkey_map:      # idempotent too: nothing to rebuild
+                    failed = self._register_all()
+                    if failed:
+                        # The one visible line this path owes (#335): a combo another
+                        # application grabbed during those seconds is lost until the
+                        # next start, and losing one silently is the single outcome
+                        # this path must never produce.
+                        combos = ", ".join(f"{s} ({n})" for s, n in failed)
+                        logger.warning("Hotkey(s) could not be registered again after the "
+                                       f"settings capture -- another application now holds: {combos}")
+                    else:
+                        logger.info("Hotkeys registered again after the settings capture "
+                                    f"({len(self._hotkey_map)} total)", extra={'file_only': True})
+
         # Unregister all hotkeys
-        for hotkey_id in self._hotkey_map:
-            UnregisterHotKey(None, hotkey_id)
-        logger.info(f"All hotkeys unregistered ({len(self._hotkey_map)} total)", extra={'file_only': True})
-        self._hotkey_map.clear()
+        released = self._unregister_all()
+        logger.info(f"All hotkeys unregistered ({released} total)", extra={'file_only': True})

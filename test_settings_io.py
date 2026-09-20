@@ -2184,7 +2184,6 @@ def check_i18n():
     pin("done.loop.body", "start", "stop")
     pin("welcome.loop.body", "start", "stop")
     pin("done.controls.body", "exit_key", "settings_key")
-    pin("hotkeys.capture_limit", "exit_key")
     pin("behavior.engine.remember.current", "engine")
     pin("behavior.engine.remember.none", "engine")
     pin("machine.version.body", "version")

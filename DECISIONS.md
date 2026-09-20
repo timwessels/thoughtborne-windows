@@ -1979,6 +1979,12 @@ running tool. Settings apply on save — which restarts the tool (D-014) — ful
   gesture itself, at exactly the boundary this rule names); the console lineup's
   key-awareness (#200 — saved state); the window's own display-language toggle
   (view state of the window, not a setting acting on another).
+- **Also not touched (2026-09-20):** the hotkey suspend while a capture is armed
+  (#335) — the tool releases its global hotkey registrations for those seconds
+  so the combo can reach the field. That is not an edit taking effect — no
+  setting changes, nothing applies before the save — but a transient
+  precondition of the capture gesture itself, reverted whether the user saves or
+  not, in the same class as the live key test.
 
 Amends D-008's 2026-08-16 #198 addendum — the #178 preselect memory-write lane
 retires, so the settings app writes no engine memory at all; D-008's precedence

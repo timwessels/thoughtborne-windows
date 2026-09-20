@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Off-Windows verification of the settings-app -> tool restart handshake (#202).
+"""Off-Windows verification of the settings-app <-> tool handshakes (#202, #335).
 
 `restart_signal` is pure/stdlib -- it imports nothing from the project and its one
-Windows-only path (the mutex probe) imports ctypes lazily -- so the signal file's
-round-trip, the atomic-consume race semantics, the fail-safe directions, and the
-constants are all checked on plain Python against a temp directory. The two
-invariants that must never regress are pinned here:
+Windows-only path (the mutex probe) imports ctypes lazily -- so the signal files'
+round-trips, the atomic-consume race semantics, the fail-safe directions, and the
+constants are all checked on plain Python against a temp directory. The invariants
+that must never regress are pinned here:
 
   - NO shutdown without a successful consume: consume_restart_signal returns True
     ONLY when THIS call removed the file (a vanished or undeletable file -> False),
     so an unremovable signal can never loop a restart;
   - the mutex name is a single source shared with thoughtborne.py (a static source
     guard locks the hoist in), so the probe can never drift from the name the tool
-    creates.
+    creates;
+  - the #335 suspend pair keeps its two wire-format filenames, both of its writers
+    stay self-describing and fail-safe, and `decide_hotkey_suspend` answers its full
+    truth table -- above all that a vanished request outranks an expired failsafe
+    (the normal end of a capture must not be read as an abandoned one) and that the
+    failsafe is reported as its own case, because the caller has to take the request
+    back before resuming.
 
     python3 test_restart_signal.py    # verify, exit non-zero on any violation
 """
@@ -135,22 +141,112 @@ def test_undeletable_signal(d):
 
 
 def test_unwritable_directory(d):
-    """request_restart into an unwritable directory: False, never raises. Skipped as
-    root (mode bits don't apply) and where the FS ignores chmod."""
+    """Every writer into an unwritable directory: False, never raises -- for the #335
+    request that is the fail-open of the arm (the field arms anyway, as before #335).
+    Skipped as root (mode bits don't apply) and where the FS ignores chmod."""
     readonly = Path(d) / "readonly"
     readonly.mkdir()
     os.chmod(readonly, 0o500)
     if os.access(readonly, os.W_OK):
         print("  (skipped: the unwritable-directory case -- this FS/user ignores chmod)")
     else:
-        try:
-            got = rs.request_restart(rs.signal_path(readonly))
-            check(got is False, "request_restart into an unwritable dir did not report failure")
-            check(not rs.signal_path(readonly).exists(),
-                  "request_restart created a file in an unwritable dir")
-        except Exception as e:
-            failures.append(f"request_restart raised on an unwritable dir: {type(e).__name__}: {e}")
+        writers = ((rs.request_restart, rs.signal_path, "request_restart"),
+                   (rs.request_hotkeys_suspend, rs.suspend_request_path,
+                    "request_hotkeys_suspend"),
+                   (rs.acknowledge_hotkeys_suspended, rs.suspend_ack_path,
+                    "acknowledge_hotkeys_suspended"))
+        for writer, path_of, label in writers:
+            try:
+                got = writer(path_of(readonly))
+                check(got is False, f"{label} into an unwritable dir did not report failure")
+                check(not path_of(readonly).exists(),
+                      f"{label} created a file in an unwritable dir")
+            except Exception as e:
+                failures.append(f"{label} raised on an unwritable dir: {type(e).__name__}: {e}")
     os.chmod(readonly, 0o700)
+
+
+def test_suspend_path_contract(d):
+    """The #335 pair's filenames are wire format between two processes, exactly like
+    the restart signal's: a rename on one side silently un-pairs app and tool."""
+    req = rs.suspend_request_path(d)
+    ack = rs.suspend_ack_path(d)
+    check(rs.SUSPEND_REQUEST_FILENAME == "hotkeys_suspend_request",
+          f"the suspend request filename changed to {rs.SUSPEND_REQUEST_FILENAME!r}")
+    check(rs.SUSPEND_ACK_FILENAME == "hotkeys_suspended",
+          f"the suspend ACK filename changed to {rs.SUSPEND_ACK_FILENAME!r}")
+    check(req.name == rs.SUSPEND_REQUEST_FILENAME, f"suspend_request_path built {req.name}")
+    check(ack.name == rs.SUSPEND_ACK_FILENAME, f"suspend_ack_path built {ack.name}")
+    check(len({req.name, ack.name, rs.SIGNAL_FILENAME}) == 3,
+          "the three handshake files must have three distinct names -- a collision "
+          "would let one message consume another")
+    check(req.parent == Path(d) and ack.parent == Path(d),
+          "the suspend files are not beside the given base dir")
+    check(req.parent == em.state_path(d).parent,
+          "the suspend files are not siblings of runtime_state.json")
+
+
+def test_suspend_roundtrip(d):
+    """Both writers: self-describing content, present, removable, removable once."""
+    lanes = ((rs.suspend_request_path(d), rs.request_hotkeys_suspend, "suspend request"),
+             (rs.suspend_ack_path(d), rs.acknowledge_hotkeys_suspended, "suspend ACK"))
+    for path, writer, label in lanes:
+        check(not path.exists(), f"a fresh temp dir already had a {label} file")
+        check(writer(path) is True, f"the {label} writer did not report success")
+        check(path.exists(), f"the {label} writer did not leave the file on disk")
+        raw = path.read_text(encoding="utf-8")
+        check(raw.isascii(), f"the {label} file content is not pure ASCII")
+        check(raw.endswith("\n"), f"the {label} file does not end with a newline")
+        check(raw.strip() != "", f"the {label} file is empty (no self-describing content)")
+        check(rs.signal_present(path) is True, f"signal_present missed a present {label}")
+        check(rs.clear_signal(path) is True, f"clear_signal did not remove the {label}")
+        check(not path.exists(), f"clear_signal left the {label} on disk")
+        check(rs.clear_signal(path) is False,
+              f"a second clear of the {label} claimed to have removed it")
+
+
+def test_clear_signal_reports_only_its_own_removal(d):
+    """clear_signal is the no-flapping foundation: an undeletable request must read
+    as False, so the tool's failsafe stays suspended and retries instead of resuming
+    against a request that is still on disk (the mirror of #202's no-consume rule)."""
+    path = rs.suspend_request_path(d)
+    check(rs.clear_signal(path) is False, "clear_signal of a missing file did not return False")
+    for exc in (PermissionError(13, "Permission denied"),
+                FileNotFoundError(2, "No such file or directory")):
+        rs.request_hotkeys_suspend(path)
+        orig = os.remove
+
+        def _raise(_p, _exc=exc):
+            raise _exc
+
+        rs.os.remove = _raise
+        try:
+            got = rs.clear_signal(path)
+        finally:
+            rs.os.remove = orig
+        check(got is False, f"a {type(exc).__name__} from os.remove must resolve to False")
+    rs.clear_signal(path)
+
+
+def test_decide_hotkey_suspend():
+    """The whole truth table of the tool's tick, including the two priorities the
+    dispatch above it must not have to re-decide."""
+    t = 30.0
+    cases = (
+        ((False, False, None, t), None, "nothing to do -- the common tick"),
+        ((True, False, None, t), "suspend", "a fresh request releases the hotkeys"),
+        ((False, True, 0.0, t), "resume", "the request is gone -- the capture ended"),
+        ((False, True, t * 10, t), "resume",
+         "a vanished request must outrank an expired failsafe"),
+        ((True, True, t - 0.1, t), None, "still capturing, failsafe not due"),
+        ((True, True, t, t), "timeout", "exactly at the failsafe"),
+        ((True, True, t + 5.0, t), "timeout", "past the failsafe"),
+        ((True, True, None, t), None, "no age known -> never a timeout"),
+    )
+    for args, expected, why in cases:
+        got = rs.decide_hotkey_suspend(*args)
+        check(got == expected,
+              f"decide_hotkey_suspend{args} returned {got!r}, expected {expected!r} ({why})")
 
 
 def test_probe_fail_open():
@@ -189,15 +285,32 @@ def test_constants():
           "at least as long as we already spent waiting for the ACK)")
     check(rs.RESTART_SHUTDOWN_GRACE_SECONDS * 1000 > rs.POLL_INTERVAL_MS,
           "the grace budget must exceed one poll interval")
+    # The #335 budgets. Their own lane -- nothing here couples them to the #202 ones.
+    check(isinstance(rs.SUSPEND_ACK_WAIT_SECONDS, (int, float))
+          and rs.SUSPEND_ACK_WAIT_SECONDS > 0,
+          "SUSPEND_ACK_WAIT_SECONDS must be a positive number")
+    check(isinstance(rs.SUSPEND_POLL_INTERVAL_MS, int) and rs.SUSPEND_POLL_INTERVAL_MS > 0,
+          "SUSPEND_POLL_INTERVAL_MS must be a positive int")
+    check(rs.SUSPEND_ACK_WAIT_SECONDS * 1000 > rs.SUSPEND_POLL_INTERVAL_MS,
+          "the arm budget must exceed one poll interval (else the wait can't poll)")
+    check(isinstance(rs.SUSPEND_RESUME_TIMEOUT_SECONDS, (int, float))
+          and rs.SUSPEND_RESUME_TIMEOUT_SECONDS > 0,
+          "SUSPEND_RESUME_TIMEOUT_SECONDS must be a positive number")
+    # The one relation that is load-bearing: the app gives up long before the tool's
+    # failsafe, so a normal abort always ends the cycle the short way and the failsafe
+    # can never fire into a capture the app still believes in.
+    check(rs.SUSPEND_ACK_WAIT_SECONDS < rs.SUSPEND_RESUME_TIMEOUT_SECONDS,
+          "the app's arm budget must be shorter than the tool's resume failsafe")
 
 
 def test_source_guards():
-    """Static guards on thoughtborne.py, read as source (never imported -- it pulls in
-    Windows-only modules): the mutex-name hoist is USED, the old literal is GONE, and
-    the loop + startup both wire consume_restart_signal."""
-    src_path = Path(__file__).resolve().parent / "thoughtborne.py"
+    """Static guards on the two consumers, read as source (never imported -- they pull
+    in Windows-only modules): the mutex-name hoist is USED, the old literal is GONE,
+    the loop + startup both wire consume_restart_signal, and both ends of the #335
+    pair are wired to these helpers rather than to logic of their own."""
+    here = Path(__file__).resolve().parent
     try:
-        src = src_path.read_text(encoding="utf-8")
+        src = (here / "thoughtborne.py").read_text(encoding="utf-8")
     except Exception as e:
         failures.append(f"could not read thoughtborne.py: {type(e).__name__}: {e}")
         return
@@ -208,12 +321,34 @@ def test_source_guards():
     check(src.count("consume_restart_signal") >= 2,
           "thoughtborne.py does not wire consume_restart_signal in both the startup "
           "guard and the recording loop (expected >= 2 references)")
+    # #335, tool side: both paths are built here (__init__ and the startup cleanup),
+    # and the tick delegates its decision instead of re-deriving it.
+    check(src.count("suspend_request_path") >= 2,
+          "thoughtborne.py does not wire suspend_request_path in both the loop state "
+          "and the startup cleanup (expected >= 2 references)")
+    check(src.count("suspend_ack_path") >= 2,
+          "thoughtborne.py does not wire suspend_ack_path in both the listener "
+          "callbacks and the startup cleanup (expected >= 2 references)")
+    check("decide_hotkey_suspend" in src,
+          "thoughtborne.py no longer calls decide_hotkey_suspend -- the tested "
+          "decision has been replaced by logic of its own")
+    # #335, app side: the request has exactly one writer, and it is the settings app.
+    try:
+        app_src = (here / "thoughtborne_settings.py").read_text(encoding="utf-8")
+    except Exception as e:
+        failures.append(f"could not read thoughtborne_settings.py: {type(e).__name__}: {e}")
+        return
+    check("request_hotkeys_suspend" in app_src,
+          "thoughtborne_settings.py no longer asks for the hotkey suspend -- the "
+          "capture field is back to competing with the tool's own hotkeys")
 
 
 # These take a tempdir positionally and run via main(); they are not pytest items (#242).
 for _helper in (test_path_contract, test_roundtrip, test_signal_present,
                 test_consume_nothing_and_double, test_race_loser_view,
-                test_undeletable_signal, test_unwritable_directory):
+                test_undeletable_signal, test_unwritable_directory,
+                test_suspend_path_contract, test_suspend_roundtrip,
+                test_clear_signal_reports_only_its_own_removal):
     _helper.__test__ = False
 
 
@@ -227,9 +362,13 @@ def main():
         test_race_loser_view(d)
         test_undeletable_signal(d)
         test_unwritable_directory(d)
+        test_suspend_path_contract(d)
+        test_suspend_roundtrip(d)
+        test_clear_signal_reports_only_its_own_removal(d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     test_probe_fail_open()
+    test_decide_hotkey_suspend()
     test_constants()
     test_source_guards()
 
@@ -238,8 +377,9 @@ def main():
         for f in failures:
             print("  " + f)
         return 1
-    print("OK: signal round-trip, atomic-consume race semantics, the fail-safe "
-          "directions, the mutex-name hoist, and the constants all pass")
+    print("OK: both handshakes' round-trips, the atomic-consume race semantics, the "
+          "fail-safe directions, the suspend decision table, the mutex-name hoist, "
+          "and the constants all pass")
     return 0
 
 

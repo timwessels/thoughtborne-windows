@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The settings app can now capture Thoughtborne's own combos (#335).** Pressing
+  `Ctrl+Alt+W` in the capture field used to start a recording instead of landing in the
+  field: Windows delivers a registered hotkey to its owner, so every combo already in use
+  fired its action, and reorganizing or swapping hotkeys was effectively impossible — the
+  old advice to quit Thoughtborne first was not even actionable, since the settings window
+  opens from the running tool. While a capture arms, the tool now releases its global
+  hotkeys for those seconds and the field arms only once the tool has confirmed it, so the
+  "press the combo" prompt never promises what does not hold yet. Every way a capture ends
+  — combo captured, Esc, focus lost, window closed — brings them back within a fraction of
+  a second, and a 30-second failsafe in the tool covers every abandoned capture, including
+  a settings app that was killed. For those seconds no hotkey works, the stop keys
+  included; a recording in progress keeps running and push-to-talk keeps working. If
+  another application grabs one of the combos in that window, one warning in the log names
+  it — nothing is lost silently. The capture hint now only mentions combos held by other
+  applications.
+
 - **Backup before loss: the settings save protects what it cannot carry (#263, D-026).**
   A save or reset that meets a `personal_settings.json` it cannot fully carry into its
   result — corrupt JSON, a file saved in the wrong encoding, or single invalid entries in

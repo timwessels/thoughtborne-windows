@@ -35,10 +35,11 @@ in the UI): Win-modifier combos cannot be captured (no Tk state bit -- hand-edit
 path only), and `TK_STATE_ALT` (0x20000) plus the keycode-is-the-VK contract of
 the #325 capture decode rest on real-Windows behavior the off-Windows ladder
 cannot prove. AltGr captures as the Ctrl+Alt combo it is since #325. A combo the
-RUNNING tool already holds as a global hotkey cannot be captured here either --
-Windows RegisterHotKey consumes that keypress system-wide, so it fires the action
-instead of ever reaching the capture widget; capture a free combo, or stop the
-tool first.
+RUNNING tool holds itself is capturable since #335: while a capture arms, the app
+asks the tool through the `restart_signal` suspend handshake to release its global
+hotkeys and arms only on the tool's ACK. A combo held system-wide by ANOTHER
+application still never reaches the widget -- Windows delivers that keypress to its
+owner.
 """
 
 import argparse
@@ -299,6 +300,11 @@ class SettingsApp:
         self._test_queue = {"groq": queue.Queue(), "soniox": queue.Queue()}
         self._combo_labels = {}     # action -> tk.Label
         self._armed = None          # the action currently capturing a keypress
+        # #335: a generation stamp for the wait between "Change…" was clicked and the
+        # running tool confirming that its hotkeys are released. Every new arm and
+        # every disarm bumps it, which retires a wait still in flight -- so a double
+        # click or a jump to another row can never arm the row the user left behind.
+        self._arm_wait_gen = 0
         # The Machine Room's reset button (#282). It is built in settings mode only,
         # so it stays None in the wizard -- _set_rail_waiting has to be able to ask
         # either way.
@@ -447,6 +453,22 @@ class SettingsApp:
                 strings.t("dlg.loadfail.body", self.lang) + "\n\n" + str(load_error))
 
         root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        # #335: whichever way this window goes, take an open suspend request with it,
+        # so the tool registers its hotkeys again at its next poll instead of sitting
+        # out the 30-second failsafe. Deliberately NOT a close handler -- D-014 keeps
+        # that literally root.destroy -- but a cleanup inside the teardown, which is
+        # why it covers [X], Cancel and the restart path alike. A <Destroy> bound here
+        # also fires for every child widget, hence the filter in the handler.
+        root.bind("<Destroy>", self._on_destroy)
+
+    def _on_destroy(self, event):
+        if event.widget is self.root:
+            # The same bump every disarm does: an arm still waiting for the tool's
+            # ACK retires here, so no pending poll can arm a row in a window that no
+            # longer exists.
+            self._arm_wait_gen += 1
+            restart_signal.clear_signal(
+                restart_signal.suspend_request_path(config.SCRIPT_DIR))
 
     # ------------------------------------------------------------ crash reporting
     def _report_callback_exception(self, exc, val, tb):
@@ -1184,11 +1206,12 @@ class SettingsApp:
         self._section(f, "hotkeys.custom.heading", level="H2", pady=(sp(28), 0))
         self._prose(f, "hotkeys.custom.body").pack(fill="x", pady=(sp(2), sp(4)))
 
-        # A dynamic advisory (#178): a combo the running tool already holds can't be
-        # captured here. Rendered from hotkeys_state so the {exit_key} hint tracks a
-        # rebind of exit_program (its own attribute -- never overwrite capture_lbl
-        # below).
-        self.capture_limit_lbl = self._prose_dyn(f, surface="Muted.")
+        # The advisory that is left after #335 (#178): the tool's own combos are
+        # capturable now, combos owned by OTHER applications still are not. With the
+        # {exit_key} sentence gone the text is static, so it re-renders through the
+        # normal registry instead of by hand (its own attribute -- never overwrite
+        # capture_lbl below).
+        self.capture_limit_lbl = self._prose(f, "hotkeys.capture_limit", surface="Muted.")
         self.capture_limit_lbl.pack(fill="x", pady=(0, sp(8)))
 
         # A tip, not a restriction notice (#316, D-022): a mouse button reaches
@@ -1269,7 +1292,6 @@ class SettingsApp:
                               else settings_io.preset_fkeys())
         self._disarm()
         self._render_hotkey_grid()
-        self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
 
@@ -1301,14 +1323,74 @@ class SettingsApp:
 
     # capture widget interaction
     def _arm(self, name):
+        """Start a capture (#335): have the running tool release its global hotkeys
+        first, and only arm once it confirms.
+
+        That order is the whole design. The prompt must not promise what does not
+        hold yet, so nothing visible changes while we wait -- typically 0.1 to 0.3
+        seconds, the tool's poll plus ours. Two situations skip the handshake and arm
+        at once, each behaving exactly as it did before #335: no tool is running (so
+        nobody is holding the combo anyway), or the request cannot even be written.
+        """
         if self._armed is not None and self._armed != name:
             self._disarm()
+        self._arm_wait_gen += 1
+        gen = self._arm_wait_gen
+        if not restart_signal.tool_is_running():
+            self._complete_arm(name)
+            return
+        request = restart_signal.suspend_request_path(config.SCRIPT_DIR)
+        ack = restart_signal.suspend_ack_path(config.SCRIPT_DIR)
+        if not restart_signal.request_hotkeys_suspend(request):
+            self._complete_arm(name)
+            return
+        deadline = time.monotonic() + restart_signal.SUSPEND_ACK_WAIT_SECONDS
+
+        def _poll():
+            if gen != self._arm_wait_gen:
+                return      # retired: another row was armed, or this one disarmed
+            if restart_signal.signal_present(ack):
+                # While the tool runs, that file existing means the hotkeys ARE
+                # released -- the tool removes it before it registers a single one
+                # again, so an ACK still standing from the capture right before this
+                # one is a fact too, not a stale promise. Which is why reassigning
+                # several combos in a row needs no fresh cycle each time.
+                self._complete_arm(name)
+                return
+            if time.monotonic() >= deadline:
+                # Give up quietly. Take the request back so the tool registers again
+                # at its next poll rather than at its failsafe, and stay disarmed --
+                # no dialog, because the remedy is to click Change again, and the
+                # field simply not arming says that better than a message box. The
+                # log carries the trace. Capturing a combo the tool does NOT hold
+                # still works from here, exactly as it did before #335.
+                restart_signal.clear_signal(request)
+                settings_visibility.append_log_line(
+                    config.LOG_FILE, settings_visibility.format_settings_line(
+                        time.strftime("%Y-%m-%d %H:%M:%S"), "capture",
+                        "the tool did not confirm the hotkey release -- not armed"))
+                return
+            self.root.after(restart_signal.SUSPEND_POLL_INTERVAL_MS, _poll)
+
+        _poll()
+
+    def _complete_arm(self, name):
+        """Arm the row for real: from here the next keypress is the new combo."""
         self._armed = name
         self.capture_lbl.config(text="")
         self._render_combo_label(name)
         self._combo_labels[name].focus_set()
 
     def _disarm(self):
+        # The one chokepoint of every way a capture ends -- key captured, Esc, focus
+        # lost, a preset applied, another row armed. Withdrawing the #335 request is
+        # the first thing done here, before any widget work, so a disarm during a
+        # teardown still gets the file off disk with half-dead widgets around it.
+        # clear_signal never raises and is a no-op when there is no file, so all those
+        # callers may call it blind; the bump retires a wait still in flight.
+        self._arm_wait_gen += 1
+        restart_signal.clear_signal(
+            restart_signal.suspend_request_path(config.SCRIPT_DIR))
         prev = self._armed
         self._armed = None
         if prev is not None and prev in self._combo_labels:
@@ -1361,7 +1443,6 @@ class SettingsApp:
         self.hotkeys_state[name] = candidate[name]
         self.capture_lbl.config(text="")
         self._disarm()
-        self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
         return "break"
@@ -1578,11 +1659,6 @@ class SettingsApp:
         stop = self._pretty_combo(self.hotkeys_state["stop_recording_clipboard"])
         self.welcome_loop_lbl.config(
             text=strings.t("welcome.loop.body", self.lang).format(start=start, stop=stop))
-
-    def _render_capture_limit(self):
-        ex = self._pretty_combo(self.hotkeys_state["exit_program"])
-        self.capture_limit_lbl.config(
-            text=strings.t("hotkeys.capture_limit", self.lang).format(exit_key=ex))
 
     def _render_engine_control(self):
         # Each engine radio: (re)compose its label + descriptor for the current
@@ -1848,7 +1924,6 @@ class SettingsApp:
             self._render_indicator(provider)
         self._render_engine_control()
         self._render_hotkey_grid()
-        self._render_capture_limit()
         self._render_done_page()
         self._render_welcome_page()
         self._render_machine_page()

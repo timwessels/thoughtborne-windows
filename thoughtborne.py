@@ -641,6 +641,15 @@ class ThoughtborneApp:
             # Settings-app restart signal (#202): the recording loop polls this path
             # ~1 Hz and, on sight, runs the same clean shutdown as the exit hotkey.
             self._restart_signal_path = restart_signal.signal_path(SCRIPT_DIR)
+            # The #335 hotkey-suspend handshake, two more files beside that one: the
+            # settings app writes the request while its capture field arms, the
+            # listener thread writes the ACK once the hotkeys are really released.
+            self._suspend_request_path = restart_signal.suspend_request_path(SCRIPT_DIR)
+            self._suspend_ack_path = restart_signal.suspend_ack_path(SCRIPT_DIR)
+            # "A release is posted and no rebuild yet", stamped on the monotonic clock
+            # at the post. Only the recording-loop thread reads or writes it, so it
+            # needs no lock; None means the hotkeys are ours.
+            self._hotkeys_suspended_since = None
             remembered = engine_memory.read_last_engine(self._state_path, AVAILABLE_APIS)
             self._start_api, self._start_api_source = engine_memory.resolve_startup_engine(
                 remembered=remembered,
@@ -2254,6 +2263,47 @@ class ThoughtborneApp:
                 if self.processing_counter > 0:
                     self._ticker(f"[STATUS] Active processing: {self.processing_counter}")
 
+    def _hotkey_suspend_tick(self, now_mono):
+        """One poll of the #335 handshake, on the recording-loop thread.
+
+        The decision itself is pure and tested (restart_signal.decide_hotkey_suspend);
+        what is left here is dispatch. Two rules carry it: a post that fails leaves
+        the state untouched so the next tick tries again, and the failsafe takes the
+        request back BEFORE resuming -- with the file still on disk the next tick
+        would immediately release the hotkeys again. If it cannot be taken back (an
+        AV scanner holding it), we stay suspended and retry rather than flapping,
+        which is the mirror of #202's "no shutdown without a successful consume".
+
+        Nothing in here may raise: the recording loop is the W-flow (VISION #1). Every
+        helper is never-raise by contract and the manager calls are single Win32 posts.
+        """
+        if not self.hotkey_manager:
+            return      # the loop starts before _register_hotkeys (run() order)
+        suspended = self._hotkeys_suspended_since is not None
+        action = restart_signal.decide_hotkey_suspend(
+            restart_signal.signal_present(self._suspend_request_path),
+            suspended,
+            (now_mono - self._hotkeys_suspended_since) if suspended else None,
+            restart_signal.SUSPEND_RESUME_TIMEOUT_SECONDS)
+
+        if action == "suspend":
+            if self.hotkey_manager.suspend():
+                self._hotkeys_suspended_since = now_mono
+                logger.info("Settings capture arming -- releasing the hotkeys",
+                            extra=FILE_ONLY)
+        elif action == "resume":
+            if self.hotkey_manager.resume():
+                self._hotkeys_suspended_since = None
+                logger.info("Settings capture over -- registering the hotkeys again",
+                            extra=FILE_ONLY)
+        elif action == "timeout":
+            if (restart_signal.clear_signal(self._suspend_request_path)
+                    or not restart_signal.signal_present(self._suspend_request_path)):
+                if self.hotkey_manager.resume():
+                    self._hotkeys_suspended_since = None
+                    logger.warning("Hotkey suspend timed out (the capture was abandoned) "
+                                   "-- registering the hotkeys again", extra=FILE_ONLY)
+
     def recording_loop_thread(self):
         """Separate thread for audio recording loop"""
         logger.info("Recording loop thread STARTED", extra=FILE_ONLY)
@@ -2266,6 +2316,7 @@ class ThoughtborneApp:
         loop_counter = 0
         last_log_time = 0
         last_signal_check = 0.0
+        last_suspend_check = 0.0
 
         while self.running:
             loop_counter += 1
@@ -2312,6 +2363,15 @@ class ThoughtborneApp:
                                 "for the relaunch")
                     self.stop_program(salvage_reason="restart request")
                     continue    # self.running is now False; the while condition ends the loop
+
+            # Settings-app hotkey suspend (#335), same monotonic clock, its own
+            # throttle: several times a second rather than once, because a human
+            # gesture waits on this one -- the capture field stays unarmed until this
+            # poll has released the hotkeys. Its own budget too, so neither poll can
+            # change the other's timing.
+            if now_mono - last_suspend_check > 0.15:
+                last_suspend_check = now_mono
+                self._hotkey_suspend_tick(now_mono)
 
             # Process audio chunks while recording
             if self.audio_recorder.is_recording:
@@ -2636,6 +2696,18 @@ class ThoughtborneApp:
         logger.info("Registering hotkeys via RegisterHotKey...", extra=FILE_ONLY)
 
         self.hotkey_manager = HotkeyManager()
+
+        # #335: the ACK file is written and removed from the listener thread itself,
+        # so its existence is a fact the settings app can arm its capture field on,
+        # rather than an intention. Both edges lean the same way: it appears only
+        # after the registrations are really gone and disappears before the first of
+        # them comes back, so the file can lag the truth but never contradict it. The
+        # listener already writes files (retry markers, every log line), and both
+        # helpers swallow their own faults.
+        self.hotkey_manager.on_suspended = lambda: restart_signal.acknowledge_hotkeys_suspended(
+            self._suspend_ack_path)
+        self.hotkey_manager.on_resuming = lambda: restart_signal.clear_signal(
+            self._suspend_ack_path)
 
         # name -> callback; looked up, never iterated -- the registration order
         # (and with it the log's `Registered:` lines) comes from HOTKEYS, which
@@ -3056,6 +3128,17 @@ def main():
     # relaunches and THIS clear stops the new instance from shutting itself back down.
     if restart_signal.consume_restart_signal(restart_signal.signal_path(SCRIPT_DIR)):
         logger.info("Stale restart signal cleared at startup", extra=FILE_ONLY)
+
+    # Stale hotkey-suspend guard (#335), for the same reason one line up: whatever a
+    # crash during a capture left behind -- the request, the ACK, or both -- is a lie
+    # about this fresh process. A leftover request would release the new instance's
+    # hotkeys on its first poll; a leftover ACK would tell the settings app they are
+    # already released when they are not.
+    for stale in (restart_signal.suspend_request_path(SCRIPT_DIR),
+                  restart_signal.suspend_ack_path(SCRIPT_DIR)):
+        if restart_signal.clear_signal(stale):
+            logger.info(f"Stale hotkey-suspend signal cleared at startup ({stale.name})",
+                        extra=FILE_ONLY)
 
     # Map Ctrl+Break to KeyboardInterrupt instead of instant process death so
     # the run()-finally -> cleanup() path can salvage an active recording

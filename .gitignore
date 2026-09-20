@@ -115,5 +115,11 @@ runtime_state.json
 # leftover at the next start, so it is never meant to be committed.
 restart_request
 
+# The same, for the hotkey-suspend handshake around a settings capture (#335):
+# the request (app -> tool) and the tool's ACK. Both live for seconds, and any
+# leftover is cleared at the next start.
+hotkeys_suspend_request
+hotkeys_suspended
+
 # Claude Code local-only notes (personal/session-specific; CLAUDE.md is committed)
 CLAUDE.local.md

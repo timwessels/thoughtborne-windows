@@ -1,10 +1,10 @@
-"""Restart handshake between the settings app and the running tool (#202).
+"""Handshakes between the settings app and the running tool (#202 restart, #335 suspend).
 
 When the user saves settings while Thoughtborne is running, the settings app asks
 the tool to restart so the changes take effect immediately instead of only on its
 next manual start (D-002 keeps pickup start-based; this just performs the start).
 
-Three primitives, all pure/stdlib and fail-safe -- the settings app imports this
+The primitives are all pure/stdlib and fail-safe -- the settings app imports this
 module, so the D-005 stdlib-only import chain must hold:
 
   - the SIGNAL, a file beside the project files (`restart_request`, a sibling of
@@ -18,6 +18,17 @@ module, so the D-005 stdlib-only import chain must hold:
     CreateMutexW (which would create/hold the name and block the tool's own next
     start), and the probe handle is closed after every open (a held handle would keep
     the name alive and make the settings app's post-signal wait unwinnable).
+  - the SUSPEND PAIR (#335), two more existence-is-the-message files beside the
+    first, with one writer each: `hotkeys_suspend_request` belongs to the app (written
+    while its hotkey-capture field arms, removed on every disarm path), and
+    `hotkeys_suspended` is the tool's ACK -- written by the listener thread only once
+    it has really unregistered, and removed by it before the first registration comes
+    back. Both edges lean the same way on purpose, which is what keeps the invariant
+    the app leans on true: while the tool runs, that ACK existing means the global
+    hotkeys ARE released, so the field can arm on something that already holds
+    instead of promising it. A missing ACK costs an arm; a stale one would cost the
+    keypress. `decide_hotkey_suspend` is the whole logic of the tool's side, kept
+    pure so the ladder drives its truth table off Windows.
 
 Every path is fail-safe: an unwritable dir, a vanished/locked file, or any probe
 fault degrades to the pre-#202 status quo (no restart) rather than raising. The
@@ -31,6 +42,11 @@ import os
 from pathlib import Path
 
 SIGNAL_FILENAME = "restart_request"          # sibling of runtime_state.json (spec)
+
+# The #335 suspend pair, siblings of the signal above. Wire format between two
+# processes like SIGNAL_FILENAME, hence constants with a test guard on the names.
+SUSPEND_REQUEST_FILENAME = "hotkeys_suspend_request"   # app -> tool
+SUSPEND_ACK_FILENAME = "hotkeys_suspended"             # tool -> app (the ACK)
 
 # Single source of the tool's D-004 single-instance mutex name. Hoisted from
 # thoughtborne.py (its _second_instance_running uses this constant) so the
@@ -71,11 +87,61 @@ REQUEST_COMMENT = (
     "removes it within about a second, and any leftover is cleared at the next start."
 )
 
+# Settings-side arm budget (#335): after writing the suspend request, the capture
+# field polls this long for the tool's ACK before giving up, staying disarmed and
+# taking its request back. Deliberately NOT the #202 restart budget: a human gesture
+# waits on this one, so seconds of silence are worse than an honest abort into the
+# pre-#335 behaviour (the combo fires its action; the user clicks Change again).
+SUSPEND_ACK_WAIT_SECONDS = 2.0
+SUSPEND_POLL_INTERVAL_MS = 100        # root.after cadence for that wait
+
+# The one failsafe of the whole handshake (spec): a suspend the tool has held this
+# long re-registers, whatever the settings app did or failed to do -- window closed,
+# app killed, user walked away. Comfortably longer than the app's own give-up above,
+# so a normal abort is always the short path and this is only ever the net.
+SUSPEND_RESUME_TIMEOUT_SECONDS = 30.0
+
+# Same self-describing content duty as REQUEST_COMMENT above: whoever finds one of
+# these two files mid-capture should be able to read what wrote it and that removing
+# it costs nothing. EXISTENCE is the message; the text is documentation only.
+SUSPEND_REQUEST_COMMENT = (
+    "Written by the Thoughtborne settings app while its hotkey-capture field arms: "
+    "it asks the running Thoughtborne to release its global hotkeys so a combo the "
+    "tool itself holds can reach the field. Safe to delete: the tool registers them "
+    "again within a second, and any leftover is cleared at the next start."
+)
+SUSPEND_ACK_COMMENT = (
+    "Written by a running Thoughtborne once it has released its global hotkeys for a "
+    "settings-app capture; removed before it takes them back. Safe to delete: the "
+    "settings app then treats the capture as unconfirmed, and any leftover is cleared "
+    "at the next start."
+)
+
 
 def signal_path(base_dir):
     """The signal file beside the project files (config.SCRIPT_DIR in production),
     a sibling of runtime_state.json."""
     return Path(base_dir) / SIGNAL_FILENAME
+
+
+def suspend_request_path(base_dir):
+    """The #335 app -> tool request file, beside the restart signal."""
+    return Path(base_dir) / SUSPEND_REQUEST_FILENAME
+
+
+def suspend_ack_path(base_dir):
+    """The #335 tool -> app ACK file, beside the restart signal."""
+    return Path(base_dir) / SUSPEND_ACK_FILENAME
+
+
+def _write_signal(path, comment) -> bool:
+    """Write one existence-is-the-message file. The shared body of the three
+    writers below; the rationale for the plain write lives in `request_restart`."""
+    try:
+        Path(path).write_text(comment + "\n", encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 
 def request_restart(path) -> bool:
@@ -86,11 +152,41 @@ def request_restart(path) -> bool:
     delete never races our own open handle. Best-effort and never raises -- an
     unwritable directory just yields False and the tool keeps running unchanged.
     """
+    return _write_signal(path, REQUEST_COMMENT)
+
+
+def request_hotkeys_suspend(path) -> bool:
+    """Ask the running tool to release its global hotkeys (#335). Written by the
+    settings app while its capture field arms; False (unwritable dir) means the app
+    arms without the handshake, exactly as it did before #335."""
+    return _write_signal(path, SUSPEND_REQUEST_COMMENT)
+
+
+def acknowledge_hotkeys_suspended(path) -> bool:
+    """The tool's ACK that the hotkeys are now released (#335).
+
+    Written from the listener thread AFTER the real UnregisterHotKey calls, never
+    from whoever posted the suspend: that ordering is what makes the file's
+    existence a fact rather than an intention, so the app can arm the field on it.
+    The way back is the mirror of it -- the same thread clears this file BEFORE it
+    starts registering again, so no ACK ever outlives the release it claims.
+    """
+    return _write_signal(path, SUSPEND_ACK_COMMENT)
+
+
+def clear_signal(path) -> bool:
+    """Delete-if-present. Returns True exactly when THIS call removed the file.
+
+    The generic remover both handshakes share (`consume_restart_signal` is its #202
+    name). Atomic and never raising, so every "take the message back" path -- the
+    app disarming or giving up, the tool's resume and failsafe, the startup cleanup
+    -- can be called blind, as often as it likes, from either process.
+    """
     try:
-        Path(path).write_text(REQUEST_COMMENT + "\n", encoding="utf-8")
-        return True
+        os.remove(path)
     except Exception:
         return False
+    return True
 
 
 def consume_restart_signal(path) -> bool:
@@ -103,12 +199,11 @@ def consume_restart_signal(path) -> bool:
     consume, so "not consumed" must mean "no shutdown" -- otherwise an unremovable
     file would loop a restart. The file survives and the next tick retries. Never
     raises.
+
+    Body-identical to `clear_signal`; the name and this docstring are what carry the
+    #202 meaning at the call sites.
     """
-    try:
-        os.remove(path)
-    except Exception:
-        return False
-    return True
+    return clear_signal(path)
 
 
 def signal_present(path) -> bool:
@@ -125,6 +220,29 @@ def signal_present(path) -> bool:
         return os.path.exists(path)
     except Exception:
         return False
+
+
+def decide_hotkey_suspend(request_present, suspended, suspended_age_s, timeout_s):
+    """One tick of the tool's side of the #335 handshake, as a pure decision.
+
+    Returns None (do nothing, the overwhelmingly common tick), "suspend", "resume"
+    or "timeout". `suspended` is the tool's own view of whether it has already
+    posted a release, `suspended_age_s` how long ago (None while not suspended).
+
+    The priorities are the interesting part, and why this is ONE function rather
+    than a rule per case: a vanished request always means "resume", even when the
+    failsafe has come due in the same tick -- the normal end of a capture must never
+    be mistaken for an abandoned one. "timeout" is that failsafe and says more than
+    "resume": the request is still on disk, so the caller has to take it back first
+    or the next tick would immediately re-suspend.
+    """
+    if not suspended:
+        return "suspend" if request_present else None
+    if not request_present:
+        return "resume"
+    if suspended_age_s is not None and suspended_age_s >= timeout_s:
+        return "timeout"
+    return None
 
 
 def tool_is_running() -> bool:

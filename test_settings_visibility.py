@@ -115,6 +115,18 @@ keyless confirmation once, in its ordinary wording, before the second line goes 
 `test_settings_io.py` proves every piece apart; only the built window shows the chain
 closing from the load-time snapshot through the resolver into the file.
 
+Next to it, `test_capture_arm_wait_with_display` drives the #335 capture arm wait --
+the one path nothing off Windows takes by itself, since `tool_is_running()` is False
+there and every other lane arms at once. With that probe mocked True, and `time` plus
+`root.after` in this lane's hand so no scene depends on real seconds, it asserts what
+the handshake is for: the row keeps showing its resting combo until the tool's ACK is
+on disk and only then shows the capture prompt, a wait the tool never answers gives up
+on its own budget -- silent in the window, its request taken back, one `[SETTINGS]
+capture:` line -- and a wait the user has already left behind arms nothing afterwards,
+whether they moved on to another row or closed the window, whose teardown takes the
+request with it. Each of those is measured against a mutation of the real app. It
+WRITES, like the lanes above.
+
 Beside them, `test_engine_picker_key_agnostic_with_display` holds D-028 at the window
 (#332): an unsaved edit has no effect until it is saved, and the engine picker is
 key-agnostic. Four scenes -- the fresh wizard over an empty folder, a Groq-only `.env`
@@ -2105,6 +2117,197 @@ def test_env_delete_with_display():
                 pass
 
 
+def test_capture_arm_wait_with_display():
+    # The #335 arm wait, through the REAL window. Off Windows `tool_is_running()` is
+    # always False, so every other lane in the ladder takes the immediate path and
+    # nothing drives the wait the handshake actually consists of. With that probe
+    # mocked True it runs here: the request goes out, the row stays cold until the
+    # tool's ACK appears, the wait gives up on its own budget and takes its request
+    # back, and a wait the user has already left behind can never arm a row later.
+    #
+    # Two collaborators are faked so each scene is decided by the code rather than by
+    # the clock: `time` as the app sees it (a monotonic this lane turns by hand) and
+    # `root.after`, which collects the scheduled poll instead of handing it to Tk.
+    # Everything else is real -- the window, the widgets, the files, and every line of
+    # _arm / _complete_arm / _disarm / _on_destroy. Like the #239 lane it WRITES, in a
+    # tempdir-patched config.SCRIPT_DIR.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped capture-arm-wait check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped capture-arm-wait check: no display)")
+        return
+    try:
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped capture-arm-wait check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    import time as real_time
+
+    import restart_signal as rs
+    import settings_strings as sstr
+
+    class _Clock:
+        """`time` as the module under test sees it: a monotonic clock this lane turns
+        by hand, every other name straight through to the real module."""
+
+        def __init__(self):
+            self.now = 1000.0
+
+        def monotonic(self):
+            return self.now
+
+        def __getattr__(self, name):
+            return getattr(real_time, name)
+
+    clock = _Clock()
+    pending = []        # the polls the wait scheduled, delivered by hand
+
+    def fake_after(ms, func=None, *args):
+        pending.append(lambda: func(*args))
+        return "arm-wait-poll"
+
+    def deliver():
+        """Hand over every poll Tk would have delivered by now."""
+        due, pending[:] = list(pending), []
+        for fn in due:
+            fn()
+
+    _showerror = ts.messagebox.showerror
+    _running = rs.tool_is_running
+    _time = ts.time
+    patched_after = False
+    try:
+        ts.messagebox.showerror = lambda *a, **k: None
+        with _app_sandbox() as tmp:
+            request = rs.suspend_request_path(tmp)
+            ack = rs.suspend_ack_path(tmp)
+            log = tmp / "thoughtborne.log"
+
+            root.geometry("900x860")
+            app = ts.SettingsApp(root, first_run=False)
+            root.update()
+            name = next(iter(app._combo_labels))
+            label = app._combo_labels[name]
+            prompt = sstr.t("capture.prompt", app.lang)
+            resting = label["text"]
+            check(resting != prompt, "the resting row already shows the capture prompt")
+
+            ts.time = clock
+            root.after = fake_after
+            patched_after = True
+
+            # (a) No tool running: the pre-#335 path, unchanged -- and the control that
+            # says the handshake below is really conditional rather than always on.
+            rs.tool_is_running = lambda: False
+            app._arm(name)
+            check(app._armed == name, "with no tool running the row did not arm at once")
+            check(not request.exists(),
+                  "an arm with no tool running wrote a suspend request nobody reads")
+            check(pending == [], f"an arm with no tool running scheduled a wait: {pending}")
+            app._disarm()
+
+            # (b) The wait. The request goes out and NOTHING visible changes until the
+            # tool answers: the prompt must not promise a release that does not hold yet.
+            rs.tool_is_running = lambda: True
+            app._arm(name)
+            check(app._armed is None, "the row armed before the tool confirmed the release")
+            check(label["text"] == resting,
+                  f"the capture prompt appeared while the hotkeys were still live: "
+                  f"{label['text']!r}")
+            check(request.exists(), "the arm never asked the tool to release its hotkeys")
+            check(len(pending) == 1, f"the arm scheduled no wait: {pending}")
+
+            clock.now += rs.SUSPEND_POLL_INTERVAL_MS / 1000.0
+            deliver()
+            check(app._armed is None, "a poll with no ACK on disk armed the row")
+            check(len(pending) == 1, "the wait stopped polling long before its budget ran out")
+
+            rs.acknowledge_hotkeys_suspended(ack)       # what the listener thread does
+            deliver()
+            check(app._armed == name, "the row did not arm on the tool's ACK")
+            check(label["text"] == prompt,
+                  f"the armed row does not show the capture prompt: {label['text']!r}")
+            check(request.exists(),
+                  "the request was withdrawn while the capture was still running -- the "
+                  "tool would take its hotkeys back mid-capture")
+            check(pending == [], "the armed row kept polling")
+
+            app._disarm()
+            check(not request.exists(), "the disarm left the suspend request on disk")
+            rs.clear_signal(ack)                        # the tool's resume, as it follows
+
+            # (c) Give up: the tool never answers. No dialog, no arming, and the request
+            # comes back rather than being left to the tool's 30-second failsafe.
+            app._arm(name)
+            check(len(pending) == 1, f"the second arm scheduled no wait: {pending}")
+            clock.now += rs.SUSPEND_ACK_WAIT_SECONDS + 0.001
+            deliver()
+            check(app._armed is None, "the row armed although the tool never confirmed")
+            check(label["text"] == resting,
+                  f"the row that never armed shows the capture prompt: {label['text']!r}")
+            check(not request.exists(),
+                  "the give-up left its request on disk -- the tool would stay without "
+                  "hotkeys until its own failsafe")
+            check(pending == [], "the wait kept polling past its budget")
+            body = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+            check(any("[SETTINGS] capture:" in ln and "not armed" in ln
+                      for ln in body.splitlines()),
+                  "the give-up left no [SETTINGS] capture: line -- it is silent in the "
+                  "UI by design, so the log is the only trace it has")
+
+            # (d) The user moves on while the wait is still running. The tool's ACK then
+            # lands a moment too late, and must not arm the row that was left behind.
+            app._arm(name)
+            check(len(pending) == 1, f"the third arm scheduled no wait: {pending}")
+            app._disarm()
+            check(not request.exists(), "the disarm during a wait left the request on disk")
+            rs.acknowledge_hotkeys_suspended(ack)
+            deliver()
+            check(app._armed is None,
+                  "a wait the user had already left behind armed the row afterwards")
+            rs.clear_signal(ack)
+
+            # (e) The same, one door further out: the window closes mid-wait. The
+            # teardown takes the request with it, and the poll still in flight finds a
+            # window that no longer exists -- it must neither arm it nor raise in it.
+            app._arm(name)
+            check(len(pending) == 1, f"the fourth arm scheduled no wait: {pending}")
+            rs.acknowledge_hotkeys_suspended(ack)       # the ACK lands as the window goes
+            root.destroy()
+            check(not request.exists(),
+                  "closing the window left the suspend request on disk -- the tool would "
+                  "sit out its whole failsafe with no hotkeys")
+            try:
+                deliver()
+            except Exception as e:
+                failures.append(f"a poll after the window was destroyed raised "
+                                f"{type(e).__name__}: {e}")
+            check(app._armed is None, "a wait outlived its window and armed a row in it")
+    finally:
+        ts.messagebox.showerror = _showerror
+        ts.time = _time
+        rs.tool_is_running = _running
+        if patched_after:
+            try:
+                del root.after
+            except Exception:
+                pass
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _window_state(root):
     """A built window as {tk path: (class, text, disabled, placed)} -- the snapshot
     D-028's "an unsaved edit has no effect until it is saved" is measured against.
@@ -2785,6 +2988,7 @@ def main():
     test_reset_with_display()
     test_save_readfail_with_display()
     test_env_delete_with_display()
+    test_capture_arm_wait_with_display()
     test_engine_picker_key_agnostic_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
@@ -2808,7 +3012,9 @@ def main():
           "through the D-026 backup lane (asymmetric fixture, mutation-measured), "
           "the save lane's D-026 backup-and-rewrite with the .env abort kept and "
           "the mid-session-corruption scene (#263), the #328 WYSIWYG key deletion "
-          "from the untouched save to the last key cleared, the D-028 key-agnostic "
+          "from the untouched save to the last key cleared, the #335 capture arm wait "
+          "(no prompt before the tool's ACK, the silent give-up, no late arming), the "
+          "D-028 key-agnostic "
           "engine picker over four scenes (all four selectable with no key at all, no "
           "unsaved edit moving anything but its own verdict, the keyless pin written "
           "verbatim, no engine memory written), and the #240 callback / "
