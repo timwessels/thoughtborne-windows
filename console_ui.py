@@ -718,7 +718,7 @@ _REASON_LINES = {
     "no-credit": ("The {P} account is out of credit",
                   "Add a little credit in the {P} console"),
     "inconclusive": ("The recording came back empty",
-                     "Might be silence, might be a hiccup -- worth a retry"),
+                     "Retry, wait, ...investigate -- or just switch the model"),
 }
 
 

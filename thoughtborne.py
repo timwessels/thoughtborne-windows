@@ -896,13 +896,13 @@ class ThoughtborneApp:
                 task.error_provider = _error_provider(transcriber)
                 # #159: reaching FAILED as Soniox Live means the empty live lane ran
                 # the async file chain and it too came back empty with >=1 errored
-                # stage -- the "came back empty, worth a retry" case, shown over the
-                # bare category. A non-live engine's own error keeps its category.
+                # stage -- the "came back empty" case, shown over the bare category.
+                # A non-live engine's own error keeps its category.
                 # Auth and no-credit are the exceptions: a rejected key and an empty
                 # balance are both conclusive verdicts (a blind retry can't help until
                 # each is fixed), so they keep their own guidance rather than the "came
-                # back empty -- worth a retry" nudge -- the flag must match its own name
-                # (#179 extends the auth carve-out to no-credit).
+                # back empty" line's generic retry/wait/switch step -- the flag must
+                # match its own name (#179 extends the auth carve-out to no-credit).
                 task.error_inconclusive = (isinstance(transcriber, SonioxLiveTranscriber)
                                            and in_session_reason not in ("auth", "no-credit"))
                 task.is_complete = True
@@ -2026,7 +2026,7 @@ class ThoughtborneApp:
                 task.error_reason = retry_reason  # #159 renders it on the FAILED panel
                 task.error_provider = _error_provider(transcriber)
                 # #159: a live retry reaches FAILED only through the async file
-                # chain -- the empty-lane "worth a retry" case (mirror of the
+                # chain -- the empty-lane "came back empty" case (mirror of the
                 # in-session branch). is_live is True only for Soniox Live. Auth and
                 # no-credit are the exceptions: a rejected key and an empty balance are
                 # conclusive, so they keep their own guidance rather than the "came back

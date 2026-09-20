@@ -761,6 +761,18 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
                 logger.debug(f"Error during Soniox async transcription: {e}", exc_info=True)
             else:
                 logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
+                if e.response.status_code == 400:
+                    # #334: a 400 is Soniox rejecting the request, so the generic
+                    # panel step ("investigate") needs something to find. Static
+                    # text -- the error body is never parsed. Own record, FILE_ONLY:
+                    # appended to the line above it would be ~260 bold red console
+                    # characters, the flood #117/#124 removed.
+                    logger.error(
+                        "HTTP 400: Soniox rejected the request itself. Might be: "
+                        "something in your personal settings (e.g. a hand-edited "
+                        "vocabulary), an API change, or a temporary problem on "
+                        "Soniox's side (worth waiting a few minutes).",
+                        extra=FILE_ONLY)
             if error_sink is not None:
                 error_sink.errored, error_sink.reason = True, _http_status_reason(e.response.status_code)
             return ""

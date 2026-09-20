@@ -549,7 +549,8 @@ def check_failed_reason_block():
     """#159: the FAILED reason block says why -- CYAN (never the masthead-exclusive
     ACCENT), L1 left-anchored / L2 right-anchored, auth points at Settings (not
     [AUTH]/.env), an uncategorized failure keeps the generic hint, and the
-    inconclusive flag shows 'came back empty' over the raw category."""
+    inconclusive flag shows 'came back empty' over the raw category, its second
+    line the service-error step (#334)."""
     model = "Soniox Live"
 
     def render(**kw):
@@ -619,6 +620,13 @@ def check_failed_reason_block():
         _record("failed/inconclusive: did not show the 'came back empty' message")
     if "reach the Soniox server" in inc or "Wi-Fi" in inc:
         _record("failed/inconclusive: showed the raw category instead of inconclusive")
+    # #334: the second line is the service-error step. A Soniox 400 reject lands
+    # here through the empty live lane, where the old silence guess pointed away
+    # from the cause and promised a retry that could only fail again. Pinned as a
+    # literal, not as equality with the service-error row: rewording that row must
+    # stay a decision about this line too, not drag it along silently.
+    if "Retry, wait, ...investigate -- or just switch the model" not in inc:
+        _record("failed/inconclusive: second line is not the retry/wait/switch step (#334)")
 
     # L1 left-anchored at col 2, L2 right-anchored with a 2-cell margin.
     lines = render(reason="no-connection", provider="Soniox")

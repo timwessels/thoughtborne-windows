@@ -122,6 +122,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   included, so a hotkey-only save no longer rewrites the key lines at all — and the note
   under the fields says what saving does instead of pointing at the file.
 
+- **A Soniox 400 reject no longer reads as possible silence (#334).** A hand-edited
+  `vocabulary` block with a wrong shape makes Soniox reject every request with HTTP 400 —
+  measured against the real endpoints — so every dictation fails until the file is fixed.
+  The FAILED panel then said *Might be silence, might be a hiccup -- worth a retry*: it
+  pointed away from the cause and promised a retry that could only fail again. Its *came
+  back empty* verdict now carries the service-error next step instead (*Retry, wait,
+  ...investigate -- or just switch the model*), which stays true whether the failure is
+  transient or permanent. And *investigate* now has something to find: on HTTP 400 the
+  async lane's error log gains a static cause hint naming the plausible causes — something
+  in the personal settings, an API change, or a temporary problem on Soniox's side. One
+  status check, no parsing of the provider's error body, every other failure unchanged.
+
 ### Removed
 
 - **The settings window no longer makes statements about file health (#326, D-026).** Three

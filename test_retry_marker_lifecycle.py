@@ -46,7 +46,9 @@ verdict exactly as before.
     clean-empty still earns no-speech; Tier 2 exercises the REAL
     SonioxAsyncTranscriber.transcribe against a scripted fake httpx to prove each
     of its four error returns sets the per-call error sink (and a
-    completed-but-empty run does not).
+    completed-but-empty run does not), plus the one status-specific lane in there:
+    an HTTP 400 -- Soniox rejecting the request itself -- also logs a static cause
+    hint, and no other status does (#334).
 
 Plus one import-side guard, outside the marker story: #241, importing
 `output_handler` must leave pyautogui's corner fail-safe off.
@@ -745,7 +747,7 @@ def test_insession_live_auth_error_not_inconclusive():
     """#159: a Soniox Live chain that failed on AUTH (a rejected key) stays FAILED +
     retryable, but must NOT be marked inconclusive -- auth is a conclusive verdict,
     so the panel gives the auth guidance (fix the key in Settings), never the
-    'came back empty -- worth a retry' line. Mirror of the transport-error case with
+    'came back empty' line. Mirror of the transport-error case with
     reason=auth: without the fix, the live lane would flag inconclusive and the auth
     category would be swallowed."""
     _reset()
@@ -786,7 +788,7 @@ def test_insession_live_credits_error_not_inconclusive():
     """#179: a Soniox Live chain whose file-fallback hit a 402 (no-credit) stays
     FAILED + retryable, but must NOT be marked inconclusive -- an empty balance is a
     conclusive verdict, so the panel gives the credits guidance (top up your
-    balance), never the 'came back empty -- worth a retry' line. This is the trap the
+    balance), never the 'came back empty' line. This is the trap the
     #179 fix guards: without excluding no-credit alongside auth at the in-session
     inconclusive site, the live lane would flag inconclusive on the default engine and
     the 402 message would never appear. Mirror of the auth guard with reason=no-credit."""
@@ -1135,6 +1137,36 @@ def test_async_http_error_sets_sink():
     assert tag.reason == "service-error", f"a 500 maps to service-error (#138): {tag.reason}"
 
 
+def test_async_http_400_adds_cause_hint():
+    """#334: a 400 means Soniox rejected the request itself (measured: a hand-edited
+    vocabulary block with a wrong shape), so the same branch leaves one extra static
+    cause hint in the log naming the plausible causes -- the FAILED panel now says
+    "investigate" and this is what there is to find. Every other status keeps today's
+    single line. The only condition is the status code already in hand: no parsing of
+    the provider's error body. The substring pins are order-neutral, so rewording or
+    reordering the causes is free as long as the pinned substrings survive -- the
+    reject sentence, "personal settings" and "vocabulary". The other two causes (an
+    API change, a problem on Soniox's side) are unpinned: dropping them stays green."""
+    text, tag, errors = _run_async_case(
+        post_script=[_FakeResp(raise_exc=_FakeHTTPStatusError(400))],
+        get_script=[],
+    )
+    assert text == ""
+    assert tag.errored is True, "a 400 must set the sink (#141)"
+    assert tag.reason == "service-error", f"a 400 keeps its #138 category: {tag.reason}"
+    hints = [m for m in errors if "rejected the request itself" in m]
+    assert len(hints) == 1, f"exactly one 400 cause hint expected: {errors}"
+    assert "personal settings" in hints[0] and "vocabulary" in hints[0], \
+        f"the hint must name the hand-edited settings as a cause: {hints[0]!r}"
+    # The counter-lane: any other status stays at the single line it logs today.
+    _, _, errors_500 = _run_async_case(
+        post_script=[_FakeResp(raise_exc=_FakeHTTPStatusError(500))],
+        get_script=[],
+    )
+    assert len(errors_500) == 1 and "rejected the request itself" not in errors_500[0], \
+        f"a non-400 must not grow the hint: {errors_500}"
+
+
 def test_async_network_exception_sets_sink():
     """A raised network exception on upload -> "" and sink set (the generic
     except Exception branch -- DNS/connect failure, the real outage shape)."""
@@ -1312,6 +1344,8 @@ CASES = [
     test_async_job_error_sets_sink_and_reads_error_message,
     test_async_poll_timeout_sets_sink,
     test_async_http_error_sets_sink,
+    # #334 the one status-specific lane in that branch: a 400 also logs a cause hint
+    test_async_http_400_adds_cause_hint,
     test_async_network_exception_sets_sink,
     test_async_clean_empty_does_not_set_sink,
     test_async_failed_status_sets_sink,
