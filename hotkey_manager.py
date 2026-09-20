@@ -458,9 +458,10 @@ class HotkeyManager:
                     failed = self._register_all()
                     if failed:
                         # The one visible line this path owes (#335): a combo another
-                        # application grabbed during those seconds is lost until the
-                        # next start, and losing one silently is the single outcome
-                        # this path must never produce.
+                        # application grabbed while we stood aside -- minutes, if the
+                        # field stayed armed that long (D-031) -- is lost until the next
+                        # start, and losing one silently is the single outcome this path
+                        # must never produce.
                         combos = ", ".join(f"{s} ({n})" for s, n in failed)
                         logger.warning("Hotkey(s) could not be registered again after the "
                                        f"settings capture -- another application now holds: {combos}")

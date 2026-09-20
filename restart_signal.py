@@ -28,7 +28,9 @@ module, so the D-005 stdlib-only import chain must hold:
     hotkeys ARE released, so the field can arm on something that already holds
     instead of promising it. A missing ACK costs an arm; a stale one would cost the
     keypress. `decide_hotkey_suspend` is the whole logic of the tool's side, kept
-    pure so the ladder drives its truth table off Windows.
+    pure so the ladder drives its truth table off Windows. The request alone says
+    how long a release lasts: no timer on the tool's side ends it (D-031), and the
+    tool deletes that file in one place only, the clean slate of its own start.
 
 Every path is fail-safe: an unwritable dir, a vanished/locked file, or any probe
 fault degrades to the pre-#202 status quo (no restart) rather than raising. The
@@ -94,12 +96,6 @@ REQUEST_COMMENT = (
 # pre-#335 behaviour (the combo fires its action; the user clicks Change again).
 SUSPEND_ACK_WAIT_SECONDS = 2.0
 SUSPEND_POLL_INTERVAL_MS = 100        # root.after cadence for that wait
-
-# The one failsafe of the whole handshake (spec): a suspend the tool has held this
-# long re-registers, whatever the settings app did or failed to do -- window closed,
-# app killed, user walked away. Comfortably longer than the app's own give-up above,
-# so a normal abort is always the short path and this is only ever the net.
-SUSPEND_RESUME_TIMEOUT_SECONDS = 30.0
 
 # Same self-describing content duty as REQUEST_COMMENT above: whoever finds one of
 # these two files mid-capture should be able to read what wrote it and that removing
@@ -179,8 +175,9 @@ def clear_signal(path) -> bool:
 
     The generic remover both handshakes share (`consume_restart_signal` is its #202
     name). Atomic and never raising, so every "take the message back" path -- the
-    app disarming or giving up, the tool's resume and failsafe, the startup cleanup
-    -- can be called blind, as often as it likes, from either process.
+    app disarming or giving up, the tool's resume taking its ACK back, the clean
+    slate of a tool start -- can be called blind, as often as it likes, from either
+    process.
     """
     try:
         os.remove(path)
@@ -222,26 +219,22 @@ def signal_present(path) -> bool:
         return False
 
 
-def decide_hotkey_suspend(request_present, suspended, suspended_age_s, timeout_s):
+def decide_hotkey_suspend(request_present, suspended):
     """One tick of the tool's side of the #335 handshake, as a pure decision.
 
-    Returns None (do nothing, the overwhelmingly common tick), "suspend", "resume"
-    or "timeout". `suspended` is the tool's own view of whether it has already
-    posted a release, `suspended_age_s` how long ago (None while not suspended).
+    Returns None (do nothing, the overwhelmingly common tick), "suspend" or
+    "resume". `suspended` is the tool's own view of whether it has already posted a
+    release.
 
-    The priorities are the interesting part, and why this is ONE function rather
-    than a rule per case: a vanished request always means "resume", even when the
-    failsafe has come due in the same tick -- the normal end of a capture must never
-    be mistaken for an abandoned one. "timeout" is that failsafe and says more than
-    "resume": the request is still on disk, so the caller has to take it back first
-    or the next tick would immediately re-suspend.
+    The request file is the whole input: the hotkeys stay released for as long as it
+    stands and come back once it is gone. There is deliberately no clock in here and
+    no third verdict -- the timer that used to end a standing suspend broke the slow
+    capture this handshake exists for (D-031). Do not add one back.
     """
     if not suspended:
         return "suspend" if request_present else None
     if not request_present:
         return "resume"
-    if suspended_age_s is not None and suspended_age_s >= timeout_s:
-        return "timeout"
     return None
 
 

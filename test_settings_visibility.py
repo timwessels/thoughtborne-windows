@@ -2255,7 +2255,7 @@ def test_capture_arm_wait_with_display():
             rs.clear_signal(ack)                        # the tool's resume, as it follows
 
             # (c) Give up: the tool never answers. No dialog, no arming, and the request
-            # comes back rather than being left to the tool's 30-second failsafe.
+            # comes back -- no timer in the tool would ever end the release (D-031).
             app._arm(name)
             check(len(pending) == 1, f"the second arm scheduled no wait: {pending}")
             clock.now += rs.SUSPEND_ACK_WAIT_SECONDS + 0.001
@@ -2265,7 +2265,7 @@ def test_capture_arm_wait_with_display():
                   f"the row that never armed shows the capture prompt: {label['text']!r}")
             check(not request.exists(),
                   "the give-up left its request on disk -- the tool would stay without "
-                  "hotkeys until its own failsafe")
+                  "hotkeys until it is restarted")
             check(pending == [], "the wait kept polling past its budget")
             body = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
             check(any("[SETTINGS] capture:" in ln and "not armed" in ln
@@ -2294,7 +2294,7 @@ def test_capture_arm_wait_with_display():
             root.destroy()
             check(not request.exists(),
                   "closing the window left the suspend request on disk -- the tool would "
-                  "sit out its whole failsafe with no hotkeys")
+                  "stay without hotkeys until it is restarted")
             try:
                 deliver()
             except Exception as e:

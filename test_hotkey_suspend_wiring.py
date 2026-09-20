@@ -17,18 +17,30 @@ What it pins, all of it invisible to the pure decision:
 
   - A tick acts once. A request that is still there on the next tick does not
     release a second time, and an idle tick touches nothing at all.
+  - A standing request is held. However many ticks pass -- and with the clocks the
+    tool reads racing under them, so that a deadline could not hide behind the fact
+    that ticks cost no time -- it neither registers again on its own nor deletes the
+    request: that file is the settings app's, and every end of a capture is an
+    action in its window (D-031).
   - A post that fails leaves the state untouched, so the next tick tries again --
     in both directions. This is what makes the Win32 post allowed to fail: before
     the listener thread has a message queue it simply does, and the tick after it
     succeeds.
-  - The failsafe takes the request back BEFORE it resumes (proven by looking at the
-    disk from inside the resume call, not by reading the source): with the file
-    still lying there, the very next tick would release the hotkeys again.
-  - A request that cannot be deleted at all leaves the tool suspended and retrying,
-    rather than flapping between released and registered every 150 ms -- the mirror
-    of #202's "no shutdown without a successful consume".
   - No manager yet (the recording loop starts before hotkey registration) is a
     complete no-op, not an AttributeError in the thread that carries the W-flow.
+  - The seam a fake app cannot show: the tick takes nothing but `self`, the
+    recording loop calls it that way, and the real `__init__` starts the flag it
+    reads. Each of the three is otherwise an exception on that same thread.
+
+Then the other half of D-031, the clean signal slate of a tool start
+(`thoughtborne._clear_stale_suspend_signals`), driven against a temp directory. With
+no timer left to end a release, it is what makes a restart the full recovery from a
+settings app that died mid-capture: a leftover request and ACK are both removed and
+the tick after it finds nothing to act on, while a leftover that cannot be deleted
+costs one warning that names the file and reaches the console -- never the start.
+Its place inside main() -- after the single-instance guard, so a refused second
+start can never eat the live instance's request, and before the app is built -- is
+read from the source like the seam above, because main() cannot run off Windows.
 
 Plus the invariants on the manager side that need no Windows to check: the two
 private messages are distinct values that cannot collide with WM_HOTKEY or WM_QUIT
@@ -36,12 +48,12 @@ and are posted by the right method each (a swap would make a suspend re-register
 a post is refused while there is no listener thread to post to, and a completion
 hook that throws is contained instead of taking the message pump down with it.
 
-The last of them is an order, and it is checked the same way as the failsafe above
--- by looking at the disk from inside the call, not at the source. The real message
-pump runs here with Win32 faked around it and the tool's own hooks hung on it, so
-the ACK file is written and removed for real: it must be gone before the first
-RegisterHotKey of a resume, because an ACK lying there next to a live combo is
-exactly what would let the capture field arm on hotkeys the tool has taken back.
+The last of them is an order too, and that one is checked by looking at the disk
+from inside the call rather than at the source. The real message pump runs here with
+Win32 faked around it and the tool's own hooks hung on it, so the ACK file is written
+and removed for real: it must be gone before the first RegisterHotKey of a resume,
+because an ACK lying there next to a live combo is exactly what would let the capture
+field arm on hotkeys the tool has taken back.
 
 What stays hands-on: that `UnregisterHotKey` really frees the combo system-wide and
 that the re-registration takes it back. The Win32 probe of 2026-09-20 confirmed both
@@ -49,6 +61,7 @@ on the real machine, and daily use carries them from here.
 """
 import contextlib
 import ctypes
+import inspect
 import logging
 import shutil
 import sys
@@ -141,19 +154,15 @@ for _name in ("Thoughtborne", "Thoughtborne.stdio", "Thoughtborne.console",
     _lg.setLevel(logging.CRITICAL)
 tb.ARCHIVE_FOLDER = _ARCHIVE
 
-TIMEOUT = rs.SUSPEND_RESUME_TIMEOUT_SECONDS
-
 
 # ---- harness ---------------------------------------------------------------
 class _FakeManager:
     """The hotkey manager as the tick sees it: two post-only calls that report
-    whether the message was queued. `on_resume` is the peephole for lane order --
-    it runs inside resume(), so it can see the disk as the resume sees it."""
+    whether the message was queued."""
 
-    def __init__(self, suspend_ok=True, resume_ok=True, on_resume=None):
+    def __init__(self, suspend_ok=True, resume_ok=True):
         self.suspend_ok = suspend_ok
         self.resume_ok = resume_ok
-        self.on_resume = on_resume
         self.calls = []
 
     def suspend(self):
@@ -162,8 +171,6 @@ class _FakeManager:
 
     def resume(self):
         self.calls.append("resume")
-        if self.on_resume is not None:
-            self.on_resume()
         return self.resume_ok
 
 
@@ -176,7 +183,7 @@ class _FakeApp:
         self.hotkey_manager = manager
         self._suspend_request_path = rs.suspend_request_path(base_dir)
         self._suspend_ack_path = rs.suspend_ack_path(base_dir)
-        self._hotkeys_suspended_since = None
+        self._hotkeys_suspended = False
 
     # the two moves the settings app makes, as the tool sees them on disk
     def request(self):
@@ -196,8 +203,96 @@ def app(manager=None, **kw):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def tick(a, now):
-    _FakeApp._hotkey_suspend_tick(a, now)
+def tick(a):
+    _FakeApp._hotkey_suspend_tick(a)
+
+
+class _RacingClock:
+    """The time module with the clocks a deadline is built on sprinting ahead, a
+    fixed step per read: `monotonic`, `perf_counter` and `time`, each in its plain
+    and its `_ns` form. Everything else passes straight through to the real module."""
+
+    def __init__(self, module, step):
+        self._module = module
+        self._step = step
+        self._reads = 0
+
+    def __getattr__(self, name):
+        return getattr(self._module, name)
+
+    def _read(self):
+        self._reads += 1
+        return self._reads * self._step
+
+    def _read_ns(self):
+        return int(self._read() * 1_000_000_000)
+
+    monotonic = perf_counter = time = _read
+    monotonic_ns = perf_counter_ns = time_ns = _read_ns
+
+
+@contextlib.contextmanager
+def clocks_racing(step=60.0):
+    """Let time run wild inside the body, for the tool's side of the handshake only.
+
+    Ticks by themselves cost no time, so any number of them says nothing about a
+    deadline -- a resume on a clock would sit the whole loop out and fire on the
+    first real minute. In here a clock jumps a minute per read instead, so a
+    reintroduced deadline of any length comes due within a few ticks, as long as it
+    reads one of the `time` module's clocks -- which is where this code takes its
+    time from everywhere else. A deadline built on `datetime` would still run on the
+    real clock, and covering that is more machinery than the risk is worth. Scoped
+    to the namespaces of the tool's side and put back whatever the body does, so
+    logging, threads and every other lane keep the real time module.
+    """
+    saved = [(m, m.time) for m in (tb, rs)
+             if isinstance(getattr(m, "time", None), types.ModuleType)]
+    # Without this the helper is silent when it patches nothing: let `thoughtborne`
+    # import its clocks by name (`from time import monotonic`) and every lane below
+    # would keep passing while running on the real clock, which is exactly the blind
+    # spot they were written to cover. `restart_signal` reads no clock today, so the
+    # namespace that has to be hit is the tool's.
+    assert any(m is tb for m, _ in saved), \
+        "clocks_racing patched no clock: thoughtborne.time is not the time module"
+    for module, real in saved:
+        module.time = _RacingClock(real, step)
+    try:
+        yield
+    finally:
+        for module, real in saved:
+            module.time = real
+
+
+class _Capture(logging.Handler):
+    """Collects the records themselves at INFO and above: a lane below looks past
+    level and text, at the `file_only` flag the console gate reads."""
+
+    def __init__(self):
+        super().__init__(logging.INFO)
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+@contextlib.contextmanager
+def captured_logs():
+    """Yield a list that fills with what the tool logs inside the body -- the module
+    keeps the 'Thoughtborne' logger silent and handler-less otherwise."""
+    lg = logging.getLogger("Thoughtborne")
+    level, cap = lg.level, _Capture()
+    lg.setLevel(logging.INFO)
+    lg.addHandler(cap)
+    try:
+        yield cap.records
+    finally:
+        lg.removeHandler(cap)
+        lg.setLevel(level)
+
+
+def said(records):
+    """The captured messages alone -- what a failing assert has to print."""
+    return [r.getMessage() for r in records]
 
 
 # ======================================================================
@@ -206,28 +301,46 @@ def tick(a, now):
 
 def test_a_request_releases_once_and_a_withdrawal_takes_it_back():
     with app() as a:
-        tick(a, 100.0)
+        tick(a)
         assert a.hotkey_manager.calls == [], "an idle tick posted something"
-        assert a._hotkeys_suspended_since is None
+        assert a._hotkeys_suspended is False
 
         a.request()
-        tick(a, 100.0)
+        tick(a)
         assert a.hotkey_manager.calls == ["suspend"], a.hotkey_manager.calls
-        assert a._hotkeys_suspended_since == 100.0, "the suspend was not stamped"
+        assert a._hotkeys_suspended is True, "the posted release was not recorded"
 
-        tick(a, 100.2)      # the request is still there: the capture is running
+        tick(a)             # the request is still there: the capture is running
         assert a.hotkey_manager.calls == ["suspend"], \
             f"a standing request released a second time: {a.hotkey_manager.calls}"
-        assert a._hotkeys_suspended_since == 100.0, "the stamp moved under a standing request"
 
         a.withdraw()
-        tick(a, 100.4)
+        tick(a)
         assert a.hotkey_manager.calls == ["suspend", "resume"], a.hotkey_manager.calls
-        assert a._hotkeys_suspended_since is None, "the tool still counts as suspended"
+        assert a._hotkeys_suspended is False, "the tool still counts as suspended"
 
-        tick(a, 100.6)
+        tick(a)
         assert a.hotkey_manager.calls == ["suspend", "resume"], \
             f"the finished cycle kept posting: {a.hotkey_manager.calls}"
+
+
+def test_a_standing_request_is_held_and_never_taken_back_by_the_tool():
+    # D-031: only the settings app ends a capture. However long the request stands --
+    # a user thinking about which combo to press, or fetching a coffee -- the tool
+    # neither registers again on its own nor deletes a file that is not its to
+    # delete. Ticks alone would not show that, since a deadline sits any number of
+    # them out: hence the racing clock, which leaves any deadline on a `time` clock
+    # long overdue by the end of the loop. 2,000 ticks are five minutes of the real
+    # 150 ms poll.
+    with app() as a, clocks_racing():
+        a.request()
+        for _ in range(2000):
+            tick(a)
+        assert a.hotkey_manager.calls == ["suspend"], \
+            f"the tool ended a standing suspend on its own: {a.hotkey_manager.calls[:4]}"
+        assert a._hotkeys_suspended is True
+        assert a._suspend_request_path.exists(), \
+            "the tool deleted the settings app's request"
 
 
 # ======================================================================
@@ -240,85 +353,32 @@ def test_a_refused_suspend_is_retried_instead_of_being_assumed():
     # hotkeys are gone while they are still live -- and never resuming them.
     with app(suspend_ok=False) as a:
         a.request()
-        tick(a, 10.0)
-        assert a._hotkeys_suspended_since is None, "a refused suspend was recorded as done"
-        tick(a, 10.2)
+        tick(a)
+        assert a._hotkeys_suspended is False, "a refused suspend was recorded as done"
+        tick(a)
         assert a.hotkey_manager.calls == ["suspend", "suspend"], \
             f"the refused suspend was not retried: {a.hotkey_manager.calls}"
 
         a.hotkey_manager.suspend_ok = True
-        tick(a, 10.4)
-        assert a._hotkeys_suspended_since == 10.4, "the retry that got through was not stamped"
+        tick(a)
+        assert a._hotkeys_suspended is True, "the retry that got through was not recorded"
 
 
 def test_a_refused_resume_stays_suspended_and_retries():
     with app(resume_ok=False) as a:
         a.request()
-        tick(a, 20.0)
+        tick(a)
         a.withdraw()
-        tick(a, 20.2)
-        assert a._hotkeys_suspended_since == 20.0, \
+        tick(a)
+        assert a._hotkeys_suspended is True, \
             "a refused resume dropped the state -- nothing would ever register again"
-        tick(a, 20.4)
+        tick(a)
         assert a.hotkey_manager.calls.count("resume") == 2, \
             f"the refused resume was not retried: {a.hotkey_manager.calls}"
 
         a.hotkey_manager.resume_ok = True
-        tick(a, 20.6)
-        assert a._hotkeys_suspended_since is None, "the successful retry was not recorded"
-
-
-# ======================================================================
-# The one failsafe
-# ======================================================================
-
-def test_the_failsafe_withdraws_the_request_before_it_resumes():
-    seen = {}
-    with app() as a:
-        a.hotkey_manager.on_resume = lambda: seen.setdefault(
-            "request_on_disk", a._suspend_request_path.exists())
-        a.request()
-        tick(a, 0.0)
-        assert a.hotkey_manager.calls == ["suspend"]
-
-        tick(a, TIMEOUT - 0.1)
-        assert a.hotkey_manager.calls == ["suspend"], "the failsafe fired too early"
-
-        tick(a, TIMEOUT)
-        assert a.hotkey_manager.calls == ["suspend", "resume"], a.hotkey_manager.calls
-        assert seen.get("request_on_disk") is False, \
-            "the failsafe resumed with the request still on disk -- the next tick " \
-            "would release the hotkeys again"
-        assert not a._suspend_request_path.exists(), "the abandoned request survived"
-        assert a._hotkeys_suspended_since is None
-
-
-def test_an_undeletable_request_keeps_the_tool_suspended_instead_of_flapping():
-    import os
-
-    with app() as a:
-        a.request()
-        tick(a, 0.0)
-
-        original = os.remove
-
-        def _denied(_p):
-            raise PermissionError(13, "Permission denied")
-
-        rs.os.remove = _denied
-        try:
-            tick(a, TIMEOUT + 1.0)
-            tick(a, TIMEOUT + 2.0)
-        finally:
-            rs.os.remove = original
-
-        assert a.hotkey_manager.calls == ["suspend"], \
-            f"resumed against a request that is still on disk: {a.hotkey_manager.calls}"
-        assert a._hotkeys_suspended_since == 0.0, "the state moved without a resume"
-
-        tick(a, TIMEOUT + 3.0)      # the lock is gone: the retry gets through
-        assert a.hotkey_manager.calls == ["suspend", "resume"], a.hotkey_manager.calls
-        assert a._hotkeys_suspended_since is None
+        tick(a)
+        assert a._hotkeys_suspended is False, "the successful retry was not recorded"
 
 
 # ======================================================================
@@ -332,11 +392,119 @@ def test_no_manager_yet_is_a_complete_no_op():
     with app(manager=None) as a:
         a.hotkey_manager = None
         a.request()
-        tick(a, 1.0)
-        tick(a, 1.0 + TIMEOUT + 1.0)
-        assert a._hotkeys_suspended_since is None, "a tick without a manager stamped a suspend"
+        tick(a)
+        tick(a)
+        assert a._hotkeys_suspended is False, "a tick without a manager recorded a suspend"
         assert a._suspend_request_path.exists(), \
             "a tick without a manager consumed the request nobody can act on"
+
+
+# ======================================================================
+# The seam the fake app cannot show
+# ======================================================================
+
+def test_the_tick_fits_the_loop_that_calls_it_and_the_state_it_reads():
+    # _FakeApp wires itself, so no lane above would notice if the recording loop
+    # still passed the clock the tick no longer takes, or if the real __init__ named
+    # the flag differently. Either is an exception on the thread that carries the
+    # W-flow, raised at a call site with nothing to catch it, so the three names are
+    # pinned here -- from the objects where that is possible, from the source where
+    # it is not (neither __init__ nor the loop runs off Windows).
+    params = list(inspect.signature(tb.ThoughtborneApp._hotkey_suspend_tick).parameters)
+    assert params == ["self"], f"the tick takes an argument again: {params}"
+
+    loop = inspect.getsource(tb.ThoughtborneApp.recording_loop_thread)
+    assert "self._hotkey_suspend_tick()" in loop, \
+        "the recording loop no longer calls the tick with no argument"
+
+    init = inspect.getsource(tb.ThoughtborneApp.__init__)
+    assert "self._hotkeys_suspended = False" in init, \
+        "__init__ no longer starts the flag the tick reads at False"
+
+
+# ======================================================================
+# The clean signal slate of a start (D-031)
+# ======================================================================
+
+def test_the_startup_clean_slate_removes_both_leftovers():
+    # What a settings app killed mid-capture leaves behind. Without the clean slate
+    # the fresh tool's first poll would release its hotkeys, and with no timer left
+    # to end a suspend they would stay released -- this is what makes the restart the
+    # full recovery D-031 names.
+    with app() as a:
+        base = a._suspend_request_path.parent
+        with captured_logs() as logs:
+            tb._clear_stale_suspend_signals(base)
+        assert logs == [], f"a start with nothing to clear logged something: {said(logs)}"
+
+        a.request()
+        rs.acknowledge_hotkeys_suspended(a._suspend_ack_path)
+        with captured_logs() as logs:
+            tb._clear_stale_suspend_signals(base)
+        assert not a._suspend_request_path.exists(), "the stale request survived the start"
+        assert not a._suspend_ack_path.exists(), "the stale ACK survived the start"
+        for name in (rs.SUSPEND_REQUEST_FILENAME, rs.SUSPEND_ACK_FILENAME):
+            assert any(name in msg for msg in said(logs)), \
+                f"clearing {name} left no trace in the log: {said(logs)}"
+        assert all(r.levelno < logging.WARNING for r in logs), \
+            f"a clean slate that worked still warned: {said(logs)}"
+
+        tick(a)
+        assert a.hotkey_manager.calls == [], \
+            f"the fresh tool inherited a dead capture: {a.hotkey_manager.calls}"
+
+
+def test_a_leftover_that_will_not_go_is_warned_about_and_the_start_goes_on():
+    # A locked leftover is the one start that comes up deaf behind a READY masthead
+    # listing keys it will not answer to, so the warning has to name the file that
+    # has to go -- and has to reach the console to do that.
+    with app() as a:
+        base = a._suspend_request_path.parent
+        a.request()
+        rs.acknowledge_hotkeys_suspended(a._suspend_ack_path)
+
+        original = rs.os.remove
+
+        def _denied(_p):
+            raise PermissionError(13, "Permission denied")
+
+        rs.os.remove = _denied
+        try:
+            with captured_logs() as logs:
+                tb._clear_stale_suspend_signals(base)      # must not raise
+        finally:
+            rs.os.remove = original
+
+        warnings = [r for r in logs if r.levelno >= logging.WARNING]
+        for path in (a._suspend_request_path, a._suspend_ack_path):
+            assert path.exists(), "the fixture is wrong: the locked file went away"
+            assert any(str(path) in msg for msg in said(warnings)), \
+                f"no warning names {path} -- the user could not find the cause: {said(logs)}"
+        assert len(warnings) == 2, f"expected one warning per stuck file: {said(warnings)}"
+        # This line deliberately carries no `extra=FILE_ONLY`, and `file_only` is
+        # the exact attribute the console gate filters on, so one slipped onto it
+        # would take the warning off the screen it was written for.
+        assert not any(getattr(r, "file_only", False) for r in warnings), \
+            "the warning is flagged file_only -- the deaf start says nothing on screen"
+
+
+def test_the_clean_slate_runs_after_the_instance_guard_and_before_the_app_is_built():
+    # An order, and main() cannot be run here, so this one does read the source.
+    # After the guard: a refused second instance must never eat the live instance's
+    # request. Before the app: the recording loop and the hotkey registration both
+    # start inside ThoughtborneApp.run(), and the slate has to be clean by then.
+    src = inspect.getsource(tb.main)
+
+    def where(needle):
+        at = src.find(needle)
+        assert at >= 0, f"main() no longer contains {needle!r}"
+        return at
+
+    guard = where("_second_instance_running()")
+    clean = where("_clear_stale_suspend_signals(SCRIPT_DIR)")
+    build = where("ThoughtborneApp()")
+    assert guard < clean < build, \
+        f"main() order is guard={guard}, clean slate={clean}, app={build}"
 
 
 # ======================================================================
@@ -444,11 +612,14 @@ def test_the_resume_clears_the_ack_before_the_first_registration():
 
 CASES = [
     test_a_request_releases_once_and_a_withdrawal_takes_it_back,
+    test_a_standing_request_is_held_and_never_taken_back_by_the_tool,
     test_a_refused_suspend_is_retried_instead_of_being_assumed,
     test_a_refused_resume_stays_suspended_and_retries,
-    test_the_failsafe_withdraws_the_request_before_it_resumes,
-    test_an_undeletable_request_keeps_the_tool_suspended_instead_of_flapping,
     test_no_manager_yet_is_a_complete_no_op,
+    test_the_tick_fits_the_loop_that_calls_it_and_the_state_it_reads,
+    test_the_startup_clean_slate_removes_both_leftovers,
+    test_a_leftover_that_will_not_go_is_warned_about_and_the_start_goes_on,
+    test_the_clean_slate_runs_after_the_instance_guard_and_before_the_app_is_built,
     test_the_two_private_messages_cannot_be_confused,
     test_suspend_and_resume_post_their_own_message,
     test_a_throwing_completion_hook_cannot_take_the_pump_down,

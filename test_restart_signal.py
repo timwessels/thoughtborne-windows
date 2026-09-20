@@ -15,10 +15,9 @@ that must never regress are pinned here:
     creates;
   - the #335 suspend pair keeps its two wire-format filenames, both of its writers
     stay self-describing and fail-safe, and `decide_hotkey_suspend` answers its full
-    truth table -- above all that a vanished request outranks an expired failsafe
-    (the normal end of a capture must not be read as an abandoned one) and that the
-    failsafe is reported as its own case, because the caller has to take the request
-    back before resuming.
+    truth table -- two inputs, four rows, the request file alone deciding: a
+    standing request under a standing suspend is "do nothing", however long it
+    stands, because no timer ends a suspend (D-031).
 
     python3 test_restart_signal.py    # verify, exit non-zero on any violation
 """
@@ -206,9 +205,10 @@ def test_suspend_roundtrip(d):
 
 
 def test_clear_signal_reports_only_its_own_removal(d):
-    """clear_signal is the no-flapping foundation: an undeletable request must read
-    as False, so the tool's failsafe stays suspended and retries instead of resuming
-    against a request that is still on disk (the mirror of #202's no-consume rule)."""
+    """A missing file and an undeletable one both read as False -- True is reserved
+    for a real removal (the mirror of #202's no-consume rule). Nothing may therefore
+    take False for "gone": the tool's startup clean slate looks again with
+    signal_present before it warns about a leftover it could not remove."""
     path = rs.suspend_request_path(d)
     check(rs.clear_signal(path) is False, "clear_signal of a missing file did not return False")
     for exc in (PermissionError(13, "Permission denied"),
@@ -229,19 +229,14 @@ def test_clear_signal_reports_only_its_own_removal(d):
 
 
 def test_decide_hotkey_suspend():
-    """The whole truth table of the tool's tick, including the two priorities the
-    dispatch above it must not have to re-decide."""
-    t = 30.0
+    """The whole truth table of the tool's tick: two inputs, four rows. The request
+    file alone decides -- a standing request under a standing suspend is "do
+    nothing", however long it stands (D-031: no timer ends a suspend)."""
     cases = (
-        ((False, False, None, t), None, "nothing to do -- the common tick"),
-        ((True, False, None, t), "suspend", "a fresh request releases the hotkeys"),
-        ((False, True, 0.0, t), "resume", "the request is gone -- the capture ended"),
-        ((False, True, t * 10, t), "resume",
-         "a vanished request must outrank an expired failsafe"),
-        ((True, True, t - 0.1, t), None, "still capturing, failsafe not due"),
-        ((True, True, t, t), "timeout", "exactly at the failsafe"),
-        ((True, True, t + 5.0, t), "timeout", "past the failsafe"),
-        ((True, True, None, t), None, "no age known -> never a timeout"),
+        ((False, False), None, "nothing to do -- the common tick"),
+        ((True, False), "suspend", "a fresh request releases the hotkeys"),
+        ((True, True), None, "still capturing -- held for as long as the request stands"),
+        ((False, True), "resume", "the request is gone -- the capture ended"),
     )
     for args, expected, why in cases:
         got = rs.decide_hotkey_suspend(*args)
@@ -293,14 +288,6 @@ def test_constants():
           "SUSPEND_POLL_INTERVAL_MS must be a positive int")
     check(rs.SUSPEND_ACK_WAIT_SECONDS * 1000 > rs.SUSPEND_POLL_INTERVAL_MS,
           "the arm budget must exceed one poll interval (else the wait can't poll)")
-    check(isinstance(rs.SUSPEND_RESUME_TIMEOUT_SECONDS, (int, float))
-          and rs.SUSPEND_RESUME_TIMEOUT_SECONDS > 0,
-          "SUSPEND_RESUME_TIMEOUT_SECONDS must be a positive number")
-    # The one relation that is load-bearing: the app gives up long before the tool's
-    # failsafe, so a normal abort always ends the cycle the short way and the failsafe
-    # can never fire into a capture the app still believes in.
-    check(rs.SUSPEND_ACK_WAIT_SECONDS < rs.SUSPEND_RESUME_TIMEOUT_SECONDS,
-          "the app's arm budget must be shorter than the tool's resume failsafe")
 
 
 def test_source_guards():

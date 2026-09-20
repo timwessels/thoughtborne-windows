@@ -116,8 +116,8 @@ runtime_state.json
 restart_request
 
 # The same, for the hotkey-suspend handshake around a settings capture (#335):
-# the request (app -> tool) and the tool's ACK. Both live for seconds, and any
-# leftover is cleared at the next start.
+# the request (app -> tool) and the tool's ACK. Both live only while a capture is
+# armed, and any leftover is cleared at the next start.
 hotkeys_suspend_request
 hotkeys_suspended
 

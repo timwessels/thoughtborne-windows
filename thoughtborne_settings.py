@@ -454,11 +454,12 @@ class SettingsApp:
 
         root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         # #335: whichever way this window goes, take an open suspend request with it,
-        # so the tool registers its hotkeys again at its next poll instead of sitting
-        # out the 30-second failsafe. Deliberately NOT a close handler -- D-014 keeps
-        # that literally root.destroy -- but a cleanup inside the teardown, which is
-        # why it covers [X], Cancel and the restart path alike. A <Destroy> bound here
-        # also fires for every child widget, hence the filter in the handler.
+        # so the tool registers its hotkeys again at its next poll. Nothing else would
+        # bring them back -- the tool holds a release for as long as the request stands
+        # (D-031). Deliberately NOT a close handler -- D-014 keeps that literally
+        # root.destroy -- but a cleanup inside the teardown, which is why it covers
+        # [X], Cancel and the restart path alike. A <Destroy> bound here also fires
+        # for every child widget, hence the filter in the handler.
         root.bind("<Destroy>", self._on_destroy)
 
     def _on_destroy(self, event):
@@ -1359,10 +1360,11 @@ class SettingsApp:
                 return
             if time.monotonic() >= deadline:
                 # Give up quietly. Take the request back so the tool registers again
-                # at its next poll rather than at its failsafe, and stay disarmed --
-                # no dialog, because the remedy is to click Change again, and the
-                # field simply not arming says that better than a message box. The
-                # log carries the trace. Capturing a combo the tool does NOT hold
+                # at its next poll -- nothing else would, the release holds for as long
+                # as the request stands (D-031) -- and stay disarmed: no dialog,
+                # because the remedy is to click Change again, and the field simply not
+                # arming says that better than a message box. The log carries the
+                # trace. Capturing a combo the tool does NOT hold
                 # still works from here, exactly as it did before #335.
                 restart_signal.clear_signal(request)
                 settings_visibility.append_log_line(

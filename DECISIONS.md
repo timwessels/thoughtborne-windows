@@ -47,6 +47,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-028 | Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic | Active |
 | D-029 | Toggle pair: the start combo may double as exactly one stop action | Active |
 | D-030 | Rejected hotkey combos: what the tool's own paste and AltGr typing send | Active |
+| D-031 | Hotkey suspend: the armed state ends only through visible user actions; crash recovery is the tool restart | Active |
 
 ---
 
@@ -2110,3 +2111,25 @@ bare-binding rule for every supported key and its no-paternalism line stand
 D-026 and D-029 (the rejection runs per entry, before the collision loop, so the
 toggle exemption is untouched: a toggle pair on a rejected combo is two ordinary
 rejections).
+
+## D-031 — Hotkey suspend: the armed state ends only through visible user actions; crash recovery is the tool restart
+
+Decided 2026-09-20 with the maintainer, in dialog (origin: field testing of #335's
+failsafe on its first day); implementation tracked in #339.
+
+- While the capture field is armed, the tool's hotkeys stay released for as long
+  as the request stands — minutes included. Every end of that state is a visible
+  user action in the settings app: a captured key, Esc, cancel, focus loss, or the
+  window closing. No timer ends it.
+- Rationale: the 30-second failsafe broke the legitimate slow path (arm, think,
+  then press a tool-owned combo — the very case #335 was built for), and a
+  mechanism that silently self-heals after an arbitrary time masks real bugs
+  instead of surfacing them. A safety net whose covered damage is curable by a
+  plain restart does not justify machinery (maintainer's lean ruling, 2026-09-20).
+- The one uncovered case — the settings app dying hard while armed — leaves the
+  tool deaf until restarted; the log names the cause, and a starting tool clears
+  leftover suspend signals before registering, so the restart the user performs
+  anyway is the full recovery.
+- Do not reintroduce: suspend timers, settings-process liveness probing from the
+  tool, or UI liveness monitoring of the armed field (considered and rejected in
+  #339).

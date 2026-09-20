@@ -27,15 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fired its action, and reorganizing or swapping hotkeys was effectively impossible — the
   old advice to quit Thoughtborne first was not even actionable, since the settings window
   opens from the running tool. While a capture arms, the tool now releases its global
-  hotkeys for those seconds and the field arms only once the tool has confirmed it, so the
-  "press the combo" prompt never promises what does not hold yet. Every way a capture ends
-  — combo captured, Esc, focus lost, window closed — brings them back within a fraction of
-  a second, and a 30-second failsafe in the tool covers every abandoned capture, including
-  a settings app that was killed. For those seconds no hotkey works, the stop keys
-  included; a recording in progress keeps running and push-to-talk keeps working. If
-  another application grabs one of the combos in that window, one warning in the log names
-  it — nothing is lost silently. The capture hint now only mentions combos held by other
-  applications.
+  hotkeys and the field arms only once the tool has confirmed it, so the "press the combo"
+  prompt never promises what does not hold yet. Every way a capture ends — combo captured,
+  Esc, focus lost, window closed — brings them back within a fraction of a second, and no
+  timer in the tool ends the release; if the settings app dies while the field is armed,
+  restarting Thoughtborne is what brings the hotkeys back (D-031, see *Fixed* below).
+  While the field is armed no hotkey works, the stop keys included; a recording in progress
+  keeps running and push-to-talk keeps working. If another application grabs one of the
+  combos in that window, one warning in the log names it — nothing is lost silently. The
+  capture hint now only mentions combos held by other applications.
 
 - **Backup before loss: the settings save protects what it cannot carry (#263, D-026).**
   A save or reset that meets a `personal_settings.json` it cannot fully carry into its
@@ -214,6 +214,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now held by a test driver of its own.
 
 ### Fixed
+
+- **An armed hotkey-capture field no longer goes stale after 30 seconds (#339, D-031).**
+  The hotkey release behind the settings app's capture field (#335, under *Added*) first
+  came with a 30-second failsafe in the tool, and that timer broke the very flow the
+  feature exists for: click *Change…*, think for a moment, then press a combo Thoughtborne
+  holds itself — by then the tool had quietly taken its hotkeys back, so the press started
+  a recording behind the window while the field still asked for the combo. The timer is
+  gone: the hotkeys stay released for as long as the field is armed, and every end of that
+  state is something you do in the settings window — a captured combo, Esc, a click
+  elsewhere, closing it. The one case the timer was there for, a settings app killed hard
+  while armed, now leaves the tool without hotkeys until it is restarted; the log shows the
+  release with no registration after it, and a starting tool clears leftover suspend
+  signals before it registers anything, so that restart is the complete recovery. A
+  leftover it cannot delete is named in a warning instead of costing the start.
 
 - **Stopping with one hotkey no longer mutes another one's "insert last text" (#152).**
   After a stop, the tool ignores that hotkey's insert-last-text function for two seconds,
