@@ -687,8 +687,10 @@ class ThoughtborneApp:
         # Push-to-talk (#66): opt-in, DEFAULT OFF. The detector is a pure state
         # machine fed a Win32 keyboard snapshot from the recording loop thread;
         # _ptt_owns_recording records that the CURRENT recording was started by
-        # PTT (vs Ctrl+Alt+W), so only a trigger release stops it -- A/D/H/Y do
-        # not. While disabled (_ptt is None) the running app never calls into any
+        # PTT (vs Ctrl+Alt+W). Trigger release is the normal stop; any other door
+        # (a stop hotkey, cancel, device loss) ends the recording too, and the
+        # next _ptt_tick then lets go -- ownership cleared, detector reset (#250).
+        # While disabled (_ptt is None) the running app never calls into any
         # PTT code, which is the stability guarantee: shipping the feature cannot
         # change the existing flow for anyone who has not opted in.
         self._ptt = None                  # PttDetector when enabled, else None
@@ -1721,13 +1723,27 @@ class ThoughtborneApp:
         PTT stays inert while a recording is active that it does NOT own (a
         Ctrl+Alt+W session): the detector is reset and we bail, so PTT can never
         start a second session or steal an in-flight W recording. When PTT owns
-        the recording, the detector drives the stop on trigger release.
+        the recording, the detector drives the stop on trigger release. If that
+        recording ends through another door first (a stop hotkey, cancel, device
+        loss), the next tick lets go: ownership cleared, detector reset (#250).
         """
         if self._ptt is None:
             return
 
         if self.audio_recorder.is_recording and not self._ptt_owns_recording:
             # A foreign (W-owned) recording is in progress -> stay inert.
+            self._ptt.reset()
+            return
+
+        if self._ptt_owns_recording and not self.audio_recorder.is_recording:
+            # The recording PTT owns ended through another door (a stop hotkey,
+            # cancel, device loss -- #250): let go. Clearing the flag alone would
+            # stop the next recording being hijacked but leave the detector in
+            # RECORDING, swallowing an immediate re-gesture; resetting alone
+            # would leave the flag to hijack. Both, then bail like the guard above.
+            logger.debug("PTT ownership released: the recording it owned ended "
+                         "through another door")
+            self._ptt_owns_recording = False
             self._ptt.reset()
             return
 
@@ -1793,7 +1809,10 @@ class ThoughtborneApp:
         irrelevant and left untouched to avoid perturbing the W-flow's state."""
         if not self.audio_recorder.is_recording:
             # A stop hotkey (or cancel) already ended this recording through its
-            # own door -- just clear ownership and no-op.
+            # own door -- just clear ownership and no-op. Still needed despite
+            # the tick-head guard (#250): a door can close between that check and
+            # this STOP landing in the same tick. No detector reset needed --
+            # emitting STOP already put the machine back to IDLE.
             self._ptt_owns_recording = False
             return
         logger.info("Recording stopped (push-to-talk)")
@@ -2693,12 +2712,15 @@ class ThoughtborneApp:
         self.recording_thread.start()
 
         # Convert sidecars left over from a crash (#49 layer 3). Placed
-        # before hotkey registration on purpose: no recording can start while
-        # this converts, and the retry slot is armed below before the first
-        # keypress is possible. The user-facing announcement is deferred to a
-        # prominent block after READY (#78) so it can't be scrolled off; only
-        # the progress print below stays here (main thread, no hotkeys yet).
-        # A recovery failure must never block the start.
+        # before hotkey registration on purpose: no hotkey recording can start
+        # while this converts, and the retry slot is armed below before the
+        # first keypress is possible. Push-to-talk, driven by the recording
+        # thread started above, CAN already record here -- harmless: a live
+        # recording's fresh sidecar is held by its writer's byte lock, which
+        # this recovery probes and skips. The user-facing announcement is
+        # deferred to a prominent block after READY (#78) so it can't be
+        # scrolled off; only the progress print below stays here (main thread,
+        # no hotkeys yet). A recovery failure must never block the start.
         try:
             try:
                 # Best-effort probe: a file vanishing between glob and stat

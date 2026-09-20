@@ -241,6 +241,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block now opens with a `_comment` lead like every other block, carrying the block's own
   documentation that used to sit in the file-wide comment at the top.
 
+- **Push-to-talk lets go when its recording ends another way (#250).** A stop hotkey, a
+  cancel or a lost microphone ending a push-to-talk recording used to leave the tool
+  believing that push-to-talk still owned it. With the trigger key still held — the normal
+  state right after Ctrl+Alt+H — the next release of that key then stopped whatever
+  recording was running by then, a Ctrl+Alt+W one included, and delivered its text through
+  push-to-talk's insert path rather than through the one that hotkey stands for. In the same
+  situation an immediately repeated gesture was swallowed whole: no recording started, and
+  nothing in the log said why. The next detector tick now hands the recording back and puts
+  the gesture machine into its resting state, which ends both cases.
+
 ## [1.2.0rc1] - 2026-09-16
 
 ### Added
