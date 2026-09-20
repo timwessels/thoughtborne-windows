@@ -1969,7 +1969,10 @@ running tool. Settings apply on save — which restarts the tool (D-014) — ful
 - **The one exception is hotkey duplicate detection.** Two actions must not share
   a combo: at runtime one keypress cannot trigger both, one action would lose
   silently, and there is no carousel-like resolution — so the capture dialog
-  keeps rejecting an already-assigned combo.
+  keeps rejecting an already-assigned combo. *(2026-09-20: one state-resolved
+  pairing is exempt — `start_recording` plus exactly one stop action, the toggle
+  pair; the recording state decides which fires, so neither loses silently.
+  Recorded as D-029, built by #336.)*
 - **Not touched by this rule:** the key test button and its verdict reset on edit
   (the verdict describes the field's exact text — one widget's self-integrity,
   not cross-influence); the save-time no-key confirmation (a check of the save
@@ -1983,3 +1986,32 @@ retires, so the settings app writes no engine memory at all; D-008's precedence
 this entry extends its "no live reload" stance from the tool into the window
 itself. A future control that wants to react to unsaved state of another control
 is a supersede discussion citing this entry.
+
+## D-029 — Toggle pair: the start combo may double as exactly one stop action
+
+Decided 2026-09-20 with the maintainer, in dialog (origin: #287, the external
+toggle request); implementation tracked in #336.
+
+- The same combo may be bound to `start_recording` and **exactly one** of the
+  four `stop_recording_*` actions. A press with no recording running starts; a
+  press while recording performs that stop action. The recording state decides
+  which action fires, so — unlike every other duplicate — neither action loses
+  silently; that is why this one pairing is exempt from D-028's duplicate
+  rejection (dated note there).
+- The duplicate itself is the whole configuration: no new settings key, no new
+  value shape. Respects D-024 — every action still binds exactly one combo; the
+  pair shares one combo across two actions, the opposite axis. The toggle
+  partner is derived from the effective hotkeys at runtime, never stored
+  separately, so every display surface tells the truth by construction.
+- Everything else stays a collision exactly as today: the start combo on two
+  stop actions, on `cancel_recording`, on any non-stop action, or two stop
+  actions sharing a combo without start — one log warning per overridden entry,
+  the action keeps its default, the tool always starts (D-012's collision
+  grammar, unchanged).
+- Known, accepted consequences: the partner action's own default combo becomes
+  unbound, and its insert-last-text branch is unreachable (a press with no
+  recording always starts). Properties of the design, not bugs.
+
+Do not broaden the exemption: it is exactly one state-resolved pair. A toggle
+that discards (`cancel_recording` as partner), several toggle pairs, or a
+separately stored toggle switch are new discussions citing this entry.
