@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0rc2] - 2026-09-21
+
 ### Added
 
 - **One key can now start AND stop a recording (#336, D-029).** Binding the
