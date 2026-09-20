@@ -402,6 +402,54 @@ EXIT_NO_API_KEY = 3
 # a different hotkey is never a bounce of this one.
 STOP_INSERT_DEBOUNCE_S = 2.0
 
+# The one deliver mapping behind the five stop paths (#330): what a stop action
+# hands start_processing_thread -- and, where it inserts, what its
+# insert-last-text branch hands insert_last_transcript -- plus its log notes.
+# Keyed by action name and looked up, never iterated (D-019: no surface carries
+# an order of its own; the canonical order lives in DEFAULT_HOTKEYS). The
+# push-to-talk stop reads these same rows through _PTT_MODE_ACTION, so the
+# mapping exists exactly once.
+#   kwargs        -- the deliver flags; anything left out falls to the callee's
+#                    own default. Callers copy, never mutate. Every key has to
+#                    name a real start_processing_thread parameter -- and on an
+#                    inserts_later row an insert_last_transcript one too, since
+#                    both calls unpack the row.
+#   inserts_later -- this action delivers an insert: it gets a release-wait
+#                    list, stamps its stop-debounce slot, and re-inserts the last
+#                    transcript when pressed outside a recording. False = process
+#                    only: none of the three.
+#   stop_note / processing_note / insert_note -- the per-action tails of the
+#                    three log lines ('' = none).
+_STOP_DELIVER = {
+    'stop_recording_keyboard': dict(
+        kwargs={}, inserts_later=True,
+        stop_note='', processing_note='', insert_note=' (keyboard mode)'),
+    'stop_recording_clipboard': dict(
+        kwargs=dict(use_clipboard=True), inserts_later=True,
+        stop_note='clipboard mode', processing_note='clipboard mode',
+        insert_note=' (clipboard mode)'),
+    # Clipboard AND send_after_insert. This flow used to wait on the modifiers
+    # alone; since #152 it waits on its own full combo like the other stop
+    # actions, so a still-held key cannot meet the Enter that follows the paste.
+    'stop_recording_send': dict(
+        kwargs=dict(use_clipboard=True, send_after_insert=True), inserts_later=True,
+        stop_note='will send after transcription', processing_note='will send',
+        insert_note=' and sending'),
+    'stop_recording_no_insert': dict(
+        kwargs=dict(use_clipboard=False, auto_insert=False), inserts_later=False,
+        stop_note='process only, no auto-insert', processing_note='no auto-insert',
+        insert_note=''),
+}
+
+# Each push-to-talk insert mode delivers exactly like its hotkey twin (#330);
+# only the wait key is PTT's own (see _ptt_insert_kwargs). config validates
+# push_to_talk.insert down to these four values; the reader's .get fallback keeps
+# the old final 'type' branch for anything that should ever get past it.
+_PTT_MODE_ACTION = {'type': 'stop_recording_keyboard',
+                    'clipboard': 'stop_recording_clipboard',
+                    'send': 'stop_recording_send',
+                    'no_insert': 'stop_recording_no_insert'}
+
 # Detach a spawned settings window from the tool's own console so quitting the tool
 # (Ctrl+Alt+4) closes its console window immediately even when a settings window is
 # still open -- attached, the settings child kept conhost holding the window alive
@@ -1550,71 +1598,75 @@ class ThoughtborneApp:
             # No mis-trigger detected - user might have accidentally pressed W again
             logger.debug("start_recording ignored - already recording (no mis-trigger detected)")
 
-    def on_stop_recording_keyboard(self):
-        """Callback for stop recording / insert last text (keyboard mode)"""
-        hotkey_display = self._show('stop_recording_keyboard')
-        start_hotkey_display = self._show('start_recording')
+    def _stop_prologue(self, debounce_action=None):
+        """The shared prologue of the five stop paths (#330): stop the recorder,
+        take the crash-safety sidecar, stamp `debounce_action`'s stop-debounce
+        slot -- None for the paths that have no insert-last-text branch to guard
+        (the no-insert action, and the PTT stop for its own documented reason) --
+        then capture the live transcriber BEFORE clearing the field, so a
+        mid-recording engine switch still hands the session that recorded to the
+        worker, and log the duration.
+
+        Returns (frames, duration, sidecar, recording_transcriber)."""
+        frames, duration = self.audio_recorder.stop_recording()
+        sidecar = self.audio_recorder.take_finished_sidecar()
+        if debounce_action is not None:
+            self._stop_insert_debounce[debounce_action] = time.time()
+        recording_transcriber = self._active_live_transcriber or self.transcriber
+        self._active_live_transcriber = None
+        logger.info(f"Recording duration: {duration:.1f} seconds")
+        return frames, duration, sidecar, recording_transcriber
+
+    def _stop_action(self, action):
+        """The one body behind the four stop hotkeys (#330): while recording,
+        stop and process; outside one, insert the last transcript again --
+        inserting actions only, and debounced per action (#152). The deliver
+        kwargs and the log notes come from _STOP_DELIVER[action]; the
+        on_stop_recording_* methods stay the named entry points that the
+        registration map, the mis-trigger net and the wiring driver bind."""
+        row = _STOP_DELIVER[action]
+        hotkey_display = self._show(action)
 
         if self.audio_recorder.is_recording:
-            # Stop recording
-            logger.info(f"Recording stopped ({hotkey_display})")
+            stop_note = f" - {row['stop_note']}" if row['stop_note'] else ""
+            logger.info(f"Recording stopped ({hotkey_display}){stop_note}")
 
-            frames, duration = self.audio_recorder.stop_recording()
-            sidecar = self.audio_recorder.take_finished_sidecar()
-            self._stop_insert_debounce['stop_recording_keyboard'] = time.time()
+            frames, duration, sidecar, recording_transcriber = self._stop_prologue(
+                action if row['inserts_later'] else None)
 
-            # Capture live transcriber reference before clearing
-            recording_transcriber = self._active_live_transcriber or self.transcriber
-            self._active_live_transcriber = None
-
-            logger.info(f"Recording duration: {duration:.1f} seconds")
-
-            # Start processing with wait for key release
+            kwargs = dict(row['kwargs'])
+            if row['inserts_later']:
+                kwargs['wait_for_keys'] = self._wait_keys(action)
             if self.start_processing_thread(frames, duration,
-                                            wait_for_keys=self._wait_keys('stop_recording_keyboard'),
                                             transcriber_override=recording_transcriber,
-                                            sidecar=sidecar):
-                logger.info("Processing in background...", extra=FILE_ONLY)
-                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
+                                            sidecar=sidecar, **kwargs):
+                note = f" ({row['processing_note']})" if row['processing_note'] else ""
+                logger.info(f"Processing in background{note}...", extra=FILE_ONLY)
+                if row['inserts_later']:
+                    logger.info(f"You can start a new recording with "
+                                f"{self._show('start_recording')}!", extra=FILE_ONLY)
+                else:
+                    # This line belongs to inserts_later=False rather than to the
+                    # Y key: nothing was inserted, so the two insert-last-text
+                    # hotkeys are how the transcript reaches the cursor at all.
+                    logger.info(f"Press {self._show('stop_recording_clipboard')} or "
+                                f"{self._show('stop_recording_keyboard')} to insert later, or "
+                                f"{self._show('start_recording')} for new recording",
+                                extra=FILE_ONLY)
 
-        elif self._stop_debounce_elapsed('stop_recording_keyboard'):
-            # Insert last text
-            logger.debug(f"{hotkey_display} pressed - inserting last text (keyboard mode)")
+        elif row['inserts_later'] and self._stop_debounce_elapsed(action):
+            # Insert last text, the same way this action's stop would have
+            logger.debug(f"{hotkey_display} pressed - inserting last text{row['insert_note']}")
             self.output_manager.insert_last_transcript(
-                wait_for_keys=self._wait_keys('stop_recording_keyboard'))
+                wait_for_keys=self._wait_keys(action), **row['kwargs'])
+
+    def on_stop_recording_keyboard(self):
+        """Callback for stop recording / insert last text (keyboard mode)"""
+        self._stop_action('stop_recording_keyboard')
 
     def on_stop_recording_clipboard(self):
         """Callback for stop recording / insert last text (clipboard mode)"""
-        hotkey_display = self._show('stop_recording_clipboard')
-        start_hotkey_display = self._show('start_recording')
-
-        if self.audio_recorder.is_recording:
-            # Stop recording (clipboard mode)
-            logger.info(f"Recording stopped ({hotkey_display} - clipboard mode)")
-
-            frames, duration = self.audio_recorder.stop_recording()
-            sidecar = self.audio_recorder.take_finished_sidecar()
-            self._stop_insert_debounce['stop_recording_clipboard'] = time.time()
-
-            # Capture live transcriber reference before clearing
-            recording_transcriber = self._active_live_transcriber or self.transcriber
-            self._active_live_transcriber = None
-
-            logger.info(f"Recording duration: {duration:.1f} seconds")
-
-            # Start processing with clipboard flag and wait for key release
-            if self.start_processing_thread(frames, duration, use_clipboard=True,
-                                            wait_for_keys=self._wait_keys('stop_recording_clipboard'),
-                                            transcriber_override=recording_transcriber,
-                                            sidecar=sidecar):
-                logger.info("Processing in background (clipboard mode)...", extra=FILE_ONLY)
-                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
-
-        elif self._stop_debounce_elapsed('stop_recording_clipboard'):
-            # Insert last text via clipboard
-            logger.debug(f"{hotkey_display} pressed - inserting last text (clipboard mode)")
-            self.output_manager.insert_last_transcript(
-                use_clipboard=True, wait_for_keys=self._wait_keys('stop_recording_clipboard'))
+        self._stop_action('stop_recording_clipboard')
 
     def on_stop_recording_send(self):
         """
@@ -1622,41 +1674,7 @@ class ThoughtborneApp:
 
         Uses Ctrl+Alt+D by default. Perfect for sending messages to chatbots/Claude Code.
         """
-        hotkey_display = self._show('stop_recording_send')
-        start_hotkey_display = self._show('start_recording')
-
-        if self.audio_recorder.is_recording:
-            # Stop recording
-            logger.info(f"Recording stopped ({hotkey_display}) - will send after transcription")
-
-            frames, duration = self.audio_recorder.stop_recording()
-            sidecar = self.audio_recorder.take_finished_sidecar()
-            self._stop_insert_debounce['stop_recording_send'] = time.time()
-
-            # Capture live transcriber reference before clearing
-            recording_transcriber = self._active_live_transcriber or self.transcriber
-            self._active_live_transcriber = None
-
-            logger.info(f"Recording duration: {duration:.1f} seconds")
-
-            # Start processing with clipboard AND send_after_insert, wait for key
-            # release. This flow used to wait on the modifiers alone; since #152
-            # it waits on its own full combo like the other stop actions, so a
-            # still-held key cannot meet the Enter that follows the paste.
-            if self.start_processing_thread(frames, duration, use_clipboard=True, send_after_insert=True,
-                                            wait_for_keys=self._wait_keys('stop_recording_send'),
-                                            transcriber_override=recording_transcriber,
-                                            sidecar=sidecar):
-                logger.info("Processing in background (will send)...", extra=FILE_ONLY)
-                logger.info(f"You can start a new recording with {start_hotkey_display}!", extra=FILE_ONLY)
-
-        elif self._stop_debounce_elapsed('stop_recording_send'):
-            # Insert last text and send
-            logger.debug(f"{hotkey_display} pressed - inserting last text and sending")
-            # Insert via clipboard and press Enter afterwards
-            self.output_manager.insert_last_transcript(
-                use_clipboard=True, wait_for_keys=self._wait_keys('stop_recording_send'),
-                send_after_insert=True)
+        self._stop_action('stop_recording_send')
 
     def on_stop_recording_no_insert(self):
         """
@@ -1664,31 +1682,7 @@ class ThoughtborneApp:
 
         Note: Uses Y key on German QWERTZ keyboards.
         """
-        hotkey_display = self._show('stop_recording_no_insert')
-        start_hotkey_display = self._show('start_recording')
-
-        if self.audio_recorder.is_recording:
-            # Stop recording
-            logger.info(f"Recording stopped ({hotkey_display}) - process only, no auto-insert")
-
-            frames, duration = self.audio_recorder.stop_recording()
-            sidecar = self.audio_recorder.take_finished_sidecar()
-
-            # Capture live transcriber reference before clearing
-            recording_transcriber = self._active_live_transcriber or self.transcriber
-            self._active_live_transcriber = None
-
-            logger.info(f"Recording duration: {duration:.1f} seconds")
-
-            # Start processing WITHOUT auto-insert
-            if self.start_processing_thread(frames, duration, use_clipboard=False, auto_insert=False,
-                                            transcriber_override=recording_transcriber,
-                                            sidecar=sidecar):
-                logger.info("Processing in background (no auto-insert)...", extra=FILE_ONLY)
-                logger.info(f"Press {self._show('stop_recording_clipboard')} or "
-                            f"{self._show('stop_recording_keyboard')} to insert later, or "
-                            f"{start_hotkey_display} for new recording",
-                            extra=FILE_ONLY)
+        self._stop_action('stop_recording_no_insert')
 
     def on_cancel_recording(self):
         """Callback for cancel recording"""
@@ -1802,11 +1796,12 @@ class ThoughtborneApp:
 
     def _ptt_stop_and_insert(self):
         """Stop a PTT-owned recording and start processing, using the configured
-        insert path. Mirrors the stop-hotkey callbacks. Does NOT touch the
-        per-action stop debounce slots (#152): those guard the stop-and-insert
-        hotkeys from double-firing a stop-then-insert on the same chord; PTT's stop is a key
-        RELEASE that cannot double-fire a stop hotkey, so the slots are
-        irrelevant and left untouched to avoid perturbing the W-flow's state."""
+        insert path -- through the shared stop prologue and deliver table of the
+        stop hotkeys (#330). Does NOT touch the per-action stop debounce slots
+        (#152): those guard the stop-and-insert hotkeys from double-firing a
+        stop-then-insert on the same chord; PTT's stop is a key RELEASE that
+        cannot double-fire a stop hotkey, so the slots are irrelevant and left
+        untouched to avoid perturbing the W-flow's state."""
         if not self.audio_recorder.is_recording:
             # A stop hotkey (or cancel) already ended this recording through its
             # own door -- just clear ownership and no-op. Still needed despite
@@ -1817,39 +1812,33 @@ class ThoughtborneApp:
             return
         logger.info("Recording stopped (push-to-talk)")
 
-        frames, duration = self.audio_recorder.stop_recording()
-        sidecar = self.audio_recorder.take_finished_sidecar()
-
-        recording_transcriber = self._active_live_transcriber or self.transcriber
-        self._active_live_transcriber = None
+        frames, duration, sidecar, recording_transcriber = self._stop_prologue()
         self._ptt_owns_recording = False
 
-        logger.info(f"Recording duration: {duration:.1f} seconds")
-
-        kwargs = self._ptt_insert_kwargs()
         if self.start_processing_thread(frames, duration,
                                         transcriber_override=recording_transcriber,
-                                        sidecar=sidecar, **kwargs):
+                                        sidecar=sidecar, **self._ptt_insert_kwargs()):
             logger.info("Processing in background (push-to-talk)...")
 
     def _ptt_insert_kwargs(self) -> dict:
-        """Map the configured PTT insert path to start_processing_thread kwargs,
-        mirroring the four stop callbacks. The wait key only guards against a
-        too-fast trigger re-press -- at PTT stop the trigger is already released,
-        so the wait loop clears within a tick (no added latency)."""
-        # The trigger's COMBINED modifier name (#152): is_key_pressed knows no
-        # side-specific names, so 'lctrl'/'rctrl' both have to read through
-        # 'ctrl' (VK_CONTROL) and 'lalt' through 'alt' (VK_MENU) -- a name it
-        # does not know would poll as never-pressed, leaving the wait inert.
-        # Combined is also what the guard means: no Alt still down, either side.
-        trig = ['alt'] if PTT_TRIGGER == 'lalt' else ['ctrl']
-        if self._ptt_insert == 'clipboard':
-            return dict(use_clipboard=True, wait_for_keys=trig)
-        if self._ptt_insert == 'send':
-            return dict(use_clipboard=True, send_after_insert=True, wait_for_keys=trig)
-        if self._ptt_insert == 'no_insert':
-            return dict(use_clipboard=False, auto_insert=False)
-        return dict(wait_for_keys=trig)  # 'type' (fallback), mirrors the keyboard/type hotkey
+        """The deliver kwargs of the configured PTT insert path: the very
+        _STOP_DELIVER row its hotkey twin reads (#330). Only the wait key is
+        PTT's own -- its source is push_to_talk.trigger, not a hotkey combo --
+        and a non-inserting mode gets none, like its twin. The wait key only
+        guards against a too-fast trigger re-press -- at PTT stop the trigger is
+        already released, so the wait loop clears within a tick (no added
+        latency)."""
+        row = _STOP_DELIVER[_PTT_MODE_ACTION.get(self._ptt_insert,
+                                                 'stop_recording_keyboard')]
+        kwargs = dict(row['kwargs'])
+        if row['inserts_later']:
+            # The trigger's COMBINED modifier name (#152): is_key_pressed knows no
+            # side-specific names, so 'lctrl'/'rctrl' both have to read through
+            # 'ctrl' (VK_CONTROL) and 'lalt' through 'alt' (VK_MENU) -- a name it
+            # does not know would poll as never-pressed, leaving the wait inert.
+            # Combined is also what the guard means: no Alt still down, either side.
+            kwargs['wait_for_keys'] = ['alt'] if PTT_TRIGGER == 'lalt' else ['ctrl']
+        return kwargs
 
     def on_retry_last_failed(self):
         """Callback for retry last failed transcription (Ctrl+Alt+R, Issue #24).

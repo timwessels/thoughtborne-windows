@@ -204,6 +204,8 @@ class _FakeApp:
     _ptt_stop_and_insert = tb.ThoughtborneApp._ptt_stop_and_insert
     _ptt_insert_kwargs = tb.ThoughtborneApp._ptt_insert_kwargs
     _ptt_foreign_key_down = tb.ThoughtborneApp._ptt_foreign_key_down
+    _stop_prologue = tb.ThoughtborneApp._stop_prologue
+    _stop_action = tb.ThoughtborneApp._stop_action
     on_stop_recording_keyboard = tb.ThoughtborneApp.on_stop_recording_keyboard
     _show = tb.ThoughtborneApp._show
     _wait_keys = tb.ThoughtborneApp._wait_keys

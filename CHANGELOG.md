@@ -134,6 +134,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the personal settings, an API change, or a temporary problem on Soniox's side. One
   status check, no parsing of the provider's error body, every other failure unchanged.
 
+- **The clipboard stop's log line now reads like the other stops' (#330).** Its mode note
+  moved out of the parenthesis and behind it — `Recording stopped (Ctrl+Alt+A) - clipboard
+  mode` — where the send and process-only stops have put theirs all along.
+
 ### Removed
 
 - **The settings window no longer makes statements about file health (#326, D-026).** Three

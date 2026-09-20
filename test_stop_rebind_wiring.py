@@ -279,6 +279,8 @@ class _FakeApp:
     _wait_keys = tb.ThoughtborneApp._wait_keys
     _stop_debounce_elapsed = tb.ThoughtborneApp._stop_debounce_elapsed
     _handle_mistrigger_during_recording = tb.ThoughtborneApp._handle_mistrigger_during_recording
+    _stop_prologue = tb.ThoughtborneApp._stop_prologue
+    _stop_action = tb.ThoughtborneApp._stop_action
     on_stop_recording_keyboard = tb.ThoughtborneApp.on_stop_recording_keyboard
     on_stop_recording_clipboard = tb.ThoughtborneApp.on_stop_recording_clipboard
     on_stop_recording_send = tb.ThoughtborneApp.on_stop_recording_send
