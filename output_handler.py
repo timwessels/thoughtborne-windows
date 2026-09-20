@@ -11,6 +11,15 @@ This module manages text output and clipboard operations including:
 Windows Adaptations:
 - Uses keyboard module for keyboard.write() and keyboard.send() (text output)
 - Active modifier key polling with GetAsyncKeyState via is_key_pressed() (hook-free)
+
+What the two insert routes send is what D-030's hotkey rejection set rests on:
+the clipboard route sends a REAL Ctrl+V (keyboard.send), which is why plain
+`ctrl+v` cannot be bound as a hotkey -- a binding swallows this very paste. The
+typed route is hotkey-transparent: keyboard.write() with no `exact` argument
+injects each character as a KEYEVENTF_UNICODE event on Windows, which no
+RegisterHotKey binding matches, so no letter or digit needs rejecting. Passing
+exact=False here, or typing through virtual-key events, would widen the set of
+combos hotkey_parse.combo_rejection_reason has to reject.
 """
 
 import time

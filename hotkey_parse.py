@@ -8,7 +8,11 @@ config import-safe for the test drivers (test_console_ui.py etc.). Every
 bindable key -- letters, digits, F-keys, the navigation cluster, arrows, the
 numpad, Pause and Scroll Lock (#325), with ctrl/alt/shift/win modifiers --
 resolves against the static VK_MAP here; there is no layout-resolved key
-lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one).
+lane (D-023 removed the old 'u-umlaut'/VkKeyScanW one). Both lanes also share
+one rejection checkpoint here, `combo_rejection_reason`: the dead combos
+Windows could never deliver (#325) plus, since D-030, the few combos whose
+keystroke collision is invisible from the outside -- the paste the tool's own
+clipboard route sends, and the German AltGr combos.
 
 Because every layer passes through here, this is also where a combo gets its one
 spelling (`canonical_combo`), its one display form (`format_combo`) and its one
@@ -126,20 +130,67 @@ def classify_key(key_token: str) -> str:
 
 # Held Ctrl shifts the scancode of Pause and of Scroll Lock, so both keys reach
 # Windows as VK_CANCEL (0x03): a ctrl+ combo on either registers fine and can
-# never fire -- the #308/D-022 "assignable but dead" class. The one technical
+# never fire -- the #308/D-022 "assignable but dead" class. The technical
 # rejection of #325, shared by both validation lanes (config's JSON overrides
 # and the settings capture) so they cannot drift.
 _CTRL_SHIFTED_KEYS = frozenset({'pause', 'scrolllock'})
 
+# What AltGr types on the German T1 layout (Austria identical), for the keys
+# VK_MAP can bind -- frozen data (D-030), never a runtime layout lookup (D-023,
+# and the active layout can change between a config read and a keypress). AltGr
+# IS Ctrl+Alt on Windows, so each of these combos is what physically typing that
+# character sends. The Swiss remainders (broken bar on AltGr+1, not sign on
+# AltGr+6) are deliberately absent -- text-far, and ctrl+alt+6 is the shipped
+# open_history default. The other German AltGr characters (backslash, pipe,
+# tilde) sit on OEM keys outside VK_MAP and need no rule. The four non-ASCII
+# characters are written as named escapes, so this file stays plain ASCII and
+# still says which character it means.
+_ALTGR_DE = {
+    'q': '@',
+    'e': '\N{EURO SIGN}',
+    'm': '\N{MICRO SIGN}',
+    '2': '\N{SUPERSCRIPT TWO}',
+    '3': '\N{SUPERSCRIPT THREE}',
+    '7': '{', '8': '[', '9': ']', '0': '}',
+}
 
-def dead_combo_reason(modifiers: int, key_token: str) -> "str | None":
-    """A human-readable reason when (modifiers, key) would register but never
-    fire, or None for a live combo. Takes the parsed pair both callers already
-    hold; `modifiers` are the RegisterHotKey flags parse_hotkey_lexical returns.
+
+def combo_rejection_reason(modifiers: int, key_token: str) -> "str | None":
+    """A human-readable reason when (modifiers, key) must be rejected at config
+    time, or None for an acceptable combo. Takes the parsed pair both callers
+    already hold; the one checkpoint both validation lanes ask (config's JSON
+    overrides and the settings capture), so they cannot drift. Two documented
+    classes (D-030), each naming its mechanism in the message:
+
+    - dead: registers but can never fire (ctrl with pause/scrolllock arrives as
+      VK_CANCEL) -- #325's class, unchanged.
+    - an invisible keystroke collision: the combo registers AND fires, on a
+      keypress nobody can see coming. Exact ctrl+v is the paste the clipboard
+      insert route really sends (`keyboard.send('ctrl+v')`); ctrl+alt on the
+      _ALTGR_DE keys is what typing those characters sends, because AltGr is
+      Ctrl+Alt. A *visible* sacrifice -- a bare letter, a shadowed OS shortcut
+      -- stays the user's call (D-027). The typed insert route needs no rule:
+      `keyboard.write` injects KEYEVENTF_UNICODE events, which no RegisterHotKey
+      binding matches.
+
+    RegisterHotKey matches modifiers exactly, so both new rules are exact
+    matches: `v` with any other modifier set and `ctrl+alt+shift+e` keep
+    binding. `modifiers` may or may not carry MOD_NOREPEAT; it is masked out
+    here, so a caller holding plain MODIFIER_MAP flags gets the same answer.
     """
-    if modifiers & MOD_CONTROL and key_token in _CTRL_SHIFTED_KEYS:
+    mods = modifiers & ~MOD_NOREPEAT
+    if mods & MOD_CONTROL and key_token in _CTRL_SHIFTED_KEYS:
         return (f"'{key_token}' cannot combine with ctrl -- Windows delivers "
                 f"VK_CANCEL instead, so the hotkey would never fire")
+    if mods == MOD_CONTROL and key_token == 'v':
+        return ("ctrl+v is the paste the tool itself sends to insert a "
+                "transcript -- the hotkey would swallow the tool's own output "
+                "(and every other paste)")
+    if mods == (MOD_CONTROL | MOD_ALT) and key_token in _ALTGR_DE:
+        return (f"ctrl+alt+{key_token} is AltGr+{key_token} -- typing "
+                f"'{_ALTGR_DE[key_token]}' on a German keyboard sends exactly "
+                f"this combo, so the hotkey would fire and swallow the "
+                f"character")
     return None
 
 

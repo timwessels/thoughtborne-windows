@@ -30,9 +30,10 @@ to the shipped example and to the reads of both programs so it cannot become a s
 truth. The two blocks with real per-entry validation are checked where that validation
 lives, at module level below the reader: `push_to_talk` and `soniox_endpointing`, one
 fixture per rule family, each read back as the constants a running tool would use.
-Three complete historical files go the same way on every run (D-026's frozen-fixture
-rule -- the 2026-04 and 2026-07 shapes and a downgrade file), because a per-rule lane
-cannot show what a user actually meets, which is one whole file meeting one program.
+Four complete historical files go the same way on every run (D-026's frozen-fixture
+rule -- the 2026-04, 2026-07 and 2026-09 shapes and a downgrade file), because a
+per-rule lane cannot show what a user actually meets, which is one whole file meeting
+one program.
 And the vocabulary's last mile is measured rather than assumed: what the reader kept
 has to arrive in the real Soniox request -- the async body and the live WebSocket
 config, the endpointing block riding along on the second. Since #329 that last mile
@@ -864,6 +865,15 @@ _FROZEN_2026_07 = b"""{
 }
 """
 
+_FROZEN_2026_09 = b"""{
+  "_comment": "frozen fixture: the pre-#337 hotkey shape (2026-09) -- the combo the example comment recommended for years, and the binding behind the 2026-09-20 paste incident",
+  "hotkeys": {
+    "cancel_recording": "ctrl+v",
+    "exit_program": "ctrl+alt+q"
+  }
+}
+"""
+
 _FROZEN_2026_04 = b"""{
   "_comment": "frozen fixture: the initial-release file shape (2026-04)",
   "vocabulary": {
@@ -908,6 +918,17 @@ def _frozen_cases():
           "api": ["soniox-live", True],
           "context": voc_2026_07,
           "ptt": _PTT_DEFAULTS, "ep": {}}),
+        ("2026-09 pre-#337 hotkeys", _FROZEN_2026_09, 2,
+         # D-030's narrowing, on the two combos a user really could have on
+         # disk: ctrl+alt+q is what the example comment recommended verbatim for
+         # months, ctrl+v is what the incident file bound. Both fall back to
+         # their default with a warning that names the mechanism -- never an
+         # abort, and nothing rewrites the file.
+         ["hotkeys.cancel_recording: 'ctrl+v'", "paste the tool itself sends",
+          "hotkeys.exit_program: 'ctrl+alt+q'", "AltGr"],
+         {"hotkeys": dict(config.DEFAULT_HOTKEYS),
+          "api": [config.BUILTIN_DEFAULT_API, False],
+          "context": None, "ptt": _PTT_DEFAULTS, "ep": {}}),
         ("2026-04 initial release", _FROZEN_2026_04, 0, [],
          # The point of this one is the silence: the oldest documented user file
          # must never acquire so much as one warning line from a later change.
@@ -2233,7 +2254,7 @@ def main():
     print(f"\nOK: all {len(TEMPDIR_CASES) + len(PLAIN_CASES)} config-reading cases "
           f"pass (personal_settings: encoding, top-level shape, the block gate with "
           f"its known-blocks guards, vocabulary shape, the push_to_talk and "
-          f"soniox_endpointing value rules, three frozen historical files, the "
+          f"soniox_endpointing value rules, four frozen historical files, the "
           f"comment filter and the size guard on the vocabulary's way out and its "
           f"arrival in both real Soniox requests, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "

@@ -61,7 +61,7 @@ from pathlib import Path
 
 import config
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, classify_key, dead_combo_reason,
+    parse_hotkey_lexical, canonical_combo, classify_key, combo_rejection_reason,
     HotkeyParseError, KEY_INVALID, VK_TO_TOKEN,
 )
 
@@ -985,9 +985,10 @@ def validate_combo(raw: str) -> tuple:
     """(ok, message). Parses via parse_hotkey_lexical + classify_key. ok=False
     with a human message on an unparseable combo (no key / multiple keys), a
     key outside the static set (since D-023 classify_key knows only static and
-    invalid, so config-time acceptance matches runtime registrability), or the
-    one dead combo class -- ctrl with pause/scrolllock, shared with the JSON
-    lane via hotkey_parse.dead_combo_reason (#325)."""
+    invalid, so config-time acceptance matches runtime registrability), or one
+    of the two rejected combo classes -- dead (ctrl with pause/scrolllock) and
+    invisible keystroke collision (ctrl+v, the German AltGr combos) -- shared
+    with the JSON lane via hotkey_parse.combo_rejection_reason (#325, D-030)."""
     if not isinstance(raw, str) or not raw.strip():
         return False, "empty combo"
     try:
@@ -996,7 +997,7 @@ def validate_combo(raw: str) -> tuple:
         return False, str(e)
     if classify_key(key) == KEY_INVALID:
         return False, f"unrecognized key '{key}'"
-    reason = dead_combo_reason(_mods, key)
+    reason = combo_rejection_reason(_mods, key)
     if reason:
         return False, reason
     return True, ""

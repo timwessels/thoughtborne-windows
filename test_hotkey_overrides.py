@@ -12,9 +12,11 @@ Layer A -- `hotkey_parse` (the ctypes-free lexical layer): the static VK map
 (letters, digits, F1-F24, and since #325 the navigation cluster, arrows, the
 numpad, Pause and Scroll Lock -- injective, so `VK_TO_TOKEN`, the capture
 decode's inversion, loses nothing), the structural parser
-`parse_hotkey_lexical`, `classify_key`, `dead_combo_reason` (the one dead
-combo class: ctrl with pause/scrolllock arrives as VK_CANCEL and could never
-fire), and the one spelling a combo is stored and shown in --
+`parse_hotkey_lexical`, `classify_key`, `combo_rejection_reason` (the two
+rejected classes: dead -- ctrl with pause/scrolllock arrives as VK_CANCEL and
+could never fire -- and D-030's invisible keystroke collisions, the tool's own
+paste and the German AltGr combos, held against the freedom that stands beside
+them), and the one spelling a combo is stored and shown in --
 `canonical_combo`, `format_combo` with its `KEY_DISPLAY` short names (#275,
 #325), including the guard that both shipped schemes (`DEFAULT_HOTKEYS` and
 `settings_io.PRESET_FKEYS`) are written canonically themselves -- and the
@@ -230,19 +232,73 @@ def test_format_combo():
     assert len(hp.format_combo(hp.canonical_combo('win+shift+alt+control+numdecimal'))) == 25
 
 
-def test_dead_combo_reason():
-    # #325's one technical rejection: held Ctrl shifts the scancode of Pause and
+def _reason(combo):
+    """The checkpoint's verdict on a written combo, through the real parser."""
+    mods, key = hp.parse_hotkey_lexical(combo)
+    return hp.combo_rejection_reason(mods, key)
+
+
+def test_combo_rejection_reason_dead_class():
+    # #325's technical rejection: held Ctrl shifts the scancode of Pause and
     # Scroll Lock, so both arrive as VK_CANCEL -- the combo registers, never fires
     # (the #308/D-022 "assignable but dead" class).
     for combo in ('ctrl+pause', 'ctrl+alt+scrolllock', 'ctrl+shift+pause',
                   'ctrl+alt+shift+win+scrolllock'):
-        mods, key = hp.parse_hotkey_lexical(combo)
-        assert hp.dead_combo_reason(mods, key), f"{combo!r} should be dead"
+        assert _reason(combo), f"{combo!r} should be dead"
     # ...and nothing else is: ctrl-free siblings, bare keys, ctrl with any other key.
     for combo in ('alt+pause', 'shift+scrolllock', 'pause', 'scrolllock',
                   'ctrl+alt+home', 'ctrl+p', 'ctrl+alt+numadd'):
-        mods, key = hp.parse_hotkey_lexical(combo)
-        assert hp.dead_combo_reason(mods, key) is None, f"{combo!r} should be live"
+        assert _reason(combo) is None, f"{combo!r} should be live"
+    # The checkpoint answers the same whether or not MOD_NOREPEAT rides along:
+    # parse_hotkey_lexical always sets it, test_console_ui asks with plain
+    # MODIFIER_MAP flags.
+    assert hp.combo_rejection_reason(hp.MOD_CONTROL, 'pause')
+    assert hp.combo_rejection_reason(hp.MOD_CONTROL | hp.MOD_NOREPEAT, 'pause')
+
+
+def test_paste_and_altgr_combos_rejected():
+    # D-030's class: the combo registers AND fires, on a keypress nobody can see
+    # coming -- so every message names the mechanism it collides with.
+    reason = _reason('ctrl+v')
+    assert reason and 'paste the tool itself sends' in reason, reason
+    # All nine German AltGr combos, driven off the frozen table itself, so a key
+    # added there arrives here with its own case.
+    assert set(hp._ALTGR_DE) == set('qem237890'), hp._ALTGR_DE
+    assert set(hp._ALTGR_DE) <= set(hp.VK_MAP), \
+        "an AltGr key outside VK_MAP would make its rule unreachable"
+    for key in hp._ALTGR_DE:
+        reason = _reason(f'ctrl+alt+{key}')
+        assert reason and 'AltGr' in reason, (key, reason)
+    assert '\N{EURO SIGN}' in _reason('ctrl+alt+e')   # names the character it steals
+    assert '@' in _reason('ctrl+alt+q')
+    # Spelling cannot dodge the checkpoint: it sees the parsed pair, so aliases,
+    # case and modifier order collapse before it.
+    for spelling in ('alt+ctrl+e', 'CONTROL+ALT+E', 'Ctrl + Alt + E'):
+        assert _reason(spelling), spelling
+    # What stays bindable, on purpose (D-027's no-paternalism line, in force):
+    # a letter or digit bare or with shift alone is a VISIBLE sacrifice -- the
+    # typed insert route sends no such keystroke (KEYEVENTF_UNICODE), so the
+    # tool has no stake in it. And since RegisterHotKey matches modifiers
+    # exactly, 'v' with any other modifier set and ctrl+alt+shift+<AltGr key>
+    # collide with nothing the user or the tool types.
+    for combo in ('a', 'z', '0', '9', 'v', 'e', 'shift+a', 'shift+5', 'shift+e',
+                  'ctrl+shift+v', 'ctrl+alt+v', 'alt+v', 'win+v', 'ctrl+a',
+                  'ctrl+shift+e', 'ctrl+alt+shift+e', 'alt+e', 'win+e',
+                  'ctrl+alt+5', 'ctrl+alt+1', 'ctrl+alt+4', 'ctrl+alt+6',
+                  'num7', 'num0', 'shift+num5', 'ctrl+alt+num7',
+                  'f9', 'shift+f8', 'ctrl+alt+numadd'):
+        assert _reason(combo) is None, f"{combo!r} must stay bindable: {_reason(combo)}"
+
+
+def test_shipped_schemes_carry_no_rejected_combo():
+    # The delivery guard for D-030: neither shipped scheme may hold a combo the
+    # checkpoint rejects -- that would warn on a fresh install and leave the
+    # action on a default it just refused.
+    for source, table in (("DEFAULT_HOTKEYS", DEFAULT_HOTKEYS),
+                          ("settings_io.PRESET_FKEYS", settings_io.PRESET_FKEYS)):
+        for action, combo in table.items():
+            assert _reason(combo) is None, \
+                f"{source}[{action}] = {combo!r} is rejected: {_reason(combo)}"
 
 
 def test_first_combo_retired():
@@ -323,7 +379,7 @@ def test_value_shapes():
     # load-bearing half: an update must never reset a key a user still presses.
     for action, legacy in (('switch_api', ['ctrl+alt+p']),
                            ('cancel_recording', ['ctrl+f9']),
-                           ('exit_program', ['ctrl+alt+9'])):
+                           ('exit_program', ['ctrl+alt+5'])):
         eff, warns = run({action: legacy})
         only_changed(eff, {action: legacy[0]})
         assert warns == [], (action, warns)
@@ -405,6 +461,25 @@ def test_ctrl_pause_scrolllock_rejected():
     eff, warns = run({'switch_api': 'alt+pause', 'open_history': 'shift+scrolllock'})
     only_changed(eff, {'switch_api': 'alt+pause', 'open_history': 'shift+scrolllock'})
     assert warns == [], warns
+
+
+def test_paste_and_altgr_overrides_rejected():
+    # D-030 through the production loader: the same warn-and-keep-default path,
+    # each warning naming the entry and the mechanism, as it reaches
+    # thoughtborne.log and the console replay.
+    eff, warns = run({'cancel_recording': 'ctrl+v', 'switch_api': 'ctrl+alt+e'})
+    only_changed(eff, {})
+    assert len(warns) == 2, warns
+    assert any(w.startswith("hotkeys.cancel_recording: 'ctrl+v' -- ")
+               and 'paste the tool itself sends' in w for w in warns), warns
+    assert any(w.startswith("hotkeys.switch_api: 'ctrl+alt+e' -- ")
+               and 'AltGr' in w for w in warns), warns
+    # The rejection runs per entry, before the collision loop, so the rejected
+    # action keeps its default and a second override onto that default collides
+    # exactly as it always did -- no new kind of outcome.
+    eff, warns = run({'start_recording': 'ctrl+v', 'switch_api': 'ctrl+alt+w'})
+    only_changed(eff, {})
+    assert any('collides' in w for w in warns), warns
 
 
 def test_duplicate_override_vs_untouched_default():
@@ -702,9 +777,11 @@ CASES = [
     test_classify_key,
     test_canonical_combo,
     test_format_combo,
-    test_dead_combo_reason,
+    test_combo_rejection_reason_dead_class,
+    test_paste_and_altgr_combos_rejected,
     test_first_combo_retired,
     test_shipped_defaults_are_static,
+    test_shipped_schemes_carry_no_rejected_combo,
     test_shipped_combos_are_canonical,
     test_readme_hotkey_tables_match_defaults,
     test_combo_keys,
@@ -721,6 +798,7 @@ CASES = [
     test_fkey_names_bare_and_legacy_list,
     test_extended_keys_through_loader,
     test_ctrl_pause_scrolllock_rejected,
+    test_paste_and_altgr_overrides_rejected,
     test_duplicate_override_vs_untouched_default,
     test_duplicate_two_overrides_same_combo,
     test_duplicate_case_and_order_normalized,

@@ -21,7 +21,7 @@ from pathlib import Path
 # runtime. hotkey_parse imports nothing Windows-bound, so config stays importable
 # off-Windows (the test drivers depend on that).
 from hotkey_parse import (
-    parse_hotkey_lexical, canonical_combo, classify_key, dead_combo_reason,
+    parse_hotkey_lexical, canonical_combo, classify_key, combo_rejection_reason,
     HotkeyParseError, KEY_INVALID,
 )
 
@@ -776,10 +776,12 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
                 f"hotkeys.{action}: '{value}' has an unrecognized key '{key}'; "
                 f"keeping default")
             continue
-        # The one dead combo class (#325): registers, can never fire. Rejected
-        # before the collision loop, so ctrl+pause and ctrl+scrolllock -- both
-        # VK_CANCEL to Windows -- can never alias into the effective set.
-        reason = dead_combo_reason(_mods, key)
+        # The two rejected classes (D-030): the dead combos of #325 (ctrl with
+        # pause/scrolllock, both VK_CANCEL to Windows), and the combos whose
+        # keystroke collision is invisible from the outside -- the tool's own
+        # paste (ctrl+v) and the German AltGr combos. Rejected per entry, before
+        # the collision loop, so neither can alias into the effective set.
+        reason = combo_rejection_reason(_mods, key)
         if reason:
             warnings.append(
                 f"hotkeys.{action}: '{value}' -- {reason}; keeping default")

@@ -114,7 +114,9 @@ What is covered:
     byte-exact in the backup instead of dead-ending in an abort (D-026).
   - the pure hotkey helpers: normalize_combo (the canonicalizer of #275, with its
     never-raise fallback for the diff path), validate_combo (including the #325
-    dead-combo rejection of ctrl+pause / ctrl+scrolllock), decode_key_event on
+    dead-combo rejection of ctrl+pause / ctrl+scrolllock and D-030's two
+    invisible keystroke collisions, each held to the message it shows the user,
+    against the freedom that stands beside them), decode_key_event on
     synthetic keycode events (#325: VK ints, the exact values Windows Tk puts in
     event.keycode), and the diff <-> apply_hotkey_overrides round-trip
     (exercising BOTH bare-F-key and modifier-chord combos, that an alias-spelled
@@ -1691,7 +1693,13 @@ def check_hotkey_helpers():
 
     for good in ("ctrl+alt+p", "ctrl+alt+6", "f9", "ctrl+alt+f12",
                  # #325: the extended set, bare included -- both lanes permissive
-                 "ctrl+alt+home", "pause", "scrolllock", "num5", "shift+insert"):
+                 "ctrl+alt+home", "pause", "scrolllock", "num5", "shift+insert",
+                 # D-030 rejects an invisible keystroke collision, nothing more:
+                 # a bare or shift-only letter is a visible sacrifice and stays
+                 # the user's call (D-027), and RegisterHotKey matches modifiers
+                 # exactly, so every other modifier set on those keys is free.
+                 "a", "shift+a", "ctrl+shift+v", "ctrl+alt+v",
+                 "ctrl+alt+shift+e", "ctrl+alt+1"):
         ok, msg = sio.validate_combo(good)
         check(ok, f"validate_combo rejected a good combo {good!r}: {msg}")
     # D-023 (#317): no layout-resolved keys -- the umlaut and its old 'ue' alias
@@ -1700,12 +1708,19 @@ def check_hotkey_helpers():
                 "ctrl+alt+ü", "ctrl+alt+ue"):
         ok, _ = sio.validate_combo(bad)
         check(not ok, f"validate_combo accepted a bad combo {bad!r}")
-    # #325's one dead combo class, via the shared hotkey_parse.dead_combo_reason:
-    # rejected with the message the capture feedback shows verbatim.
-    for dead in ("ctrl+pause", "ctrl+shift+scrolllock"):
-        ok, msg = sio.validate_combo(dead)
-        check(not ok and "never fire" in msg,
-              f"validate_combo must reject {dead!r} as dead, got ({ok}, {msg!r})")
+    # The rejected classes, via the shared hotkey_parse.combo_rejection_reason:
+    # rejected with the message the capture feedback shows verbatim -- #325's
+    # dead combos, and D-030's two invisible keystroke collisions (the paste the
+    # tool sends itself, and what AltGr types on a German keyboard).
+    for combo, fragment in (("ctrl+pause", "never fire"),
+                            ("ctrl+shift+scrolllock", "never fire"),
+                            ("ctrl+v", "paste the tool itself sends"),
+                            ("ctrl+alt+e", "AltGr"),
+                            ("ctrl+alt+q", "AltGr")):
+        ok, msg = sio.validate_combo(combo)
+        check(not ok and fragment in msg,
+              f"validate_combo must reject {combo!r} naming {fragment!r}, "
+              f"got ({ok}, {msg!r})")
 
     C, A, S = sio.TK_STATE_CONTROL, sio.TK_STATE_ALT, sio.TK_STATE_SHIFT
     # Keycode-driven since #325: the second field is the virtual-key code
@@ -1718,8 +1733,11 @@ def check_hotkey_helpers():
         ((C | A, 0x67), "ctrl+alt+num7"),   # numpad -- capturable at all since #325
         ((0, 0x24), "home"),                # bare nav key: permissive in both lanes
         ((0, 0x91), "scrolllock"),          # no longer swallowed as a "modifier"
-        ((C | A, 0x51), "ctrl+alt+q"),      # AltGr+Q reports Ctrl+Alt -- binds as
-                                            # the combo it is and fires as (#325)
+        ((C | A, 0x51), "ctrl+alt+q"),      # AltGr+Q reports Ctrl+Alt, so it
+                                            # decodes to the combo it really is
+                                            # and would fire as (#325) -- which
+                                            # is why validate_combo above rejects
+                                            # binding it (D-030)
         ((C, 0x03), None),                  # VK_CANCEL: what a physical Ctrl+Pause
                                             # actually sends -- unbindable
         ((0, 0x11), None),                  # bare Ctrl: only a modifier is down

@@ -102,6 +102,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Hotkey combos that text input itself depends on are now rejected (#337, D-030).**
+  Binding plain `Ctrl+V` swallowed the tool's own paste: the clipboard insert quietly
+  stopped landing while the status block still reported success, and the bound action
+  fired in the middle of the output (a hands-on incident of 2026-09-20). Both lanes — the
+  `hotkeys` block of `personal_settings.json` and the settings app's capture field — now
+  refuse the combinations whose keystroke collision nobody can see from the outside:
+  plain `ctrl+v`, the paste the tool sends to insert a transcript, and the nine `Ctrl+Alt`
+  combos that German AltGr characters (`@ € µ ² ³ { [ ] }`) send, since AltGr *is*
+  Ctrl+Alt on Windows. Each rejection names the concrete mechanism — in `thoughtborne.log`
+  and in the capture field — and the action keeps its default, so the tool always starts;
+  the example file's own `ctrl+alt+q` suggestion moved with it. Everything else stays
+  bindable on purpose, a bare letter and combos that shadow another program's shortcut
+  included: those are visible, undoable choices of your own (D-027).
+
 - **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**
   An ANSI/cp1252 file used to dead-end the save and the reset in an abort dialog; now it
   is treated like corrupt JSON — backed up byte-exact and rewritten cleanly — so the

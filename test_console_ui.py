@@ -1400,24 +1400,32 @@ def check_app_call_sites():
 # ---- D-019 the stress check: no framed line ever leaves 70 cells (#277) ------
 _MODS = [n for n, _ in hp._CANONICAL_MODIFIERS]
 _STRESS_PREFIXES = [_MODS[:i] for i in range(len(_MODS) + 1)]
-_NARROW_KEYS = [chr(ord("a") + i) for i in range(12)]        # 1 cell
+# 12 one-cell keys, the AltGr letters left out for the same reason pause and
+# scrolllock are below: ctrl+alt+e is rejected at validation (D-030), so a
+# scheme built on it would measure the guarantee against something no config
+# can hold.
+_NARROW_KEYS = [chr(ord("a") + i) for i in range(26)
+                if chr(ord("a") + i) not in hp._ALTGR_DE][:12]
 # The 12 display-widest static keys, derived rather than listed (#325) -- minus
 # pause and scrolllock, so the sweep only renders schemes a legal config can
-# hold (ctrl+...+pause is rejected at validation: hp.dead_combo_reason). Width
-# is measured on the DISPLAY name, since that is what a surface renders.
+# hold (ctrl+...+pause is rejected at validation: hp.combo_rejection_reason).
+# Width is measured on the DISPLAY name, since that is what a surface renders.
 _WIDE_KEYS = sorted((t for t in hp.VK_MAP if t not in hp._CTRL_SHIFTED_KEYS),
                     key=lambda t: (-len(format_combo(t)), t))[:12]
 
 
 def _widest_legal_display(token):
     """The widest displayed combo a legal config can put on this key: every
-    canonical modifier dead_combo_reason allows, then the key, in display form.
-    Display names, not tokens (#325): 'scrolllock' is the longest token, but
-    ctrl is dead on it and its display 'ScrLk' is narrower than 'NumDec' -- a
-    token-derived maximum would measure the guarantee against something no
-    surface ever renders."""
+    canonical modifier combo_rejection_reason allows on its own, then the key,
+    in display form. Display names, not tokens (#325): 'scrolllock' is the
+    longest token, but ctrl is dead on it and its display 'ScrLk' is narrower
+    than 'NumDec' -- a token-derived maximum would measure the guarantee against
+    something no surface ever renders. Asking per modifier understates where a
+    rejection is an exact modifier match (D-030): 'v' comes back as
+    Alt+Shift+Win+V though the wider Ctrl+Alt+Shift+Win+V is legal too -- never
+    the other way round, and only the global maximum below is consumed."""
     mods = [m for m in _MODS
-            if hp.dead_combo_reason(hp.MODIFIER_MAP[m], token) is None]
+            if hp.combo_rejection_reason(hp.MODIFIER_MAP[m], token) is None]
     return format_combo(canonical_combo("+".join(mods + [token])))
 
 

@@ -43,8 +43,10 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
 | D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active; 2026-09-20 addendum — the warn duty ends at what a reader discards, a never-read key stays silent (#333 declined) |
-| D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active |
+| D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active; narrowed 2026-09-20 by D-030 (#337) — the rejection set gains the invisible keystroke collisions; the bare-binding rule and the no-paternalism line stand |
 | D-028 | Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic | Active |
+| D-029 | Toggle pair: the start combo may double as exactly one stop action | Active |
+| D-030 | Rejected hotkey combos: what the tool's own paste and AltGr typing send | Active |
 
 ---
 
@@ -1936,6 +1938,13 @@ permissive binding, and rejection reserved for what Windows cannot deliver.
   invalid-combo feedback. `hotkey_parse.dead_combo_reason` is the single place both
   lanes ask, so they cannot drift.
 
+*Narrowed 2026-09-20 by D-030 (#337): that checkpoint — `combo_rejection_reason`
+now, same function — rejects two more kinds of combo, whose keystroke collision
+is invisible from the outside: plain `ctrl+v`, which is the paste the tool itself
+sends to insert a transcript, and the nine German AltGr combos, since AltGr is
+Ctrl+Alt. "The one technical rejection" is history from here on; the dead class,
+the ordinary path it takes and the one-checkpoint rule are unchanged.*
+
 Do not reintroduce: a modifier requirement in the capture widget or anywhere else, a
 "needs Ctrl and/or Alt" message, or a rejection lane for a combo that merely looks
 unwise (a bare letter, a shadowed OS shortcut). A *new* technical rejection meets the
@@ -1943,6 +1952,12 @@ same bar as the one above: a documented reason why the combo cannot fire. Changi
 the permissive rule itself is a supersede discussion citing this entry. Respects
 D-023 (the static key set, which this entry does not touch) and D-022, whose dead-key
 class it applies to the keyboard.
+
+*The bar widens with D-030 (#337), it does not soften: a documented reason why
+the combo cannot fire, **or** a documented keystroke collision the user cannot
+see — a combo the tool itself sends, or one that typing a character on a covered
+layout sends. Everything merely unwise stays bindable, the bare letter and the
+shadowed OS shortcut included.*
 
 ## D-028 — Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic
 
@@ -2021,3 +2036,77 @@ toggle request); implementation tracked in #336.
 Do not broaden the exemption: it is exactly one state-resolved pair. A toggle
 that discards (`cancel_recording` as partner), several toggle pairs, or a
 separately stored toggle switch are new discussions citing this entry.
+
+## D-030 — Rejected hotkey combos: what the tool's own paste and AltGr typing send
+
+Decided 2026-09-20 with the maintainer (#337), on the back of that day's paste
+incident and a live check of what the tool's two insert routes really send. It
+widens D-027's single technical rejection at the one shared checkpoint both
+validation lanes ask,
+`hotkey_parse.combo_rejection_reason` (formerly `dead_combo_reason`).
+
+- **The mechanics, pinned — they are not what the first reading assumed.** The
+  tool delivers text two ways. The clipboard route sends a **real** Ctrl+V
+  (`keyboard.send`), so a `ctrl+v` hotkey swallows the tool's own paste: on
+  2026-09-20 the clipboard insert silently stopped landing (`PASTE DID NOT LAND`
+  in the log) while the status block still reported success, and the bound action
+  fired mid-output. The typed route, by contrast, is **hotkey-transparent**:
+  `keyboard.write` injects every character as a KEYEVENTF_UNICODE event on
+  Windows, which no `RegisterHotKey` binding matches — verified live the same day
+  with a bare `e` bound to an action while 131 characters full of `e`s were typed,
+  not one trigger. So the other rejected combos do not intercept the tool's
+  output at all; they intercept **the user's own typing**: AltGr *is* Ctrl+Alt on
+  Windows, which makes `ctrl+alt+e` exactly the keystroke typing `€` sends, in
+  every application.
+- **The line: rejection is reserved for a keystroke collision that is invisible
+  from the outside.** Nobody can know that "text appears at the cursor" is
+  implemented as a synthesized paste, and nobody thinks of AltGr as Ctrl+Alt — in
+  both cases the failure masquerades as a tool bug, which is why the software
+  says no on the user's behalf. A **visible** sacrifice stays the user's call: a
+  bare `a` really does take that letter from every app, and the effect is
+  immediate and undoable — D-027's no-paternalism line, fully in force. Bare and
+  shift-only letters and digits therefore stay bindable on purpose (the tool
+  sends no such keystroke), as do the combos that merely shadow another program's
+  shortcut (`ctrl+c`, `alt+f4`).
+- **The two rejected classes**, beside the unchanged dead class (ctrl with
+  pause/scrolllock, D-027): the **exact** `ctrl+v`, and `ctrl+alt` with `q`, `e`,
+  `m`, `2`, `3`, `7`, `8`, `9`, `0` — the German AltGr characters
+  `@ € µ ² ³ { [ ] }`. Both are exact modifier matches, because `RegisterHotKey`
+  matches modifiers exactly: `v` with any other modifier set and
+  `ctrl+alt+shift+<AltGr key>` keep binding, since no keypress sends them.
+  Rejection takes the ordinary path — one log warning, the action keeps its
+  default, the usual invalid-combo verdict in the capture field — and every
+  message names the concrete mechanism rather than calling the combo unwise.
+- **Frozen data, no layout lookup** (respects D-023; the active layout can also
+  change between a config read and a keypress, so a lookup would misjudge). The
+  covered layouts are German T1 (Austria identical) and US — the VISION persona's.
+  Documented residuals, deliberately not coded against: the Swiss `¦` (AltGr+1)
+  and `¬` (AltGr+6) — text-far, and `ctrl+alt+6` is the shipped `open_history`
+  default; any layout beyond these. The other German AltGr characters (`\`, `|`,
+  `~`) sit on OEM keys outside `VK_MAP` and need no rule. Enter and Escape are
+  unbindable already through the static key set — recorded here as principle
+  (Enter is the send route's own keystroke), not accident.
+- **Old files.** `personal_settings.example.json` recommended
+  `"exit_program": "ctrl+alt+q"` verbatim, and the incident file bound `ctrl+v`;
+  such an entry now warns and the action falls back to its default — never an
+  abort, never a file rewrite (VISION principle #1). The example's own suggestion
+  moved with this entry, and the frozen fixture `_FROZEN_2026_09` proves the
+  old-file behaviour on every ladder run (D-026's narrowing duties: decision
+  entry, doc-history check, frozen fixture).
+
+Do not reintroduce/add: a runtime keyboard-layout lookup in any form; suspend or
+re-register machinery around the tool's own output (its failure mode — dead
+hotkeys — is worse than the problem it would prevent); a confirmation or warning
+dialog lane in the capture widget, where a hard reject with a concrete reason is
+the whole UX; further layouts or speculative characters. Extending the rejection
+set needs a *demonstrated* invisible collision — a combo the tool itself sends,
+or one that typing a character on a covered layout sends — documented here; a
+new borderline case is recorded as an accepted residual before it becomes
+mechanism.
+
+Partially supersedes **D-027**: its "the only rejection" clause falls, its
+bare-binding rule for every supported key and its no-paternalism line stand
+(dated marker there). Respects D-022 (the dead-key class this extends), D-023,
+D-026 and D-029 (the rejection runs per entry, before the collision loop, so the
+toggle exemption is untouched: a toggle pair on a rejected combo is two ordinary
+rejections).
