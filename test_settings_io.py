@@ -3009,7 +3009,7 @@ def check_reset_defaults(tmp):
 
 
 def check_reset_wiring():
-    """The part of the reset's call site that no run of the real window can show
+    """What the reset's call site must guarantee beyond the reach of the real window
     (#282, D-020). test_settings_visibility.test_reset_with_display drives the button
     itself -- the confirmation gate, the file the confirmed reset leaves behind, the
     vocabulary and the .env left alone, the restart reached, the button frozen against
@@ -3017,12 +3017,15 @@ def check_reset_wiring():
     is what stayed green when each half was measured against it: the two confirmation
     bodies (their key reaches t() through a variable, so the literal-reading
     check_string_keys never sees them, and the lane compares t() against t(), where a
-    missing key reads the same on both sides), the body2 wording, the two shipped
-    values whose FORCING its fixture cannot tell from a derivation, two writers that
+    missing key reads the same on both sides), the body2 wording, two writers that
     must be UNREACHABLE rather than merely unused, the two confirmation keywords its
     askyesno stub throws away with its **k, the restart's POSITION, which the stub
     registers wherever it stands, and the absence of a window destroy in the one abort
-    branch no lane provokes."""
+    branch no lane provokes -- plus the two shipped values, which stand here for a
+    different reason: since #263 the lane's fixture opens German with push-to-talk on
+    and drives both derivations red itself (re-measured, #312), but only where a
+    display exists; without one the lane skips, and on such a checkout these pins are
+    the only net for a D-015 regression."""
     for key in ("dlg.reset.body", "dlg.reset.body_corrupt"):
         check(key in sstr._EN and key in sstr._DE,
               f"reset-wiring: {key} is missing a string in EN or DE")
@@ -3045,13 +3048,16 @@ def check_reset_wiring():
         return
 
     # The two shipped values are written as LITERALS, not derived from the form. The
-    # display lane reads the file a confirmed reset leaves behind, but it runs with
-    # app.lang == "en" and an untouched push-to-talk switch, so a derived `self.lang` /
-    # `self.ptt_var.get()` produces the same bytes there and it stays green (measured,
-    # #309) -- while a user resetting out of the German window would keep German
-    # (D-015) and one with push-to-talk on would keep it on. hotkeys_effective and
-    # default_api need no literal here: the lane's fixture differs from the shipped
-    # value for both, so deriving either turns it red.
+    # display lane sees a derivation now: since #263 its fixture opens German with
+    # push-to-talk on and drives `self.lang` / `self.ptt_var.get()` red as per-run
+    # mutations (re-measured, #312). But that lane needs a display -- without one it
+    # skips (run_tests.py re-execs under xvfb-run only where one exists), and on such
+    # a checkout these two pins are the only net against a derived write: a user
+    # resetting out of the German window would keep German (D-015) and one with
+    # push-to-talk on would keep it on. hotkeys_effective and default_api need no
+    # literal here: the lane's fixture differs from the shipped value for both, so
+    # deriving either turns it red where a display exists -- beyond that they share
+    # the display gate with everything else the lane carries (#309's trade).
     writes = _calls_to(reset, "save_personal_settings")
     check(len(writes) == 1,
           f"reset-wiring: _reset_to_defaults makes {len(writes)} backup-lane writes, "
@@ -3130,9 +3136,11 @@ def check_readfail_wiring():
     test_save_readfail_with_display for the everyday save, test_reset_with_display for
     the reset's own read branch: that the pre-flight runs BEFORE the first write, that
     the failure arrives under the read title, and that it names the file. Both halves
-    left here were measured against those lanes and stayed green (#309): all four of
-    the save lane's cases either fill the Groq field or leave both blank, so a probe
-    looking at only the Groq half agrees with the write in every one of them; and no
+    left here were measured against those lanes and stayed green (#309; re-measured
+    after #263 rebuilt them, #312): the probe only asks whether the cleaned update
+    set is EMPTY, and in every one of the save lane's five cases the Groq half alone
+    decides that answer (none fills Soniox and leaves Groq blank), so a probe reduced
+    to the Groq half still agrees with the write in every one of them; and no
     display lane ever makes a WRITE fail, so a rename carrying both branches over to
     the read title -- the plausible one, since they sit in the same method and read
     almost alike -- goes unnoticed everywhere else. The string keys are
