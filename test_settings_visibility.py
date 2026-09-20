@@ -127,6 +127,13 @@ whether they moved on to another row or closed the window, whose teardown takes 
 request with it. Each of those is measured against a mutation of the real app. It
 WRITES, like the lanes above.
 
+`test_toggle_pair_capture_with_display` takes the next step of that field (#336): the
+D-029 pair assigned by pressing the start combo on a stop row. The window has no
+duplicate rule of its own -- it delegates to `apply_hotkey_overrides` -- so this lane
+is where the loader's exemption is seen arriving in the UI: the value is taken, the
+capture label carries the affirmative line, the same combo on a third action is a
+collision again, and an unrelated capture afterwards leaves the label empty.
+
 Beside them, `test_engine_picker_key_agnostic_with_display` holds D-028 at the window
 (#332): an unsaved edit has no effect until it is saved, and the engine picker is
 key-agnostic. Four scenes -- the fresh wizard over an empty folder, a Groq-only `.env`
@@ -211,6 +218,7 @@ import io
 import json
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import settings_visibility as sv
@@ -2308,6 +2316,82 @@ def test_capture_arm_wait_with_display():
             pass
 
 
+@_app_sandbox()
+def test_toggle_pair_capture_with_display():
+    # The D-029 pair through the REAL capture field (#336): assigning the start
+    # combo to a stop row is accepted -- the loader is the app's only acceptance
+    # rule, so the loosening reaches the window without app-side logic -- and the
+    # capture label says so, because the table then legitimately shows one combo
+    # twice. Off Windows `tool_is_running()` is False, so every _arm here takes
+    # the immediate path and the #335 handshake stays out of this lane.
+    try:
+        import tkinter as tk
+    except Exception:
+        print("  (skipped toggle-pair-capture check: tkinter unavailable)")
+        return
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("  (skipped toggle-pair-capture check: no display)")
+        return
+    try:
+        import thoughtborne_settings as ts
+    except Exception as e:
+        print(f"  (skipped toggle-pair-capture check: cannot import the app: {e})")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        return
+
+    import settings_io as sio
+    import settings_strings as sstr
+
+    def press(name, keycode, state=sio.TK_STATE_CONTROL | sio.TK_STATE_ALT):
+        # decode_key_event takes raw VK ints off Windows, as its docstring says.
+        app._arm(name)
+        app._on_capture_key(types.SimpleNamespace(state=state, keycode=keycode), name)
+
+    try:
+        root.geometry("900x860")
+        app = ts.SettingsApp(root, first_run=False)
+        root.update()
+        start_combo = app.hotkeys_state["start_recording"]
+
+        # The pair forms: the start combo, pressed on a stop row.
+        press("stop_recording_clipboard", 0x57)          # W
+        check(app.hotkeys_state["stop_recording_clipboard"] == start_combo,
+              f"the capture refused the D-029 pair: "
+              f"{app.hotkeys_state['stop_recording_clipboard']!r}")
+        check(app.capture_lbl["text"] == sstr.t("capture.toggle_pair", app.lang),
+              f"the accepted pair left the capture label silent or wrong: "
+              f"{app.capture_lbl['text']!r}")
+
+        # Counter-check: the same combo on a THIRD action is a collision again --
+        # cancel_recording is deliberately no partner, and three sharers have no
+        # state that could decide between them.
+        press("cancel_recording", 0x57)
+        check(app.hotkeys_state["cancel_recording"] != start_combo,
+              "a third action took the shared combo -- the exemption is too broad")
+        check(app.capture_lbl["text"].startswith(
+                  sstr.t("capture.collision", app.lang).split("{")[0]),
+              f"the rejected third sharer did not get the collision verdict: "
+              f"{app.capture_lbl['text']!r}")
+
+        # An unrelated capture while the pair stands leaves the label empty: the
+        # line belongs to the assignment that formed the pair, not to the state.
+        press("switch_api", 0x79)                        # F10
+        check(app.hotkeys_state["switch_api"] == "ctrl+alt+f10",
+              f"the unrelated capture was refused: {app.hotkeys_state['switch_api']!r}")
+        check(app.capture_lbl["text"] == "",
+              f"an unrelated capture claimed the pair line: {app.capture_lbl['text']!r}")
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _window_state(root):
     """A built window as {tk path: (class, text, disabled, placed)} -- the snapshot
     D-028's "an unsaved edit has no effect until it is saved" is measured against.
@@ -2989,6 +3073,7 @@ def main():
     test_save_readfail_with_display()
     test_env_delete_with_display()
     test_capture_arm_wait_with_display()
+    test_toggle_pair_capture_with_display()
     test_engine_picker_key_agnostic_with_display()
     test_callback_error_log_with_display()
     test_main_error_log_with_display()
@@ -3014,7 +3099,8 @@ def main():
           "the mid-session-corruption scene (#263), the #328 WYSIWYG key deletion "
           "from the untouched save to the last key cleared, the #335 capture arm wait "
           "(no prompt before the tool's ACK, the silent give-up, no late arming), the "
-          "D-028 key-agnostic "
+          "#336 toggle-pair capture (taken, confirmed on the label, still a collision "
+          "for a third sharer), the D-028 key-agnostic "
           "engine picker over four scenes (all four selectable with no key at all, no "
           "unsaved edit moving anything but its own verdict, the keyless pin written "
           "verbatim, no engine memory written), and the #240 callback / "

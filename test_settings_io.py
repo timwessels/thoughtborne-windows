@@ -54,8 +54,10 @@ What is covered:
     backup back and re-raises. Invalid owned entries with a leave-as-found signal
     are normalized to the shown defaults (no pin / OFF / "en"), siblings and
     _comments preserved. The controls weigh as much: a healthy file, a
-    default-equal hotkey entry, a deliberately dropped pin, a BOM and the D-024
-    list collapse create NO backup, and the silent language toggle never enters
+    default-equal hotkey entry, a deliberately dropped pin, a BOM, the D-024
+    list collapse and a hand-edited D-029 toggle pair create NO backup (the pair
+    survives the save rather than being deleted by it, #336), and the silent
+    language toggle never enters
     the lane at all. Plus the #294 seed hardening: a cp1252 example file can no
     longer abort a save with a raw exception, on either writer.
   - settings_io.resolve_engine_save_signal (#198, D-008/D-028): the pure on-save
@@ -1002,7 +1004,8 @@ def check_backup_lane(tmp):
     hotkey entry falling out of the diff, a valid pin deliberately dropped via
     REMOVE_API_PIN, and a BOM heal create NO backup; an EMPTY file is corrupt
     like any other and backs up its zero bytes (uniform, deliberately no special
-    case). The #294 seeds: a cp1252 example file aborts neither writer. And the
+    case); and a hand-edited D-029 toggle pair survives the save instead of being
+    backed up and deleted by it (#336). The #294 seeds: a cp1252 example file aborts neither writer. And the
     silent lane never enters: write_ui_language over a corrupt file returns
     False, byte-still, with no backup anywhere."""
     corrupt = b'{\n  "vocabulary": { "terms": ["Gr\xc3\xbc\xc3\x9fe"],\n'
@@ -1277,6 +1280,21 @@ def check_backup_lane(tmp):
     check(bak is not None and bak.read_bytes() == b"" and losses,
           f"BL8d: an empty file must back up its zero bytes like any corrupt "
           f"one: ({bak}, {losses})")
+    # (e) a hand-edited D-029 toggle pair: the loader accepts it, so it is no
+    # loss and must survive the save -- without the exemption this very lane
+    # would back the file up and delete the pair on the way out (#336).
+    d = tmp / "bl8e"; d.mkdir()
+    ps = d / "personal_settings.json"
+    pair = {"start_recording": "pause", "stop_recording_clipboard": "pause"}
+    ps.write_text(json.dumps({"hotkeys": pair}, indent=2) + "\n", encoding="utf-8")
+    eff = config.apply_hotkey_overrides(config.DEFAULT_HOTKEYS, pair)[0]
+    bak, losses = sio.save_personal_settings(ps, hotkeys_effective=eff,
+                                             default_api=None,
+                                             example_path=EXAMPLE_PS)
+    check(bak is None and losses == []
+          and sio.read_personal_settings(ps)[0].get("hotkeys") == pair,
+          f"BL8e: the toggle pair counted as a loss or did not survive the save: "
+          f"({bak}, {losses})")
 
     # 9 -- the #294 seeds: a cp1252 example file aborts neither writer.
     d = tmp / "bl9"; d.mkdir()

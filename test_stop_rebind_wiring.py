@@ -40,6 +40,10 @@ What it pins:
   - The mis-trigger net polls the effective keys, skips the ambiguous and the
     start-key entries (empty map under the shipped F-key preset), and runs the
     corrected handler end to end -- down to that handler's own derived wait list.
+  - The D-029 toggle dispatch (#336): with a stop action on the start combo, the
+    second press delivers what that action's own key delivers -- measured against
+    a direct press of it -- and the third starts again, while the mis-trigger net
+    still outranks the toggle and an unconfigured toggle changes nothing.
   - The two FILE_ONLY log lines that used to name shipped keys now name the
     effective combos (D-019).
   - A static guard that no literal `wait_for_keys=['...']` / `trigger_keys=['...']`
@@ -233,6 +237,10 @@ class _FakeAudio:
         # worker None and read as working (#330).
         self.sidecar_handle = object()
 
+    def start_recording(self):
+        self.is_recording = True
+        return True
+
     def stop_recording(self):
         self.is_recording = False
         return ([], 1.0)
@@ -279,6 +287,8 @@ class _FakeApp:
     _wait_keys = tb.ThoughtborneApp._wait_keys
     _stop_debounce_elapsed = tb.ThoughtborneApp._stop_debounce_elapsed
     _handle_mistrigger_during_recording = tb.ThoughtborneApp._handle_mistrigger_during_recording
+    _stop_handlers = tb.ThoughtborneApp._stop_handlers
+    on_start_recording = tb.ThoughtborneApp.on_start_recording
     _stop_prologue = tb.ThoughtborneApp._stop_prologue
     _stop_action = tb.ThoughtborneApp._stop_action
     on_stop_recording_keyboard = tb.ThoughtborneApp.on_stop_recording_keyboard
@@ -296,6 +306,11 @@ class _FakeApp:
         self.output_manager = _FakeOutput()
         self.transcriber = _FakeTranscriber()
         self._active_live_transcriber = None
+        # What the start half of on_start_recording reads: a live recording loop
+        # with a fresh tick, so the #128 wedge guard lets the start through.
+        self._keyless = False
+        self.recording_thread = types.SimpleNamespace(is_alive=lambda: True)
+        self._recording_loop_last_tick = time.monotonic()
         self._stop_insert_debounce = {}
         self.processing_lock = threading.Lock()
         self.processing_counter = 0
@@ -676,6 +691,78 @@ def test_mistrigger_stays_silent_where_the_map_is_empty():
 
 
 # ======================================================================
+# The D-029 toggle dispatch (#336)
+# ======================================================================
+
+def test_toggle_second_press_stops_like_the_direct_key():
+    # The acceptance case: one combo for the whole cycle. The second press must
+    # deliver exactly what the partner's own key delivers -- which is provable
+    # only because the deliver pins above measure that in the first place.
+    with scheme(start_recording='pause', stop_recording_clipboard='pause'):
+        reference = _FakeApp(recording=True)
+        _stop(reference, 'stop_recording_clipboard')
+
+        # The toggle key is physically DOWN at the stop moment -- the reality of
+        # pressing it, so the scenario is the real one. It does not show which
+        # path then calls the handler: the mis-trigger net firing on the
+        # partner's token would reach the same handler with the same result. The
+        # skip rule that keeps it out of the net is pinned by
+        # test_hotkey_overrides.py's mis-trigger derivation cases.
+        app = _FakeApp(recording=False)
+        with pressed('pause'):
+            _FakeApp.on_start_recording(app)
+            assert app.audio_recorder.is_recording is True, "the first press did not start"
+            assert app.starts == [], "the first press already delivered something"
+
+            _FakeApp.on_start_recording(app)
+            assert app.audio_recorder.is_recording is False, \
+                "the second press of the toggle combo did not stop the recording"
+            assert len(app.starts) == 1, app.starts
+            # sidecar and transcriber_override are objects of the app that
+            # produced them, so they are pinned per app rather than compared.
+            handles = ('sidecar', 'transcriber_override')
+            assert {k: v for k, v in app.starts[-1].items() if k not in handles} == \
+                   {k: v for k, v in reference.starts[-1].items() if k not in handles}, \
+                (app.starts[-1], reference.starts[-1])
+            assert app.starts[-1]['sidecar'] is app.audio_recorder.sidecar_handle
+            assert app.starts[-1]['transcriber_override'] is app.transcriber
+            # The partner's own debounce slot is stamped, exactly as a direct
+            # press would -- the toggle runs the handler, it does not imitate it.
+            assert list(app._stop_insert_debounce) == ['stop_recording_clipboard'], \
+                app._stop_insert_debounce
+
+            # ...and the next press starts again: nothing debounces a start.
+            _FakeApp.on_start_recording(app)
+            assert app.audio_recorder.is_recording is True, \
+                "the third press did not start the next recording"
+            assert len(app.starts) == 1, app.starts
+
+
+def test_toggle_yields_to_the_mistrigger_net():
+    # Order pinned: a physically held OTHER stop key names the intended action
+    # better than the toggle rule, so the net wins when both could fire.
+    app = _FakeApp(recording=True)
+    with scheme(start_recording='pause', stop_recording_clipboard='pause'):
+        with pressed('pause', 'd'):
+            _FakeApp.on_start_recording(app)
+    assert len(app.starts) == 1, app.starts
+    assert app.starts[-1]['send_after_insert'] is True, \
+        f"the toggle partner fired although the send key was held: {app.starts[-1]}"
+
+
+def test_no_toggle_second_press_still_ignored():
+    # The zero-change guarantee at the dispatch site: with no pair configured a
+    # second press of the start combo does what it always did -- nothing.
+    app = _FakeApp(recording=True)
+    with scheme(), pressed('w'):
+        _FakeApp.on_start_recording(app)
+    assert app.audio_recorder.is_recording is True, \
+        "a second press stopped the recording without a toggle configured"
+    assert app.starts == [] and app.inserts == [], (app.starts, app.inserts)
+    assert app.audio_recorder.cancelled is False
+
+
+# ======================================================================
 # The two FILE_ONLY log lines (spec point 4)
 # ======================================================================
 
@@ -734,6 +821,9 @@ CASES = [
     test_debounce_window_expires_on_time_alone,
     test_mistrigger_fires_the_rebound_key,
     test_mistrigger_stays_silent_where_the_map_is_empty,
+    test_toggle_second_press_stops_like_the_direct_key,
+    test_toggle_yields_to_the_mistrigger_net,
+    test_no_toggle_second_press_still_ignored,
     test_log_lines_name_the_effective_combos,
     test_no_literal_wait_lists_left_in_the_app,
 ]

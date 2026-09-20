@@ -694,6 +694,25 @@ def soniox_live_endpointing_params() -> dict:
     return params
 
 
+# The four deliverable stop actions -- the only valid D-029 toggle partners. A
+# frozenset on purpose: membership only, the action ORDER stays with
+# DEFAULT_HOTKEYS (D-019). cancel_recording is deliberately absent: a toggle
+# that discards would be a different feature (D-029).
+TOGGLE_STOP_ACTIONS = frozenset({
+    'stop_recording_clipboard', 'stop_recording_send',
+    'stop_recording_no_insert', 'stop_recording_keyboard'})
+
+
+def _is_toggle_pair(actions) -> bool:
+    """True when `actions` is exactly start_recording plus one stop action --
+    the one state-resolved duplicate D-029 exempts from collision detection:
+    the recording state decides which of the two fires, so neither loses
+    silently. Anything else -- three sharers, cancel_recording, a non-stop
+    action, two stops without start -- keeps colliding exactly as before."""
+    return (len(actions) == 2 and 'start_recording' in actions
+            and set(actions) - {'start_recording'} <= TOGGLE_STOP_ACTIONS)
+
+
 def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     """Return (effective_hotkeys, warnings) for the #55 'hotkeys' override block.
 
@@ -702,7 +721,10 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     (action -> combo string); `raw` is the parsed personal_settings 'hotkeys'
     object. Every rejected entry leaves that action's default in force -- never a
     startup abort (stability, VISION principle #1). A combo colliding with another
-    action's effective binding is dropped (the default stays). Never raises.
+    action's effective binding is dropped (the default stays) -- with one
+    exemption: start_recording plus exactly one stop action may share a combo,
+    the D-029 toggle pair, where the recording state decides which one fires.
+    Never raises.
 
     One action binds one combo (D-024). The one list-shaped remnant is a boundary
     compat rule: a ONE-element list -- what the F-key preset AND every settings-
@@ -783,12 +805,17 @@ def apply_hotkey_overrides(defaults: dict, raw: dict) -> tuple:
     # converges (in practice one pass); a default is never mutated. With one combo
     # per action (D-024) a shared canonical form always means two *different*
     # actions, so there is one thing to report; reverting in the canonical action
-    # order (D-019) keeps the warnings identical from run to run.
+    # order (D-019) keeps the warnings identical from run to run. The one group
+    # that is no collision is the D-029 toggle pair (_is_toggle_pair): it is left
+    # standing, so a revert can at most create another exempt pair -- convergence
+    # is unchanged.
     while True:
         groups = {}
         for act, combo in effective.items():
             groups.setdefault(parse_hotkey_lexical(combo), []).append(act)
-        colliding = {a for acts in groups.values() if len(acts) > 1 for a in acts}
+        colliding = {a for acts in groups.values()
+                     if len(acts) > 1 and not _is_toggle_pair(acts)
+                     for a in acts}
         to_revert = [a for a in effective if a in colliding and a in overridden]
         if not to_revert:
             break
@@ -821,7 +848,9 @@ def mistrigger_key_map(hotkeys: dict, candidates, start_action='start_recording'
       silently swallow every bearer but one.
     - A token equal to the start action's own: that key is physically down on
       every second press of the start hotkey, so an entry on it would stop the
-      running recording every single time.
+      running recording every single time. (With a D-029 toggle pair this is the
+      partner's own token, so the partner never sits in the net -- its stop runs
+      through the toggle dispatch in on_start_recording instead.)
 
     Both rules together can empty the map -- the shipped F-key preset
     (settings_io.PRESET_FKEYS: start on bare f9, f10 borne by three deliver
@@ -851,6 +880,52 @@ def mistrigger_key_map(hotkeys: dict, candidates, start_action='start_recording'
 
     return [(key, actions[0]) for key, actions in bearers.items()
             if len(actions) == 1 and key != start_key]
+
+
+def toggle_stop_action(hotkeys: dict) -> "str | None":
+    """The stop action sharing start_recording's combo -- the D-029 toggle
+    partner -- or None when no pair is configured.
+
+    Pure and never raising, like mistrigger_key_map beside it: derived from the
+    EFFECTIVE hotkeys at call time, never stored, so every consumer -- the
+    already-recording dispatch, the registration plan, the settings app's
+    capture feedback -- reads the same truth. Combos are compared in parsed
+    form, the same form the collision loop groups by, so the acceptance rule and
+    this derivation can never disagree about what a pair is.
+
+    Defensive for shapes apply_hotkey_overrides cannot produce: a missing or
+    unparseable start means no pair, an unparseable stop entry is skipped, and
+    more than one stop on the start combo yields None rather than an arbitrary
+    pick.
+    """
+    try:
+        start = parse_hotkey_lexical(hotkeys['start_recording'])
+    except (KeyError, HotkeyParseError):
+        return None
+    partners = []
+    for action in hotkeys:
+        if action not in TOGGLE_STOP_ACTIONS:
+            continue
+        try:
+            if parse_hotkey_lexical(hotkeys[action]) == start:
+                partners.append(action)
+        except HotkeyParseError:
+            continue
+    return partners[0] if len(partners) == 1 else None
+
+
+def hotkey_registration_plan(hotkeys: dict) -> list:
+    """[(action, combo)] pairs to hand RegisterHotKey, in `hotkeys` iteration
+    order (the canonical action order, D-019): every action, minus a D-029
+    toggle partner, skipped BY NAME. Its combo is already in the list as
+    start_recording, and a second RegisterHotKey on the same combo would fail
+    with 1409 -- the skip is what keeps expected_count, and with it the
+    "All hotkeys registered" check, honest. Pure, like toggle_stop_action
+    beside it, so the ladder can hold the dedupe that _register_hotkeys itself
+    (Win32-only) puts out of its reach."""
+    partner = toggle_stop_action(hotkeys)
+    return [(action, combo) for action, combo in hotkeys.items()
+            if action != partner]
 
 
 # ===== PUSH-TO-TALK (#66) =====
@@ -1222,10 +1297,11 @@ DEFAULT_HOTKEYS = {
 # personal_settings "hotkeys" block (captured during the single settings parse
 # above) applied on top. The pure validator returns the effective set plus
 # human-readable warnings; every rejected entry keeps that action's default and a
-# combo that would collide with another action is dropped -- never a startup abort
-# (VISION principle #1). Applying onto DEFAULT_HOTKEYS (which apply_hotkey_overrides
-# never mutates) keeps a single source of truth and leaves runtime behavior
-# identical.
+# combo that would collide with another action is dropped -- the one exception
+# being the D-029 toggle pair, where start_recording and one stop action share a
+# combo on purpose -- never a startup abort (VISION principle #1). Applying onto
+# DEFAULT_HOTKEYS (which apply_hotkey_overrides never mutates) keeps a single
+# source of truth and leaves runtime behavior identical.
 HOTKEYS = copy.deepcopy(DEFAULT_HOTKEYS)
 if _hotkeys_override:
     HOTKEYS, _hk_warnings = apply_hotkey_overrides(DEFAULT_HOTKEYS, _hotkeys_override)

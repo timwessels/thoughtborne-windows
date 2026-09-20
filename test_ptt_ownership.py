@@ -38,6 +38,10 @@ What it pins:
     trigger release still stops it through the configured insert path. This is the
     anchor against a guard that overreaches -- `owns and not is_recording` must
     stay silent for the whole life of a recording PTT does own.
+  - Every key `hotkey_parse.VK_MAP` can bind is in the foreign set. That set
+    membership is what makes the two start paths mutually exclusive once a start
+    combo may be a bare key (#336) -- the argument the comment in the app makes,
+    which nothing else would notice losing.
 
 The fake app carries its own detector with tiny windows (min-hold and release tail
 0.0, tap window an hour). `_ptt_tick` reads the real `time.monotonic()`, and both
@@ -137,6 +141,7 @@ config.ARCHIVE_FOLDER = _ARCHIVE
 ah.ARCHIVE_FOLDER = _ARCHIVE
 logging.getLogger("Thoughtborne").setLevel(logging.CRITICAL)
 
+import hotkey_parse as hp  # noqa: E402
 import thoughtborne as tb  # noqa: E402
 from ptt_detector import PttDetector  # noqa: E402
 
@@ -313,10 +318,19 @@ def test_owned_roundtrip_still_stops_on_trigger_release():
         f"the PTT stop left its configured insert path: {app.starts[-1]}"
 
 
+def test_every_bindable_key_is_foreign_to_the_gesture():
+    # What the exclusivity of the two start paths rests on since #336: a start
+    # combo being physically down vetoes the gesture because its KEY is foreign.
+    # Held Alt used to carry that argument, which a bare toggle key voids.
+    assert set(hp.VK_MAP.values()) <= set(tb._PTT_FOREIGN_VKS), \
+        sorted(hex(v) for v in set(hp.VK_MAP.values()) - set(tb._PTT_FOREIGN_VKS))
+
+
 CASES = [
     test_foreign_stop_releases_ownership_and_spares_the_next_recording,
     test_immediate_regesture_after_a_foreign_stop_records_again,
     test_owned_roundtrip_still_stops_on_trigger_release,
+    test_every_bindable_key_is_foreign_to_the_gesture,
 ]
 
 

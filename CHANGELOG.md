@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One key can now start AND stop a recording (#336, D-029).** Binding the
+  `start_recording` combo to exactly one of the four stop actions in the `hotkeys`
+  block turns that key into a toggle: press to start, press again to stop and deliver
+  exactly as that stop action's own key would, press again for the next recording — the
+  request behind #287, on a bare `pause` key for instance. Either half of the pair on
+  its own is enough; every other duplicate stays a collision, with the warning it
+  always had and the defaults still working. It can be set in the settings app's
+  capture field too, which confirms the pair with a line under the table. Two
+  consequences come with the design: the partner's own default combo becomes unbound,
+  and its press outside a recording now starts one instead of re-inserting the last
+  transcript — re-inserting stays on the remaining stop keys.
+
 - **The settings app can now capture Thoughtborne's own combos (#335).** Pressing
   `Ctrl+Alt+W` in the capture field used to start a recording instead of landing in the
   field: Windows delivers a registered hotkey to its owner, so every combo already in use

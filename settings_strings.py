@@ -213,6 +213,7 @@ _EN = {
         "and arrow keys, the numpad, Pause or Scroll Lock."),
     "capture.invalid": "Not a usable combo ({detail}).",
     "capture.collision": "Already used by: {action}",
+    "capture.toggle_pair": "This combo now starts and stops recording.",
     "hotkeys.mouse.title": "Tip: Use a mouse button as a hotkey",
     "hotkeys.mouse.body": (
         "Use mouse buttons such as back/forward as hotkeys by assigning the key "
@@ -642,6 +643,7 @@ _DE = {
         "verwenden."),
     "capture.invalid": "Keine verwendbare Kombination ({detail}).",
     "capture.collision": "Schon vergeben an: {action}",
+    "capture.toggle_pair": "Diese Kombination startet und stoppt jetzt die Aufnahme.",
     "hotkeys.mouse.title": "Tipp: Eine Maustaste als Hotkey verwenden",
     "hotkeys.mouse.body": (
         "Nutze Maustasten wie Vor-/Zurück-Tasten als Hotkey, indem du die "

@@ -30,9 +30,15 @@ calls verbatim): partial override by action name, warn-and-keep-default on every
 kind of bad entry, F-key names, the value shape (one action binds one combo,
 D-024 -- a one-element list from an older version collapses silently, any other
 list is rejected), duplicate detection on the *effective* set with
-case/modifier-order normalization, and the guarantees that the defaults dict is
+case/modifier-order normalization, its one exemption -- the D-029 toggle pair
+(start_recording plus exactly one stop action), accepted in both half forms and
+held to exactly that shape by the negatives the pre-existing collision cases
+cannot cover -- and the guarantees that the defaults dict is
 never mutated and that their order, the canonical action order every surface
-follows (D-019), survives the one loader it passes through. Plus
+follows (D-019), survives the one loader it passes through. Plus the two pure
+derivations that pair feeds, `config.toggle_stop_action` (the partner by name)
+and `config.hotkey_registration_plan` (the partner skipped by name, which is
+what keeps `expected_count` honest). Plus
 `config.mistrigger_key_map` (#152), the second pure consumer of an effective
 scheme: the shipped map, both skip rules (a token two candidates share, the
 start action's own key), a partial rebind, and the shipped F-key preset, where
@@ -54,7 +60,8 @@ logging.getLogger('Thoughtborne.Config').setLevel(logging.CRITICAL)
 
 import hotkey_parse as hp
 import settings_io
-from config import apply_hotkey_overrides, mistrigger_key_map, DEFAULT_HOTKEYS
+from config import (apply_hotkey_overrides, mistrigger_key_map, toggle_stop_action,
+                    hotkey_registration_plan, TOGGLE_STOP_ACTIONS, DEFAULT_HOTKEYS)
 
 SHOW = "--show" in sys.argv
 
@@ -427,6 +434,112 @@ def test_free_then_reuse_no_false_collision():
     assert warns == [], warns
 
 
+def test_toggle_pair_accepted_without_warning():
+    # D-029, the one exempt duplicate: start_recording plus ONE stop action on
+    # the same combo. Both values stand, and no warning is owed -- the recording
+    # state decides which of the two fires, so neither loses silently.
+    eff, warns = run({'start_recording': 'pause', 'stop_recording_keyboard': 'pause'})
+    only_changed(eff, {'start_recording': 'pause', 'stop_recording_keyboard': 'pause'})
+    assert warns == [], warns
+    # The exemption reads the parsed form, like the collision grouping itself:
+    # a different spelling of the same combo is the same pair.
+    eff, warns = run({'start_recording': 'ALT+CTRL+f9',
+                      'stop_recording_clipboard': 'ctrl + alt + F9'})
+    only_changed(eff, {'start_recording': 'ctrl+alt+f9',
+                       'stop_recording_clipboard': 'ctrl+alt+f9'})
+    assert warns == [], warns
+
+
+def test_toggle_stop_half_alone_onto_default_start():
+    # The likeliest hand-edit form: only the stop half listed, on the shipped
+    # start combo. Its own path through the revert loop -- an override colliding
+    # with an UNTOUCHED default, which reverts in
+    # test_duplicate_override_vs_untouched_default and must stand here.
+    eff, warns = run({'stop_recording_clipboard': 'ctrl+alt+w'})
+    only_changed(eff, {'stop_recording_clipboard': 'ctrl+alt+w'})
+    assert warns == [], warns
+
+
+def test_toggle_start_half_alone_onto_a_stop_default():
+    # The mirror half: start_recording moved onto a stop action's untouched
+    # default. The loop knows no direction, so this forms the pair too --
+    # pinned as a decision rather than left to drift.
+    eff, warns = run({'start_recording': 'ctrl+alt+a'})     # stop_recording_keyboard's
+    only_changed(eff, {'start_recording': 'ctrl+alt+a'})
+    assert warns == [], warns
+
+
+def test_toggle_exemption_is_exactly_the_pair():
+    # The negatives are what make the exemption a decision instead of a
+    # loosening: everything that is not start plus ONE stop action collides
+    # exactly as before, with the unchanged warning and the defaults in force.
+    # (The pre-existing collision cases all pair non-stop actions, so they would
+    # stay green under a rule that was too broad.)
+    for raw, expected_warnings in (
+            # start plus two stops: no state can decide between the two stops
+            ({'start_recording': 'pause', 'stop_recording_keyboard': 'pause',
+              'stop_recording_clipboard': 'pause'}, 3),
+            # cancel is deliberately no partner -- a toggle that discards would
+            # be a different feature (D-029)
+            ({'start_recording': 'pause', 'cancel_recording': 'pause'}, 2),
+            # ...nor is any non-stop action
+            ({'start_recording': 'pause', 'switch_api': 'pause'}, 2),
+            # ...nor two stops among themselves, with no start to resolve them
+            ({'stop_recording_keyboard': 'pause',
+              'stop_recording_clipboard': 'pause'}, 2)):
+        eff, warns = run(raw)
+        only_changed(eff, {})
+        assert sum('collides' in w for w in warns) == expected_warnings, (raw, warns)
+
+
+def test_toggle_stop_action_derivation():
+    # The pure partner lookup every consumer reads -- dispatch, registration
+    # plan, settings-app feedback.
+    assert toggle_stop_action(DEFAULTS) is None
+    eff, _ = run({'start_recording': 'pause', 'stop_recording_clipboard': 'pause'})
+    assert toggle_stop_action(eff) == 'stop_recording_clipboard'
+    eff, _ = run({'stop_recording_keyboard': 'ctrl+alt+w'})
+    assert toggle_stop_action(eff) == 'stop_recording_keyboard'
+    # Parsed comparison, not string equality: a hand-written spelling neither
+    # hides nor fakes a pair.
+    assert toggle_stop_action(dict(DEFAULTS, start_recording='Alt + Control + W',
+                                   stop_recording_clipboard='ctrl+alt+w')) \
+        == 'stop_recording_clipboard'
+    # No shipped scheme forms a pair: a toggle is something the user opts into,
+    # and a preset that grew one would turn a stop key into a start key for
+    # everyone who clicks it.
+    for scheme in (DEFAULT_HOTKEYS, settings_io.PRESET_FKEYS):
+        assert toggle_stop_action(scheme) is None, scheme
+    # Defensive, for shapes the loader cannot produce.
+    assert toggle_stop_action({}) is None
+    assert toggle_stop_action(dict(DEFAULTS, start_recording='ctrl+alt')) is None
+    assert toggle_stop_action(dict(DEFAULTS, stop_recording_keyboard='ctrl+alt+w',
+                                   stop_recording_clipboard='ctrl+alt+w')) is None
+    assert toggle_stop_action(dict(DEFAULTS, cancel_recording='ctrl+alt+w')) is None
+
+
+def test_registration_plan_dedupes_the_partner():
+    # Without the skip the second RegisterHotKey on the shared combo fails with
+    # 1409, and every start would show the hotkeys-partial panel.
+    assert hotkey_registration_plan(DEFAULTS) == list(DEFAULTS.items())
+    eff, _ = run({'start_recording': 'pause', 'stop_recording_clipboard': 'pause'})
+    plan = hotkey_registration_plan(eff)
+    assert [a for a, _ in plan] == [a for a in eff if a != 'stop_recording_clipboard']
+    assert ('start_recording', 'pause') in plan
+    assert len(plan) == len(eff) - 1
+    # No partner derived -> nothing skipped, whatever the scheme looks like.
+    ambiguous = dict(DEFAULTS, stop_recording_keyboard='ctrl+alt+w',
+                     stop_recording_clipboard='ctrl+alt+w')
+    assert hotkey_registration_plan(ambiguous) == list(ambiguous.items())
+
+
+def test_toggle_stop_set_matches_the_shipped_stops():
+    # Drift guard: the literal frozenset is held to the real action names
+    # without being given an order of its own (D-019).
+    assert TOGGLE_STOP_ACTIONS == {a for a in DEFAULT_HOTKEYS
+                                   if a.startswith('stop_recording_')}
+
+
 def test_shipped_defaults_are_static():
     # #211 / D-012: no shipped default may sit on a key without a static VK code --
     # those are resolved against the ACTIVE layout at startup and fail off QWERTZ.
@@ -612,6 +725,13 @@ CASES = [
     test_duplicate_two_overrides_same_combo,
     test_duplicate_case_and_order_normalized,
     test_free_then_reuse_no_false_collision,
+    test_toggle_pair_accepted_without_warning,
+    test_toggle_stop_half_alone_onto_default_start,
+    test_toggle_start_half_alone_onto_a_stop_default,
+    test_toggle_exemption_is_exactly_the_pair,
+    test_toggle_stop_action_derivation,
+    test_registration_plan_dedupes_the_partner,
+    test_toggle_stop_set_matches_the_shipped_stops,
     test_mistrigger_map_shipped_scheme,
     test_mistrigger_map_partial_rebind,
     test_mistrigger_map_ambiguous_token_drops_all_bearers,

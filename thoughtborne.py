@@ -50,6 +50,7 @@ from config import (
     engine_has_key, ALLOW_SECOND_INSTANCE,
     ARCHIVE_FOLDER, HISTORY_FOLDER,
     migrate_legacy_archives, replay_import_warnings, mistrigger_key_map,
+    toggle_stop_action, hotkey_registration_plan,
     PTT_ENABLED, PTT_TRIGGER, PTT_TRIGGER_VK, PTT_INSERT,
     PTT_TAP_WINDOW_S, PTT_MIN_HOLD_S, PTT_RELEASE_TAIL_S,
     RECORDING_LOOP_STALE_SECONDS,
@@ -752,15 +753,19 @@ class ThoughtborneApp:
         # change the existing flow for anyone who has not opted in.
         self._ptt = None                  # PttDetector when enabled, else None
         # No lock guards the recording state across the two start paths, and none
-        # is needed. The detector reaches START only on a BARE trigger (no Alt, no
-        # foreign key) -- but firing Ctrl+Alt+W requires Alt held, which vetoes the
-        # gesture, so the detector can never be mid-START at the instant a W chord
-        # registers. The two start paths are thus mutually exclusive by the gesture
+        # is needed. The detector reaches START only on a BARE trigger (no
+        # blocker, no foreign key) -- and every bindable hotkey KEY is in the
+        # foreign set (each token of hotkey_parse.VK_MAP, pause included, #325),
+        # so at the instant any start combo is physically down -- the shipped
+        # Ctrl+Alt+W chord or a bare D-029 toggle key alike -- the gesture is
+        # vetoed. The two start paths are thus mutually exclusive by the gesture
         # rules, not merely by timing. Beyond that: PTT lives solely on the
         # recording-loop thread (serializes against itself), starts only when not
         # is_recording, stops only a recording it owns, resets to inert every tick
         # a non-owned recording is active, and both start/stop re-check is_recording.
-        self._ptt_owns_recording = False  # True from PTT start until its stop
+        # True from PTT start until the tick after the recording ends -- its own
+        # stop or any other door (#250).
+        self._ptt_owns_recording = False
         self._ptt_trigger_vk = PTT_TRIGGER_VK
         self._ptt_insert = PTT_INSERT
         # Per-instance foreign-key set: the base curated set minus the active
@@ -1496,6 +1501,20 @@ class ThoughtborneApp:
 
     # ===== HOTKEY CALLBACKS =====
 
+    def _stop_handlers(self):
+        """name -> bound handler for the five actions that end a recording. Two
+        consumers share it -- the mis-trigger net (#152) and the D-029 toggle
+        dispatch in on_start_recording -- so the action->handler coupling exists
+        once rather than twice. Built per call, like every other
+        HOTKEYS-adjacent derivation."""
+        return {
+            'stop_recording_clipboard': self.on_stop_recording_clipboard,
+            'stop_recording_send': self.on_stop_recording_send,
+            'stop_recording_no_insert': self.on_stop_recording_no_insert,
+            'stop_recording_keyboard': self.on_stop_recording_keyboard,
+            'cancel_recording': self.on_cancel_recording,
+        }
+
     def _handle_mistrigger_during_recording(self) -> bool:
         """
         Detect and handle mis-triggers of start_recording while already recording.
@@ -1509,16 +1528,14 @@ class ThoughtborneApp:
         derivation and its two skip rules (an ambiguous token shared by two
         candidates, the start action's own key).
 
+        With a D-029 toggle pair configured, this net runs BEFORE the toggle
+        dispatch in on_start_recording: a physically held stop key names the
+        intended action better than the toggle rule ever could.
+
         Returns:
             True if a mis-trigger was detected and handled, False otherwise.
         """
-        handlers = {
-            'stop_recording_clipboard': self.on_stop_recording_clipboard,
-            'stop_recording_send': self.on_stop_recording_send,
-            'stop_recording_no_insert': self.on_stop_recording_no_insert,
-            'stop_recording_keyboard': self.on_stop_recording_keyboard,
-            'cancel_recording': self.on_cancel_recording,
-        }
+        handlers = self._stop_handlers()
 
         for key_token, action in mistrigger_key_map(HOTKEYS, handlers):
             if is_key_pressed(key_token):
@@ -1599,12 +1616,22 @@ class ThoughtborneApp:
                     logger.warning("Live session failed to start")
                     self._active_live_transcriber = None
         else:
-            # Already recording - check if this is a mis-trigger (keyboard library bug)
-            # where a stop hotkey was pressed but start_recording was triggered instead
+            # Already recording. The mis-trigger net first (#152): a physically
+            # held stop key names the intended action better than the toggle
+            # rule below ever could.
             if self._handle_mistrigger_during_recording():
                 return  # Mis-trigger was handled, correct action executed
 
-            # No mis-trigger detected - user might have accidentally pressed W again
+            # D-029 toggle: with a stop action sharing the start combo, the
+            # second press of that combo IS the partner's stop press -- same
+            # handler, same delivery, as if its own key had been hit.
+            partner = toggle_stop_action(HOTKEYS)
+            if partner is not None:
+                self._stop_handlers()[partner]()
+                return
+
+            # No toggle configured: a second press of the start combo means
+            # nothing while a recording runs.
             logger.debug("start_recording ignored - already recording (no mis-trigger detected)")
 
     def _stop_prologue(self, debounce_action=None):
@@ -2729,7 +2756,15 @@ class ThoughtborneApp:
             'exit_program': self.on_exit_program,
         }
 
-        for hotkey_name, hotkey_str in HOTKEYS.items():
+        # D-029: a toggle partner shares start_recording's combo, so the plan
+        # drops it by name -- one registration for the shared combo, and an
+        # expected_count that still means "every combo the user can press".
+        partner = toggle_stop_action(HOTKEYS)
+        if partner is not None:
+            logger.info(f"Toggle pair (D-029): {self._show('start_recording')} both "
+                        f"starts and stops ({partner}) -- registered once",
+                        extra=FILE_ONLY)
+        for hotkey_name, hotkey_str in hotkey_registration_plan(HOTKEYS):
             self.hotkey_manager.register(hotkey_str, callbacks[hotkey_name],
                                          name=hotkey_name)
 

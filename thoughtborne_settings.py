@@ -1441,7 +1441,15 @@ class SettingsApp:
             return "break"
 
         self.hotkeys_state[name] = candidate[name]
-        self.capture_lbl.config(text="")
+        # D-029: when this assignment just formed the toggle pair, say so on the
+        # same label the capture verdicts use -- the table below now legitimately
+        # shows one combo twice, and only the acceptance authority's own result
+        # (_eff) decides that it is a pair.
+        partner = config.toggle_stop_action(_eff)
+        if partner is not None and name in ('start_recording', partner):
+            self.capture_lbl.config(text=strings.t("capture.toggle_pair", self.lang))
+        else:
+            self.capture_lbl.config(text="")
         self._disarm()
         self._render_done_page()
         self._render_welcome_page()
