@@ -27,6 +27,12 @@ What it pins:
   - The push-to-talk stop path waits on the CONFIGURED trigger -- the one wait
     list whose source is `push_to_talk.trigger` rather than a hotkey combo, and
     whose former literal `['ctrl']` looked right under the default trigger.
+  - What each of the five stop flows DELIVERS (#330): the effective
+    use_clipboard / auto_insert / send_after_insert -- negatives included -- and
+    the transcriber_override / sidecar handover, measured against the callees'
+    real signature defaults; the Y flow's missing wait list, missing
+    insert-later branch and missing debounce slot; the push-to-talk stop end to
+    end in all four insert modes.
   - Each stop action debounces only ITS own insert-last-text branch. The old two
     flags were shared across actions, so a stop with one hotkey swallowed
     another's insert for two seconds; the cross case is pinned as *working* now.
@@ -41,6 +47,7 @@ What it pins:
 """
 import contextlib
 import ctypes
+import inspect
 import logging
 import re
 import shutil
@@ -221,13 +228,17 @@ class _FakeAudio:
     def __init__(self, recording):
         self.is_recording = recording
         self.cancelled = False
+        # A recognizable object rather than None, so the handover assertions can
+        # ask for identity: a stop flow that drops `sidecar` would hand the
+        # worker None and read as working (#330).
+        self.sidecar_handle = object()
 
     def stop_recording(self):
         self.is_recording = False
         return ([], 1.0)
 
     def take_finished_sidecar(self):
-        return None
+        return self.sidecar_handle
 
     def cancel_recording(self):
         self.cancelled = True
@@ -273,6 +284,7 @@ class _FakeApp:
     on_stop_recording_send = tb.ThoughtborneApp.on_stop_recording_send
     on_stop_recording_no_insert = tb.ThoughtborneApp.on_stop_recording_no_insert
     on_cancel_recording = tb.ThoughtborneApp.on_cancel_recording
+    _ptt_stop_and_insert = tb.ThoughtborneApp._ptt_stop_and_insert
     _ptt_insert_kwargs = tb.ThoughtborneApp._ptt_insert_kwargs
     retry_recording_thread = tb.ThoughtborneApp.retry_recording_thread
     _record_failed_slot = tb.ThoughtborneApp._record_failed_slot
@@ -328,6 +340,29 @@ def _ptt_kwargs(insert_mode):
     app = _FakeApp()
     app._ptt_insert = insert_mode
     return _FakeApp._ptt_insert_kwargs(app)
+
+
+def _signature_defaults(func):
+    """`func`'s parameter defaults as a dict, read from the real signature so a
+    default flipped there reaches the pins below."""
+    return {name: parameter.default
+            for name, parameter in inspect.signature(func).parameters.items()
+            if parameter.default is not inspect.Parameter.empty}
+
+
+_SPT_DEFAULTS = _signature_defaults(tb.ThoughtborneApp.start_processing_thread)
+_ILT_DEFAULTS = _signature_defaults(tb.OutputManager.insert_last_transcript)
+
+
+def _effective(kwargs, defaults=_SPT_DEFAULTS):
+    """The full kwarg set the callee runs with: its signature defaults overlaid
+    with what the flow passed. Whether a flow spells a default out or leaves it
+    to the callee is invisible on the other side, and the two spellings are
+    mixed today (the Y stop passes use_clipboard=False, the H stop does not), so
+    the deliver pins measure the effective value rather than dict membership."""
+    effective = dict(defaults)
+    effective.update(kwargs)
+    return effective
 
 
 # ======================================================================
@@ -419,6 +454,122 @@ def test_ptt_branch_waits_on_the_configured_trigger():
             with ptt_trigger(trigger):
                 kwargs = _ptt_kwargs(mode)
             assert kwargs['wait_for_keys'] == expected, (mode, trigger, kwargs)
+
+
+# ======================================================================
+# What each stop flow delivers (#330)
+# ======================================================================
+
+def test_deliver_matrix_of_the_four_stop_flows():
+    # A stop action IS its deliver kwargs, and the negatives are half of that:
+    # use_clipboard=False is what keeps the typed flow the documented
+    # paste-blocked fallback route (D-019), and auto_insert / transcriber_override
+    # / sidecar reached no driver at all before this one.
+    expected = {
+        'stop_recording_keyboard': dict(use_clipboard=False, auto_insert=True,
+                                        send_after_insert=False),
+        'stop_recording_clipboard': dict(use_clipboard=True, auto_insert=True,
+                                         send_after_insert=False),
+        'stop_recording_send': dict(use_clipboard=True, auto_insert=True,
+                                    send_after_insert=True),
+        # Process only -- and no wait list either: the worker reads
+        # `wait_for_keys is not None` as "wait for a release", so a list here
+        # would change the task, not just its looks.
+        'stop_recording_no_insert': dict(use_clipboard=False, auto_insert=False,
+                                         send_after_insert=False, wait_for_keys=None),
+    }
+    for action, flags in expected.items():
+        app = _FakeApp(recording=True)
+        live = _FakeTranscriber()
+        app._active_live_transcriber = live
+        with scheme():
+            _stop(app, action)
+        effective = _effective(app.starts[-1])
+        for flag, value in flags.items():
+            assert effective[flag] is value, (action, flag, effective)
+        # The live handover, captured BEFORE the field is cleared: the session
+        # that recorded is the one that transcribes. Losing it degrades
+        # invisibly -- the worker falls back to the current engine, which is the
+        # right one in every case but the mid-recording engine switch.
+        assert effective['transcriber_override'] is live, (action, effective)
+        assert app._active_live_transcriber is None, action
+        assert effective['sidecar'] is app.audio_recorder.sidecar_handle, (action, effective)
+    # Shape pin, and deliberately no more: with no live session the flows still
+    # pass an override -- the current engine rather than None, which the worker
+    # would resolve to the same object anyway.
+    app = _FakeApp(recording=True)
+    with scheme():
+        _stop(app, 'stop_recording_keyboard')
+    assert app.starts[-1]['transcriber_override'] is app.transcriber, app.starts
+
+
+def test_no_insert_flow_never_inserts_later():
+    # The Y flow's three omissions, which together are one user-visible rule:
+    # pressing it outside a recording does nothing at all. A stop body that
+    # handed Y the insert-last-text branch would type the last transcript into
+    # whatever has focus. The empty debounce map is a state pin -- a slot
+    # written but never read would be unobservable on its own, but an
+    # unconditional slot plus an unconditional branch is exactly the pair that
+    # gives Y an insert.
+    app = _FakeApp(recording=True)
+    with scheme():
+        _stop(app, 'stop_recording_no_insert')     # stops the recording
+        assert app._stop_insert_debounce == {}, app._stop_insert_debounce
+        _stop(app, 'stop_recording_no_insert')     # ...and again, not recording now
+        _stop(app, 'stop_recording_no_insert')
+    assert app.inserts == [], app.inserts
+    assert len(app.starts) == 1, app.starts
+
+
+def test_insert_later_branch_delivers_its_mode_flags():
+    # The second half of every inserting flow delivers the same way its stop
+    # branch does. Pinned here: that H stays typed on this route too (D-019) and
+    # that neither H nor A sends.
+    expected = {
+        'stop_recording_keyboard': dict(use_clipboard=False, send_after_insert=False),
+        'stop_recording_clipboard': dict(use_clipboard=True, send_after_insert=False),
+        'stop_recording_send': dict(use_clipboard=True, send_after_insert=True),
+    }
+    for action, flags in expected.items():
+        app = _FakeApp(recording=False)
+        with scheme():
+            _stop(app, action)
+        assert len(app.inserts) == 1, (action, app.inserts)
+        effective = _effective(app.inserts[-1], _ILT_DEFAULTS)
+        for flag, value in flags.items():
+            assert effective[flag] is value, (action, flag, effective)
+
+
+def test_ptt_stop_delivers_the_handover_and_its_mode_kwargs():
+    # The fifth stop path, run whole rather than through _ptt_insert_kwargs
+    # alone: every insert mode delivers like its hotkey twin, the handover is
+    # the same, and the two documented deviations hold -- the stop releases
+    # ownership and touches no per-action debounce slot (#152). The gesture has
+    # nothing to say about kwargs, so the method is called directly; the gesture
+    # mechanics stay in test_ptt_ownership.py.
+    expected = {
+        'type': dict(use_clipboard=False, auto_insert=True, send_after_insert=False),
+        'clipboard': dict(use_clipboard=True, auto_insert=True, send_after_insert=False),
+        'send': dict(use_clipboard=True, auto_insert=True, send_after_insert=True),
+        'no_insert': dict(use_clipboard=False, auto_insert=False,
+                          send_after_insert=False, wait_for_keys=None),
+    }
+    for mode, flags in expected.items():
+        app = _FakeApp(recording=True)
+        app._ptt_insert = mode
+        app._ptt_owns_recording = True
+        live = _FakeTranscriber()
+        app._active_live_transcriber = live
+        with ptt_trigger('lctrl'):
+            _FakeApp._ptt_stop_and_insert(app)
+        effective = _effective(app.starts[-1])
+        for flag, value in flags.items():
+            assert effective[flag] is value, (mode, flag, effective)
+        assert effective['transcriber_override'] is live, (mode, effective)
+        assert app._active_live_transcriber is None, mode
+        assert effective['sidecar'] is app.audio_recorder.sidecar_handle, (mode, effective)
+        assert app._ptt_owns_recording is False, mode
+        assert app._stop_insert_debounce == {}, (mode, app._stop_insert_debounce)
 
 
 # ======================================================================
@@ -572,6 +723,10 @@ CASES = [
     test_insert_later_branch_waits_on_the_effective_combo,
     test_retry_task_waits_on_the_effective_combo,
     test_ptt_branch_waits_on_the_configured_trigger,
+    test_deliver_matrix_of_the_four_stop_flows,
+    test_no_insert_flow_never_inserts_later,
+    test_insert_later_branch_delivers_its_mode_flags,
+    test_ptt_stop_delivers_the_handover_and_its_mode_kwargs,
     test_stop_debounces_its_own_insert_later,
     test_stop_no_longer_swallows_another_actions_insert,
     test_debounce_window_expires_on_time_alone,
