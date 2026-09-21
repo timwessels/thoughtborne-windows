@@ -595,7 +595,7 @@ def test_toggle_stop_action_derivation():
 
 def test_registration_plan_dedupes_the_partner():
     # Without the skip the second RegisterHotKey on the shared combo fails with
-    # 1409, and every start would show the hotkeys-partial panel.
+    # 1409, and every start would report a hotkey shortfall.
     assert hotkey_registration_plan(DEFAULTS) == list(DEFAULTS.items())
     eff, _ = run({'start_recording': 'pause', 'stop_recording_clipboard': 'pause'})
     plan = hotkey_registration_plan(eff)

@@ -284,6 +284,12 @@ class _FakeApp:
     """The collaborator surface the real callbacks touch. The methods under test
     are the genuine ThoughtborneApp ones, bound as class attributes."""
     _show = tb.ThoughtborneApp._show
+    # #340: _show asks which combos another application holds before it hands one
+    # out. The real derivation comes along (nothing here fakes it), reading a
+    # manager that is None -- the pre-registration state, in which nothing is
+    # lost and every combo shows in full, which is what these lanes measure.
+    _lost_actions = tb.ThoughtborneApp._lost_actions
+    hotkey_manager = None
     _wait_keys = tb.ThoughtborneApp._wait_keys
     _stop_debounce_elapsed = tb.ThoughtborneApp._stop_debounce_elapsed
     _handle_mistrigger_during_recording = tb.ThoughtborneApp._handle_mistrigger_during_recording

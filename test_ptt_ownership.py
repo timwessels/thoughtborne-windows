@@ -213,6 +213,11 @@ class _FakeApp:
     _stop_action = tb.ThoughtborneApp._stop_action
     on_stop_recording_keyboard = tb.ThoughtborneApp.on_stop_recording_keyboard
     _show = tb.ThoughtborneApp._show
+    # #340: _show asks which combos another application holds first, so its real
+    # derivation comes along -- on a None manager, the pre-registration state in
+    # which nothing is lost and every combo shows in full.
+    _lost_actions = tb.ThoughtborneApp._lost_actions
+    hotkey_manager = None
     _wait_keys = tb.ThoughtborneApp._wait_keys
     _stop_debounce_elapsed = tb.ThoughtborneApp._stop_debounce_elapsed
 

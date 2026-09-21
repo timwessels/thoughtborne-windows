@@ -67,8 +67,12 @@ def strip(s):
     return _SGR.sub("", s)
 
 # CP437 safe set (terminal-constraints.md) + U+2022 bullet (conhost best-fits it
-# to 0x07; see charset-korrektur-bullet.md).
-SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▓▒░▀▄▌▐■•")
+# to 0x07; see charset-korrektur-bullet.md) + U+25A1, the lost-key placeholder:
+# outside CP437, accepted for modern Windows consoles by maintainer decision
+# (#340). Written out here rather than read off u.LOST_KEY_GLYPH on purpose --
+# the safe set is this driver's own contract with the renderer, so swapping the
+# glyph is a decision that costs two lines, not one that slips through.
+SAFE = set("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬█▓▒░▀▄▌▐■•□")
 
 RED_OK = {  # renderings allowed to carry red (error states)
     "transcription_failed", "insert_failed", "selftest_failed",
@@ -170,6 +174,15 @@ def combo_for(scheme, name):
     return format_combo(scheme[name])
 
 
+def pairs_lost(pairs, lost):
+    """A pair list with the combos of the `lost` actions replaced by the
+    placeholder -- exactly what the app's _show hands a surface for an action
+    another application holds (#340). Takes the finished pairs rather than a
+    scheme, so a footer keeps its own #115 order and no fixture grows an order
+    of its own."""
+    return [(n, u.LOST_KEY_GLYPH if n in lost else c) for n, c in pairs]
+
+
 PAIRS = pairs_for(DEFAULT_HOTKEYS)
 _prefix = common_prefix(DEFAULT_HOTKEYS.values())
 KEY_PREFIX = format_combo(_prefix) if _prefix else None
@@ -180,6 +193,13 @@ REC_ACTIONS = {"stop_recording_clipboard", "stop_recording_send",
 WAIT_ACTIONS = {"stop_recording_clipboard", "stop_recording_keyboard"}
 REC_STOPS = pairs_for(DEFAULT_HOTKEYS, REC_ACTIONS)
 WAIT_STOPS = pairs_for(DEFAULT_HOTKEYS, WAIT_ACTIONS)
+# #340: the real field case -- KeePass's default auto-type hotkey is Ctrl+Alt+A,
+# the shipped clipboard stop -- and a two-key loss beside it. The grids take the
+# names (they show the placeholder), the panel the pairs (it names the combos).
+LOST_ONE = {"stop_recording_clipboard"}
+LOST_TWO = {"stop_recording_clipboard", "stop_recording_send"}
+STOLEN_ONE = pairs_for(DEFAULT_HOTKEYS, LOST_ONE)
+STOLEN_TWO = pairs_for(DEFAULT_HOTKEYS, LOST_TWO)
 
 # the one MODEL header form (#276): masthead, switched and switch_failed alike.
 # Through combo_for, like every other fixture combo, so the display spelling comes
@@ -493,6 +513,15 @@ def check_ctrl_alt_counts():
         ("ready", _masthead(True, logo=False, wordmark=False), 3),
         ("masthead/keyless", _masthead_with(lineup_keyed(None, set()),
                                             guidance=GUIDANCE), 4),
+        # #340: the verdict replaces the READY line, which was the masthead's
+        # fourth-from-top naming of the lead -- MODEL header and KEYS lead remain,
+        # and the placeholder in the grid names nothing.
+        ("masthead/shortfall", _masthead_with(
+            lineup_for(DEFAULT_API), keys=pairs_lost(PAIRS, LOST_ONE),
+            keys_inactive=True), 2),
+        ("masthead/keyless+shortfall", _masthead_with(
+            lineup_keyed(None, set()), keys=pairs_lost(PAIRS, LOST_ONE),
+            guidance=GUIDANCE, keys_inactive=True), 3),
         ("rec", u.render_rec_strip(REC_STOPS, ansi=True), 1),
         ("ok", u.render_ok_strip(12, 184, False, model, FOOTER,
                                  ansi=True), 1),
@@ -536,13 +565,206 @@ def check_ctrl_alt_counts():
             [("SONIOX_API_KEY", ["soniox-live"])], [], PATHS[1], ansi=True), 0),
         ("no_speech", u.render_no_speech(OPEN, ansi=True), 1),   # #159: open-history hint
         ("already_running", u.render_already_running(ansi=True), 0),   # #166: no hotkey embed
-        ("hotkeys_partial", u.render_hotkeys_partial(10, 11, ansi=True), 0),   # #166
+        # #340: the panel's whole point is naming the lost combos, so it spells
+        # the lead out once per row -- and nowhere else.
+        ("hotkeys_stolen/one", u.render_hotkeys_stolen(
+            STOLEN_ONE, ansi=True), 1),
+        ("hotkeys_stolen/two", u.render_hotkeys_stolen(
+            STOLEN_TWO, ansi=True), 2),
         ("keyless", u.render_keyless_notice("Ctrl+Alt+G", ansi=True), 1),   # #200
     ]
     for name, lines, expected in cases:
         n = strip("".join(lines)).count("Ctrl+Alt")
         if n != expected:
             _record(f"Ctrl+Alt count: {name} has {n}, expected {expected}")
+
+
+# ---- #340 partial hotkey loss: verdict, placeholder, stolen-keys panel -------
+VERDICT = "SOME KEYS INACTIVE - change in settings or other app and restart"
+
+
+def check_shortfall_masthead():
+    """The masthead a partial registration loss shows (#340): everything the
+    normal one shows, minus the READY invitation, plus the placeholder where the
+    stolen key would be.
+
+    Measured as the DIFFERENCE against the normal masthead, which is the whole
+    claim of the design: exactly two lines may change -- the verdict in READY's
+    place and the one grid cell -- so the lead header, the three-column geometry,
+    the anchors and the eleven surviving keys are all pinned as unchanged without
+    a second copy of any of them living here."""
+    lu = lineup_for(DEFAULT_API)
+    normal = [strip(ln) for ln in _masthead_with(lu)]
+    short_lines = _masthead_with(lu, keys=pairs_lost(PAIRS, LOST_ONE),
+                                 keys_inactive=True)
+    short = [strip(ln) for ln in short_lines]
+    if len(normal) != len(short):
+        _record(f"shortfall masthead: line count {len(short)} != the normal "
+                f"masthead's {len(normal)} -- the surface changed shape")
+        return
+    diffs = [i for i, (a, b) in enumerate(zip(normal, short)) if a != b]
+    if len(diffs) != 2:
+        _record(f"shortfall masthead: {len(diffs)} lines differ from the normal "
+                f"masthead, expected exactly 2 (verdict + one key cell): "
+                f"{[short[i] for i in diffs]}")
+        return
+
+    # The verdict, at READY's position and worded as the maintainer wrote it.
+    vi = diffs[0]
+    if short[vi][1:-1].rstrip() != "  " + VERDICT:
+        _record(f"shortfall masthead: verdict line reads {short[vi]!r}")
+    if "READY" in "".join(short):
+        _record("shortfall masthead: still claims READY somewhere (D-004)")
+    if f"\x1b[{u.BOLD};{u.YELLOW}m{VERDICT.split(' -')[0]}" not in short_lines[vi]:
+        _record(f"shortfall masthead: the verdict tag is not bold yellow: "
+                f"{short_lines[vi]!r}")
+    if short_lines[vi].count("\x1b") != 2:      # the tag's open + reset, nothing else
+        _record(f"shortfall masthead: the verdict's remainder is styled: "
+                f"{short_lines[vi]!r}")
+
+    # The key cell: one column, the placeholder, on the very key the loss took.
+    gi = diffs[1]
+    cols = [c for c, (a, b) in enumerate(zip(normal[gi], short[gi])) if a != b]
+    bare = combo_for(DEFAULT_HOTKEYS, sorted(LOST_ONE)[0]).rpartition("+")[2]
+    if len(cols) != 1:
+        _record(f"shortfall masthead: the grid row differs in {len(cols)} columns, "
+                f"expected the one key cell: {normal[gi]!r} / {short[gi]!r}")
+    elif (short[gi][cols[0]], normal[gi][cols[0]]) != (u.LOST_KEY_GLYPH, bare):
+        _record(f"shortfall masthead: cell {cols[0]} reads "
+                f"{short[gi][cols[0]]!r} where {bare!r} was, expected the "
+                f"placeholder {u.LOST_KEY_GLYPH!r}")
+    if f"\x1b[{u.BOLD};{u.YELLOW}m{u.LOST_KEY_GLYPH}" not in short_lines[gi]:
+        _record(f"shortfall masthead: the placeholder is not bold yellow: "
+                f"{short_lines[gi]!r}")
+
+    # #311 by hand: the flag is neutral in the stress sweep (see _STRESS_NEUTRAL),
+    # so this is the one place that holds it to picking between two renderings --
+    # on the plain twin, where a difference that lives only in colour would not
+    # count.
+    off = "\n".join(_masthead_with(lu, ansi=False))
+    on = "\n".join(_masthead_with(lu, keys_inactive=True, ansi=False))
+    if off == on:
+        _record("shortfall masthead: keys_inactive renders the same screen either "
+                "way -- the flag no longer picks between READY and the verdict")
+
+    # The keyless first run with a stolen key (#200 + #340): both yellow lines
+    # stand, each saying its own thing, and the placeholder is in the grid.
+    both = _masthead_with(lineup_keyed(None, set()), keys=pairs_lost(PAIRS, LOST_ONE),
+                          guidance=GUIDANCE, keys_inactive=True)
+    text = strip("\n".join(both))
+    for want in (VERDICT, GUIDANCE, u.LOST_KEY_GLYPH):
+        if want not in text:
+            _record(f"keyless+shortfall masthead: {want!r} missing -- the two "
+                    f"startup verdicts do not compose")
+    for ansi in (True, False):
+        check_block("masthead/keyless+shortfall", _masthead_with(
+            lineup_keyed(None, set()), keys=pairs_lost(PAIRS, LOST_ONE),
+            guidance=GUIDANCE, keys_inactive=True, ansi=ansi), ansi=ansi)
+
+
+def check_hotkeys_stolen_panel():
+    """The panel that names the lost combos (#340): the singular/plural wording,
+    one row per lost key with the KEYS grid's own label, the real combo in bold --
+    never the placeholder, which is the whole difference between this surface and
+    the others -- and the widest legal combo still named in full."""
+    cases = [
+        ("one", STOLEN_ONE, "OTHER APP STOLE OUR HOTKEY.", "This key won't work:",
+         "rebind the key in Settings or in the other app, then restart"),
+        ("two", STOLEN_TWO, "OTHER APP STOLE OUR HOTKEYS.", "These keys won't work:",
+         "rebind the keys in Settings or in the other app, then restart"),
+    ]
+    for label, lost, tag, head, what in cases:
+        lines = u.render_hotkeys_stolen(lost, ansi=True)
+        text = strip("\n".join(lines))
+        for want in (tag, head, what):
+            if want not in text:
+                _record(f"hotkeys_stolen/{label}: {want!r} missing: {text!r}")
+        if "WHAT NOW" not in text:
+            _record(f"hotkeys_stolen/{label}: no WHAT-NOW zone")
+        # top + headline + one row per lost key + zone + what + bottom
+        if len(lines) != len(lost) + 5:
+            _record(f"hotkeys_stolen/{label}: {len(lines)} lines for {len(lost)} "
+                    f"lost key(s) -- the panel no longer grows by one row each")
+        if u.LOST_KEY_GLYPH in text:
+            _record(f"hotkeys_stolen/{label}: shows the placeholder -- this panel "
+                    f"exists to NAME the combos the other surfaces hide")
+        for name, combo in lost:
+            if u.KEY_LABELS[name] not in text:
+                _record(f"hotkeys_stolen/{label}: {name} is not labelled "
+                        f"{u.KEY_LABELS[name]!r} -- the grid's wording is the one "
+                        f"wording (#340)")
+            if f"\x1b[{u.BOLD}m{combo}\x1b[0m" not in "".join(lines):
+                _record(f"hotkeys_stolen/{label}: {combo!r} is not the bold token "
+                        f"of its row")
+
+    # D-029: a toggle partner has no registration of its own, so it is lost with
+    # start_recording -- two dead actions on one combo, and the panel says so
+    # twice rather than hiding one of them.
+    pair = [("start_recording", MAX_COMBO), ("stop_recording_clipboard", MAX_COMBO)]
+    lines = u.render_hotkeys_stolen(pair, ansi=True)
+    text = strip("\n".join(lines))
+    if text.count(MAX_COMBO) != 2:
+        _record(f"hotkeys_stolen/toggle-pair: the shared combo is named "
+                f"{text.count(MAX_COMBO)}x, expected once per dead action (D-029)")
+    if "..." in text:
+        _record(f"hotkeys_stolen: the widest legal combo {MAX_COMBO!r} is "
+                f"truncated: {text!r}")
+    for ansi in (True, False):
+        check_block("hotkeys_stolen/max", u.render_hotkeys_stolen(pair, ansi=ansi),
+                    ansi=ansi)
+
+
+def check_glyph_on_strips():
+    """The placeholder reaches every surface that offers a key, not just the grid
+    (#340) -- the strips, the footers and the prose the app builds from _show.
+    Framed, plain-twinned and charset-checked on each, since the glyph is the one
+    non-CP437 character the renderer emits."""
+    fixtures = [
+        # one stop lost: the lead survives on the ten living combos, the flow
+        # line carries the placeholder in its cell
+        ("rec/lost", u.render_rec_strip, dict(stops=pairs_lost(REC_STOPS, LOST_ONE))),
+        # both of this strip's stops lost: nothing is left to derive a lead from,
+        # so it falls back to the cell form with two placeholders
+        ("waiting/all-lost", u.render_waiting_strip,
+         dict(seq=12, chars=184, stops=pairs_lost(WAIT_STOPS, WAIT_ACTIONS))),
+        ("ok/footer-lost", u.render_ok_strip,
+         dict(seq=12, chars=184, sent=False, model_label="Soniox Live",
+              footer=pairs_lost(FOOTER, {"switch_api"}))),
+        # prose: the sentence names the placeholder where it would name a combo
+        ("saved/lost", u.render_saved_strip,
+         dict(duration=12.3, retry_key=u.LOST_KEY_GLYPH)),
+    ]
+    for name, fn, kw in fixtures:
+        rendered = {}
+        for ansi in (True, False):
+            lines = fn(ansi=ansi, **kw)
+            check_block(name, lines, ansi=ansi,
+                        red_key=name.partition("/")[0])
+            rendered[ansi] = [strip(ln) for ln in lines]
+        if u.LOST_KEY_GLYPH not in "".join(rendered[True]):
+            _record(f"{name}: the placeholder never reached the surface")
+        # The plain twin carries the stand-in in the very cells the glyph took.
+        # By column, not by substring: the stand-in is "-", which every framed
+        # plain line already holds from its own border, so a substring check
+        # here could never go red.
+        for i, (a, p) in enumerate(zip(rendered[True], rendered[False])):
+            bad = [c for c, ch in enumerate(a) if ch == u.LOST_KEY_GLYPH
+                   and p[c:c + 1] != u.LOST_KEY_GLYPH_ASCII]
+            if bad:
+                _record(f"{name}[{i}]: plain twin reads "
+                        f"{[p[c:c + 1] for c in bad]} in the placeholder's "
+                        f"column(s) {bad}, expected {u.LOST_KEY_GLYPH_ASCII!r}: "
+                        f"{p!r}")
+        twin(name, fn, **kw)
+
+    # Styled like the grid's, wherever a key token is rendered.
+    rec = "".join(u.render_rec_strip(pairs_lost(REC_STOPS, LOST_ONE), ansi=True))
+    if f"\x1b[{u.BOLD};{u.YELLOW}m{u.LOST_KEY_GLYPH}" not in rec:
+        _record("rec/lost: the placeholder is not bold yellow on the strip")
+    # ... and the surviving stops keep the lead the loss did not touch.
+    if "Ctrl+Alt +" not in strip(rec):
+        _record(f"rec/lost: the strip lost its #115 lead over one stolen combo: "
+                f"{strip(rec)!r}")
 
 
 def check_failed_reason_block():
@@ -787,6 +1009,25 @@ def check_key_tables_and_budgets():
         got = u._display_prefix([format_combo(c) for c in combos])
         if got != want:
             _record(f"_display_prefix{combos} -> {got!r}, common_prefix says {want!r}")
+
+    # #340: the one place the twin above is deliberately NOT mirrored -- the
+    # placeholder is a renderer token, never a combo, so it stays out of the
+    # derivation. Counted in, its empty prefix would read as a bare key and one
+    # stolen combo would strip every surviving key of its lead: a 3-column grid
+    # of bare letters would fall back to 2 columns of full combos, the whole
+    # masthead re-laid over one lost key. What stays true is that the glyph
+    # cannot invent a lead either -- with no live combo left, or with a mix
+    # beside it, there is still none.
+    glyph = u.LOST_KEY_GLYPH
+    for combos, want in (([glyph, "Ctrl+Alt+A", "Ctrl+Alt+D"], "Ctrl+Alt"),
+                         ([glyph, "Ctrl+Alt+A"], "Ctrl+Alt"),
+                         ([glyph, "F9", "Ctrl+Alt+A"], None),
+                         ([glyph], None),
+                         ([glyph, glyph], None)):
+        got = u._display_prefix(combos)
+        if got != want:
+            _record(f"_display_prefix{combos} -> {got!r}, expected {want!r} -- the "
+                    f"lost-key placeholder must not take part in the lead (#340)")
 
 
 # ---- D-019 cell geometry: the grid under override schemes --------------------
@@ -1096,12 +1337,15 @@ def check_footer_lead_fallback():
 # ---- D-019 the app half, read as source (#277) ------------------------------
 _APP = Path(__file__).resolve().with_name("thoughtborne.py")
 _DERIVERS = {"partition", "rpartition", "split", "rsplit"}
-_HANDOVERS = {"_show", "_pairs", "_footer_keys"}
+_HANDOVERS = {"_show", "_pairs", "_footer_keys", "_lost_pairs"}
 
 
 def _is_handover(node):
-    """`self._show(...)` / `self._pairs(...)` / `self._footer_keys(...)` -- the
-    three ways the app is allowed to produce a key for a renderer."""
+    """`self._show(...)` / `self._pairs(...)` / `self._footer_keys(...)` /
+    `self._lost_pairs(...)` -- the four ways the app is allowed to produce a key
+    for a renderer. The last is the #340 one, and the only one that deliberately
+    does NOT go through _show: the stolen-keys panel names the combos the other
+    surfaces replace with a placeholder, so it has to read them off HOTKEYS."""
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name) and node.func.value.id == "self"
             and node.func.attr in _HANDOVERS)
@@ -1207,7 +1451,8 @@ def check_app_derives_no_key():
             bound = {params[i]: a for i, a in enumerate(node.args) if i < len(params)}
             bound.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
             for pname, arg in bound.items():
-                if not (pname.endswith("_key") or pname in ("keys", "stops", "footer")):
+                if not (pname.endswith("_key")
+                        or pname in ("keys", "stops", "footer", "lost")):
                     continue
                 # G3b (#290, #295): the two panels that read their retry combo
                 # out of the footer must be handed the RETRY one -- with the
@@ -1437,7 +1682,11 @@ _STRESS_KEY_ACTION = {"switch_key": "switch_api", "start_key": "start_recording"
                       "paste_key": "stop_recording_clipboard",
                       "retry_key": "retry_last_failed", "open_key": "open_history",
                       "settings_key": "open_settings"}
-_STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS}
+# `lost` is a pair list like the others, so the sweep renders the stolen-keys
+# panel under every scheme up to MAX_COMBO -- the machine-checked width guarantee
+# for its one variable-height surface. Two entries, so the plural branch is the
+# one that gets stressed; the singular one is pinned by the dedicated check.
+_STRESS_PAIRS = {"keys": None, "stops": REC_ACTIONS, "lost": LOST_TWO}
 _STRESS_SWEEP = {"reason": (None, *u._REASON_LINES), "inconclusive": (False, True),
                  "hotkeys_ok": (False, True), "clean_exit": (False, True),
                  "sent": (False, True), "mode": (None, "typing"),
@@ -1454,7 +1703,14 @@ _STRESS_NEUTRAL = {
     "history_path": PATHS[2] + r"\history", "lineup": lineup_for(DEFAULT_API),
     "with_wordmark": False, "logo_lines": None, "pinned_default": None,
     "version": "v9.9.9+abcdef1",
-    "provider": "Soniox", "registered": 10, "expected": 11,
+    "provider": "Soniox",
+    # #340: neutral at False, not a swept flag. `start_key` is a visible
+    # parameter everywhere (below), and on the masthead the READY line is the one
+    # place a shared lead leaves the full start combo standing -- a True rung
+    # would replace that line and flood the visibility lane with a loss that is
+    # by design. Both branches are pinned by check_shortfall_masthead instead,
+    # which is the #311 assertion made by hand.
+    "keys_inactive": False,
     "current_label": "Engine Under Test", "new_label": "Engine Under Test",
     "env_dir": PATHS[3],
     "action_lines": ("check your API key in Settings,", "then see the log"),
@@ -1498,7 +1754,6 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
 # ways). _STRESS_BRANCHING below makes that assertion for the two RECOVERED
 # flags (#311); `sent` stays uncovered, by the decision recorded there.
 _STRESS_VISIBLE = {
-    ("render_hotkeys_partial", "registered"), ("render_hotkeys_partial", "expected"),
     ("render_insert_failed", "seq"), ("render_transcription_failed", "seq"),
     ("render_waiting_strip", "seq"), ("render_waiting_strip", "chars"),
     ("render_noapi_panel", "env_dir"), ("render_recovered_panel", "when"),
@@ -1832,12 +2087,15 @@ def check_keyless_lineup():
         _record("keyed masthead: guidance line shown without a keyless start")
 
 
-def _masthead_with(lineup, *, guidance=None, pinned_default=None):
-    """A masthead render for the #200/#219 checks (ANSI), wordmark on, given lineup."""
+def _masthead_with(lineup, *, guidance=None, pinned_default=None,
+                   keys=None, keys_inactive=False, ansi=True):
+    """A masthead render for the #200/#219/#340 checks, wordmark on, given lineup.
+    `keys` defaults to the shipped pairs; a shortfall fixture hands in the same
+    list with the stolen combos replaced (pairs_lost)."""
     return u.render_masthead(
-        lineup, PAIRS, PATHS[1] + r"\history", SWITCH,
+        lineup, PAIRS if keys is None else keys, PATHS[1] + r"\history", SWITCH,
         START, guidance=guidance, with_wordmark=True, logo_lines=u.ACTIVE_LOGO_MARK,
-        pinned_default=pinned_default, ansi=True)
+        pinned_default=pinned_default, keys_inactive=keys_inactive, ansi=ansi)
 
 
 def check_pinned_default_tag():
@@ -2046,12 +2304,20 @@ def main():
     # #159 adds the mic hint + the open-history pointer (the panel's sole Ctrl+Alt).
     run("no_speech", u.render_no_speech, dict(open_key=OPEN))
 
-    # Single-instance guard + honest hotkey verdict (#166), both api-independent:
-    # the calm ALREADY RUNNING notice (CYAN, never red) and the partial-
-    # registration advisory (YELLOW, never red -- most keys still work). run()
-    # sweeps both ansi states and check_block enforces "not red" on both.
+    # Single-instance guard + honest hotkey verdict (#166/#340), both
+    # api-independent: the calm ALREADY RUNNING notice (CYAN, never red) and the
+    # stolen-keys advisory in both its forms (YELLOW, never red -- most keys
+    # still work). run() sweeps both ansi states and check_block enforces "not
+    # red" on all of them.
     run("already_running", u.render_already_running, {})
-    run("hotkeys_partial", u.render_hotkeys_partial, dict(registered=10, expected=11))
+    run("hotkeys_stolen", u.render_hotkeys_stolen, dict(lost=STOLEN_ONE))
+    run("hotkeys_stolen", u.render_hotkeys_stolen, dict(lost=STOLEN_TWO))
+    # #340: the masthead a shortfall shows -- the verdict in place of READY, the
+    # placeholder in the grid, in both ansi states.
+    run("masthead_shortfall", u.render_masthead, dict(
+        lineup=lineup_for(DEFAULT_API), keys=pairs_lost(PAIRS, LOST_TWO),
+        history_path=PATHS[1] + r"\history", switch_key=SWITCH, start_key=START,
+        keys_inactive=True, with_wordmark=True))
 
     # No-API: MISSING (keys only) and PROBLEMS (with a non-key failure)
     run("noapi", u.render_noapi_panel, dict(
@@ -2091,7 +2357,14 @@ def main():
          clean_exit=False, hotkeys_ok=False, audio_path=PATHS[3] + r"\history\audio", retry_key=RETRY)
     twin("no_speech", u.render_no_speech, open_key=OPEN)
     twin("already_running", u.render_already_running)
-    twin("hotkeys_partial", u.render_hotkeys_partial, registered=10, expected=11)
+    twin("hotkeys_stolen/one", u.render_hotkeys_stolen, lost=STOLEN_ONE)
+    twin("hotkeys_stolen/two", u.render_hotkeys_stolen, lost=STOLEN_TWO)
+    # The placeholder's plain twin is the point here: one ASCII cell, so the grid
+    # stays column-aligned on a console that gets no Unicode (#340).
+    twin("ready_shortfall", u.render_masthead, lineup=lineup,
+         keys=pairs_lost(PAIRS, LOST_TWO),
+         history_path=PATHS[1] + r"\history", switch_key=SWITCH, start_key=START,
+         keys_inactive=True, with_wordmark=False)
     twin("noapi", u.render_noapi_panel, missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"])],
          other_failures=[], env_dir=PATHS[1])
 
@@ -2125,6 +2398,12 @@ def main():
     check_accent_state()
     check_masthead_layout()
     check_ctrl_alt_counts()
+
+    # ---- #340 partial hotkey loss: verdict, placeholder, stolen-keys panel --
+    check_shortfall_masthead()
+    check_hotkeys_stolen_panel()
+    check_glyph_on_strips()
+
     check_failed_reason_block()
     check_no_speech_open_key_width()
     check_strip_structure()

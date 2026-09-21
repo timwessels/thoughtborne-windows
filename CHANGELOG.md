@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A partial hotkey loss now names the lost keys and opens Settings (#340).** When
+  another application already holds one of the combos at startup — KeePass registers
+  `Ctrl+Alt+A` for its auto-type by default, which is the case that surfaced this — the
+  tool used to show a bare count ("11 of 12 hotkeys registered"), no masthead, and no
+  word on *which* key was gone; Windows offers no way to ask who owns a combo, so that
+  combo is the one piece of actionable information there is. The masthead now stays,
+  with everything it orients by: a yellow `SOME KEYS INACTIVE` verdict takes the place
+  of the READY line, each lost key shows a yellow `□` placeholder in the KEYS grid, and
+  a new panel below names every lost combo with its action label. The settings app then
+  opens by itself, so the remedy is one rebind away — and if the stolen combo happens to
+  be the settings hotkey, that window is the only way in at all. Wherever a dead combo
+  would otherwise be offered as pressable while the tool runs, the placeholder appears
+  in its place. A fully successful start keeps today's output unchanged, and a total
+  loss (0/N) keeps its red FAILED panel without the settings window.
+
 ## [1.2.0rc2] - 2026-09-21
 
 ### Added

@@ -219,6 +219,15 @@ class HotkeyManager:
         self._thread_id = None    # Win32 thread ID for PostThreadMessageW
         self._started = threading.Event()
         self._next_id = 1
+        # The (hotkey_str, name) pairs the most recent _register_all could not
+        # take -- the combos another application already holds (#340). Written by
+        # _register_all on the listener thread before _started is set, so the
+        # owner reads a finished list after start() returns; a #335 resume
+        # rewrites it, which is what keeps the marked keys honest when a combo is
+        # won back or lost in that window. A plain reference assignment, so a
+        # reader on another thread sees the old list or the new one, never a
+        # half-built one -- no lock buys anything here.
+        self.failed_registrations = []
         # The two hooks of the #335 suspend, set by the owner after construction and
         # called ON THE LISTENER THREAD -- which is what lets the app's ACK file state
         # a fact rather than an intention. Both sit on the safe side of their edge:
@@ -344,6 +353,10 @@ class HotkeyManager:
         thread, so this only ever runs on the listener -- once at startup, and again
         on every #335 resume. get_last_error() is read in the failure branch only;
         after a success it still holds whatever the last failing call left (#165).
+
+        The same list is kept on `failed_registrations` (#340): the startup caller
+        runs on the listener thread and has no return value to hand anyone, and the
+        console surfaces need to name the lost combos, not just count them.
         """
         failed = []
         for hotkey_id, hotkey_str, callback, name in self._registrations:
@@ -363,6 +376,7 @@ class HotkeyManager:
             except ValueError as e:
                 failed.append((hotkey_str, name))
                 logger.error(f"  FAILED: {hotkey_str} -> {name} - Parse error: {e}", extra={'file_only': True})
+        self.failed_registrations = failed
         return failed
 
     def _unregister_all(self) -> int:

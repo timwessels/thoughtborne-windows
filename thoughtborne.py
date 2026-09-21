@@ -2554,8 +2554,46 @@ class ThoughtborneApp:
         return [(*entry(a), a == self.current_api, engine_has_key(a))
                 for a in AVAILABLE_APIS]
 
+    def _lost_actions(self):
+        """The actions whose combo another application already holds, read live
+        off the manager (#340) -- empty before registration and on a full house.
+
+        The D-029 toggle partner shares start_recording's registration (the plan
+        drops it by name), so only start_recording can appear in the manager's
+        list while both actions are equally dead. Expanding it here is what keeps
+        the two consistent; the direction is one-way, since the partner has no
+        registration of its own to lose."""
+        manager = self.hotkey_manager
+        if manager is None:
+            return frozenset()
+        lost = {name for _, name in manager.failed_registrations}
+        if 'start_recording' in lost:
+            partner = toggle_stop_action(HOTKEYS)
+            if partner is not None:
+                lost.add(partner)
+        return frozenset(lost)
+
+    def _lost_pairs(self):
+        """[(action_name, display_combo)] of the lost actions in canonical order,
+        carrying the CONFIGURED combos -- deliberately not via _show, which shows
+        the placeholder for exactly these actions while this panel's whole job is
+        to NAME them (#340). Iterating HOTKEYS keeps the canonical order (D-019)
+        and picks up a D-029 partner's own entry, which holds the shared combo."""
+        lost = self._lost_actions()
+        return [(n, format_combo(HOTKEYS[n])) for n in HOTKEYS if n in lost]
+
     def _show(self, name):
-        """The display combo of an action."""
+        """The display combo of an action -- or the placeholder glyph while
+        another application holds that combo (#340).
+
+        Every runtime surface that offers a key as pressable goes through here, so
+        this one branch is what keeps a dead combo from ever being offered as
+        working -- grid, strips, footers and prose alike. The functional lanes
+        never do: _wait_keys and the mis-trigger map read HOTKEYS directly (the
+        #152 design), so the placeholder cannot reach a release-wait list or a
+        key poll."""
+        if name in self._lost_actions():
+            return console_ui.LOST_KEY_GLYPH
         return format_combo(HOTKEYS[name])
 
     def _wait_keys(self, action):
@@ -2778,6 +2816,84 @@ class ThoughtborneApp:
         logger.warning(summary)
         return False
 
+    def _announce_hotkey_state(self, hotkeys_ok):
+        """The startup verdict on the console (#109/#166/#340), and the one
+        remedy the tool can offer by itself.
+
+        A full house shows the masthead as it always was. A partial loss keeps
+        every bit of that orientation -- the keys, the engine lineup, where
+        history lives -- and changes three things: the READY invitation becomes
+        the yellow SOME-KEYS-INACTIVE verdict, each lost key shows the placeholder
+        in the grid (via _show), and a panel below names every lost combo with its
+        action label. Then the settings app opens by itself: the stolen combo may
+        well be open_settings, and the window is the way in either way. A total
+        loss (0/N) is unchanged -- the red FAILED panel, no settings window; that
+        case is almost always a second instance, which D-004's mutex refuses long
+        before this runs.
+
+        Split out of run() so the wiring is drivable off Windows -- there is no
+        other way to see that the flag, the panel and the spawn really hang
+        together (test_hotkey_shortfall_wiring.py)."""
+        registered = self.hotkey_manager.registered_count if self.hotkey_manager else 0
+        if not (hotkeys_ok or registered > 0):
+            self._emit_block(
+                'hotkeys-failed',
+                lambda ansi: console_ui.render_hotkeys_failed(ansi=ansi))
+            return
+
+        # First Cockpit block (#109): the masthead -- wordmark, READY (or the
+        # #340 verdict), the MODEL lineup, the KEYS grid, the history edge.
+        # Keyless (#200) it also carries a yellow "enter a key in Settings"
+        # guidance line under the greyed lineup; on a keyless start with a stolen
+        # combo both yellow lines stand, each saying its own thing. Recovery gets
+        # its own prominent panel after this one (#78).
+        keys = self._pairs()
+        lineup = self._lineup_data()
+        guidance = None
+        if self._keyless:
+            guidance = ("To enable dictation, enter an API key in Settings "
+                        f"({self._show('open_settings')})")
+        # #219: only an active valid defaults.api pin (DEFAULT_API_IS_EXPLICIT)
+        # tags its engine's masthead row with a dim (default) -- the breadcrumb
+        # back to Settings. Remember-mode and the built-in default show no tag.
+        pinned_default = None
+        if DEFAULT_API_IS_EXPLICIT:
+            entry = API_DISPLAY.get(DEFAULT_API)
+            pinned_default = entry["label"] if entry else DEFAULT_API
+        self._emit_block(
+            'startup',
+            lambda ansi: console_ui.render_masthead(
+                lineup, keys, str(HISTORY_FOLDER),
+                self._show('switch_api'),
+                self._show('start_recording'),
+                guidance=guidance, with_wordmark=True,
+                logo_lines=console_ui.ACTIVE_LOGO_MARK,
+                pinned_default=pinned_default,
+                version=VERSION_DISPLAY,
+                keys_inactive=not hotkeys_ok,
+                ansi=ansi))
+        if hotkeys_ok:
+            return
+
+        # Which combos were lost is known only once a registration has run, so a
+        # shortfall the manager never got to attribute (a wedged start() timeout)
+        # shows the verdict without the panel rather than an empty one.
+        lost = self._lost_pairs()
+        if lost:
+            self._emit_block(
+                'hotkeys-stolen',
+                lambda ansi: console_ui.render_hotkeys_stolen(lost, ansi=ansi),
+                detail=f"lost={[n for n, _ in lost]}")
+        # Best-effort, like every other spawn of it: a failure costs the
+        # convenience, never the start -- the panel and the log carry the same
+        # information. D-009's mutex is what keeps this to one window when the
+        # keyless first-run wizard is already coming up.
+        if self._launch_settings_app():
+            logger.info("Hotkey shortfall -- opened the settings app so the lost "
+                        "key(s) can be rebound (#340)", extra=FILE_ONLY)
+        else:
+            logger.error("Hotkey shortfall -- could not open the settings app")
+
     def run(self):
         """Main application loop"""
         # Start status thread
@@ -2879,56 +2995,7 @@ class ThoughtborneApp:
 
         # Register hotkeys
         hotkeys_ok = self._register_hotkeys()
-
-        if hotkeys_ok:
-            # First Cockpit block (#109): the masthead -- wordmark, READY, the
-            # MODEL lineup, the KEYS grid, the history edge. Keyless (#200) it also
-            # carries a yellow "enter a key in Settings" guidance line under the
-            # greyed lineup. Recovery gets its own prominent panel below (#78).
-            keys = self._pairs()
-            lineup = self._lineup_data()
-            guidance = None
-            if self._keyless:
-                guidance = ("To enable dictation, enter an API key in Settings "
-                            f"({self._show('open_settings')})")
-            # #219: only an active valid defaults.api pin (DEFAULT_API_IS_EXPLICIT)
-            # tags its engine's masthead row with a dim (default) -- the breadcrumb
-            # back to Settings. Remember-mode and the built-in default show no tag.
-            pinned_default = None
-            if DEFAULT_API_IS_EXPLICIT:
-                entry = API_DISPLAY.get(DEFAULT_API)
-                pinned_default = entry["label"] if entry else DEFAULT_API
-            self._emit_block(
-                'startup',
-                lambda ansi: console_ui.render_masthead(
-                    lineup, keys, str(HISTORY_FOLDER),
-                    self._show('switch_api'),
-                    self._show('start_recording'),
-                    guidance=guidance, with_wordmark=True,
-                    logo_lines=console_ui.ACTIVE_LOGO_MARK,
-                    pinned_default=pinned_default,
-                    version=VERSION_DISPLAY,
-                    ansi=ansi))
-        else:
-            # No READY invitation after a shortfall -- the tool keeps running
-            # (status quo), but the panel must say so. Split total vs partial
-            # (#166): at 0/N every combo is lost (a second instance, or a
-            # registration timeout), so render_hotkeys_failed's "cannot react to
-            # key presses" is true; a partial loss (e.g. 10/11 -- a foreign app
-            # owning one combo) leaves most keys working, so a yellow advisory is
-            # shown instead of the red total-loss wording.
-            reg = self.hotkey_manager.registered_count
-            exp = self.hotkey_manager.expected_count
-            if reg == 0:
-                self._emit_block(
-                    'hotkeys-failed',
-                    lambda ansi: console_ui.render_hotkeys_failed(
-                        ansi=ansi))
-            else:
-                self._emit_block(
-                    'hotkeys-partial',
-                    lambda ansi: console_ui.render_hotkeys_partial(
-                        reg, exp, ansi=ansi))
+        self._announce_hotkey_state(hotkeys_ok)
 
         # Recovery notice as its own prominent block, emitted last so it sits at
         # the bottom of the scrollback below READY and can't be scrolled off

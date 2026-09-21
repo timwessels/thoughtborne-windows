@@ -28,6 +28,9 @@ same `ansi` flag; ansi=False lines carry no escape bytes by construction, so the
 Only the CP437 safe set is used for frames (│─┌┐└┘ ║═╔╗╚╝╠╣ █▀▄), each gated
 behind `ansi`; the plain twin degrades every glyph to ASCII (`+=|-`, `#`). Color
 is limited to the 16 ANSI colors + bold; red is reserved for error states.
+LOST_KEY_GLYPH (□, U+25A1) is the second documented exception beside the U+2022
+bullet: outside CP437, accepted for modern Windows consoles by maintainer
+decision (#340), and switchable in one line if a terminal ever fails it.
 """
 
 # ---- geometry ----
@@ -51,6 +54,16 @@ DIM = "90"   # bright black -- SGR 2 (faint) is unreliable on conhost
 # for a strict-16-color fallback (one line).
 ACCENT = "38;2;89;194;255"   # -> CYAN for a 16-color fallback
 
+# ---- the lost-key placeholder (#340) ----------------------------------------
+# What a key cell shows while another application holds that combo: visibly not a
+# letter, one cell wide like the shipped letters, so the grid's anchors hold. This
+# constant is the single switch point -- a terminal that cannot draw U+25A1 costs
+# one line here (and its twin in test_console_ui's SAFE set). It can never collide
+# with a real key: combos are formatted from ASCII tokens only, so no configurable
+# binding can ever render as this string.
+LOST_KEY_GLYPH = "□"          # U+25A1 -- outside CP437; see the module docstring
+LOST_KEY_GLYPH_ASCII = "-"    # its plain twin (1 char, length-preserving)
+
 # ---- plain-ASCII twin: 1 char -> 1 char, hence length-preserving ----
 # Wordmark/mark glyphs (▀▄) are deliberately absent: they are handled by group
 # replacement / gating at composition time, never by this table.
@@ -63,6 +76,7 @@ PLAIN = str.maketrans({
     "├": "+", "┤": "+", "┬": "+", "┴": "+", "┼": "+",
     "█": "#",
     "•": "o",   # strip-header bullet -> ASCII twin (1 char, length-preserving)
+    LOST_KEY_GLYPH: LOST_KEY_GLYPH_ASCII,   # #340 placeholder -> ASCII stand-in
 })
 
 # ---- wordmark (figlet pagga; letter tokens T H O U G H T B O R N E) ----
@@ -290,8 +304,14 @@ def _display_prefix(combos):
     is handed (#272 rule 5: the renderer decides what to show). Mirrors
     hotkey_parse.common_prefix on formatted combos -- a deliberate twin, since
     this module imports nothing from the project; the canonical spelling of #275
-    makes the two agree (format_combo maps token-wise). None on any mix."""
-    prefixes = {c.rpartition("+")[0] for c in combos}
+    makes the two agree (format_combo maps token-wise). None on any mix.
+
+    A LOST_KEY_GLYPH placeholder (#340) is left out of the derivation: it is this
+    module's own token, not a combo, and counting it would read as a bare key and
+    cost every surviving key its lead -- one stolen combo would re-lay the whole
+    grid. The deliberate divergence from the common_prefix twin, which never sees
+    the glyph; the lead then comes from the combos that are still live."""
+    prefixes = {c.rpartition("+")[0] for c in combos if c != LOST_KEY_GLYPH}
     if len(prefixes) == 1 and "" not in prefixes:
         return prefixes.pop()
     return None
@@ -312,6 +332,21 @@ def _shorten(key, budget):
     """The `[...]` rule (#272 rule 4): over budget, every modifier collapses into
     the ASCII ELLIPSIS and the final key token stays."""
     return key if len(key) <= budget else ELLIPSIS + "+" + key.rpartition("+")[2]
+
+
+def _key_segs(key):
+    """The styled segments of one shown key token, shared by the grids/cells and
+    the #115 flow line so a key looks the same wherever it is offered: bold, the
+    `[...]` artifact unstyled in front of a shortened one, and the lost-key
+    placeholder (#340) bold YELLOW -- the one key that is not a key, marked as
+    such on every surface that renders a key token. A key named inside prose
+    (the saved strip's retry key) never came through here and shows the
+    placeholder unstyled, exactly as it never showed a combo bold."""
+    if key.startswith(ELLIPSIS + "+"):
+        return [(ELLIPSIS + "+", ()), (key[len(ELLIPSIS) + 1:], (BOLD,))]
+    if key == LOST_KEY_GLYPH:
+        return [(key, (BOLD, YELLOW))]
+    return [(key, (BOLD,))]
 
 
 def _cell_budget(labels, columns, indent=2):
@@ -349,11 +384,7 @@ def _cell_rows(cells, key_prefix, emit, ansi, columns=2, indent=2):
         row = shown[i:i + columns]
         segs = [(" " * indent, ())]
         for j, (k, a) in enumerate(row):
-            if k.startswith(ELLIPSIS + "+"):
-                segs.append((ELLIPSIS + "+", ()))
-                segs.append((k[len(ELLIPSIS) + 1:], (BOLD,)))
-            else:
-                segs.append((k, (BOLD,)))
+            segs.extend(_key_segs(k))
             tail = " " * (wk - len(k)) + "  " + a
             if j < len(row) - 1:                      # no pad behind the last cell
                 tail += " " * (lmax - len(a)) + "  "  # label pad + 2-cell gap
@@ -369,7 +400,7 @@ def _flow_line(lead, cells, emit, ansi):
     for i, (k, w) in enumerate(cells):
         if i:
             segs.append(("   ", ()))               # 3-space cell separator
-        segs.append((k, (BOLD,)))
+        segs.extend(_key_segs(k))
         segs.append((" " + w, ()))
     return emit(segs, ansi)
 
@@ -446,18 +477,30 @@ def _tag_headline(lamp_and_tag, tag_codes, rest, ansi):
 def render_masthead(lineup, keys, history_path,
                     switch_key, start_key,
                     guidance=None, with_wordmark=True, logo_lines=None,
-                    pinned_default=None, version=None, *, ansi):
+                    pinned_default=None, version=None, keys_inactive=False,
+                    *, ansi):
     """`keys`: the twelve (action_name, display_combo) pairs in canonical order;
     the shared lead of exactly those combos heads the KEYS zone and its grid
     (D-019, #276). `switch_key` and `start_key` are full display combos -- the
     form the switched panels have always taken. `version` is the finished display
-    string (#297); this module renders it verbatim and builds none of it."""
+    string (#297); this module renders it verbatim and builds none of it.
+
+    `keys_inactive` puts a yellow verdict where the READY line goes (#340): some
+    combo failed to register, so the orientation surface stays -- which keys
+    exist, which engine is live, where history is -- while the one line that
+    invites a keypress is replaced by the one that says why one may not answer.
+    No READY claim on a shortfall, which is the half of D-004 that stands."""
     lines = [dtop(ansi)]
     if with_wordmark:
         lines.extend(_masthead_wordmark(logo_lines, version, ansi))
         lines.append(dsep(ansi))
-    lines.append(dline([("  ", ()), ("READY", (BOLD, GREEN)),
-                        (f" -- press {start_key} and start talking", ())], ansi))
+    if keys_inactive:
+        lines.append(dline([("  ", ()), ("SOME KEYS INACTIVE", (BOLD, YELLOW)),
+                            (" - change in settings or other app and restart", ())],
+                           ansi))
+    else:
+        lines.append(dline([("  ", ()), ("READY", (BOLD, GREEN)),
+                            (f" -- press {start_key} and start talking", ())], ansi))
     # #115: one framed spacer before each zone header + the history edge. Gated on
     # with_wordmark so the terse re-display stays tight.
     if with_wordmark:
@@ -864,19 +907,36 @@ def render_hotkeys_failed(*, ansi):
     ]
 
 
-def render_hotkeys_partial(registered, expected, *, ansi):
-    """Some -- not all -- hotkeys registered (#166 honest verdict). A foreign app
-    likely owns one combo. NOT red: the tool runs and most keys work, so this is a
-    yellow advisory, not the total-loss FAILED panel (which stays red for 0/N)."""
-    head = f"{registered} of {expected} hotkeys registered"
-    return [
+def render_hotkeys_stolen(lost, *, ansi):
+    """Another application already held some -- not all -- of our combos when the
+    tool registered them (#340; KeePass's default Ctrl+Alt+A auto-type hotkey is
+    the field case). Windows offers no way to ask who owns a combo, so the combo
+    itself is the whole actionable truth and this panel names it, one row per lost
+    key: what #166's bare count ("11 of 12") left in the log.
+
+    `lost`: [(action_name, display_combo)] in canonical order, carrying the
+    CONFIGURED combos -- this is the surface that NAMES them, so the placeholder
+    the key grids show in their place never appears here. Labels are looked up by
+    name, the same ones the KEYS grid reads, so no action gets a second wording.
+    Yellow advisory, never red: the tool runs and every other key works, which is
+    what separates this from the total-loss FAILED panel."""
+    one = len(lost) == 1
+    tag = "OTHER APP STOLE OUR HOTKEY." if one else "OTHER APP STOLE OUR HOTKEYS."
+    rest = "  This key won't work:" if one else "  These keys won't work:"
+    width = max((len(KEY_LABELS[n]) for n, _ in lost), default=0)
+    lines = [
         dtop(ansi),
-        _tag_headline(LAMP + " SOME KEYS INACTIVE", (BOLD, YELLOW), "  " + head, ansi),
-        dline("    another app likely owns one combo -- see the log for which", ansi),
-        dzone([("WHAT NOW", (BOLD,))], ansi),
-        dline("  close the other app, or rebind it in Settings, then restart", ansi),
-        dbot(ansi),
+        _tag_headline(LAMP + " " + tag, (BOLD, YELLOW), rest, ansi),
     ]
+    for name, combo in lost:
+        lines.append(dline([("    " + KEY_LABELS[name].ljust(width) + "  ", ()),
+                            (combo, (BOLD,))], ansi))
+    lines.append(dzone([("WHAT NOW", (BOLD,))], ansi))
+    what = "key" if one else "keys"
+    lines.append(dline(f"  rebind the {what} in Settings or in the other app, "
+                       "then restart", ansi))
+    lines.append(dbot(ansi))
+    return lines
 
 
 def render_already_running(*, ansi):
