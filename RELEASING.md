@@ -116,7 +116,8 @@ one-liner, a highlights line, and a link to this version's `CHANGELOG.md` block
 `dist/release-notes.md`. The release **must** be published as **Latest**, not as
 a pre-release: `releases/latest/download/` resolves only to the newest
 non-prerelease, so a pre-release would leave the installer's fetch URL pointing
-at the previous (assetless) release and 404.
+at the previous (assetless) release and 404. (For a release *candidate* this
+step inverts — see *Release candidates* below.)
 
 ```bash
 gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
@@ -125,6 +126,29 @@ gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
     --notes-file dist/release-notes.md \
     --latest
 ```
+
+## Release candidates
+
+A release candidate (`X.Y.ZrcN`) runs the same ritual — steps 1 through 3
+unchanged — with step 4 deliberately different (first executed for v1.2.0rc2,
+2026-09):
+
+- **Publish with `--prerelease`, never `--latest`.** The stable alias must keep
+  resolving to the last final, so the standard install one-liner and the site's
+  download button stay on the recommended release. The candidate's notes
+  therefore open with a **version-pinned** install line:
+
+  ```
+  $env:THOUGHTBORNE_VERSION = 'vX.Y.ZrcN'; irm https://github.com/timwessels/thoughtborne-windows/releases/download/vX.Y.ZrcN/setup.ps1 | iex
+  ```
+
+- **The notes rehearse the final's notes.** A candidate tests the whole
+  release, its notes included. Above a marked divider: a short candidate
+  header — what this rc adds over the previous one, plus the pinned install
+  line. Below it: the current draft of the *final* `X.Y.Z` release notes as a
+  clearly labelled preview, its links pinned to the rc tag so they resolve.
+  The draft is kept as a working file between candidates, matures with each
+  one, and is what the final release publishes, finalized.
 
 ## Verification
 
@@ -172,4 +196,5 @@ gh release create vX.Y.Z dist/thoughtborne.zip dist/setup.ps1 \
   (`git show vX.Y.Z:setup.ps1`), so it is byte-identical to the copy inside the
   ZIP.
 - The release is published as **Latest** (not a pre-release), or
-  `releases/latest/download/` breaks.
+  `releases/latest/download/` breaks. A release *candidate* is the deliberate
+  exception: pre-release, never Latest (see *Release candidates*).
