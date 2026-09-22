@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0rc3] - 2026-09-22
+
 ### Changed
 
 - **A partial hotkey loss now names the lost keys and opens Settings (#340).** When
