@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Locked `anyio` bumped from 4.13.0 to 4.15.1** (`typing-extensions` following to
+  4.16.0), clearing two GitHub security advisories against the shipped lockfile. Both
+  advisories concern anyio's async machinery (TLS streams, process pools), which
+  Thoughtborne never exercises — it talks to its providers synchronously — so this is
+  hygiene for what the installer puts on a user's machine, not a fix for a reachable
+  vulnerability. `anyio` itself is a required transitive dependency of the Groq SDK
+  and `httpx`.
+
 ## [1.2.0rc3] - 2026-09-22
 
 ### Changed
