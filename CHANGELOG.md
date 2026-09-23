@@ -7,36 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [1.2.0] - 2026-09-23
 
-- **Locked `anyio` bumped from 4.13.0 to 4.15.1** (`typing-extensions` following to
-  4.16.0), clearing two GitHub security advisories against the shipped lockfile. Both
-  advisories concern anyio's async machinery (TLS streams, process pools), which
-  Thoughtborne never exercises — it talks to its providers synchronously — so this is
-  hygiene for what the installer puts on a user's machine, not a fix for a reachable
-  vulnerability. `anyio` itself is a required transitive dependency of the Groq SDK
-  and `httpx`.
-
-## [1.2.0rc3] - 2026-09-22
-
-### Changed
-
-- **A partial hotkey loss now names the lost keys and opens Settings (#340).** When
-  another application already holds one of the combos at startup — KeePass registers
-  `Ctrl+Alt+A` for its auto-type by default, which is the case that surfaced this — the
-  tool used to show a bare count ("11 of 12 hotkeys registered"), no masthead, and no
-  word on *which* key was gone; Windows offers no way to ask who owns a combo, so that
-  combo is the one piece of actionable information there is. The masthead now stays,
-  with everything it orients by: a yellow `SOME KEYS INACTIVE` verdict takes the place
-  of the READY line, each lost key shows a yellow `□` placeholder in the KEYS grid, and
-  a new panel below names every lost combo with its action label. The settings app then
-  opens by itself, so the remedy is one rebind away — and if the stolen combo happens to
-  be the settings hotkey, that window is the only way in at all. Wherever a dead combo
-  would otherwise be offered as pressable while the tool runs, the placeholder appears
-  in its place. A fully successful start keeps today's output unchanged, and a total
-  loss (0/N) keeps its red FAILED panel without the settings window.
-
-## [1.2.0rc2] - 2026-09-21
+The recommended release — it supersedes 1.1.0. This block folds in the three release
+candidates (1.2.0rc1 of 2026-09-16 through 1.2.0rc3 of 2026-09-22) and what landed after.
 
 ### Added
 
@@ -130,221 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vocabulary can run out of them earlier. The warning names the measured size and the block to
   trim; nothing is shortened, nothing is held back and no start is blocked — the context goes
   out unchanged, the tool just says out loud what it is about to send.
-
-### Changed
-
-- **Hotkey combos that text input itself depends on are now rejected (#337, D-030).**
-  Binding plain `Ctrl+V` swallowed the tool's own paste: the clipboard insert quietly
-  stopped landing while the status block still reported success, and the bound action
-  fired in the middle of the output (a hands-on incident of 2026-09-20). Both lanes — the
-  `hotkeys` block of `personal_settings.json` and the settings app's capture field — now
-  refuse the combinations whose keystroke collision nobody can see from the outside:
-  plain `ctrl+v`, the paste the tool sends to insert a transcript, and the nine `Ctrl+Alt`
-  combos that German AltGr characters (`@ € µ ² ³ { [ ] }`) send, since AltGr *is*
-  Ctrl+Alt on Windows. Each rejection names the concrete mechanism — in `thoughtborne.log`
-  and in the capture field — and the action keeps its default, so the tool always starts;
-  the example file's own `ctrl+alt+q` suggestion moved with it. Everything else stays
-  bindable on purpose, a bare letter and combos that shadow another program's shortcut
-  included: those are visible, undoable choices of your own (D-027).
-
-- **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**
-  An ANSI/cp1252 file used to dead-end the save and the reset in an abort dialog; now it
-  is treated like corrupt JSON — backed up byte-exact and rewritten cleanly — so the
-  intact vocabulary lives on in the backup while the user gets a working file. Opening
-  the settings window over such a file no longer stops at a load-failure dialog — it
-  opens on the effective state like any other. Invalid values in the app-managed entries
-  (`defaults.api`, `push_to_talk.enabled`, `ui.language`) are normalized on save to the
-  defaults the window showed for them, safe now because the backup keeps the trace;
-  everything hand-written and every valid entry stays leave-as-found. The reset's
-  corrupt-file confirmation promises the backup instead of claiming the hand-written
-  blocks are lost, and the uninstaller keeps the backup files like every other piece of
-  user data (D-011). A locked or unreadable `.env` still aborts the save exactly as
-  before — that file stays outside the model.
-
-- **The hotkey capture reads key codes, not key names (#325).** The settings app's capture
-  field decodes the virtual-key code Windows reports (`event.keycode`) instead of
-  translating Tk keysym names, so capture accepts exactly what registration accepts — the
-  numpad becomes capturable at all — and AltGr+key is now captured as the Ctrl+Alt combo it
-  is (and fires as) instead of being turned away.
-
-- **The settings window's texts, revised — and the Windows Terminal tray recipe corrected
-  (#324).** A pass over the window's prose in both languages. The free lane is now named for
-  what it is: dictating with Groq costs nothing, permanently, rather than a trial you
-  eventually pay for. The console is introduced as *the Thoughtborne console* — a status
-  monitor you never type into, which is why it may stay hidden. The admin-window section
-  carries the whole recipe (right-click the Start-menu entry, *Run as administrator*) instead
-  of sending the reader to the README for one line. The machine-room file section says what
-  the two files are for and leaves the save-and-restart mechanics to the sections that own
-  them. The German texts also use en dashes throughout now — the correct dash in German
-  typography; the English ones keep their em dashes. The tray recipe was factually wrong on
-  top of that: Windows Terminal carries *Always display an icon in the notification area* and
-  *Hide Terminal in the notification area when it is minimized* on its **Appearance** page,
-  not under Interaction, where Microsoft's own documentation files them. Corrected in the
-  settings window and in both READMEs, which now also list the two toggles in the order the
-  UI shows them.
-
-- **Clearing a key field now removes the stored key on save (#328, D-026).** The two key
-  fields display the stored keys, so a cleared field is an instruction like every other
-  state the window shows: the save takes that key's line out of `.env` and leaves
-  everything around it — comments, unmanaged lines, the file's own line endings —
-  untouched. Clearing the last key meets the confirmation a save without any key has
-  always met. Two kinds of empty are deliberately not an instruction: a wizard field
-  never filled in, and fields that come up empty only because `.env` could not be read
-  (a locked or wrongly encoded file still aborts the save rather than being rewritten).
-  A field nobody touched leaves its line exactly as found now, quoting and comment tails
-  included, so a hotkey-only save no longer rewrites the key lines at all — and the note
-  under the fields says what saving does instead of pointing at the file.
-
-- **A Soniox 400 reject no longer reads as possible silence (#334).** A hand-edited
-  `vocabulary` block with a wrong shape makes Soniox reject every request with HTTP 400 —
-  measured against the real endpoints — so every dictation fails until the file is fixed.
-  The FAILED panel then said *Might be silence, might be a hiccup -- worth a retry*: it
-  pointed away from the cause and promised a retry that could only fail again. Its *came
-  back empty* verdict now carries the service-error next step instead (*Retry, wait,
-  ...investigate -- or just switch the model*), which stays true whether the failure is
-  transient or permanent. And *investigate* now has something to find: on HTTP 400 the
-  async lane's error log gains a static cause hint naming the plausible causes — something
-  in the personal settings, an API change, or a temporary problem on Soniox's side. One
-  status check, no parsing of the provider's error body, every other failure unchanged.
-
-- **The clipboard stop's log line now reads like the other stops' (#330).** Its mode note
-  moved out of the parenthesis and behind it — `Recording stopped (Ctrl+Alt+A) - clipboard
-  mode` — where the send and process-only stops have put theirs all along.
-
-### Removed
-
-- **The settings window no longer makes statements about file health (#326, D-026).** Three
-  surfaces are gone: the hotkey tab's status line (permanently green — every feed of the hotkey
-  state passes the validator first, so its warning branch could never be reached), the "save
-  anyway?" hotkey-problems dialog in the save path (the same dead twin), and the yellow banner
-  shown over an already-broken `personal_settings.json` when the window opened. A check that by
-  construction cannot find anything is decoration, and falsely reassuring decoration is worse
-  than none. The window shows the effective state; file problems stay visible where they always
-  were — the tool's console and `thoughtborne.log` — and the safety net for a broken file is
-  #263's backup-before-loss lane, not a dialog.
-
-- **The settings window no longer reacts to the key fields — the engine picker is
-  key-agnostic (#332, D-028).** An edit in a key field now changes nothing but that field's
-  own verdict until it is saved. Three lanes are gone with it: the greying of engines without
-  a key in the *Always start with* list and the amber line under it pointing at the *Provider
-  & API key* tab (#201), the automatic jump onto a keyed engine when switching to *Always
-  start with* (#207), and the first-run wizard's preselect, which moved the startup engine to
-  Groq for a user who had entered only a Groq key (#178). Every engine in that list is
-  selectable now, whatever the key fields hold; switching between the two modes never moves
-  the selection by itself; and the settings app writes no engine memory at all —
-  `runtime_state.json` belongs to the `Ctrl+Alt+L` switch alone. A pin on an engine without a
-  key is saved exactly as the list shows it: the next start skips that engine and opens on
-  the first one that has a key, its greyed row in the console lineup telling the story
-  (#40/#200). That visible resolution at the next start is why the window needs no guard of
-  its own — and it makes the state behind the original report unrepresentable rather than
-  fixed: since #328 a cleared key field means "delete this key on save", while the picker
-  went on judging by the stored copy and could pin a keyless engine without a word.
-  Unchanged: the *Test key* button and its verdict reset on edit, the confirmation before a
-  save without any key, the key-awareness of the console lineup, and the hotkey capture's
-  refusal of a combo another action already holds. The startup fall-through this leans on is
-  now held by a test driver of its own.
-
-### Fixed
-
-- **An armed hotkey-capture field no longer goes stale after 30 seconds (#339, D-031).**
-  The hotkey release behind the settings app's capture field (#335, under *Added*) first
-  came with a 30-second failsafe in the tool, and that timer broke the very flow the
-  feature exists for: click *Change…*, think for a moment, then press a combo Thoughtborne
-  holds itself — by then the tool had quietly taken its hotkeys back, so the press started
-  a recording behind the window while the field still asked for the combo. The timer is
-  gone: the hotkeys stay released for as long as the field is armed, and every end of that
-  state is something you do in the settings window — a captured combo, Esc, a click
-  elsewhere, closing it. The one case the timer was there for, a settings app killed hard
-  while armed, now leaves the tool without hotkeys until it is restarted; the log shows the
-  release with no registration after it, and a starting tool clears leftover suspend
-  signals before it registers anything, so that restart is the complete recovery. A
-  leftover it cannot delete is named in a warning instead of costing the start.
-
-- **Stopping with one hotkey no longer mutes another one's "insert last text" (#152).**
-  After a stop, the tool ignores that hotkey's insert-last-text function for two seconds,
-  so a finger lingering on the chord cannot re-insert the previous transcript. That guard
-  was wired across actions: stopping with Ctrl+Alt+D silently swallowed a deliberate
-  Ctrl+Alt+A for those two seconds and the other way round — a dead spot with no log line,
-  on the two hotkeys most likely to be pressed in sequence. Each stop action now guards
-  only itself, and the window expires on time alone, so a stalled recording loop can no
-  longer leave an action's insert switched off until the next restart.
-
-- **Rebound stop keys now reach the insert guard and the mis-trigger net (#152).** Before
-  typing or pasting, the tool waits for the stop hotkey's keys to be released — and that
-  list was the shipped letters, spelled out at seven places; the mis-trigger safety net,
-  which corrects a start press that was meant as a stop, polled A/D/H/Y/X just as
-  literally. Under a rebind — including the settings window's one-click F-key preset —
-  the guard waited for keys nobody was holding and the net watched keys bound to nothing.
-  Both now derive from the effective hotkeys at the moment they run; where two actions
-  share a key, or one sits on the start key, the net skips those entries rather than guess,
-  which under that F-key preset leaves it deliberately inactive. The stop-and-send flow
-  waits for its own key as well now, not just for Ctrl and Alt. Also following the
-  configured keys: push-to-talk's wait key, and the two log lines that still said
-  "A or H" and "Ctrl+Alt+R".
-
-- **A hand-broken example file can no longer crash the save (#294, via #263).** Both
-  writers may seed a fresh file from a shipped example (`.env.example`,
-  `personal_settings.example.json`) and caught only locked-file errors while reading it,
-  so an example hand-saved in ANSI escaped as a raw exception into the *Saving failed*
-  dialog. The examples are optional documentation, not user data: a broken one now
-  simply means no seeded header comments, and the save goes through.
-
-- **A broken string table now reads as failure messages, not a traceback (#313).** When an
-  EN key lost its DE partner, `test_settings_io.py`'s `check_i18n` recorded the clean parity
-  message naming the key — and then died on a `KeyError` before anything printed, taking the
-  fourteen check blocks after it and the failure print down with it. Same class, worse
-  report: the seven hard-wired placeholder pins and the `btn.back` probes crash the same way
-  on a key retired from both tables — with the parity checks green, so the i18n checks record
-  nothing at all. The placeholder loop now walks only the keys both tables share, the pins and
-  the probes report a missing key as a failure of their own, and a per-run proof plants both
-  gap shapes in memory to hold `check_i18n` to reporting-and-returning.
-
-- **A key value that needs quoting survives a save (#328).** The settings app wrote every
-  value into `.env` bare, while both halves of Thoughtborne read that file with quotes and
-  comment tails in mind — so a value carrying a `#` came back cut on the next read, one
-  save after it was entered and without a word anywhere. Such a value is now written in
-  quotes, which that reader takes literally, so read → save → read loses nothing; the few
-  values no spelling of the format can carry are refused with a message instead of being
-  written in a spelling the reader would cut short or warn about at every start, and a
-  value pasted with a line break in it is folded into one line first — in every shape a
-  line break comes in, not just the two common ones. An
-  unterminated quote in a hand-edited file (a `"` or `'` with no partner on
-  the line) keeps its meaning — the character stays part of the value, as it always did —
-  but now leaves a start-up warning instead of passing in silence.
-
-- **Two places that said the wrong thing about the engine and the settings file (#327).**
-  The startup log's `Configuration: Default API=…` line named the *configured* default while
-  the `Startup engine:` line above it named the engine the start actually uses — so a start
-  on a remembered engine read like two contradicting entries. It now says `default engine=…`
-  and whether that is the built-in one or a pin from `personal_settings.json`. The settings
-  window's load-failure dialog no longer blames an unexpected encoding either: since the
-  backup lane (D-026) a wrongly encoded file does not land there at all, so the dialog names
-  the case that does — a file another program holds locked.
-
-- **Comments in the vocabulary block no longer reach Soniox (#329, respects D-026).** A key
-  starting with `_` is the JSON-comment convention of `personal_settings.json`, and it holds
-  everywhere in that file — except that a `_comment` inside the `vocabulary` block was handed
-  to the speech model verbatim, as if the note about the block were part of the vocabulary.
-  The context is now built without such keys at the one place it comes into being, so both
-  Soniox engines and the `Context enabled: N terms` log line describe the same thing, and a
-  block left holding only comments sends no context at all. The file on disk keeps every
-  comment untouched — only what goes out is filtered — and the example file's `vocabulary`
-  block now opens with a `_comment` lead like every other block, carrying the block's own
-  documentation that used to sit in the file-wide comment at the top.
-
-- **Push-to-talk lets go when its recording ends another way (#250).** A stop hotkey, a
-  cancel or a lost microphone ending a push-to-talk recording used to leave the tool
-  believing that push-to-talk still owned it. With the trigger key still held — the normal
-  state right after Ctrl+Alt+H — the next release of that key then stopped whatever
-  recording was running by then, a Ctrl+Alt+W one included, and delivered its text through
-  push-to-talk's insert path rather than through the one that hotkey stands for. In the same
-  situation an immediately repeated gesture was swallowed whole: no recording started, and
-  nothing in the log said why. The next detector tick now hands the recording back and puts
-  the gesture machine into its resting state, which ends both cases.
-
-## [1.2.0rc1] - 2026-09-16
-
-### Added
 
 - **The dev build prints its own install command (#322).** Handing `THOUGHTBORNE_ZIP` to
   `setup.ps1` inside a nested `powershell -Command` one-liner silently loses the variable on
@@ -536,6 +295,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silent off Windows.
 
 ### Changed
+
+- **Locked `anyio` bumped from 4.13.0 to 4.15.1** (`typing-extensions` following to
+  4.16.0), clearing two GitHub security advisories against the shipped lockfile. Both
+  advisories concern anyio's async machinery (TLS streams, process pools), which
+  Thoughtborne never exercises — it talks to its providers synchronously — so this is
+  hygiene for what the installer puts on a user's machine, not a fix for a reachable
+  vulnerability. `anyio` itself is a required transitive dependency of the Groq SDK
+  and `httpx`.
+
+- **A partial hotkey loss now names the lost keys and opens Settings (#340).** When
+  another application already holds one of the combos at startup — KeePass registers
+  `Ctrl+Alt+A` for its auto-type by default, which is the case that surfaced this — the
+  tool used to show a bare count ("11 of 12 hotkeys registered"), no masthead, and no
+  word on *which* key was gone; Windows offers no way to ask who owns a combo, so that
+  combo is the one piece of actionable information there is. The masthead now stays,
+  with everything it orients by: a yellow `SOME KEYS INACTIVE` verdict takes the place
+  of the READY line, each lost key shows a yellow `□` placeholder in the KEYS grid, and
+  a new panel below names every lost combo with its action label. The settings app then
+  opens by itself, so the remedy is one rebind away — and if the stolen combo happens to
+  be the settings hotkey, that window is the only way in at all. Wherever a dead combo
+  would otherwise be offered as pressable while the tool runs, the placeholder appears
+  in its place. A fully successful start keeps today's output unchanged, and a total
+  loss (0/N) keeps its red FAILED panel without the settings window.
+
+- **Hotkey combos that text input itself depends on are now rejected (#337, D-030).**
+  Binding plain `Ctrl+V` swallowed the tool's own paste: the clipboard insert quietly
+  stopped landing while the status block still reported success, and the bound action
+  fired in the middle of the output (a hands-on incident of 2026-09-20). Both lanes — the
+  `hotkeys` block of `personal_settings.json` and the settings app's capture field — now
+  refuse the combinations whose keystroke collision nobody can see from the outside:
+  plain `ctrl+v`, the paste the tool sends to insert a transcript, and the nine `Ctrl+Alt`
+  combos that German AltGr characters (`@ € µ ² ³ { [ ] }`) send, since AltGr *is*
+  Ctrl+Alt on Windows. Each rejection names the concrete mechanism — in `thoughtborne.log`
+  and in the capture field — and the action keeps its default, so the tool always starts;
+  the example file's own `ctrl+alt+q` suggestion moved with it. Everything else stays
+  bindable on purpose, a bare letter and combos that shadow another program's shortcut
+  included: those are visible, undoable choices of your own (D-027).
+
+- **A wrongly encoded `personal_settings.json` no longer blocks saving (#263, D-026).**
+  An ANSI/cp1252 file used to dead-end the save and the reset in an abort dialog; now it
+  is treated like corrupt JSON — backed up byte-exact and rewritten cleanly — so the
+  intact vocabulary lives on in the backup while the user gets a working file. Opening
+  the settings window over such a file no longer stops at a load-failure dialog — it
+  opens on the effective state like any other. Invalid values in the app-managed entries
+  (`defaults.api`, `push_to_talk.enabled`, `ui.language`) are normalized on save to the
+  defaults the window showed for them, safe now because the backup keeps the trace;
+  everything hand-written and every valid entry stays leave-as-found. The reset's
+  corrupt-file confirmation promises the backup instead of claiming the hand-written
+  blocks are lost, and the uninstaller keeps the backup files like every other piece of
+  user data (D-011). A locked or unreadable `.env` still aborts the save exactly as
+  before — that file stays outside the model.
+
+- **The hotkey capture reads key codes, not key names (#325).** The settings app's capture
+  field decodes the virtual-key code Windows reports (`event.keycode`) instead of
+  translating Tk keysym names, so capture accepts exactly what registration accepts — the
+  numpad becomes capturable at all — and AltGr+key is now captured as the Ctrl+Alt combo it
+  is (and fires as) instead of being turned away.
+
+- **The settings window's texts, revised — and the Windows Terminal tray recipe corrected
+  (#324).** A pass over the window's prose in both languages. The free lane is now named for
+  what it is: dictating with Groq costs nothing, permanently, rather than a trial you
+  eventually pay for. The console is introduced as *the Thoughtborne console* — a status
+  monitor you never type into, which is why it may stay hidden. The admin-window section
+  carries the whole recipe (right-click the Start-menu entry, *Run as administrator*) instead
+  of sending the reader to the README for one line. The machine-room file section says what
+  the two files are for and leaves the save-and-restart mechanics to the sections that own
+  them. The German texts also use en dashes throughout now — the correct dash in German
+  typography; the English ones keep their em dashes. The tray recipe was factually wrong on
+  top of that: Windows Terminal carries *Always display an icon in the notification area* and
+  *Hide Terminal in the notification area when it is minimized* on its **Appearance** page,
+  not under Interaction, where Microsoft's own documentation files them. Corrected in the
+  settings window and in both READMEs, which now also list the two toggles in the order the
+  UI shows them.
+
+- **Clearing a key field now removes the stored key on save (#328, D-026).** The two key
+  fields display the stored keys, so a cleared field is an instruction like every other
+  state the window shows: the save takes that key's line out of `.env` and leaves
+  everything around it — comments, unmanaged lines, the file's own line endings —
+  untouched. Clearing the last key meets the confirmation a save without any key has
+  always met. Two kinds of empty are deliberately not an instruction: a wizard field
+  never filled in, and fields that come up empty only because `.env` could not be read
+  (a locked or wrongly encoded file still aborts the save rather than being rewritten).
+  A field nobody touched leaves its line exactly as found now, quoting and comment tails
+  included, so a hotkey-only save no longer rewrites the key lines at all — and the note
+  under the fields says what saving does instead of pointing at the file.
+
+- **A Soniox 400 reject no longer reads as possible silence (#334).** A hand-edited
+  `vocabulary` block with a wrong shape makes Soniox reject every request with HTTP 400 —
+  measured against the real endpoints — so every dictation fails until the file is fixed.
+  The FAILED panel then said *Might be silence, might be a hiccup -- worth a retry*: it
+  pointed away from the cause and promised a retry that could only fail again. Its *came
+  back empty* verdict now carries the service-error next step instead (*Retry, wait,
+  ...investigate -- or just switch the model*), which stays true whether the failure is
+  transient or permanent. And *investigate* now has something to find: on HTTP 400 the
+  async lane's error log gains a static cause hint naming the plausible causes — something
+  in the personal settings, an API change, or a temporary problem on Soniox's side. One
+  status check, no parsing of the provider's error body, every other failure unchanged.
+
+- **The clipboard stop's log line now reads like the other stops' (#330).** Its mode note
+  moved out of the parenthesis and behind it — `Recording stopped (Ctrl+Alt+A) - clipboard
+  mode` — where the send and process-only stops have put theirs all along.
 
 - **The settings window shows the version the console shows (#302).** The *Machine room* tab
   opened with the bare release number while the masthead, since #297, additionally names the
@@ -747,6 +607,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The settings window no longer makes statements about file health (#326, D-026).** Three
+  surfaces are gone: the hotkey tab's status line (permanently green — every feed of the hotkey
+  state passes the validator first, so its warning branch could never be reached), the "save
+  anyway?" hotkey-problems dialog in the save path (the same dead twin), and the yellow banner
+  shown over an already-broken `personal_settings.json` when the window opened. A check that by
+  construction cannot find anything is decoration, and falsely reassuring decoration is worse
+  than none. The window shows the effective state; file problems stay visible where they always
+  were — the tool's console and `thoughtborne.log` — and the safety net for a broken file is
+  #263's backup-before-loss lane, not a dialog.
+
+- **The settings window no longer reacts to the key fields — the engine picker is
+  key-agnostic (#332, D-028).** An edit in a key field now changes nothing but that field's
+  own verdict until it is saved. Three lanes are gone with it: the greying of engines without
+  a key in the *Always start with* list and the amber line under it pointing at the *Provider
+  & API key* tab (#201), the automatic jump onto a keyed engine when switching to *Always
+  start with* (#207), and the first-run wizard's preselect, which moved the startup engine to
+  Groq for a user who had entered only a Groq key (#178). Every engine in that list is
+  selectable now, whatever the key fields hold; switching between the two modes never moves
+  the selection by itself; and the settings app writes no engine memory at all —
+  `runtime_state.json` belongs to the `Ctrl+Alt+L` switch alone. A pin on an engine without a
+  key is saved exactly as the list shows it: the next start skips that engine and opens on
+  the first one that has a key, its greyed row in the console lineup telling the story
+  (#40/#200). That visible resolution at the next start is why the window needs no guard of
+  its own — and it makes the state behind the original report unrepresentable rather than
+  fixed: since #328 a cleared key field means "delete this key on save", while the picker
+  went on judging by the stored copy and could pin a keyless engine without a word.
+  Unchanged: the *Test key* button and its verdict reset on edit, the confirmation before a
+  save without any key, the key-awareness of the console lineup, and the hotkey capture's
+  refusal of a combo another action already holds. The startup fall-through this leans on is
+  now held by a test driver of its own.
+
 - **The `ü` hotkey lane is gone — every bindable key is a letter, digit, or F-key now (#317,
   D-023).** The hotkey system carried a second, layout-resolved key lane, a leftover of the old
   `Ctrl+Alt+Ü` self-test default that moved to `Ctrl+Alt+T` in #211 (D-012). Since then no
@@ -790,6 +681,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every layout rule had to be thought through twice for.
 
 ### Fixed
+
+- **An armed hotkey-capture field no longer goes stale after 30 seconds (#339, D-031).**
+  The hotkey release behind the settings app's capture field (#335, under *Added*) first
+  came with a 30-second failsafe in the tool, and that timer broke the very flow the
+  feature exists for: click *Change…*, think for a moment, then press a combo Thoughtborne
+  holds itself — by then the tool had quietly taken its hotkeys back, so the press started
+  a recording behind the window while the field still asked for the combo. The timer is
+  gone: the hotkeys stay released for as long as the field is armed, and every end of that
+  state is something you do in the settings window — a captured combo, Esc, a click
+  elsewhere, closing it. The one case the timer was there for, a settings app killed hard
+  while armed, now leaves the tool without hotkeys until it is restarted; the log shows the
+  release with no registration after it, and a starting tool clears leftover suspend
+  signals before it registers anything, so that restart is the complete recovery. A
+  leftover it cannot delete is named in a warning instead of costing the start.
+
+- **Stopping with one hotkey no longer mutes another one's "insert last text" (#152).**
+  After a stop, the tool ignores that hotkey's insert-last-text function for two seconds,
+  so a finger lingering on the chord cannot re-insert the previous transcript. That guard
+  was wired across actions: stopping with Ctrl+Alt+D silently swallowed a deliberate
+  Ctrl+Alt+A for those two seconds and the other way round — a dead spot with no log line,
+  on the two hotkeys most likely to be pressed in sequence. Each stop action now guards
+  only itself, and the window expires on time alone, so a stalled recording loop can no
+  longer leave an action's insert switched off until the next restart.
+
+- **Rebound stop keys now reach the insert guard and the mis-trigger net (#152).** Before
+  typing or pasting, the tool waits for the stop hotkey's keys to be released — and that
+  list was the shipped letters, spelled out at seven places; the mis-trigger safety net,
+  which corrects a start press that was meant as a stop, polled A/D/H/Y/X just as
+  literally. Under a rebind — including the settings window's one-click F-key preset —
+  the guard waited for keys nobody was holding and the net watched keys bound to nothing.
+  Both now derive from the effective hotkeys at the moment they run; where two actions
+  share a key, or one sits on the start key, the net skips those entries rather than guess,
+  which under that F-key preset leaves it deliberately inactive. The stop-and-send flow
+  waits for its own key as well now, not just for Ctrl and Alt. Also following the
+  configured keys: push-to-talk's wait key, and the two log lines that still said
+  "A or H" and "Ctrl+Alt+R".
+
+- **A hand-broken example file can no longer crash the save (#294, via #263).** Both
+  writers may seed a fresh file from a shipped example (`.env.example`,
+  `personal_settings.example.json`) and caught only locked-file errors while reading it,
+  so an example hand-saved in ANSI escaped as a raw exception into the *Saving failed*
+  dialog. The examples are optional documentation, not user data: a broken one now
+  simply means no seeded header comments, and the save goes through.
+
+- **A broken string table now reads as failure messages, not a traceback (#313).** When an
+  EN key lost its DE partner, `test_settings_io.py`'s `check_i18n` recorded the clean parity
+  message naming the key — and then died on a `KeyError` before anything printed, taking the
+  fourteen check blocks after it and the failure print down with it. Same class, worse
+  report: the seven hard-wired placeholder pins and the `btn.back` probes crash the same way
+  on a key retired from both tables — with the parity checks green, so the i18n checks record
+  nothing at all. The placeholder loop now walks only the keys both tables share, the pins and
+  the probes report a missing key as a failure of their own, and a per-run proof plants both
+  gap shapes in memory to hold `check_i18n` to reporting-and-returning.
+
+- **A key value that needs quoting survives a save (#328).** The settings app wrote every
+  value into `.env` bare, while both halves of Thoughtborne read that file with quotes and
+  comment tails in mind — so a value carrying a `#` came back cut on the next read, one
+  save after it was entered and without a word anywhere. Such a value is now written in
+  quotes, which that reader takes literally, so read → save → read loses nothing; the few
+  values no spelling of the format can carry are refused with a message instead of being
+  written in a spelling the reader would cut short or warn about at every start, and a
+  value pasted with a line break in it is folded into one line first — in every shape a
+  line break comes in, not just the two common ones. An
+  unterminated quote in a hand-edited file (a `"` or `'` with no partner on
+  the line) keeps its meaning — the character stays part of the value, as it always did —
+  but now leaves a start-up warning instead of passing in silence.
+
+- **Two places that said the wrong thing about the engine and the settings file (#327).**
+  The startup log's `Configuration: Default API=…` line named the *configured* default while
+  the `Startup engine:` line above it named the engine the start actually uses — so a start
+  on a remembered engine read like two contradicting entries. It now says `default engine=…`
+  and whether that is the built-in one or a pin from `personal_settings.json`. The settings
+  window's load-failure dialog no longer blames an unexpected encoding either: since the
+  backup lane (D-026) a wrongly encoded file does not land there at all, so the dialog names
+  the case that does — a file another program holds locked.
+
+- **Comments in the vocabulary block no longer reach Soniox (#329, respects D-026).** A key
+  starting with `_` is the JSON-comment convention of `personal_settings.json`, and it holds
+  everywhere in that file — except that a `_comment` inside the `vocabulary` block was handed
+  to the speech model verbatim, as if the note about the block were part of the vocabulary.
+  The context is now built without such keys at the one place it comes into being, so both
+  Soniox engines and the `Context enabled: N terms` log line describe the same thing, and a
+  block left holding only comments sends no context at all. The file on disk keeps every
+  comment untouched — only what goes out is filtered — and the example file's `vocabulary`
+  block now opens with a `_comment` lead like every other block, carrying the block's own
+  documentation that used to sit in the file-wide comment at the top.
+
+- **Push-to-talk lets go when its recording ends another way (#250).** A stop hotkey, a
+  cancel or a lost microphone ending a push-to-talk recording used to leave the tool
+  believing that push-to-talk still owned it. With the trigger key still held — the normal
+  state right after Ctrl+Alt+H — the next release of that key then stopped whatever
+  recording was running by then, a Ctrl+Alt+W one included, and delivered its text through
+  push-to-talk's insert path rather than through the one that hotkey stands for. In the same
+  situation an immediately repeated gesture was swallowed whole: no recording started, and
+  nothing in the log said why. The next detector tick now hands the recording back and puts
+  the gesture machine into its resting state, which ends both cases.
 
 - **The installer never points an icon at a file the install does not have (#321).** `setup.ps1`
   pointed the Start-menu shortcut and the Installed-apps `DisplayIcon` at
@@ -1459,6 +1446,7 @@ Highlights:
   - Recording-loop iteration-gap measurement (wallclock time between consecutive `record_chunk()` returns); DEBUG entry when the gap exceeds 50 ms (nominal ~33 ms = sleep + send + overhead). Captures any block OUTSIDE the read — typically slow WebSocket sends or GIL contention from the receiver thread.
   - Per-session summary lines (read-latency stats and loop-iteration stats) logged at INFO level on `stop_recording`, complementing the existing send-latency summary. Together these three summaries triangulate where any audio loss originated (audio source / network send / loop-side blocking).
 
-[Unreleased]: https://github.com/timwessels/thoughtborne-windows/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/timwessels/thoughtborne-windows/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/timwessels/thoughtborne-windows/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/timwessels/thoughtborne-windows/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/timwessels/thoughtborne-windows/releases/tag/v1.0.0
