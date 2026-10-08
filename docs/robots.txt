@@ -1,0 +1,7 @@
+# Everything may be crawled — the legal pages opt out of the INDEX via a
+# noindex meta tag, and a crawler only sees that tag if it may fetch the page,
+# so they must not be disallowed here (same note in their <head>).
+User-agent: *
+Allow: /
+
+Sitemap: https://thoughtborne.app/sitemap.xml

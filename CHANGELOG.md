@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Search-engine groundwork for the website.** The site now serves a
+  `robots.txt` (everything crawlable, pointing at the sitemap) and a
+  `sitemap.xml` listing the two indexable pages with their language alternates;
+  both start pages carry Schema.org `SoftwareApplication` structured data
+  (free, Windows, open source, download link). The `www.` alias, which used to
+  answer with a full duplicate of the site, now 301-redirects to
+  `thoughtborne.app`.
+
 ## [1.2.0] - 2026-09-23
 
 The recommended release — it supersedes 1.1.0. This block folds in the three release
