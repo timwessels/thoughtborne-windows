@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both start pages carry Schema.org `SoftwareApplication` structured data
   (free, Windows, open source, download link). The `www.` alias, which used to
   answer with a full duplicate of the site, now 301-redirects to
-  `thoughtborne.app`.
+  `thoughtborne.app`. The German start page also carries the Google Search
+  Console ownership tag — removing it would un-verify the property.
 
 ## [1.2.0] - 2026-09-23
 
