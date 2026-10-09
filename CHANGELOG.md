@@ -16,7 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (free, Windows, open source, download link). The `www.` alias, which used to
   answer with a full duplicate of the site, now 301-redirects to
   `thoughtborne.app`. The German start page also carries the Google Search
-  Console ownership tag — removing it would un-verify the property.
+  Console ownership tag — removing it would un-verify the property. Both
+  start pages now open their meta description with the search terms people
+  actually use — "Kostenlose Open-Source-Diktiersoftware" / "Free,
+  open-source dictation tool" — instead of the generic "Diktier-Tool" /
+  "dictation tool" phrasing.
 
 ## [1.2.0] - 2026-09-23
 
