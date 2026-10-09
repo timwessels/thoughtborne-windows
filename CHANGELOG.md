@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   open-source dictation tool" — instead of the generic "Diktier-Tool" /
   "dictation tool" phrasing.
 
+### Changed
+
+- **The live engine now sends its Soniox key with the connection (#341).** From
+  15 January 2027 Soniox refuses the way a real-time session used to authenticate — the
+  key inside the first message after the connection opens — which would have stopped
+  `soniox-live`, the default engine, outright. The key now travels as an
+  `Authorization: Bearer` header when the connection is made, the way the async engine
+  has always sent it. Nothing changes in use: transcripts are the same, and a wrong key
+  still surfaces as the same `[AUTH]` message, because Soniox reports it the same way on
+  both paths (verified against the live service). Nothing new to install.
+
 ## [1.2.0] - 2026-09-23
 
 The recommended release — it supersedes 1.1.0. This block folds in the three release

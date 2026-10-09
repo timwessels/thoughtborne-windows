@@ -36,7 +36,8 @@ per-rule lane cannot show what a user actually meets, which is one whole file me
 one program.
 And the vocabulary's last mile is measured rather than assumed: what the reader kept
 has to arrive in the real Soniox request -- the async body and the live WebSocket
-config, the endpointing block riding along on the second. Since #329 that last mile
+config, the endpointing block riding along on the second and, since #341, the key
+no longer in it but in the handshake's Bearer header. Since #329 that last mile
 starts one step earlier, at the filter that builds the effective context: the block's
 `_`-prefixed comment keys reach neither request, and a block holding nothing else
 sends no context at all. What that filter leaves is measured too (#286): a context
@@ -2095,7 +2096,9 @@ def test_soniox_context_async_request():
 def test_soniox_context_live_config():
     """The same last mile on the live path, where the file's endpointing block
     rides along: both personalizations end up in one WebSocket config JSON, and
-    the tool sends it before a single audio chunk moves.
+    the tool sends it before a single audio chunk moves. Since #341 the lane also
+    pins where the key travels: as a Bearer header handed to `connect()` for the
+    handshake, and not in that config JSON.
 
     `websockets` is injected into sys.modules rather than installed -- the import
     in start_session is lazy, so the fake is what it finds, and the lane runs
@@ -2108,9 +2111,15 @@ def test_soniox_context_live_config():
               f"installed off Windows)")
         return
 
-    sent = []
+    sent, opened = [], []
+    fake_key = "not-a-real-key"
     fake_client = types.ModuleType("websockets.sync.client")
-    fake_client.connect = lambda url: _FakeWebSocket(sent)
+
+    def fake_connect(url, **kwargs):
+        opened.append(kwargs)
+        return _FakeWebSocket(sent)
+
+    fake_client.connect = fake_connect
     absent = object()
     saved_modules = {name: sys.modules.get(name, absent)
                      for name in ("websockets", "websockets.sync",
@@ -2123,7 +2132,7 @@ def test_soniox_context_live_config():
     tmp = tempfile.mkdtemp(prefix="tb_config_live_ctx_")
     try:
         sys.modules["websockets.sync.client"] = fake_client
-        transcriber.SONIOX_API_KEY = "not-a-real-key"
+        transcriber.SONIOX_API_KEY = fake_key
         transcriber.TEXT_ARCHIVE_FOLDER = Path(tmp) / "transcripts"
         # (label, context, endpointing constants, fields the config JSON must carry)
         cases = [
@@ -2139,6 +2148,7 @@ def test_soniox_context_live_config():
         ]
         for label, ctx, endpointing, expected in cases:
             sent.clear()
+            opened.clear()
             transcriber.SONIOX_CONTEXT = ctx
             (config.SONIOX_ENDPOINT_SENSITIVITY,
              config.SONIOX_ENDPOINT_LATENCY_ADJUSTMENT_LEVEL,
@@ -2150,6 +2160,15 @@ def test_soniox_context_live_config():
                 check(len(sent) >= 1,
                       f"live {label}: nothing was sent on the WebSocket")
                 body = json.loads(sent[0]) if sent else {}
+                # #341: the key rides the handshake, and the config no longer does.
+                check(len(opened) == 1,
+                      f"live {label}: {len(opened)} connect() call(s), expected one")
+                headers = opened[0].get("additional_headers") if opened else None
+                check(headers == {"Authorization": f"Bearer {fake_key}"},
+                      f"live {label}: the handshake does not carry the key as a "
+                      f"Bearer header: {headers!r}")
+                check("api_key" not in body,
+                      f"live {label}: the config JSON still carries api_key")
                 check(body.get("model") == config.SONIOX_RT_MODEL,
                       f"live {label}: the config names model {body.get('model')!r}")
                 check(body.get("enable_endpoint_detection") is True,

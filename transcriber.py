@@ -945,11 +945,16 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 from websockets.sync.client import connect
 
                 logger.info(f"Opening WebSocket connection to {SONIOX_WS_URL}...", extra=FILE_ONLY)
-                self._ws = connect(SONIOX_WS_URL)
+                # The key authenticates the connection itself, so the config
+                # below deliberately omits "api_key" -- Soniox deprecated that
+                # first-message form and refuses it from 2027-01-15 (#341).
+                self._ws = connect(
+                    SONIOX_WS_URL,
+                    additional_headers={"Authorization": f"Bearer {self.api_key}"},
+                )
 
                 # Send configuration
                 config = {
-                    "api_key": self.api_key,
                     "model": SONIOX_RT_MODEL,
                     "audio_format": "pcm_s16le",
                     "num_channels": CHANNELS,
