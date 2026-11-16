@@ -320,7 +320,9 @@ class AbstractTranscriber(ABC):
         # "!" and "?" are consumed as well (#242): they are not corpus forms of
         # their own but sentence enders the re-emit below puts back -- left
         # unconsumed they stayed behind orphaned ("Das ist gut, ! Und dann.").
-        trail_re = re.compile(r"(?:\.{3}|[.!?,])?[ \t]*")
+        # A comma may precede the mark: Soniox Live sometimes writes "Ähm,.",
+        # and taking only the comma left a stray ". ." (#342).
+        trail_re = re.compile(r",?(?:\.{3}|[.!?])?[ \t]*")
         quoted_spans = self._quoted_spans(transcript)
 
         out = []
@@ -342,7 +344,7 @@ class AbstractTranscriber(ABC):
             out.append(transcript[pos:m.start()])
             removed += 1
             logger.debug(f"Removed spoken filler: '{transcript[m.start():end]}' at {m.start()}")
-            trail = transcript[m.end():end]
+            trail = transcript[m.end():end].lstrip(",")
             ender = ("..." if trail.startswith("...")
                      else trail[:1] if trail[:1] in (".", "!", "?") else "")
             if ender:

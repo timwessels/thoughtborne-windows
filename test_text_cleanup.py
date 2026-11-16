@@ -16,8 +16,9 @@ rather than features -- they record where the removal deliberately does NOT
 put punctuation back; a fix that "keeps the punctuation always" breaks exactly
 those. On top of that baseline sit the two #242 fixes (a sentence's terminal
 mark survives a filler at its boundary; the phrase list is re-checked once a
-trailing fragment is gone) and two pins that a neutralized *call* would slip
-past the cases above.
+trailing fragment is gone), the #342 fix (a filler glued to ",." takes both
+marks, leaving no stray ". ."), and two pins that a neutralized *call* would
+slip past the cases above.
 
     python3 test_text_cleanup.py          # verify, exit non-zero on any violation
     python3 test_text_cleanup.py --show   # print every case as input -> output
@@ -177,6 +178,29 @@ def check_filler_sentence_end_fix():
     ])
 
 
+def check_filler_comma_period_fix():
+    """#342: Soniox Live sometimes writes "Ähm,." -- comma and period glued
+    to the filler. Both go as one delimiter, so no stray ". ." / ", ." is
+    left; the period then follows the same #242 rules as a bare "ähm."."""
+    run_table("filler comma-period", fillers, [
+        # After a closed sentence (or ":" / "?") nothing is re-emitted.
+        ("Das ist behoben. Ähm,. Dieses Thema ist erledigt.",
+         "Das ist behoben. Dieses Thema ist erledigt."),
+        ("Es ist Folgendes: Ähm,. Also, das geht.", "Es ist Folgendes: Also, das geht."),
+        ("Das Problem? Ähm,. In der Praxis geht es.", "Das Problem? In der Praxis geht es."),
+        ("Das kann weg. Ähm,.", "Das kann weg."),
+        # A chain: the next filler's capital move still lands on "das".
+        ("Das ist gut. Ähm,. Ähm, das geht.", "Das ist gut. Das geht."),
+        # After a comma the mark replaces it, as for "gut, ähm. Und" --
+        # at the text end, and for "...", too.
+        ("Das ist gut, ähm,. Und dann kam er.", "Das ist gut. Und dann kam er."),
+        ("Das ist ein Test, ähm,.", "Das ist ein Test."),
+        ("Das ist gut, ähm,... Und dann.", "Das ist gut... Und dann."),
+        # The engine's own ",." without a filler is not the filter's business.
+        ("Also,. Wie gesagt, ähm, das geht.", "Also,. Wie gesagt, das geht."),
+    ])
+
+
 def check_groq_phrase_after_fragment_fix():
     """#242 fix 2: with the trailing fragment gone, the phrase list is
     consulted once more -- it was the fragment that hid the phrase."""
@@ -213,6 +237,7 @@ def main():
     check_filler_baseline()
     check_groq_baseline()
     check_filler_sentence_end_fix()
+    check_filler_comma_period_fix()
     check_groq_phrase_after_fragment_fix()
     check_shared_method_identity()
     check_callers_wired()

@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ids, the remembered engine and `defaults.api` are unaffected; nothing to install, no
   setting to change.
 
+### Fixed
+
+- **No more stray ". ." after a removed filler on the live engine (#342).** Soniox Live
+  sometimes writes a filler as "Ähm,." — comma and period glued together. The filter took
+  only the comma with the filler and left the period standing, so "… behoben ist. Ähm,.
+  Dieses …" came out as "… behoben ist. . Dieses …" (likewise ", ." and ": ."); it now
+  takes both.
+
 ## [1.2.0] - 2026-09-23
 
 The recommended release — it supersedes 1.1.0. This block folds in the three release
