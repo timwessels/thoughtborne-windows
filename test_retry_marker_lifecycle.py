@@ -910,15 +910,15 @@ def test_short_async_outage_keeps_marker():
 # the worker, plus a token-tag pin on the worker's else-branch.
 def test_soniox_slot_tags_async_token():
     """engine_code tags a selected soniox slot straight from its type now (no
-    per-call sink): the async engine maps to the Son-v5 token."""
+    per-call sink): the async engine maps to the Son-v6 token."""
     slot = tr.SonioxAsyncTranscriber.__new__(tr.SonioxAsyncTranscriber)
-    assert tr.engine_code(slot) == tr.ENGINE_TOKENS["soniox_async"] == "Son-v5"
+    assert tr.engine_code(slot) == tr.ENGINE_TOKENS["soniox_async"] == "Son-v6"
 
 
 def test_async_get_name_mirrors_display_name():
     """get_name() reflects self.display_name -- it is not hard-wired (#212). One
-    async class serves two callers: the selected soniox slot is built with
-    display_name="Soniox", so the console shows "Soniox"; the empty-live fallback
+    async class serves two callers: the selected soniox slot is built with its
+    API_DISPLAY label, which the console shows; the empty-live fallback
     keeps the version-neutral default "Soniox async" in its own file logs. A
     regression that pinned get_name() to a constant -- or flipped the fallback
     default -- would silently break one of the two, and the suite would stay green."""

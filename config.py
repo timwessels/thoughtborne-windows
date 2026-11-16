@@ -556,8 +556,8 @@ AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel ord
 # and README.de.md in the same commit (bilingual rule in AGENTS.md).
 # AVAILABLE_APIS above stays the only ordering source.
 API_DISPLAY = {
-    "soniox-live": {"label": "Soniox Live", "descriptor": "verbatim, instant"},
-    "soniox":      {"label": "Soniox",      "descriptor": "polished, takes longer"},
+    "soniox-live": {"label": "Soniox Live v6", "descriptor": "verbatim, instant"},
+    "soniox":      {"label": "Soniox v6",      "descriptor": "polished, takes longer"},
     "groq-large":  {"label": "Groq Whisper Large v3", "descriptor": "accurate, free"},
     "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "fast, free"},
 }
@@ -602,13 +602,13 @@ def engine_has_key(api, env=None):
 # changes. Deliberately more technical than the in-tool #86 labels: the audience derives the
 # engine from a filename, no legend. The Son… / GWhisper… stems stay recognizably consistent
 # with the #86 labels (Soniox …, Groq Whisper …). The version suffix records the model
-# generation the tool REQUESTED (the pin) -- `-v5` for the Live and async REST engines since
-# the #121 re-pin -- which stays truthful even if Soniox silently serves a newer generation
-# under the old name (#82); a re-pin updates the token from that point on, and existing
-# archive files keep the token they were written with.
+# generation the tool REQUESTED (the pin) -- `-v6` for the Live and async REST engines since
+# the #342 re-pin (`-v5` from #121 before it) -- which stays truthful even if Soniox
+# silently serves a newer generation under the old name (#82); a re-pin updates the token
+# from that point on, and existing archive files keep the token they were written with.
 ENGINE_TOKENS = {
-    "soniox_live":  "SonLive-v5",     # Soniox Live (websocket RT)
-    "soniox_async": "Son-v5",         # soniox slot, async REST
+    "soniox_live":  "SonLive-v6",     # Soniox Live (websocket RT)
+    "soniox_async": "Son-v6",         # soniox slot, async REST
     "groq_large":   "GWhisperLar-v3", # Groq whisper-large-v3
     "groq_turbo":   "GWhisperTur-v3", # Groq whisper-large-v3-turbo
     "unknown":      "unknown",        # defensive completeness (engine_code fall-through)
@@ -624,7 +624,7 @@ SONIOX_API_KEY = _ENV_VALUES.get('SONIOX_API_KEY')
 # empty-live fallback (#31, #212). File upload → transcription → polling →
 # result.
 SONIOX_ASYNC_API_BASE = "https://api.soniox.com"
-SONIOX_ASYNC_MODEL = "stt-async-v5"
+SONIOX_ASYNC_MODEL = "stt-async-v6"
 SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds between polling attempts
 SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # Max 5 minutes waiting
 
@@ -632,7 +632,7 @@ SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # Max 5 minutes waiting
 # Live-streaming API: audio is sent in real-time during recording.
 # After stop, finalize returns the transcript in milliseconds.
 SONIOX_WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
-SONIOX_RT_MODEL = "stt-rt-v5"
+SONIOX_RT_MODEL = "stt-rt-v6"
 SONIOX_LIVE_FINALIZE_DELAY = 0.2    # Seconds of silence to send before finalize
 SONIOX_LIVE_FINALIZE_TIMEOUT = 10.0  # Max seconds to wait for finalize response
 
@@ -658,8 +658,8 @@ SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT = 5.0
 # Language and context settings used by both the Async and Live APIs
 SONIOX_LANGUAGE_HINTS = ["de"]
 
-# ===== SONIOX V5 ENDPOINTING (#121) =====
-# Optional fine-tuning of Soniox's v5 real-time endpoint detector, for the Live
+# ===== SONIOX ENDPOINTING (#121) =====
+# Optional fine-tuning of Soniox's real-time endpoint detector, for the Live
 # (WebSocket) path only -- the async REST API has no endpointing concept. DEFAULT
 # is all-None -> nothing is sent, so the Live WS config JSON stays byte-identical
 # to before and Soniox applies its own defaults. Values come from an optional
@@ -668,9 +668,9 @@ SONIOX_LANGUAGE_HINTS = ["de"]
 # (never sent) so an invalid value can never reach -- and be rejected by --
 # Soniox mid-session. enable_endpoint_detection stays True unconditionally
 # (already sent, transcriber.py); these only tune the detector it turns on.
-# Ranges/defaults per the Soniox docs as of 2026-07 (dictation tuning: #122):
-#   endpoint_sensitivity              number  -1.0..1.0  default 0.0  (v5-only; lower waits longer -> dictation-friendly)
-#   endpoint_latency_adjustment_level integer 0..3       default 0    (v5-only; higher ends sentences sooner)
+# Ranges/defaults per the Soniox docs, re-checked for v6 2026-11 (dictation tuning: #122):
+#   endpoint_sensitivity              number  -1.0..1.0  default 0.0  (v5+;   lower waits longer -> dictation-friendly)
+#   endpoint_latency_adjustment_level integer 0..3       default 0    (v5+;   higher ends sentences sooner)
 #   max_endpoint_delay_ms             number  500..3000  default 2000 (v4+;   hard cap on wait after speech ends)
 # Concrete dictation tuning is deferred to a follow-up issue; this is only the hook.
 SONIOX_ENDPOINT_SENSITIVITY = None
@@ -679,7 +679,7 @@ SONIOX_MAX_ENDPOINT_DELAY_MS = None
 
 
 def soniox_live_endpointing_params() -> dict:
-    """Configured Soniox v5 endpointing params, ready to merge into the Live
+    """Configured Soniox endpointing params, ready to merge into the Live
     WebSocket config JSON (#121). Empty dict when nothing is configured, so the
     caller's config stays byte-identical to before. Live path only -- the async
     REST API has no endpointing fields, so nothing here is ever sent there.
@@ -1175,7 +1175,7 @@ if isinstance(_ptt_cfg, dict):
                 f"push_to_talk.{_key} '{_v}' invalid (need a positive number); "
                 f"using {globals()[_name]}")
 
-# Soniox v5 endpointing override (#121): optional fine-tuning of the
+# Soniox endpointing override (#121): optional fine-tuning of the
 # Live-path endpoint detector, read from the same _settings dict. An
 # absent block or any invalid field leaves the None default in force, so
 # nothing is sent for that field and the WS config JSON is byte-identical

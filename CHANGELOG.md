@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has always sent it. Nothing changes in use: transcripts are the same, and a wrong key
   still surfaces as the same `[AUTH]` message, because Soniox reports it the same way on
   both paths (verified against the live service). Nothing new to install.
+- **Both Soniox engines now request the v6 generation (#342).** Soniox released v6 on
+  3 November 2026 and will route requests for the v5 models to v6 after 15 December
+  2026; the tool switches deliberately instead — `stt-rt-v6` for `soniox-live`,
+  `stt-async-v6` for `soniox` — and says so: the two engines are now labelled
+  `Soniox Live v6` and `Soniox v6`, and new archive files carry the tokens
+  `SonLive-v6` / `Son-v6`. Existing files keep the `-v5` they were written with, which is
+  harmless, since recordings and transcripts pair by timestamp. What you may notice: v6
+  writes closer to how you spoke and keeps spoken short forms such as "hab" or "gibt's"
+  more often than v5 did; the bare fillers ("ähm"/"äh") are still removed by the tool's
+  own filter. The vocabulary block and the optional `soniox_endpointing` settings carry
+  over unchanged (checked against Soniox's documentation and the live service). Engine
+  ids, the remembered engine and `defaults.api` are unaffected; nothing to install, no
+  setting to change.
 
 ## [1.2.0] - 2026-09-23
 

@@ -32,7 +32,7 @@
   },
 
   "soniox_endpointing": {
-    "_comment": "OPTIONAL, OFF BY DEFAULT (Issue #121). Fine-tunes Soniox v5 real-time endpoint detection for the Soniox Live path only (the async upload path has no endpointing). With no keys here, nothing is sent and Soniox uses its own defaults -- behavior is unchanged. To tune, add any of: 'endpoint_sensitivity' (number -1.0..1.0, default 0.0; lower waits longer before ending a sentence -- Soniox documents -0.3 for dictation and slow speakers), 'endpoint_latency_adjustment_level' (integer 0..3, default 0; higher ends sentences sooner -- leave at 0 when using a negative sensitivity), 'max_endpoint_delay_ms' (number 500..3000, default 2000; hard cap on the wait after speech stops). Out-of-range or wrong-typed values are ignored with a warning and never sent. Concrete tuning is still being decided (Issue #122)."
+    "_comment": "OPTIONAL, OFF BY DEFAULT (Issue #121). Fine-tunes Soniox real-time endpoint detection for the Soniox Live path only (the async upload path has no endpointing). With no keys here, nothing is sent and Soniox uses its own defaults -- behavior is unchanged. To tune, add any of: 'endpoint_sensitivity' (number -1.0..1.0, default 0.0; lower waits longer before ending a sentence -- Soniox documents -0.3 for dictation and slow speakers), 'endpoint_latency_adjustment_level' (integer 0..3, default 0; higher ends sentences sooner -- leave at 0 when using a negative sensitivity), 'max_endpoint_delay_ms' (number 500..3000, default 2000; hard cap on the wait after speech stops). Out-of-range or wrong-typed values are ignored with a warning and never sent. Concrete tuning is still being decided (Issue #122)."
   },
 
   "hotkeys": {

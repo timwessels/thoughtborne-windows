@@ -620,9 +620,9 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
     Context feature enabled for better recognition of domain terms and proper nouns.
 
     Serves two callers from one class, parameterized by display_name -- exactly
-    like GroqTranscriber: the selected 'soniox' slot passes the "Soniox" label so
-    its console/footer wording is unchanged, while the empty-live fallback keeps
-    the more specific "Soniox async" in its own file logs (#212).
+    like GroqTranscriber: the selected 'soniox' slot passes its API_DISPLAY label
+    for the console/footer wording, while the empty-live fallback keeps the more
+    specific, version-neutral "Soniox async" in its own file logs (#212).
     """
 
     def __init__(self, display_name: str = "Soniox async"):
@@ -1499,9 +1499,9 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     elif api_name == "groq-large":
         return GroqTranscriber(model=GROQ_LARGE_MODEL, display_name=API_DISPLAY["groq-large"]["label"])
     elif api_name == "soniox":
-        # The selected slot passes the "Soniox" label so its console/footer
-        # wording is byte-identical to the old hybrid slot; the same class also
-        # serves the empty-live fallback under its own "Soniox async" name (#212).
+        # The selected slot passes its API_DISPLAY label for the console/footer
+        # wording; the same class also serves the empty-live fallback under its
+        # own "Soniox async" name (#212).
         return SonioxAsyncTranscriber(display_name=API_DISPLAY["soniox"]["label"])
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()

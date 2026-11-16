@@ -23,14 +23,14 @@ Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup fol
 
 | API | In short | What it does | Speed | Key & cost |
 |-----|----------|--------------|-------|------------|
-| **Soniox Live** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
-| **Soniox** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
+| **Soniox Live v6** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
+| **Soniox v6** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
 | **Groq Whisper Large v3** | accurate · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
 | **Groq Whisper Turbo v3** | fast · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
 
 **The free path:** both Groq entries run on Groq's free tier (as of June 2026: per model, 20 requests/min, 2,000 requests/day, 7,200 audio-seconds/hour, 28,800 audio-seconds/day) — you can try Thoughtborne without paying anyone. Soniox has no free tier (as of July 2026): you top up a small prepaid balance and then pay as you go ([soniox.com/pricing](https://soniox.com/pricing)) — $0.12 per hour of audio for the real-time engine (Soniox Live), $0.10 for async file uploads (Soniox). In practice that stays small: the maintainer dictates around 25 hours of audio a month (a six-month average), which comes to roughly $3; lighter regular use lands nearer a dollar. There is no subscription: a fraction of what subscription dictation tools charge (about $12–15 a month), and you pay only for what you actually use ([VISION.md](VISION.md)).
 
-Engines, for the curious: `stt-rt-v5` (Soniox Live) · `stt-async-v5` (Soniox — the polished file-upload engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, for the curious: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox v6 — the polished file-upload engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Requirements
 
@@ -189,7 +189,7 @@ Then dictate:
 
 **Self-test:** `Ctrl+Alt+T` transcribes the bundled `test_audio.mp3` through the active API and inserts the result at the cursor (focus a text field first) — the quickest way to check that everything works.
 
-Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v5`, `Son-v5`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If a transcription comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
+Your data stays with you: every dictation is kept in one `history/` folder in the project directory — recordings as MP3 in `history/audio/`, transcripts in `history/transcripts/`, paired by timestamp. Each filename also carries an engine token — `SonLive-v6`, `Son-v6`, `GWhisperTur-v3`, or `GWhisperLar-v3` — naming the engine that produced that transcript (recordings that never got transcribed keep the bare timestamp name; files from before a model switch keep the token they were written with, such as `-v5`). The startup banner shows the path and `Ctrl+Alt+6` opens the folder; updating from an older version migrates the previous `voice_archive/` and `text_archive/` folders into it automatically on first start. If a transcription fails, `Ctrl+Alt+R` retries it from the archived recording, using your selected engine when it can re-read a file — so switching engine with `Ctrl+Alt+L` and retrying routes around a temporarily broken API. An untranscribed recording is offered just once — on the next start after it happened; after that it stays retryable with `Ctrl+Alt+R` without reminding you again. If a transcription comes back empty with nothing having gone wrong, the recording simply held no speech: it's kept in `history/` and the tool says so, rather than offering a pointless retry.
 
 `thoughtborne.log` is a local debug log, and it is detailed: it carries excerpts of your transcripts and the title of the window you dictated into, so treat it like the transcripts themselves if you ever hand it to anyone. The clipboard insert paths (`Ctrl+Alt+A` and `Ctrl+Alt+D`) put the transcript through the Windows clipboard, so it also turns up in Clipboard history and in cloud clipboard sync if you have those switched on. Whatever was on the clipboard before is put back afterwards — but only if it was text; an image or a list of files is not restored.
 
@@ -206,7 +206,7 @@ Your data stays with you: every dictation is kept in one `history/` folder in th
 | `Ctrl+Alt+H` | Stop + insert at the cursor (simulated typing) |
 | `Ctrl+Alt+X` | Cancel the recording (nothing is inserted) |
 | `Ctrl+Alt+R` | Retry the last failed transcription (from the archived recording) |
-| `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live → Soniox → Groq Whisper Large v3 → Groq Whisper Turbo v3); the engine you switch to is remembered and starts the next session |
+| `Ctrl+Alt+L` | Switch transcription API (cycles Soniox Live v6 → Soniox v6 → Groq Whisper Large v3 → Groq Whisper Turbo v3); the engine you switch to is remembered and starts the next session |
 | `Ctrl+Alt+6` | Open the recordings & transcripts folder (`history/`) in Explorer |
 | `Ctrl+Alt+G` | Open the settings app (G as in gear) |
 | `Ctrl+Alt+T` | Self-test: transcribe the bundled `test_audio.mp3` |
