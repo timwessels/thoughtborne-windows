@@ -628,8 +628,11 @@ SONIOX_API_KEY = _ENV_VALUES.get('SONIOX_API_KEY')
 # result.
 SONIOX_ASYNC_API_BASE = "https://api.soniox.com"
 SONIOX_ASYNC_MODEL = "stt-async-v6"
-SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds between polling attempts
-SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # Max 5 minutes waiting
+# The interval stays at 0.5 s on purpose (#342): polling at 0.25 s or 0.1 s gained
+# nothing measurable, since the wait is Soniox's processing time, while Soniox
+# rate-limits its async API per minute and its Node SDK polls no faster than 1 s.
+SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds of pause after each poll, not the poll period
+SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # x (interval + one poll round trip): roughly 6-7 minutes
 
 # ===== SONIOX LIVE (WEBSOCKET RT) SETTINGS =====
 # Live-streaming API: audio is sent in real-time during recording.

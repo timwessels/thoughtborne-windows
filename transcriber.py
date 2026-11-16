@@ -618,7 +618,9 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
     """Handles transcription using Soniox Async REST API.
 
     Workflow: Upload file → Create transcription → Poll status → Get result → Cleanup.
-    Uses httpx for HTTP requests. No Soniox SDK needed.
+    Uses httpx, one client per transcribe() call, so all of a call's steps share one
+    connection (#342) and the instance holds no state between calls. No Soniox SDK
+    needed.
     Context feature enabled for better recognition of domain terms and proper nouns.
 
     Serves two callers from one class, parameterized by display_name -- exactly
@@ -667,14 +669,19 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
 
         file_id = None
         tx_id = None
+        client = None
         start_time = time.time()
 
         try:
+            # One client per call: every step below, the cleanup included, reuses
+            # one connection instead of opening its own (#342). Built inside the
+            # try, so a client that cannot be built fails like any request.
+            client = httpx.Client(headers=self.headers)
+
             # Step 1: Upload file
             with open(audio_file_path, "rb") as f:
-                resp = httpx.post(
+                resp = client.post(
                     f"{SONIOX_ASYNC_API_BASE}/v1/files",
-                    headers=self.headers,
                     files={"file": (os.path.basename(audio_file_path), f)},
                     timeout=60
                 )
@@ -692,9 +699,8 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
             if SONIOX_CONTEXT:
                 tx_config["context"] = SONIOX_CONTEXT
 
-            resp = httpx.post(
+            resp = client.post(
                 f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions",
-                headers=self.headers,
                 json=tx_config,
                 timeout=30
             )
@@ -704,9 +710,8 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
 
             # Step 3: Poll until completed
             for attempt in range(SONIOX_ASYNC_MAX_POLL_ATTEMPTS):
-                resp = httpx.get(
+                resp = client.get(
                     f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
-                    headers=self.headers,
                     timeout=15
                 )
                 resp.raise_for_status()
@@ -719,11 +724,11 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
                     logger.info(f"Transcription completed after {attempt} polls", extra=FILE_ONLY)
                     break
                 elif status in ("error", "failed"):
-                    # "error" is the documented terminal status; "failed" is
-                    # undocumented but kept as a defensive catch -- matching an
-                    # unknown terminal-looking status here beats polling it into
-                    # the full timeout (#141). The field is error_message, not
-                    # "error"; the `or` also covers a null error_message.
+                    # The API reference names "error" as the terminal status,
+                    # the docs' error page "failed"; matching both beats polling
+                    # an unrecognized terminal status into the full timeout
+                    # (#141). The field is error_message, not "error"; the `or`
+                    # also covers a null error_message.
                     error_msg = resp.json().get("error_message") or "Unknown error"
                     logger.error(f"{self.get_name()} transcription failed: {error_msg}")
                     if error_sink is not None:
@@ -738,9 +743,8 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
                 return ""
 
             # Step 4: Get transcript
-            resp = httpx.get(
+            resp = client.get(
                 f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}/transcript",
-                headers=self.headers,
                 timeout=15
             )
             resp.raise_for_status()
@@ -785,26 +789,31 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
             return ""
 
         finally:
-            # Cleanup: Always delete transcription and file from server
-            import httpx as httpx_cleanup
+            # Cleanup: Always delete transcription and file from server, over the
+            # same connection. It stays here, before the text is returned, on
+            # purpose (#342): moved behind the insert it would save a few tenths
+            # but leave the audio on the server whenever the tool quits right
+            # after a dictation (the workers are daemon threads).
             try:
                 if tx_id:
-                    httpx_cleanup.delete(
+                    client.delete(
                         f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
-                        headers=self.headers, timeout=10
+                        timeout=10
                     )
                     logger.debug(f"Transcription {tx_id} deleted from server")
             except Exception as e:
                 logger.warning(f"Could not delete transcription: {e}")
             try:
                 if file_id:
-                    httpx_cleanup.delete(
+                    client.delete(
                         f"{SONIOX_ASYNC_API_BASE}/v1/files/{file_id}",
-                        headers=self.headers, timeout=10
+                        timeout=10
                     )
                     logger.debug(f"File {file_id} deleted from server")
             except Exception as e:
                 logger.warning(f"Could not delete file: {e}")
+            if client is not None:
+                client.close()
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """Test transcription with a specific file"""

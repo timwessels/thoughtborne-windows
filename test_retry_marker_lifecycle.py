@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141/#138/#212).
+"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141/#138/#212/#342).
 
 Runs on plain Python -- no Windows, no PyAudio -- so the pure file logic of
 `audio_handler`'s marker functions is exercised programmatically (a durable
@@ -48,7 +48,10 @@ verdict exactly as before.
     of its four error returns sets the per-call error sink (and a
     completed-but-empty run does not), plus the one status-specific lane in there:
     an HTTP 400 -- Soniox rejecting the request itself -- also logs a static cause
-    hint, and no other status does (#334).
+    hint, and no other status does (#334). The same fake also watches the
+    server-side cleanup in transcribe()'s `finally` (#342): on every path, what
+    the call created on Soniox's servers is deleted before it returns --
+    transcription first, then file -- and nothing else is.
 
 Plus one import-side guard, outside the marker story: #241, importing
 `output_handler` must leave pyautogui's corner fail-safe off.
@@ -1014,8 +1017,9 @@ def test_retry_long_async_outage_marker_persists():
 # ---- #141 Tier 2: the four error channels of the REAL SonioxAsyncTranscriber --
 # Tier 1 proves the wiring; these prove each real error return actually sets the
 # sink (and a completed-but-empty run does not). The real transcribe() does
-# `import httpx` per call, so a sys.modules["httpx"] swap reaches it; post/get
-# are scripted, delete is a no-op the finally-cleanup calls.
+# `import httpx` per call, so a sys.modules["httpx"] swap reaches its
+# httpx.Client; post/get are scripted, delete records what the finally-cleanup
+# asks to remove.
 class _FakeResp:
     """A scripted httpx response: json() returns the stored dict; raise_for_status
     raises the stored exception (an HTTP error) or is a no-op."""
@@ -1039,10 +1043,12 @@ class _FakeHTTPStatusError(Exception):
         self.response = types.SimpleNamespace(status_code=status_code)
 
 
-def _make_fake_httpx(post_script, get_script):
-    """A scriptable stand-in for the per-call `import httpx`. post/get pop the next
-    scripted item -- a _FakeResp is returned, an Exception instance is raised on
-    the call (a network failure). delete is a no-op."""
+def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=()):
+    """A scriptable stand-in for the per-call `import httpx`, as transcribe() uses
+    it: one Client per call. post/get pop the next scripted item -- a _FakeResp is
+    returned, an Exception instance is raised on the call (a network failure).
+    delete appends its URL to `deleted` when one is given, then raises if the URL
+    ends with one of `delete_fails`."""
     mod = types.ModuleType("httpx")
     mod.HTTPStatusError = _FakeHTTPStatusError
     posts = iter(post_script)
@@ -1054,13 +1060,28 @@ def _make_fake_httpx(post_script, get_script):
             raise item
         return item
 
-    mod.post = lambda *a, **k: _serve(posts)
-    mod.get = lambda *a, **k: _serve(gets)
-    mod.delete = lambda *a, **k: None
+    deletes = [] if deleted is None else deleted
+
+    def _delete(url, **k):
+        deletes.append(url)
+        if url.endswith(tuple(delete_fails)):
+            raise ConnectionError("handshake timed out")
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        post = staticmethod(lambda *a, **k: _serve(posts))
+        get = staticmethod(lambda *a, **k: _serve(gets))
+        delete = staticmethod(_delete)
+
+        def close(self):
+            pass
+
+    mod.Client = _Client
     return mod
 
 
-def _run_async_case(post_script, get_script):
+def _run_async_case(post_script, get_script, deleted=None, delete_fails=()):
     """Run the REAL SonioxAsyncTranscriber.transcribe against a scripted fake httpx.
     Returns (result_text, error_tag, error_messages). Constructs the transcriber
     via __new__ (no API-key check, no archive-dir side effect) and restores every
@@ -1072,7 +1093,7 @@ def _run_async_case(post_script, get_script):
     dummy = ah.ARCHIVE_FOLDER / "async_input.mp3"
     dummy.touch()
 
-    fake = _make_fake_httpx(post_script, get_script)
+    fake = _make_fake_httpx(post_script, get_script, deleted, delete_fails)
     saved_httpx = sys.modules.get("httpx")
     saved_max = tr.SONIOX_ASYNC_MAX_POLL_ATTEMPTS
     saved_interval = tr.SONIOX_ASYNC_POLL_INTERVAL
@@ -1193,7 +1214,8 @@ def test_async_clean_empty_does_not_set_sink():
 
 
 def test_async_failed_status_sets_sink():
-    """The defensive 'failed' terminal status (undocumented) is caught immediately
+    """The 'failed' terminal status (named by the docs' error page, not by the API
+    reference, which says 'error') is caught immediately
     in the error/failed branch and sets the sink -- not left to poll into the
     timeout. The branch-specific 'transcription failed' log line pins it to that
     branch: it is absent from both the poll-timeout and the generic-exception
@@ -1209,6 +1231,44 @@ def test_async_failed_status_sets_sink():
     assert tag.reason == "service-error", f"the 'failed' status is service-error (#138): {tag.reason}"
     assert any("transcription failed" in m for m in errors), \
         f"'failed' must hit the error/failed branch, not poll into the timeout: {errors}"
+
+
+def test_async_cleanup_runs_on_every_path():
+    """#342: the `finally` in transcribe() deletes what the call created on Soniox's
+    servers -- the transcription, then the uploaded file -- on every path, before
+    transcribe() returns. No other lane watches that block, and #342 rebuilt it
+    around one shared client; dropping either delete turns this red. The two
+    deletes stand apart: a failed transcription delete must not cost the file
+    delete (the live log has deletes failing on the handshake), so one more run
+    makes the first one raise."""
+    created = [_FakeResp({"id": "file1"}), _FakeResp({"id": "tx1"})]
+    both = ["/v1/transcriptions/tx1", "/v1/files/file1"]
+    cases = (
+        ("success", created,
+         [_FakeResp({"status": "completed"}), _FakeResp({"text": "x"})], both),
+        ("job error", created, [_FakeResp({"status": "error"})], both),
+        ("poll timeout", created, [_FakeResp({"status": "processing"})] * 3, both),
+        ("poll raises", created, [ConnectionError("blip")], both),
+        ("transcript fetch rejected", created,
+         [_FakeResp({"status": "completed"}),
+          _FakeResp(raise_exc=_FakeHTTPStatusError(500))], both),
+        ("create fails", [_FakeResp({"id": "file1"}), ConnectionError("blip")], [],
+         ["/v1/files/file1"]),
+        ("upload fails", [ConnectionError("blip")], [], []),
+    )
+    for label, posts, gets, expected in cases:
+        deleted = []
+        _run_async_case(list(posts), list(gets), deleted)
+        got = [url.replace(tr.SONIOX_ASYNC_API_BASE, "") for url in deleted]
+        assert got == expected, f"{label}: cleanup deleted {got}, expected {expected}"
+
+    deleted = []
+    _run_async_case(list(created),
+                    [_FakeResp({"status": "completed"}), _FakeResp({"text": "x"})],
+                    deleted, delete_fails=(both[0],))
+    got = [url.replace(tr.SONIOX_ASYNC_API_BASE, "") for url in deleted]
+    assert got == both, \
+        f"transcription delete fails: cleanup tried {got}, expected {both}"
 
 
 # ---- #138/#159 direct unit tests for the two coarse-category mappers --------
@@ -1349,6 +1409,7 @@ CASES = [
     test_async_network_exception_sets_sink,
     test_async_clean_empty_does_not_set_sink,
     test_async_failed_status_sets_sink,
+    test_async_cleanup_runs_on_every_path,
     # #138/#159 direct unit tests for the two coarse-category mappers
     test_groq_error_reason_maps_every_branch,
     test_http_status_reason_maps_every_branch,

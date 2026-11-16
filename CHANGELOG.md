@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   four in the maintainer's own measurement on real German dictation. The README, the
   website, `llms-install.md` and `VISION.md` no longer describe `soniox` as the engine
   that smooths the text.
+- **The `soniox` engine answers sooner (#342).** It used to open a fresh encrypted
+  connection to Soniox for every step of a transcription — the upload, the start, each
+  status check, fetching the text and the two deletions — so a good part of the wait
+  after a dictation was spent connecting. All steps of one transcription now share one
+  connection. What stays the same: the audio and the transcript are still deleted from
+  Soniox's servers before the text is inserted, the pause between two status checks is
+  still half a second (checking faster measured no gain), and errors surface exactly as
+  before.
+  Nothing to install, no setting to change.
 
 ### Fixed
 

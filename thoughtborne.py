@@ -717,7 +717,7 @@ class ThoughtborneApp:
         # it, three concurrent worker threads could each construct a new
         # transcriber, of which only one wins the slot. The lock protects
         # creation only; the transcriber.transcribe() calls themselves are
-        # thread-safe (the async engine uses a fresh httpx request per call) and
+        # thread-safe (the async engine opens its own httpx client per call) and
         # run outside the lock.
         self._fallback_async: Optional[SonioxAsyncTranscriber] = None
         self._fallback_init_lock = threading.Lock()
