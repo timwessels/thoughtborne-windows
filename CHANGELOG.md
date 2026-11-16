@@ -67,6 +67,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparison includes the switch to v6: on short dictations nearly all of the gain comes
   from the shared connection, on recordings of several minutes much of it from v6.
   Nothing to install, no setting to change.
+- **Locked `certifi` bumped from 2026.5.20 to 2026.10.23, and `pillow` to 13.0.0 where
+  the Python version allows it.** `certifi` is the list of certificate authorities the
+  tool checks its providers' TLS certificates against; the new version clears a security
+  advisory about root certificates (emSign) whose intermediate keys were compromised.
+  Soniox and Groq still verify against the new list (checked on all three hosts the tool
+  talks to). `pillow` 13.0.0 clears a batch of advisories about reading and writing
+  crafted image files. Thoughtborne never opens an image while it runs — `pillow` only
+  comes along as a transitive dependency of `pyautogui`, and only on Python 3.10 and
+  3.11 — so that half is hygiene for what the installer puts on a user's machine, not a
+  fix for a reachable vulnerability. `pillow` 13 needs Python 3.11 or newer, so a
+  Python 3.10 environment stays on 12.3.0.
 
 ### Fixed
 
