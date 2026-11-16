@@ -75,8 +75,8 @@ Frame this honestly: the keys are the user's own, and audio goes only to the tra
 
 | Provider | Cost | Role in Thoughtborne | Console |
 |---|---|---|---|
-| **Groq** | Free tier, no payment needed (as of June 2026) | The free way in: `groq-large` (accurate) and `groq` (fastest) | console.groq.com |
-| **Soniox** | Prepaid — top up a balance before the API works; no free tier (as of June 2026). Usage-based pricing (see soniox.com/pricing); typical personal dictation use stays low-cost | The default APIs: `soniox-live` (verbatim, instant) and `soniox` (polished upload) | console.soniox.com |
+| **Groq** | Free tier, no payment needed (as of June 2026) | The free way in: `groq-large` (good quality, fast) and `groq` (decent quality, fastest) | console.groq.com |
+| **Soniox** | Prepaid — top up a balance before the API works; no free tier (as of June 2026). Usage-based pricing (see soniox.com/pricing); typical personal dictation use stays low-cost | The default APIs: `soniox-live` (very good quality, instant) and `soniox` (best quality, takes longer) | console.soniox.com |
 
 Guide the user through each provider they chose — signup, find the key, hand it over:
 

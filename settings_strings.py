@@ -250,17 +250,17 @@ _EN = {
         "(Thoughtborne remembers it for you), or always start on one fixed engine "
         "no matter what you switch to while dictating. Either way, Ctrl+Alt+L still "
         "cycles through all four engines at any time while the tool runs. The "
-        "engines differ mainly in speed versus tidiness; the model lineup in the "
-        "README has the details."),
+        "engines differ in quality and speed; the model lineup in the README has "
+        "the details."),
     "behavior.engine.mode.remember": "Start with the engine I last switched to (Ctrl+Alt+L)",
     "behavior.engine.mode.fixed": "Always start with:",
     "behavior.engine.remember.current": "Currently remembered: {engine}",
     "behavior.engine.remember.none": (
         "No switch recorded yet — starts on the built-in default ({engine})"),
-    "engine.desc.soniox-live": "verbatim, instant",
-    "engine.desc.soniox": "polished, takes longer",
-    "engine.desc.groq-large": "accurate, free",
-    "engine.desc.groq": "fast, free",
+    "engine.desc.soniox-live": "very good quality, instant",
+    "engine.desc.soniox": "best quality, takes longer",
+    "engine.desc.groq-large": "good quality, fast, free",
+    "engine.desc.groq": "decent quality, fastest, free",
     "behavior.tray.heading": "Console out of the taskbar (tray)",
     "behavior.tray.body": (
         "The console is a status monitor; dictation keeps working with the window "
@@ -677,17 +677,17 @@ _DE = {
         "gewechselt hast (Thoughtborne merkt sie sich), oder immer mit einer festen "
         "Engine starten, egal was du beim Diktieren umschaltest. In beiden Fällen "
         "wechselt Ctrl+Alt+L im laufenden Betrieb jederzeit durch alle vier Engines. "
-        "Die Engines unterscheiden sich vor allem in Tempo gegen Sauberkeit; Details "
-        "in der Modell-Aufstellung im README."),
+        "Die Engines unterscheiden sich in Qualität und Tempo; Details in der "
+        "Modell-Aufstellung im README."),
     "behavior.engine.mode.remember": "Mit der zuletzt per Ctrl+Alt+L gewählten Engine starten",
     "behavior.engine.mode.fixed": "Immer starten mit:",
     "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
     "behavior.engine.remember.none": (
         "Noch kein Wechsel gemerkt – startet auf dem Standard ({engine})"),
-    "engine.desc.soniox-live": "wortgetreu, sofort fertig",
-    "engine.desc.soniox": "poliert, braucht länger",
-    "engine.desc.groq-large": "genau, kostenlos",
-    "engine.desc.groq": "schnell, kostenlos",
+    "engine.desc.soniox-live": "sehr gute Qualität, sofort fertig",
+    "engine.desc.soniox": "beste Qualität, braucht länger",
+    "engine.desc.groq-large": "gute Qualität, schnell, kostenlos",
+    "engine.desc.groq": "ordentliche Qualität, am schnellsten, kostenlos",
     "behavior.tray.heading": "Konsole aus der Taskleiste (Tray)",
     "behavior.tray.body": (
         "Die Konsole ist ein Status-Monitor; Diktieren funktioniert auch bei "

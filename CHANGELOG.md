@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over unchanged (checked against Soniox's documentation and the live service). Engine
   ids, the remembered engine and `defaults.api` are unaffected; nothing to install, no
   setting to change.
+- **The engine descriptions now say how good and how fast each engine is (#342).** With
+  v6 the two Soniox engines no longer differ in how tidy the text reads, but in accuracy
+  and waiting time, so "verbatim" and "polished" stopped being true. The console lineup,
+  the settings app and the README now read `soniox-live` "very good quality, instant",
+  `soniox` "best quality, takes longer", `groq-large` "good quality, fast, free" and
+  `groq` "decent quality, fastest, free" — `soniox` on top as the most accurate of the
+  four in the maintainer's own measurement on real German dictation. The README, the
+  website, `llms-install.md` and `VISION.md` no longer describe `soniox` as the engine
+  that smooths the text.
 
 ### Fixed
 

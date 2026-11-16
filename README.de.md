@@ -19,18 +19,18 @@ Der Qualitätsmaßstab ist einfach: Transkripte müssen **gut genug sein, um sie
 
 ## Die Modell-Aufstellung
 
-Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstellung folgt dem, was im praktischen Einsatz für Deutsch am besten abschneidet, alle paar Monate neu bewertet ([VISION.md](VISION.md)). Die Engines unterscheiden sich vor allem entlang einer Achse — Tempo gegen Sauberkeit: manche sind im Moment des Stopps fertig und bleiben nah am Gesprochenen, andere brauchen etwas länger und lesen sich etwas sauberer ([verschiedene Engines, verschiedene Stärken](VISION.md#different-engines-different-strengths)).
+Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstellung folgt dem, was im praktischen Einsatz für Deutsch am besten abschneidet, alle paar Monate neu bewertet ([VISION.md](VISION.md)). Die Engines unterscheiden sich in Qualität und Tempo: Soniox ist die genaueste der vier, braucht aber etwas länger, Soniox Live kommt nah heran und ist im Moment des Stopps fertig, und die beiden kostenlosen Groq-Engines sind schnell, machen aber mehr Fehler ([verschiedene Engines, verschiedene Stärken](VISION.md#different-engines-different-strengths)).
 
 | API | Kurz | Was sie tut | Geschwindigkeit | Key & Kosten |
 |-----|------|-------------|-----------------|--------------|
-| **Soniox Live v6** | wortgetreu · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, nah an dem, wie du wirklich gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert); ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
-| **Soniox v6** | poliert · braucht länger | Schickt das Audio nach dem Stopp und liefert Text, der sich wie Geschriebenes liest — saubere Interpunktion, keine Füllwörter; für E-Mails und Texte, die an Menschen gehen. | ~5–40 s (Datei-Upload + Polling) | Soniox (Prepaid) |
-| **Groq Whisper Large v3** | genau · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
-| **Groq Whisper Turbo v3** | schnell · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
+| **Soniox Live v6** | sehr gute Qualität · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, nah an dem, wie du wirklich gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert); ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
+| **Soniox v6** | beste Qualität · braucht länger | Schickt das Audio nach dem Stopp und transkribiert die ganze Aufnahme in einem Durchgang. Sie ist die genaueste der vier und bleibt wie Soniox Live nah an dem, wie du gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert). Sie passt überall dort, wo ein falsches Wort mehr kostet als das Warten. | ~5–40 s (Datei-Upload + Polling) | Soniox (Prepaid) |
+| **Groq Whisper Large v3** | gute Qualität · schnell · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
+| **Groq Whisper Turbo v3** | ordentliche Qualität · am schnellsten · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
 
 **Der kostenlose Weg:** Beide Groq-Einträge laufen im Free Tier von Groq (Stand Juni 2026, pro Modell: 20 Anfragen/Minute, 2.000 Anfragen/Tag, 7.200 Audio-Sekunden/Stunde, 28.800 Audio-Sekunden/Tag) — damit lässt sich Thoughtborne ausprobieren, ohne irgendwen zu bezahlen. Soniox hat keinen Free Tier (Stand Juli 2026): Ein kleines Prepaid-Guthaben aufladen und dann nach Verbrauch zahlen ([soniox.com/pricing](https://soniox.com/pricing)) — 0,12 $ pro Stunde Audio bei der Echtzeit-Engine (Soniox Live), 0,10 $ bei asynchronen Datei-Uploads (Soniox). In der Praxis bleibt das gering: Der Maintainer diktiert rund 25 Stunden Audio im Monat (Schnitt der letzten sechs Monate), was etwa 3 $ ergibt; leichtere regelmäßige Nutzung liegt eher bei einem Dollar. Kein Abo: ein Bruchteil dessen, was Abo-Diktier-Tools kosten (etwa 12–15 $ im Monat), und man zahlt nur für das, was man tatsächlich nutzt ([VISION.md](VISION.md)).
 
-Engines, für Neugierige: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox v6 — die polierte Datei-Upload-Engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, für Neugierige: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox v6 — die Datei-Upload-Engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Voraussetzungen
 

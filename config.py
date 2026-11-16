@@ -554,12 +554,15 @@ AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel ord
 # and the transcribers' get_name(). Labels and descriptors match the README
 # model-lineup wording (#47); if this wording ever changes, change README.md
 # and README.de.md in the same commit (bilingual rule in AGENTS.md).
+# With today's labels a descriptor fits in 30 characters at most: the masthead row
+# of a pinned engine adds " (default)", and nothing there wraps or truncates, so a
+# longer one pushes out the 70-cell frame (D-018; test_console_ui pins each engine).
 # AVAILABLE_APIS above stays the only ordering source.
 API_DISPLAY = {
-    "soniox-live": {"label": "Soniox Live v6", "descriptor": "verbatim, instant"},
-    "soniox":      {"label": "Soniox v6",      "descriptor": "polished, takes longer"},
-    "groq-large":  {"label": "Groq Whisper Large v3", "descriptor": "accurate, free"},
-    "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "fast, free"},
+    "soniox-live": {"label": "Soniox Live v6", "descriptor": "very good quality, instant"},
+    "soniox":      {"label": "Soniox v6",      "descriptor": "best quality, takes longer"},
+    "groq-large":  {"label": "Groq Whisper Large v3", "descriptor": "good quality, fast, free"},
+    "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "decent quality, fastest, free"},
 }
 
 # ===== API KEY ENV VARS (single source, #200) =====

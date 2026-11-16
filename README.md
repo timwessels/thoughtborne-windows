@@ -19,18 +19,18 @@ The quality bar is simple: transcripts must be **good enough to send to an LLM u
 
 ## The model lineup
 
-Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup follows what tests best for German in hands-on use, re-evaluated every few months ([VISION.md](VISION.md)). The engines differ mainly along one axis — speed versus tidiness: some are ready the instant you stop and stay close to how you spoke, others take a little longer and read a bit more cleanly ([different engines, different strengths](VISION.md#different-engines-different-strengths)).
+Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup follows what tests best for German in hands-on use, re-evaluated every few months ([VISION.md](VISION.md)). The engines differ in quality and speed: Soniox is the most accurate of the four but takes a little longer, Soniox Live comes close and is ready the instant you stop, and the two free Groq engines are fast but make more mistakes ([different engines, different strengths](VISION.md#different-engines-different-strengths)).
 
 | API | In short | What it does | Speed | Key & cost |
 |-----|----------|--------------|-------|------------|
-| **Soniox Live v6** | verbatim · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
-| **Soniox v6** | polished · takes longer | Sends the audio after you stop and returns text that reads like writing — clean punctuation, no fillers; for emails and texts meant for humans. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
-| **Groq Whisper Large v3** | accurate · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
-| **Groq Whisper Turbo v3** | fast · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
+| **Soniox Live v6** | very good quality · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
+| **Soniox v6** | best quality · takes longer | Sends the audio after you stop and transcribes the whole recording in one pass — the most accurate of the four, and like Soniox Live close to how you spoke (only the bare "ähm"/"äh" are filtered out); for anything where a wrong word costs more than the wait. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
+| **Groq Whisper Large v3** | good quality · fast · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
+| **Groq Whisper Turbo v3** | decent quality · fastest · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
 
 **The free path:** both Groq entries run on Groq's free tier (as of June 2026: per model, 20 requests/min, 2,000 requests/day, 7,200 audio-seconds/hour, 28,800 audio-seconds/day) — you can try Thoughtborne without paying anyone. Soniox has no free tier (as of July 2026): you top up a small prepaid balance and then pay as you go ([soniox.com/pricing](https://soniox.com/pricing)) — $0.12 per hour of audio for the real-time engine (Soniox Live), $0.10 for async file uploads (Soniox). In practice that stays small: the maintainer dictates around 25 hours of audio a month (a six-month average), which comes to roughly $3; lighter regular use lands nearer a dollar. There is no subscription: a fraction of what subscription dictation tools charge (about $12–15 a month), and you pay only for what you actually use ([VISION.md](VISION.md)).
 
-Engines, for the curious: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox v6 — the polished file-upload engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
+Engines, for the curious: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox v6 — the file-upload engine) · `whisper-large-v3` (Groq Whisper Large v3) · `whisper-large-v3-turbo` (Groq Whisper Turbo v3).
 
 ## Requirements
 

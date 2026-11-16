@@ -76,13 +76,13 @@ Consequences:
   carousel) as utility options, but not as the recommended default.
 - Models are judged by hands-on testing with real dictation, not by
   benchmark numbers alone. I re-test the field every few months.
-- Above the bar, there is room for trade-offs (see the fast-vs-tidy split
-  below). Below it, speed is worthless.
+- Above the bar, there is room for trade-offs (see the speed-vs-accuracy
+  split below). Below it, speed is worthless.
 
 ## Different engines, different strengths
 
 Dictation isn't one job, and the engines in the lineup don't all behave the
-same way. The main axis is speed versus tidiness — worth knowing so you can
+same way. The main axis is speed versus accuracy — worth knowing so you can
 reach for the right one:
 
 - **Fast & close to speech** (today: Soniox Live, streamed during recording):
@@ -93,17 +93,19 @@ reach for the right one:
   no meaning, and get filtered out everywhere, this mode included. Its
   occasional small misrecognitions are the kind an LLM straightens out from
   context — which is why it still clears the bar.
-- **Tidier & patient** (today: the Soniox upload model — audio is sent after
-  you stop): a higher threshold for what makes it into the text, so it reads a
-  bit more cleanly — fewer spoken-language particles, a little closer to
-  something you'd have written. Ten minutes of audio take on the order of a
-  minute. The better fit for emails and texts meant for humans, or whenever
-  wording matters more than waiting. Neither mode is truly "as if typed",
-  though — there's no LLM behind them; the difference is one of degree.
+- **Most accurate & patient** (today: the Soniox upload model — audio is sent
+  after you stop): the whole recording is transcribed in one pass, and in my
+  own testing it makes the fewest mistakes of the lineup. Since v6 it stays
+  about as close to how you spoke as the fast mode; what sets it apart is
+  accuracy, at the price of the wait. Even several minutes of audio come back
+  in well under a minute. The better fit for emails and texts meant for
+  humans, or whenever wording matters more than waiting. Neither mode is truly
+  "as if typed", though — there's no LLM behind them; the difference is one of
+  degree.
 
 Both are legitimate; the tool should keep serving both and keep the choice one
-hotkey away. (Optional LLM post-processing may later sharpen this difference
-into an explicit, configurable choice — see below.)
+hotkey away. (Optional LLM post-processing may later offer tidier text as an
+explicit, configurable choice — see below.)
 
 ## Who it's for
 
@@ -220,8 +222,8 @@ a bit better" is not a release blocker — at some point you just put it out.
 
 **Later, optional, explicitly not launch-blocking:**
 
-- **Optional LLM post-processing** of transcripts — making the fast-vs-tidy
-  distinction an explicit, configurable choice (and giving
+- **Optional LLM post-processing** of transcripts — making tidier text an
+  explicit, configurable choice (and giving
   spelling-and-grammar cleanup as a side effect). Today's quality is good
   enough without it; that's why it can wait.
 - **English as a real second language.** The same models can handle English,

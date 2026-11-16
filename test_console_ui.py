@@ -2045,10 +2045,11 @@ def check_keyless_lineup():
             if "(default)" in strip("".join(lines)):
                 _record(f"{fname}/{rname}: renders a (default) tag with no pin active")
 
-    # Grey rule, checked positionally on the lineup renderer (labels overlap
-    # as substrings -- "Soniox" is inside "Soniox Live" -- so zip by AVAILABLE_APIS
-    # order rather than matching text). Groq-only: the two soniox rows dim, the two
-    # groq rows not; groq-large is current and must never be dim.
+    # Grey rule, checked positionally on the lineup renderer: zip by AVAILABLE_APIS
+    # order rather than matching text, so the rule holds whatever the labels say
+    # (one label may contain another, as "Soniox" was inside "Soniox Live" before
+    # #342). Groq-only: the two soniox rows dim, the two groq rows not; groq-large
+    # is current and must never be dim.
     present = {"GROQ_API_KEY"}
     lu = lineup_keyed("groq-large", present)
     rows = u._lineup_lines(lu, True)
@@ -2150,6 +2151,16 @@ def check_pinned_default_tag():
     prow = next((ln for ln in mplain if API_DISPLAY["groq"]["label"] in ln), None)
     if prow is None or TAG not in prow or "\x1b" in prow:
         _record("pinned masthead plain twin: ASCII (default) tag missing or ESC present")
+
+    # (E) every engine pinned once, both forms: the tag lengthens that one row, and
+    # nothing wraps or truncates it, so the frame holds only while the pinned row's
+    # descriptor fits beside the longest label (#342).
+    for a in AVAILABLE_APIS:
+        for ansi in (True, False):
+            check_block(f"masthead/pinned-{a}{'' if ansi else '/plain'}",
+                        _masthead_with(lineup_for(DEFAULT_API), ansi=ansi,
+                                       pinned_default=API_DISPLAY[a]["label"]),
+                        ansi=ansi)
 
 
 def check_engine_has_key():
