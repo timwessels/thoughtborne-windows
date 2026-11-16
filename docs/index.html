@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Thoughtborne – Diktieren per Hotkey für Windows</title>
-<meta name="description" content="Kostenlose Open-Source-Diktiersoftware für Windows. Hotkey drücken, reden, zweiten Hotkey drücken – der Text landet an der Cursor-Position. Für Deutsch gebaut, fürs Reden mit KI.">
+<title>Thoughtborne – Diktiersoftware für Windows, gebaut für Deutsch</title>
+<meta name="description" content="Kostenlose Open-Source-Diktiersoftware für Windows, gebaut für Deutsch: per Hotkey in jede App diktieren, auch in ChatGPT und Claude Code. Kein Abo, eigener API-Key.">
 <link rel="canonical" href="https://thoughtborne.app/">
 <link rel="alternate" hreflang="de" href="https://thoughtborne.app/">
 <link rel="alternate" hreflang="en" href="https://thoughtborne.app/en/">
@@ -26,24 +26,41 @@
 <meta name="twitter:card" content="summary_large_image">
 <!-- Google Search Console ownership proof — removing it un-verifies the property. -->
 <meta name="google-site-verification" content="olJhv7AskdFyZ6ftChwHMDHjfhokNTJSDp2IerYd8rw">
+<!-- The WebSite entry lives on this page only: Google takes the site name
+     for the whole domain from the home page, /en/ cannot carry its own. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Thoughtborne",
-  "operatingSystem": "Windows",
-  "applicationCategory": "UtilitiesApplication",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-  "url": "https://thoughtborne.app/",
-  "downloadUrl": "https://github.com/timwessels/thoughtborne-windows",
-  "license": "https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE",
-  "description": "Kostenlose Open-Source-Diktiersoftware für Windows. Hotkey drücken, reden, zweiten Hotkey drücken – der Text landet an der Cursor-Position. Für Deutsch gebaut, fürs Reden mit KI.",
-  "inLanguage": ["de", "en"]
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://thoughtborne.app/#website",
+      "name": "Thoughtborne",
+      "url": "https://thoughtborne.app/"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://thoughtborne.app/#software",
+      "name": "Thoughtborne",
+      "operatingSystem": "Windows",
+      "applicationCategory": "UtilitiesApplication",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+      "isAccessibleForFree": true,
+      "url": "https://thoughtborne.app/",
+      "downloadUrl": "https://github.com/timwessels/thoughtborne-windows",
+      "sameAs": "https://github.com/timwessels/thoughtborne-windows",
+      "license": "https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE",
+      "screenshot": "https://thoughtborne.app/assets/screenshot-terminal.png",
+      "author": { "@type": "Person", "name": "Tim Wessels", "url": "https://github.com/timwessels" },
+      "description": "Kostenlose Open-Source-Diktiersoftware für Windows, gebaut für Deutsch: per Hotkey in jede App diktieren, auch in ChatGPT und Claude Code. Kein Abo, eigener API-Key.",
+      "inLanguage": ["de", "en"]
+    }
+  ]
 }
 </script>
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -161,7 +178,7 @@
   <section class="shot">
     <div class="wrap">
       <div class="shot-frame">
-        <img src="assets/screenshot-terminal.png?v=3" alt="Thoughtborne im Terminal: oben die Bereitschaftsanzeige mit dem Modell-Karussell der vier Engines und der Tastenübersicht, darunter eine Aufnahme vom REC-Hinweis bis zur Bestätigung des eingefügten Texts.">
+        <img src="assets/screenshot-terminal.png?v=3" width="683" height="837" alt="Thoughtborne im Terminal: oben die Bereitschaftsanzeige mit dem Modell-Karussell der vier Engines und der Tastenübersicht, darunter eine Aufnahme vom REC-Hinweis bis zur Bestätigung des eingefügten Texts.">
       </div>
       <p class="shot-cap"><strong>Bedient wird per Tastenkürzel.</strong> Das Terminal ist kein Bedienfenster, sondern die Anzeige: Es zeigt, welche Engine gerade aktiv ist, welche Tasten belegt sind und was zuletzt passiert ist. Hier wird nichts geklickt – die einzige Ausnahme ist ein kleines Fenster für die Einstellungen.</p>
     </div>
@@ -368,6 +385,31 @@
           <li>viel mit Chatbots und Coding-Agents arbeitest – ChatGPT, Claude Code, Codex &amp; Co.</li>
           <li>lange Texte tippst und sie lieber einsprechen würdest.</li>
         </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section faq" id="fragen">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">FAQ</p>
+      <h2>Häufige Fragen</h2>
+      <div class="faq-list">
+        <div>
+          <h3>Was ist Thoughtborne?</h3>
+          <p>Thoughtborne ist eine kostenlose Open-Source-Diktiersoftware für Windows (MIT-Lizenz). Du drückst eine Tastenkombination, sprichst, und der Text steht an der Cursorposition – in jeder App. Die Spracherkennung (Speech-to-Text) übernimmt wahlweise Soniox oder Whisper über Groq, jeweils mit deinem eigenen API-Key.</p>
+        </div>
+        <div>
+          <h3>Funktioniert Thoughtborne offline?</h3>
+          <p>Nein. Thoughtborne setzt bewusst auf Spracherkennung aus der Cloud statt auf lokale Modelle: Ziel ist, immer das jeweils beste verfügbare Modell für Deutsch zu nutzen. Du brauchst also eine Internetverbindung. Dein Audio geht dabei nur an den Anbieter, den du gewählt hast; Aufnahmen und Transkripte bleiben auf deiner Platte.</p>
+        </div>
+        <div>
+          <h3>Kann ich damit in ChatGPT und Claude Code diktieren?</h3>
+          <p>Ja, dafür ist es gebaut. Thoughtborne fügt den Text dort ein, wo der Cursor steht, also auch im Eingabefeld von ChatGPT im Browser oder in Claude Code im Terminal. Mit <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> wird der Text eingefügt und gleich mit Enter abgeschickt.</p>
+        </div>
+        <div>
+          <h3>Worin unterscheidet es sich von der Windows-Spracheingabe (Win+H)?</h3>
+          <p>Die Spracheingabe von Windows ist eingebaut und sofort da. Thoughtborne hat ein anderes Ziel: Transkripte, die auch auf Deutsch gut genug sind, um sie ungelesen abzuschicken. Dafür nutzt es aktuelle Spracherkennungs-Modelle aus der Cloud, filtert Füllwörter und bekannte Erkennungsartefakte heraus und archiviert jede Aufnahme, damit kein Diktat verloren geht.</p>
+        </div>
       </div>
     </div>
   </section>

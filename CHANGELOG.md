@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A "Common questions" section on the website, and search wording in its head.**
+  Both start pages now answer four questions in plain sentences: what Thoughtborne
+  is, whether it works offline (it does not, by design), whether it dictates into
+  ChatGPT and Claude Code, and how it differs from Windows voice typing. The page
+  titles and meta descriptions use the words people search with ("Diktiersoftware",
+  "dictation app") where they said "hotkey dictation", and the structured data now
+  names the site, the maintainer and the repository.
 - **Search-engine groundwork for the website.** The site now serves a
   `robots.txt` (everything crawlable, pointing at the sitemap) and a
   `sitemap.xml` listing the two indexable pages with their language alternates;
@@ -81,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The website declares its character set in the HTTP header.** The host sent
+  `text/html` with no charset. Browsers read the `<meta>` tag and never noticed, but a
+  client that trusts the header alone decoded the pages as ISO-8859-1 and read "fÃ¼r"
+  for "für" — the fetchers behind scrapers and AI assistants among them. `.htaccess`
+  now sets UTF-8 and adds baseline security headers (`nosniff`, a referrer policy, a
+  first-party content security policy); the screenshot carries its dimensions, so the
+  page no longer shifts while it loads.
 - **No more stray ". ." after a removed filler on the live engine (#342).** Soniox Live
   sometimes writes a filler as "Ähm,." — comma and period glued together. The filter took
   only the comma with the filler and left the period standing, so "… behoben ist. Ähm,.

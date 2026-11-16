@@ -365,6 +365,11 @@ code {
 
 .audience { font-size: 0.92rem; margin-top: 1.6rem; }
 
+.faq-list { margin-top: 2rem; }
+.faq-list > div { border-top: 1px solid var(--line); padding-block: 1.05rem 1.15rem; }
+.faq-list h3 { font-size: 1.02rem; font-weight: 600; line-height: 1.35; color: var(--ink); margin-bottom: 0.4rem; text-wrap: balance; }
+.faq-list p { font-size: 0.95rem; line-height: 1.55; }
+
 .site-footer { border-top: 1px solid var(--line); padding-block: clamp(2.5rem, 6vw, 3.5rem); }
 .footer-inner { max-width: var(--measure-wide); text-align: center; margin-inline: auto; padding-inline: clamp(1.25rem, 5vw, 2rem); }
 .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem 1.15rem; font-size: 0.9rem; }

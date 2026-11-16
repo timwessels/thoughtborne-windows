@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Thoughtborne — Hotkey dictation for Windows</title>
-<meta name="description" content="Free, open-source dictation tool for Windows. Press a hotkey, talk, press a second hotkey — the text lands at the cursor position. Built for German, built for talking to AI.">
+<title>Thoughtborne — Free, open-source dictation app for Windows</title>
+<meta name="description" content="Free, open-source dictation app for Windows. Press a hotkey, talk — the text lands at the cursor in any app. Bring your own Soniox or Groq Whisper key, no subscription. Built for German.">
 <link rel="canonical" href="https://thoughtborne.app/en/">
 <link rel="alternate" hreflang="de" href="https://thoughtborne.app/">
 <link rel="alternate" hreflang="en" href="https://thoughtborne.app/en/">
@@ -31,17 +31,22 @@
   "name": "Thoughtborne",
   "operatingSystem": "Windows",
   "applicationCategory": "UtilitiesApplication",
+  "@id": "https://thoughtborne.app/#software",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+  "isAccessibleForFree": true,
   "url": "https://thoughtborne.app/en/",
   "downloadUrl": "https://github.com/timwessels/thoughtborne-windows",
+  "sameAs": "https://github.com/timwessels/thoughtborne-windows",
   "license": "https://github.com/timwessels/thoughtborne-windows/blob/main/LICENSE",
-  "description": "Free, open-source dictation tool for Windows. Press a hotkey, talk, press a second hotkey — the text lands at the cursor position. Built for German, built for talking to AI.",
+  "screenshot": "https://thoughtborne.app/assets/screenshot-terminal.png",
+  "author": { "@type": "Person", "name": "Tim Wessels", "url": "https://github.com/timwessels" },
+  "description": "Free, open-source dictation app for Windows. Press a hotkey, talk — the text lands at the cursor in any app. Bring your own Soniox or Groq Whisper key, no subscription. Built for German.",
   "inLanguage": ["de", "en"]
 }
 </script>
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="../style.css?v=15">
+<link rel="stylesheet" href="../style.css?v=16">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -159,7 +164,7 @@
   <section class="shot">
     <div class="wrap">
       <div class="shot-frame">
-        <img src="../assets/screenshot-terminal.png?v=3" alt="Thoughtborne in the terminal: the ready screen with the four-engine model carousel and the key overview on top, below it a recording from the REC notice to the inserted-text confirmation.">
+        <img src="../assets/screenshot-terminal.png?v=3" width="683" height="837" alt="Thoughtborne in the terminal: the ready screen with the four-engine model carousel and the key overview on top, below it a recording from the REC notice to the inserted-text confirmation.">
       </div>
       <p class="shot-cap"><strong>It is operated by keyboard shortcut.</strong> The terminal is not a control window but a display: it shows which engine is currently active, which keys are bound, and what happened last. Nothing here is clicked — the one exception is a small window for the settings.</p>
     </div>
@@ -366,6 +371,31 @@
           <li>spend a lot of time with chatbots and coding agents — ChatGPT, Claude Code, Codex and the like.</li>
           <li>type long texts and would rather just say them.</li>
         </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section faq" id="questions">
+    <div class="wrap prose">
+      <p class="eyebrow" aria-hidden="true">FAQ</p>
+      <h2>Common questions</h2>
+      <div class="faq-list">
+        <div>
+          <h3>What is Thoughtborne?</h3>
+          <p>Thoughtborne is a free, open-source dictation app for Windows (MIT license). You press a hotkey, talk, and the text lands at the cursor position — in any app. Speech recognition (speech-to-text) runs on Soniox or on Whisper via Groq, your choice, with your own API key.</p>
+        </div>
+        <div>
+          <h3>Does Thoughtborne work offline?</h3>
+          <p>No. Thoughtborne deliberately uses cloud speech recognition instead of local models: the aim is to always run the best available model for German. So you need an internet connection. Your audio goes only to the provider you chose; recordings and transcripts stay on your disk.</p>
+        </div>
+        <div>
+          <h3>Can I dictate into ChatGPT and Claude Code?</h3>
+          <p>Yes, that is what it is built for. Thoughtborne inserts the text wherever the cursor is — the ChatGPT input box in your browser, or Claude Code in the terminal. <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> inserts the text and presses Enter to send it.</p>
+        </div>
+        <div>
+          <h3>How is it different from Windows voice typing (Win+H)?</h3>
+          <p>Windows voice typing is built in and ready at once. Thoughtborne aims at something else: transcripts good enough to send unread, in German too. To get there it uses current cloud speech models, filters out filler words and known recognition artifacts, and archives every recording so that no dictation is ever lost.</p>
+        </div>
       </div>
     </div>
   </section>
