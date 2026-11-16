@@ -7,7 +7,7 @@
 
 # Thoughtborne
 
-[![Tests](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml/badge.svg)](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml) [![Latest release](https://img.shields.io/github/v/release/timwessels/thoughtborne-windows)](https://github.com/timwessels/thoughtborne-windows/releases) [![License: MIT](https://img.shields.io/github/license/timwessels/thoughtborne-windows)](LICENSE)
+[![Tests](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml/badge.svg)](https://github.com/timwessels/thoughtborne-windows/actions/workflows/tests.yml) [![CodeQL](https://github.com/timwessels/thoughtborne-windows/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/timwessels/thoughtborne-windows/actions/workflows/github-code-scanning/codeql) [![Latest release](https://img.shields.io/github/v/release/timwessels/thoughtborne-windows)](https://github.com/timwessels/thoughtborne-windows/releases) [![License: MIT](https://img.shields.io/github/license/timwessels/thoughtborne-windows)](LICENSE)
 
 **[Deutsche Version](README.de.md)** · **Website: [thoughtborne.app](https://thoughtborne.app)**
 
