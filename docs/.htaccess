@@ -9,6 +9,25 @@
   Header set Cache-Control "no-cache"
 </IfModule>
 
+# Charset: the host sent "Content-Type: text/html" with no charset. Browsers
+# read the <meta charset> and never noticed, but an HTTP client that trusts the
+# header alone falls back to ISO-8859-1 for text/* (Python's requests does) and
+# then reads "fÃ¼r" where the page says "für" (measured 2026-11-16). Scrapers
+# and the fetchers behind AI assistants are exactly that kind of client.
+AddDefaultCharset utf-8
+
+# Baseline security headers. The site is static and takes no input, so this is
+# hygiene, not the answer to a known attack: no MIME sniffing, no framing by
+# other sites, every resource first-party. 'unsafe-inline' is deliberate — both
+# pages carry their script and a <noscript> style inline. Anything loaded from
+# another origin (an embedded video, a web font, an analytics script) stays
+# blocked until it is named here; the browser console says which directive.
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+</IfModule>
+
 # Canonical host: the www alias answered 200 with a full duplicate of the site
 # (observed 2026-10-09), so search engines saw two sites with the same content.
 # 301 everything on www over to the apex domain; the TLS certificate covers
