@@ -38,7 +38,7 @@ Engines, for the curious: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox
 - **A microphone**, with Windows microphone access allowed (Settings > Privacy & security > Microphone).
 - **At least one API key** — Groq (free) or Soniox (prepaid); see [API keys](#api-keys).
 - **Internet.** Transcription runs through the APIs; the first start also downloads Python and the dependencies once.
-- **No Python needed** on the standard path — uv downloads a suitable one automatically. (pip fallback: Python 3.10–3.12 or 3.13.1+, not 3.14.)
+- **No Python needed** on the standard path — uv downloads a suitable one automatically. (pip fallback: Python 3.11–3.12 or 3.13.1+, not 3.14.)
 
 ## Installation
 
@@ -133,7 +133,7 @@ Read llms-install.md and guide me through the setup. Ask before running commands
 
 ### Classic pip + venv (fallback)
 
-Without uv, the classic way still works. Important: **Python 3.10–3.12 or 3.13.1+, not 3.14** — PyAudio ships no pre-built wheels for 3.14 yet, so installation fails there with a build error.
+Without uv, the classic way still works. Important: **Python 3.11–3.12 or 3.13.1+, not 3.14** — PyAudio ships no pre-built wheels for 3.14 yet, so installation fails there with a build error.
 
 ```
 py -3.12 -m venv .venv
@@ -280,9 +280,9 @@ No mouse software? The free [X-Mouse Button Control (XMBC)](https://www.highrez.
 
 ## Troubleshooting
 
-**PyAudio installation fails (pip path).** PyAudio ships official Windows wheels for Python 3.10–3.13 — `pip install` needs no compiler there. A build error usually means Python 3.14: switch to 3.13 or use the uv path (uv picks a suitable Python automatically).
+**PyAudio installation fails (pip path).** PyAudio ships official Windows wheels for Python 3.11–3.13 — `pip install` needs no compiler there. A build error usually means Python 3.14: switch to 3.13 or use the uv path (uv picks a suitable Python automatically).
 
-**The settings app won't open on Python 3.13.0.** That exact CPython patch has a bug that breaks tkinter inside a virtual environment on Windows, so the settings/onboarding window crashes on launch (`Can't find a usable init.tcl`) — the dictation tool itself is unaffected. Use Python 3.13.1 or newer, or any 3.10–3.12; every version except 3.13.0 is fine. The uv path already avoids this (it won't build a venv on 3.13.0); on the pip path, pick the interpreter yourself (e.g. `py -3.12 -m venv .venv`).
+**The settings app won't open on Python 3.13.0.** That exact CPython patch has a bug that breaks tkinter inside a virtual environment on Windows, so the settings/onboarding window crashes on launch (`Can't find a usable init.tcl`) — the dictation tool itself is unaffected. Use Python 3.13.1 or newer, or any 3.11–3.12; every version except 3.13.0 is fine. The uv path already avoids this (it won't build a venv on 3.13.0); on the pip path, pick the interpreter yourself (e.g. `py -3.12 -m venv .venv`).
 
 **`python` opens the Microsoft Store.** That is the Store alias stub on a machine without Python — use the `py` launcher (as in the pip commands above) or the uv path.
 
@@ -302,7 +302,7 @@ No mouse software? The free [X-Mouse Button Control (XMBC)](https://www.highrez.
 
 Thoughtborne is plain Python — a script you run, not a package you install — with ten runtime dependencies and no framework. The parts that can only be Windows talk to Win32 directly through `ctypes`: the global hotkeys in `hotkey_manager.py`, and the clipboard and synthesized keystrokes in `output_handler.py` (audio capture goes through PyAudio). Everything that does not have to be Windows is deliberately lifted out into small, pure-stdlib modules with a test driver each — `typed_cap.py`, `hotkey_parse.py`, `engine_memory.py`, `restart_signal.py`, `console_ui.py` — a convention of this repo rather than an accident, because that extraction is what makes a Windows-only tool verifiable from a Linux box. The four transcription engines sit behind one `AbstractTranscriber` interface in `transcriber.py`, built by a factory from an engine id; the settings app (`thoughtborne_settings.py`) is plain tkinter, no framework there either.
 
-There is no pytest harness: verification is a ladder of 20 standalone test drivers that need neither Windows nor a test framework. `python3 run_tests.py` runs all of them in a few seconds and prints one verdict line per driver, and [GitHub Actions](.github/workflows/tests.yml) runs that same command on every push and pull request (Python 3.10 and 3.12, under Xvfb so the display-gated settings checks really run rather than skipping). Above the ladder sit the two things it cannot reach: a [Windows-Sandbox harness](sandbox/README.md) that installs a release into a throwaway VM and drives it as far as a real transcribing self-test, and hands-on checks for what only a real Windows desktop shows.
+There is no pytest harness: verification is a ladder of 25 standalone test drivers that need neither Windows nor a test framework. `python3 run_tests.py` runs all of them in a few seconds and prints one verdict line per driver, and [GitHub Actions](.github/workflows/tests.yml) runs that same command on every push and pull request (Python 3.11 and 3.12, under Xvfb so the display-gated settings checks really run rather than skipping). Above the ladder sit the two things it cannot reach: a [Windows-Sandbox harness](sandbox/README.md) that installs a release into a throwaway VM and drives it as far as a real transcribing self-test, and hands-on checks for what only a real Windows desktop shows.
 
 - [`DECISIONS.md`](DECISIONS.md) — the settled product decisions, consulted before any behavior change so a call already made is not silently reopened.
 - [`RELEASING.md`](RELEASING.md) — the release ritual.

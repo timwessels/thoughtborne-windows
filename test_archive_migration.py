@@ -121,7 +121,7 @@ def _patched_rename(fake):
     """Swap pathlib.Path.rename for the duration of one call, always restoring it.
 
     A class-level patch rather than a Path subclass on purpose: subclassing
-    pathlib.Path only became supportable in 3.12 and CI also runs 3.10. The
+    pathlib.Path only became supportable in 3.12 and CI also runs 3.11. The
     try/finally is not decoration -- a forgotten restore would poison every later
     case in this process, and under pytest even other drivers; that is what
     check_rename_patch_restored() confirms at the end.

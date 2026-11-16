@@ -80,7 +80,7 @@ goto done
 :declined
 echo.
 echo Setup cancelled. To run Thoughtborne without uv, follow the classic
-echo pip setup in README.md (needs Python 3.10 - 3.13).
+echo pip setup in README.md (needs Python 3.11 - 3.13).
 goto done
 
 :no_winget

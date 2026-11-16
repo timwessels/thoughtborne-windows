@@ -35,7 +35,7 @@ Known-bad: a single-line `cmd.exe /c start "title" ...` from WSL — interop quo
 
 - Is `uv` installed? (`where uv` on Windows, `where.exe uv` from WSL.) If not, Step 2 covers installing it.
 - Is `winget` available? (Only needed for the easiest uv install.)
-- Only if the pip fallback becomes necessary: enumerate Pythons via the `py` launcher (`py --list`). Do not trust a bare `python` on a fresh machine — it may be the Microsoft Store stub, which opens the Store instead of running anything. Thoughtborne needs Python **3.10–3.12 or 3.13.1+**, not 3.14 (PyAudio ships no 3.14 wheels; CPython 3.13.0 has a venv-tkinter bug that breaks the settings app).
+- Only if the pip fallback becomes necessary: enumerate Pythons via the `py` launcher (`py --list`). Do not trust a bare `python` on a fresh machine — it may be the Microsoft Store stub, which opens the Store instead of running anything. Thoughtborne needs Python **3.11–3.12 or 3.13.1+**, not 3.14 (PyAudio ships no 3.14 wheels; CPython 3.13.0 has a venv-tkinter bug that breaks the settings app).
 
 **Hardware & permissions.** A microphone must exist, and Windows microphone access must be on (Settings > Privacy & security > Microphone). Not fully checkable from the CLI — ask the user.
 
@@ -111,7 +111,7 @@ Outcome: startup banner, `All hotkeys registered successfully` in `thoughtborne.
 
 ## Known failure modes
 
-- **PyAudio build error during pip install** → Python 3.14 (no wheels yet) → use the uv path, or a Python 3.10–3.13.
+- **PyAudio build error during pip install** → Python 3.14 (no wheels yet) → use the uv path, or a Python 3.11–3.13.
 - **`python` opens the Microsoft Store** → Store alias stub on a machine without Python → use the `py` launcher or the uv path.
 - **`winget` not found** → install uv via the official installer instructions (https://docs.astral.sh/uv/getting-started/installation/) or use the pip path.
 - **Tool starts but no audio / empty transcripts** → microphone permission off, or wrong default input device → Windows Settings > Privacy & security > Microphone; check the input device logged in `thoughtborne.log`.

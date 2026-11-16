@@ -30,7 +30,7 @@ off-Windows, which is why this driver reads it.
     python3 test_app_icon.py           # verify, exit non-zero on failure
     python3 test_app_icon.py --show    # also print each frame as ASCII art
 
-Pure stdlib (struct, zlib), Python 3.10+, off-Windows. The PNG decoder covers what
+Pure stdlib (struct, zlib), Python 3.11+, off-Windows. The PNG decoder covers what
 the generator writes (8-bit RGBA, non-interlaced) and says so if it meets anything
 else. Sibling of test_deps_sync.py: a CASES list, PASS/FAIL print, non-zero exit.
 """

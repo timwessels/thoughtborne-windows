@@ -38,7 +38,7 @@ Engines, für Neugierige: `stt-rt-v6` (Soniox Live v6) · `stt-async-v6` (Soniox
 - **Ein Mikrofon**, mit erlaubtem Mikrofonzugriff in Windows (Einstellungen > Datenschutz und Sicherheit > Mikrofon).
 - **Mindestens ein API-Key** — Groq (kostenlos) oder Soniox (Prepaid); siehe [API-Keys](#api-keys).
 - **Internet.** Die Transkription läuft über die APIs; der erste Start lädt außerdem einmalig Python und die Dependencies.
-- **Kein Python nötig** auf dem Standard-Weg — uv lädt automatisch ein passendes. (pip-Fallback: Python 3.10–3.12 oder 3.13.1+, nicht 3.14.)
+- **Kein Python nötig** auf dem Standard-Weg — uv lädt automatisch ein passendes. (pip-Fallback: Python 3.11–3.12 oder 3.13.1+, nicht 3.14.)
 
 ## Installation
 
@@ -133,7 +133,7 @@ Read llms-install.md and guide me through the setup. Ask before running commands
 
 ### Klassisch mit pip + venv (Fallback)
 
-Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.10–3.12 oder 3.13.1+, nicht 3.14** — PyAudio liefert für 3.14 noch keine vorkompilierten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
+Ohne uv funktioniert der klassische Weg weiterhin. Wichtig: **Python 3.11–3.12 oder 3.13.1+, nicht 3.14** — PyAudio liefert für 3.14 noch keine vorkompilierten Wheels, die Installation bricht dort mit einem Build-Fehler ab.
 
 ```
 py -3.12 -m venv .venv
@@ -280,9 +280,9 @@ Wenn du keine Maussoftware hast: Das kostenlose [X-Mouse Button Control (XMBC)](
 
 ## Troubleshooting
 
-**PyAudio-Installation schlägt fehl (pip-Weg).** PyAudio liefert offizielle Windows-Wheels für Python 3.10–3.13 — `pip install` braucht dort keinen Compiler. Ein Build-Fehler heißt meist Python 3.14: auf 3.13 wechseln oder den uv-Weg nutzen (uv wählt automatisch ein passendes Python).
+**PyAudio-Installation schlägt fehl (pip-Weg).** PyAudio liefert offizielle Windows-Wheels für Python 3.11–3.13 — `pip install` braucht dort keinen Compiler. Ein Build-Fehler heißt meist Python 3.14: auf 3.13 wechseln oder den uv-Weg nutzen (uv wählt automatisch ein passendes Python).
 
-**Die Einstellungs-App öffnet sich unter Python 3.13.0 nicht.** Genau dieser CPython-Patch hat einen Fehler, der tkinter in einer virtuellen Umgebung unter Windows zerstört — das Einstellungs-/Onboarding-Fenster stürzt beim Start ab (`Can't find a usable init.tcl`); das Diktier-Tool selbst ist nicht betroffen. Python 3.13.1 oder neuer nutzen, oder ein beliebiges 3.10–3.12; jede Version außer 3.13.0 ist in Ordnung. Der uv-Weg umgeht das bereits (er baut auf 3.13.0 keine venv); auf dem pip-Weg den Interpreter selbst wählen (z. B. `py -3.12 -m venv .venv`).
+**Die Einstellungs-App öffnet sich unter Python 3.13.0 nicht.** Genau dieser CPython-Patch hat einen Fehler, der tkinter in einer virtuellen Umgebung unter Windows zerstört — das Einstellungs-/Onboarding-Fenster stürzt beim Start ab (`Can't find a usable init.tcl`); das Diktier-Tool selbst ist nicht betroffen. Python 3.13.1 oder neuer nutzen, oder ein beliebiges 3.11–3.12; jede Version außer 3.13.0 ist in Ordnung. Der uv-Weg umgeht das bereits (er baut auf 3.13.0 keine venv); auf dem pip-Weg den Interpreter selbst wählen (z. B. `py -3.12 -m venv .venv`).
 
 **`python` öffnet den Microsoft Store.** Das ist der Store-Alias-Stub auf einem Rechner ohne Python — den `py`-Launcher nutzen (wie in den pip-Befehlen oben) oder den uv-Weg.
 
@@ -302,7 +302,7 @@ Wenn du keine Maussoftware hast: Das kostenlose [X-Mouse Button Control (XMBC)](
 
 Thoughtborne ist schlichtes Python — ein Skript, das man startet, kein Paket, das man installiert — mit zehn Laufzeit-Dependencies und ohne Framework. Die Teile, die es nur unter Windows geben kann, sprechen über `ctypes` direkt mit Win32: die globalen Hotkeys in `hotkey_manager.py`, die Zwischenablage und die simulierten Tastenanschläge in `output_handler.py` (die Audio-Aufnahme läuft über PyAudio). Alles, was nicht zwingend Windows braucht, ist bewusst in kleine, reine Stdlib-Module mit je einem eigenen Test-Treiber herausgezogen — `typed_cap.py`, `hotkey_parse.py`, `engine_memory.py`, `restart_signal.py`, `console_ui.py` —, eine Konvention dieses Repos und kein Zufall: Genau diese Trennung macht ein Windows-Tool von einem Linux-Rechner aus prüfbar. Die vier Transkriptions-Engines liegen hinter einer gemeinsamen `AbstractTranscriber`-Schnittstelle in `transcriber.py`, erzeugt von einer Factory anhand der Engine-ID; die Einstellungs-App (`thoughtborne_settings.py`) ist schlichtes tkinter, auch dort kein Framework.
 
-Es gibt keine pytest-Suite: Verifiziert wird über eine Leiter aus 20 eigenständigen Test-Treibern, die weder Windows noch ein Test-Framework brauchen. `python3 run_tests.py` fährt sie alle in wenigen Sekunden durch und gibt pro Treiber eine Urteilszeile aus, und [GitHub Actions](.github/workflows/tests.yml) führt denselben Befehl bei jedem Push und jedem Pull Request aus (Python 3.10 und 3.12, unter Xvfb, damit die display-abhängigen Einstellungs-Prüfungen wirklich laufen statt übersprungen zu werden). Über der Leiter stehen die zwei Dinge, die sie nicht erreicht: eine [Windows-Sandbox-Prüfstrecke](sandbox/README.md), die ein Release in eine Wegwerf-VM installiert und bis zu einem echten, transkribierenden Selbsttest treibt, und Prüfungen von Hand für das, was nur ein echter Windows-Desktop zeigt.
+Es gibt keine pytest-Suite: Verifiziert wird über eine Leiter aus 25 eigenständigen Test-Treibern, die weder Windows noch ein Test-Framework brauchen. `python3 run_tests.py` fährt sie alle in wenigen Sekunden durch und gibt pro Treiber eine Urteilszeile aus, und [GitHub Actions](.github/workflows/tests.yml) führt denselben Befehl bei jedem Push und jedem Pull Request aus (Python 3.11 und 3.12, unter Xvfb, damit die display-abhängigen Einstellungs-Prüfungen wirklich laufen statt übersprungen zu werden). Über der Leiter stehen die zwei Dinge, die sie nicht erreicht: eine [Windows-Sandbox-Prüfstrecke](sandbox/README.md), die ein Release in eine Wegwerf-VM installiert und bis zu einem echten, transkribierenden Selbsttest treibt, und Prüfungen von Hand für das, was nur ein echter Windows-Desktop zeigt.
 
 - [`DECISIONS.md`](DECISIONS.md) — die getroffenen Produktentscheidungen; vor jeder Verhaltensänderung nachzulesen, damit eine bereits gefällte Entscheidung nicht unbemerkt wieder aufgemacht wird.
 - [`RELEASING.md`](RELEASING.md) — das Release-Ritual.

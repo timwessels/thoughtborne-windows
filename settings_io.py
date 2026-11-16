@@ -682,7 +682,7 @@ def _backup_aside(path):
     (nothing left to lose -- what was deleted externally no rename can save). Any
     other rename failure propagates: no backup, no overwrite (D-026).
 
-    The exists-loop instead of a no-clobber primitive (3.10 has none portable):
+    The exists-loop instead of a no-clobber primitive (the stdlib has none portable):
     on Windows os.rename raises FileExistsError over an existing target (a safe
     abort), on POSIX it would clobber -- but this module is the single writer and
     the app is single-instance (D-009), so the window between the check and the

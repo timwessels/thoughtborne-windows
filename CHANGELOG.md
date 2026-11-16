@@ -74,17 +74,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparison includes the switch to v6: on short dictations nearly all of the gain comes
   from the shared connection, on recordings of several minutes much of it from v6.
   Nothing to install, no setting to change.
-- **Locked `certifi` bumped from 2026.5.20 to 2026.10.23, and `pillow` to 13.0.0 where
-  the Python version allows it.** `certifi` is the list of certificate authorities the
-  tool checks its providers' TLS certificates against; the new version clears a security
-  advisory about root certificates (emSign) whose intermediate keys were compromised.
-  Soniox and Groq still verify against the new list (checked on all three hosts the tool
-  talks to). `pillow` 13.0.0 clears a batch of advisories about reading and writing
-  crafted image files. Thoughtborne never opens an image while it runs — `pillow` only
-  comes along as a transitive dependency of `pyautogui`, and only on Python 3.10 and
-  3.11 — so that half is hygiene for what the installer puts on a user's machine, not a
-  fix for a reachable vulnerability. `pillow` 13 needs Python 3.11 or newer, so a
-  Python 3.10 environment stays on 12.3.0.
+- **Locked `certifi` bumped from 2026.5.20 to 2026.10.23 and `pillow` from 12.3.0 to
+  13.0.0.** `certifi` is the list of certificate authorities the tool checks its
+  providers' TLS certificates against; the new version clears a security advisory about
+  root certificates (emSign) whose intermediate keys were compromised. Soniox and Groq
+  still verify against the new list (checked on all three hosts the tool talks to).
+  `pillow` 13.0.0 clears a batch of advisories about reading and writing crafted image
+  files. Thoughtborne never opens an image while it runs — `pillow` only comes along as
+  a transitive dependency of `pyautogui`, and only on Python 3.11 — so that half is
+  hygiene for what the installer puts on a user's machine, not a fix for a reachable
+  vulnerability.
+- **Python 3.11 is now the minimum; Python 3.10 is no longer supported (#344).** Python 3.10
+  stopped receiving security fixes in October 2026, and its libraries have begun to
+  follow: `pillow` 13.0.0, the release that fixes the advisories above, no longer
+  installs on 3.10. On the standard uv path there is nothing to do — uv replaces a
+  Python 3.10 environment with a newer Python on the next start, downloading one if
+  needed. The pip path no longer supports Python 3.10 either: move to 3.11–3.12 or
+  3.13.1+ before updating.
 
 ### Fixed
 

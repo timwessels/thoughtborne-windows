@@ -16,21 +16,16 @@ mismatch is a genuine drift, not a reformatting. A failure names the drifting
 package and which file holds which version, on both sides.
 
     python3 test_deps_sync.py           # verify, exit non-zero on failure
-    python3 test_deps_sync.py --show    # also print the parsed sets + active parser
+    python3 test_deps_sync.py --show    # also print the parsed sets
 
-Pure stdlib, Python 3.10+ off-Windows (WSL). pyproject is read with tomllib
-where present (3.11+); on 3.10, where tomllib does not exist, a small targeted
-line parser reads the two flat quoted-string arrays instead. Both are exercised:
-on 3.11+ the fallback is cross-checked against tomllib (a reference oracle);
-on 3.10 the fallback IS the live parser the two comparison cases run through.
+Pure stdlib, Python 3.11+ off-Windows (WSL). pyproject is read with tomllib.
 
-Known, deliberate limits (widen the parser if a marker ever appears in the two
-lists): environment markers (`; python_version < ...`) are stripped, so a
-marker-only drift would be masked -- none exist today, and the tomllib
-cross-check on 3.11+ is a canary that would flag the dumb fallback losing such a
-token. Extras (`pkg[extra]`) are not masked: the name regex stops at the `[`, so
-`[extra]` folds into the "specifier" and an extras-only difference reads as a
-genuine specifier drift and is caught.
+Known, deliberate limits (widen the comparison if a marker ever appears in the
+two lists): environment markers (`; python_version < ...`) are stripped, so a
+marker-only drift would be masked -- none exist today. Extras (`pkg[extra]`)
+are not masked: the name regex stops at the `[`, so `[extra]` folds into the
+"specifier" and an extras-only difference reads as a genuine specifier drift
+and is caught.
 
 Sibling of test_setup.py / test_settings_io.py: a CASES list, PASS/FAIL print,
 non-zero exit on failure. Mutating any single entry (name or specifier) in
@@ -38,13 +33,8 @@ either list makes it fail naming file + entry.
 """
 import re
 import sys
+import tomllib
 from pathlib import Path
-
-try:
-    import tomllib
-    HAVE_TOMLLIB = True
-except ModuleNotFoundError:      # Python 3.10 ships no tomllib
-    HAVE_TOMLLIB = False
 
 REPO = Path(__file__).resolve().parent
 SHOW = "--show" in sys.argv
@@ -55,62 +45,11 @@ def _read(name):
 
 
 # ======================================================================
-# pyproject parsing -- tomllib where present, a targeted fallback on 3.10
+# pyproject parsing
 # ======================================================================
 
-def _parse_pyproject_tomllib(text):
-    data = tomllib.loads(text)
-    return list(data["project"]["dependencies"])
-
-
-_QUOTED = re.compile(r"""["']([^"']*)["']""")
-
-
-def _section_body(text, section):
-    """Lines from `[section]` up to the next top-level `[header]` or EOF.
-    Section-scoped so `[project.urls]` never counts as `[project]`."""
-    out, in_sec = [], False
-    hdr = re.compile(r"^\s*\[([^\]]+)\]\s*$")
-    for ln in text.splitlines():
-        m = hdr.match(ln)
-        if m:
-            in_sec = (m.group(1) == section)
-            continue
-        if in_sec:
-            out.append(ln)
-    return out
-
-
-def _extract_array(text, section, key):
-    """The quoted strings of the array `key = [ ... ]` inside `[section]`.
-    Array-scoped (only the named array, never every string in the section) so
-    `requires-python`/`name` are not mistaken for requirements, and the opening
-    `key =` is anchored at line start so a same-named token used as a value
-    elsewhere is never mistaken for the array."""
-    lines = _section_body(text, section)
-    keypat = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*\[")
-    start = next((i for i, ln in enumerate(lines) if keypat.match(ln)), None)
-    if start is None:
-        raise ValueError(f"array [{section}].{key} not found in pyproject.toml")
-    lines = lines[start:]
-    lines[0] = lines[0].split("[", 1)[1]
-    items = []
-    for ln in lines:
-        ln = ln.split("#", 1)[0]
-        items += _QUOTED.findall(ln)
-        if "]" in _QUOTED.sub("", ln):   # a ']' only outside the quoted spans closes the array
-            break
-    return [x for x in items if x.strip()]
-
-
-def _parse_pyproject_fallback(text):
-    return _extract_array(text, "project", "dependencies")
-
-
 def _parse_pyproject(text):
-    if HAVE_TOMLLIB:
-        return _parse_pyproject_tomllib(text)
-    return _parse_pyproject_fallback(text)
+    return list(tomllib.loads(text)["project"]["dependencies"])
 
 
 # ======================================================================
@@ -192,37 +131,8 @@ def test_project_deps_match_requirements():
     assert not drift, "dependency lists drifted:\n" + "\n".join(drift)
 
 
-def test_fallback_parser_matches_tomllib():
-    # Reference cross-check: on 3.11+ the 3.10 fallback must extract byte-identical
-    # tokens to tomllib, so the 3.10-only path is verified here on 3.11+ too. On
-    # 3.10 there is no oracle, but there the fallback IS the live parser of the
-    # comparison case above -- it carries the load either way, never skipped-and-idle.
-    if not HAVE_TOMLLIB:
-        print("      (skipped: no tomllib here; the fallback parser IS the live "
-              "parser exercised by the comparison case on 3.10)")
-        return
-    text = _read("pyproject.toml")
-    t_deps = _parse_pyproject_tomllib(text)
-    f_deps = _parse_pyproject_fallback(text)
-    assert sorted(f_deps) == sorted(t_deps), (
-        "fallback parser extracted different [project] dependencies than tomllib:\n"
-        f"  tomllib : {sorted(t_deps)}\n  fallback: {sorted(f_deps)}")
-
-
-def test_python_floor_declared():
-    # This test's whole 3.10 rationale (the tomllib fallback) dies the day the
-    # floor rises above 3.10; keep the two in step. pyproject only -- the README's
-    # prose version range is not machine-asserted (a reformatting must not fail here).
-    text = _read("pyproject.toml").replace(" ", "")
-    assert ">=3.10" in text, (
-        "pyproject requires-python no longer admits 3.10 -- the tomllib fallback "
-        "in test_deps_sync.py would be dead code; revisit it")
-
-
 CASES = [
     test_project_deps_match_requirements,
-    test_fallback_parser_matches_tomllib,
-    test_python_floor_declared,
 ]
 
 
@@ -230,7 +140,6 @@ def main():
     if SHOW:
         deps = _parse_pyproject(_read("pyproject.toml"))
         reqs = _parse_requirements(_read("requirements.txt"))
-        print("pyproject parser:", "tomllib" if HAVE_TOMLLIB else "fallback")
         print("[project] dependencies :", sorted(_norm_set(deps)))
         print("requirements.txt       :", sorted(_norm_set(reqs)))
         print()
@@ -250,7 +159,7 @@ def main():
     if failures:
         print(f"\nFAIL: {len(failures)}/{len(CASES)} case(s) failed")
         return 1
-    print(f"\nOK: all {len(CASES)} dependency-sync cases pass")
+    print("\nOK: pyproject.toml and requirements.txt declare the same dependencies")
     return 0
 
 

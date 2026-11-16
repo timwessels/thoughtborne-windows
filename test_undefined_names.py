@@ -35,8 +35,8 @@ What it does:
     what makes an unpinned pyflakes safe here -- a renamed class fails loudly at
     import;
   - a file that does not parse counts as a failure, for the whole tree rather than
-    for the files someone remembered to name. On CI's 3.10 leg that also catches
-    3.11+-only syntax, which the Python floor forbids;
+    for the files someone remembered to name. On CI's 3.11 leg that also catches
+    3.12+-only syntax, which the Python floor forbids;
   - the lane proves its own detection power on every run: the #269 mutation, a clean
     twin and a file that does not parse go through the same `check_file()` as the
     sweep, in a tempdir. Without the clean twin the positive case would prove

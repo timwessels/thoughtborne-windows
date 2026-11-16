@@ -56,8 +56,8 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 # with the new release's copy (D-013), so the shown version always moves with the
 # files. Read with the SAME line-anchored regex setup.ps1 uses for the Installed-apps
 # DisplayVersion (its Get-InstalledVersion): the two answer one question about one
-# file, so the patterns are kept identical. tomllib is deliberately not used -- it is
-# 3.11+ and the floor is 3.10 (requires-python).
+# file, so the patterns are kept identical. tomllib is deliberately not used -- a second
+# way of reading the file could drift from setup.ps1's.
 _VERSION_RE = re.compile(r'(?m)^\s*version\s*=\s*"([^"]+)"')
 
 

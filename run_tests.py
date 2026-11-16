@@ -38,7 +38,7 @@ The ladder also watches one file it must never touch: the checkout's own
 `thoughtborne.log`, whose mtime is the heartbeat the *While the tool is running* gate in
 AGENTS.md reads. A driver that moves it fails, by name (#267).
 
-Stdlib only and Python 3.10+, and it must keep running off Windows: verifying the
+Stdlib only and Python 3.11+, and it must keep running off Windows: verifying the
 Windows tool from a Linux box is the whole point of the ladder.
 """
 import argparse
