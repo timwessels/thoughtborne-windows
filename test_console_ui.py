@@ -2103,7 +2103,8 @@ def check_pinned_default_tag():
     """#219: a valid fixed-mode pin tags its engine's masthead row with a dim
     ` (default)` -- only that row, dim even when the row is bold (current), gone
     when the row is keyless (#200 wins), and only in the masthead (switched /
-    switch-failed never receive a pin, covered by check_keyless_lineup's ban)."""
+    switch-failed never receive a pin, covered by check_keyless_lineup's ban);
+    and with any engine pinned, the masthead frame still holds (#342)."""
     TAG = " (default)"
     DIM_TAG = f"\x1b[{u.DIM}m{TAG}\x1b[0m"        # exact bytes of (" (default)", (DIM,))
 

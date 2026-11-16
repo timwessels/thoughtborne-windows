@@ -24,7 +24,7 @@ Vier Transkriptions-APIs, zur Laufzeit umschaltbar mit `Ctrl+Alt+L`. Die Aufstel
 | API | Kurz | Was sie tut | Geschwindigkeit | Key & Kosten |
 |-----|------|-------------|-----------------|--------------|
 | **Soniox Live v6** | sehr gute Qualität · sofort fertig (Default) | Transkribiert während der Aufnahme — das Transkript ist im Moment des Stopps fertig, nah an dem, wie du wirklich gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert); ideal, um mit KI zu sprechen. | ~0,5 s nach Stopp | Soniox (Prepaid) |
-| **Soniox v6** | beste Qualität · braucht länger | Schickt das Audio nach dem Stopp und transkribiert die ganze Aufnahme in einem Durchgang. Sie ist die genaueste der vier und bleibt wie Soniox Live nah an dem, wie du gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert). Sie passt überall dort, wo ein falsches Wort mehr kostet als das Warten. | ~5–40 s (Datei-Upload + Polling) | Soniox (Prepaid) |
+| **Soniox v6** | beste Qualität · braucht länger | Schickt das Audio nach dem Stopp und transkribiert die ganze Aufnahme in einem Durchgang. Sie ist die genaueste der vier und bleibt wie Soniox Live nah an dem, wie du gesprochen hast (nur die reinen "ähm"/"äh" werden herausgefiltert). Sie passt überall dort, wo ein falsches Wort mehr kostet als das Warten. | ~3–12 s (Datei-Upload + Polling) | Soniox (Prepaid) |
 | **Groq Whisper Large v3** | gute Qualität · schnell · kostenlos | Die genauere der beiden kostenlosen Optionen — der empfohlene Weg, Thoughtborne ohne Bezahlung auszuprobieren. | ~1 s | Groq (Free Tier) |
 | **Groq Whisper Turbo v3** | ordentliche Qualität · am schnellsten · kostenlos | Die schnellste Option, für Notizen zwischendurch — Genauigkeit unterhalb der anderen drei. | ~0,7 s | Groq (Free Tier) |
 

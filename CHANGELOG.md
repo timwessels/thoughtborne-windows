@@ -61,7 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection. What stays the same: the audio and the transcript are still deleted from
   Soniox's servers before the text is inserted, the pause between two status checks is
   still half a second (checking faster measured no gain), and errors surface exactly as
-  before.
+  before. Measured with the real transcription class against the real Soniox service
+  (not the running tool), the median wait drops by about two seconds on short
+  dictations — 5.6 → 3.1 s for 12 s of audio, 10.0 → 6.4 s for 3 minutes. That
+  comparison includes the switch to v6: on short dictations nearly all of the gain comes
+  from the shared connection, on recordings of several minutes much of it from v6.
   Nothing to install, no setting to change.
 
 ### Fixed

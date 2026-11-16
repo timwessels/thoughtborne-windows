@@ -1056,7 +1056,7 @@ class ThoughtborneApp:
         empty even though the MP3 is fully archived. Issue #1.
 
         A single file stage runs for every recording: SonioxAsyncTranscriber
-        (async polling, ~10-60 s), re-transcribing the archived MP3. Since #212
+        (async polling, ~3-12 s), re-transcribing the archived MP3. Since #212
         removed the legacy sync path there is no duration-gated lane left --
         short and long recordings take the identical single async stage.
 

@@ -24,7 +24,7 @@ Four transcription APIs, switchable at runtime with `Ctrl+Alt+L`. The lineup fol
 | API | In short | What it does | Speed | Key & cost |
 |-----|----------|--------------|-------|------------|
 | **Soniox Live v6** | very good quality · instant (default) | Transcribes while you record — the transcript is ready the moment you stop, close to how you actually spoke (only the bare "ähm"/"äh" are filtered out); ideal for talking to AI. | ~0.5 s after stop | Soniox (prepaid) |
-| **Soniox v6** | best quality · takes longer | Sends the audio after you stop and transcribes the whole recording in one pass — the most accurate of the four, and like Soniox Live close to how you spoke (only the bare "ähm"/"äh" are filtered out); for anything where a wrong word costs more than the wait. | ~5–40 s (file upload + polling) | Soniox (prepaid) |
+| **Soniox v6** | best quality · takes longer | Sends the audio after you stop and transcribes the whole recording in one pass — the most accurate of the four, and like Soniox Live close to how you spoke (only the bare "ähm"/"äh" are filtered out); for anything where a wrong word costs more than the wait. | ~3–12 s (file upload + polling) | Soniox (prepaid) |
 | **Groq Whisper Large v3** | good quality · fast · free | The more accurate of the two free options — the recommended way to try Thoughtborne without paying. | ~1 s | Groq (free tier) |
 | **Groq Whisper Turbo v3** | decent quality · fastest · free | The fastest option, for quick notes — accuracy below the other three. | ~0.7 s | Groq (free tier) |
 
