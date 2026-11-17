@@ -128,6 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python 3.10 environment with a newer Python on the next start, downloading one if
   needed. The pip path no longer supports Python 3.10 either: move to 3.11–3.12 or
   3.13.1+ before updating.
+- **The text arrives sooner after long dictations (#345).** Every recording was encoded
+  to MP3 twice: once as the working file the engines get, once for `history/audio/`. The
+  archive file is now a copy of the working file, so the archive holds the very file the
+  tool worked with, and the second encode drops out of the wait for every engine. In the
+  maintainer's logs it took about 0.2 s on a dictation of one to three minutes and about
+  1.3 s beyond six minutes.
 
 ### Fixed
 

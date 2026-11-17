@@ -27,10 +27,16 @@ What is proven, against a fake stream that can wedge on demand:
      NOT resurrect recording -- it honors the poison, closes the freshly opened
      stream so the mic turns off, and arms no endgame (the P1 poison-race guard).
 
+One case beside the guards, because this driver already builds a real
+AudioRecorder off-Windows: save_recording encodes the MP3 once, into the temp
+file it returns, and the archive is a byte copy of it (#345). The encoder is
+faked, so the check does not depend on the soundfile build writing MP3.
+
 The timers are shrunk so the whole suite runs in a couple of seconds. Every
 blocker thread is a daemon gated on an Event that the teardown releases, so no
 orphaned thread outlives the run.
 """
+import os
 import sys
 import time
 import types
@@ -372,6 +378,39 @@ def test_ensure_pyaudio_drops_poisoned_without_terminate():
     assert isinstance(r.p, _FakePyAudio), "a fresh PyAudio instance must be built"
 
 
+def test_save_encodes_once_and_archives_a_copy():
+    """#345: save_recording encodes the MP3 once, into the temp file it returns,
+    and the archive is a byte copy of that file. The encoder is a fake that
+    writes bytes unique to each call, so the check holds whether or not this
+    soundfile build can write MP3, and a second encode cannot pass for a copy."""
+    writes = []
+
+    def fake_write(path, data, samplerate, format=None):
+        writes.append((str(path), format))
+        Path(path).write_bytes(f"encode #{len(writes)}\n".encode() + data.tobytes())
+
+    cwd, real_write = Path.cwd(), audio_handler.sf.write
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)  # save_recording writes its temp files to the cwd
+        audio_handler.sf.write = fake_write
+        try:
+            frames = [bytes(range(256)) * 8] * 40  # 2.56 s of 16 kHz mono
+            wav_path, mp3_path = audio_handler.AudioRecorder().save_recording(
+                frames, "20261117_120000")
+        finally:
+            audio_handler.sf.write = real_write
+            os.chdir(cwd)
+        archive = audio_handler.ARCHIVE_FOLDER / "voice_20261117_120000.mp3"
+        try:
+            assert writes == [(mp3_path, "mp3")], \
+                f"expected one MP3 encode, into the temp file; got {writes}"
+            assert archive.is_file(), "the archive file must exist"
+            assert archive.read_bytes() == (Path(tmp) / mp3_path).read_bytes(), \
+                "the archive must be a byte copy of the temp MP3"
+        finally:
+            archive.unlink(missing_ok=True)
+
+
 CASES = [
     test_normal_poll_one_chunk,
     test_stall_watchdog_arms_endgame,
@@ -385,6 +424,7 @@ CASES = [
     test_normal_close_runs_clean_no_poison,
     test_open_timeout_poisons,
     test_ensure_pyaudio_drops_poisoned_without_terminate,
+    test_save_encodes_once_and_archives_a_copy,
 ]
 
 

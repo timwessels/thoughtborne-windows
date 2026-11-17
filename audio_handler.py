@@ -17,6 +17,7 @@ import os
 import re
 import time
 import wave
+import shutil
 import msvcrt
 import logging
 import datetime
@@ -1436,9 +1437,10 @@ class AudioRecorder:
         sf.write(str(mp3_path), data, samplerate, format='mp3')
         logger.info(f"MP3 file created: {mp3_filename}", extra=FILE_ONLY)
 
-        # Archive MP3
+        # Archive MP3: a copy of the temp MP3 the engines read (#345) -- one
+        # encode per recording.
         archive_path = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
-        sf.write(str(archive_path), data, samplerate, format='mp3')
+        shutil.copyfile(mp3_path, archive_path)
         logger.info(f"Archived as: {archive_path}", extra=FILE_ONLY)
 
         return str(wav_path), str(mp3_path)
