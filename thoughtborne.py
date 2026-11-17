@@ -72,6 +72,7 @@ from transcriber import (
     GroqTranscriber,
     SonioxLiveTranscriber,
     SonioxAsyncTranscriber,
+    ElevenLabsTranscriber,
     _ErrorTag,
     _one_line_error,
     _httpx_exc_reason,
@@ -143,9 +144,12 @@ def _describe_construction_failure(error: Exception) -> str:
 
 def _error_provider(transcriber) -> str:
     """Short engine-family token for the FAILED reason line (#159): every Soniox
-    variant (live, async upload) collapses to 'Soniox', Groq to 'Groq'. Names the
-    family that actually produced the failure -- which can differ from the
-    currently-selected model shown in the footer (intentional, #159)."""
+    variant (live, async upload) collapses to 'Soniox', Groq to 'Groq', Scribe to
+    'ElevenLabs' (#343). Names the family that actually produced the failure --
+    which can differ from the currently-selected model shown in the footer
+    (intentional, #159)."""
+    if isinstance(transcriber, ElevenLabsTranscriber):
+        return "ElevenLabs"
     return "Groq" if isinstance(transcriber, GroqTranscriber) else "Soniox"
 
 
@@ -1932,8 +1936,8 @@ class ThoughtborneApp:
         """Worker: re-transcribe an archived MP3 and insert at the cursor like a
         fresh dictation (Issue #24).
 
-        Honors the currently selected engine when it is file-capable -- the
-        'soniox' upload slot or either Groq slot (#107): switching engine with
+        Honors the currently selected engine when it is file-capable -- every
+        slot but Soniox Live (#107): switching engine with
         Ctrl+Alt+L and retrying is the escape hatch when one API is broken. Only
         when the selection is Soniox Live does it fall back to the fixed Soniox
         async file lane (_run_empty_transcript_fallback), since a live session

@@ -42,7 +42,11 @@ starts one step earlier, at the filter that builds the effective context: the bl
 `_`-prefixed comment keys reach neither request, and a block holding nothing else
 sends no context at all. What that filter leaves is measured too (#286): a context
 large enough to risk the service's own limit warns at startup -- and is sent anyway,
-whole, because a warning is the remedy here as well.
+whole, because a warning is the remedy here as well. The ElevenLabs engine (#343)
+reads the same terms but refuses a whole request over one term it does not accept,
+so its own filter is checked rule by rule, on the real import path (warning only
+with an ElevenLabs key), and once more in the real request -- with a fake key and
+httpx's transport refusing, since the workshop `.env` may hold a real one.
 
 `.env` (#238, #269) gets the same treatment for the same reason -- it is written by
 hand or by an assisting agent, on a Windows whose PowerShell defaults are ANSI,
@@ -57,7 +61,7 @@ AND on `settings_io.read_env` of the same bytes -- equal by construction now, an
 asserted anyway), that an inherited variable never wins, that the D-004 opt-out
 follows the file, and that the import creates no environment variable at all. Static
 guards back them up: the reader's call shape in `config.py`, no `dotenv` import left
-in any driver or module, no process-environment read of the three `.env`-borne names
+in any driver or module, no process-environment read of the `.env`-borne names
 in either half, the single-instance guard in `thoughtborne.py` still consulting the
 opt-out it is the consumption side of (#289), and `.env.example` staying plain ASCII
 so a copy of it cannot become the undecodable file.
@@ -82,7 +86,7 @@ anything else -- a torn reflog, a `ref:` pointing outside `refs/`, no `.git` at 
 -- is to yield None and cost nothing, so it is checked exactly like the readers
 above: against tempdir layouts, and once more through a real `import config`.
 
-The three Soniox lanes need `groq` (transcriber's only third-party import off
+The three Soniox lanes and the ElevenLabs request lane need `groq` (transcriber's only third-party import off
 Windows) and skip cleanly without it, and the checkout lane's one assertion against
 the real repository skips where there is no `.git` to read (an exported tree); the
 `.env` lanes need nothing beyond the stdlib and always run. Starting the real tool
@@ -356,6 +360,50 @@ def test_soniox_context_size_guard():
           f"a long comment was measured as context: {commented!r}")
 
 
+def test_elevenlabs_keyterms():
+    """The keyterm filter for ElevenLabs (#343), every rule as input -> output.
+
+    ElevenLabs rejects a whole request over a single term it refuses, so the shared
+    vocabulary list is filtered before it can reach that engine. Each rule mirrors one
+    the service was measured to enforce (2026-11-17), with the border case on both
+    sides: 50 characters pass and 51 do not, counted as characters (50 umlauts are 100
+    bytes and pass); 5 words pass and 6 do not, after spaces are collapsed -- so 5
+    words with doubled spaces pass, and hyphens split nothing. Empty and whitespace-only
+    terms and the seven characters < > { } [ ] \\ are refused; 1,000 distinct terms
+    pass and the 1,001st is cut, while duplicates are sent once and never count."""
+    ok = ["Thoughtborne", "a" * 50, "ä" * 50, "eins zwei drei vier fünf",
+          "a-b-c-d-e-f", "C++"]
+    bad = ["", "   ", "a" * 51, "ä" * 51, "eins zwei drei vier fünf sechs"] + list("<>{}[]\\")
+    terms, warning = config.elevenlabs_keyterms({"terms": ok + bad})
+    check(terms == ok, f"the accepted terms are {terms!r}, expected {ok!r}")
+    check(isinstance(warning, str) and f"{len(bad)} term(s)" in warning,
+          f"{len(bad)} refused terms gave the warning {warning!r}")
+    for fragment in ("ElevenLabs", "not empty", "50 characters", "five words",
+                     "< > { } [ ] \\", "1,000", "personal_settings.json", "Soniox",
+                     # the first three refused terms, each cut to 40, then the rest counted
+                     "'', '   ', '" + "a" * 40 + f"' and {len(bad) - 3} more."):
+        check(fragment in (warning or ""), f"the keyterm warning does not say {fragment!r}")
+    check("a" * 41 not in (warning or "") and "ä" * 40 not in (warning or ""),
+          f"the keyterm warning names more than the first three terms, cut: {warning!r}")
+
+    for value, expected in (
+            # normalized as the service does it, duplicates once (after normalizing)
+            ({"terms": ["  Claude   Code  ", "Claude Code", "WSL2"]}, (["Claude Code", "WSL2"], 0)),
+            ({"terms": ["eins  zwei   drei    vier     fünf"]}, (["eins zwei drei vier fünf"], 0)),
+            # nothing to send, nothing to say
+            (None, ([], 0)), ({}, ([], 0)), ({"general": []}, ([], 0)), ({"terms": []}, ([], 0)),
+            # shapes a hand edit can produce: left out, and said so
+            ({"terms": "Claude"}, ([], 1)), ({"terms": ["Claude", 42, None]}, (["Claude"], 2)),
+            # the count limit: 1,000 distinct pass, a duplicate does not count, the rest is cut
+            ({"terms": [f"t{i}" for i in range(1000)] + ["t0"]}, ([f"t{i}" for i in range(1000)], 0)),
+            ({"terms": [f"t{i}" for i in range(1002)]}, ([f"t{i}" for i in range(1000)], 2))):
+        terms, warning = config.elevenlabs_keyterms(value)
+        n = int(warning.split()[1]) if warning else 0
+        check((terms, n) == expected,
+              f"elevenlabs_keyterms({str(value)[:80]}) -> ({str(terms)[:80]}, {n} left out), "
+              f"expected ({str(expected[0])[:80]}, {expected[1]} left out)")
+
+
 def test_never_raises(d):
     """The whole point, swept: whatever the file holds, the reader returns rather
     than raising. The lane below takes the same question to the real `import
@@ -618,7 +666,8 @@ _VALUES_PROBE = (
     "'ep': config.soniox_live_endpointing_params(),"
     "'hotkeys': config.HOTKEYS,"
     "'api': [config.DEFAULT_API, config.DEFAULT_API_IS_EXPLICIT],"
-    "'context': config.SONIOX_CONTEXT}))"
+    "'context': config.SONIOX_CONTEXT,"
+    "'keyterms': config.ELEVENLABS_KEYTERMS}))"
 )
 
 # The shipped push-to-talk defaults, in the probe's order. Every invalid entry
@@ -836,6 +885,35 @@ def test_context_size_guard_subprocess():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_keyterm_filter_subprocess():
+    """The ElevenLabs keyterm filter on the real import path (#343): a vocabulary with
+    one term ElevenLabs refuses, read by a starting tool once with and once without an
+    ElevenLabs key in its `.env`.
+
+    Both starts send ElevenLabs only the term it accepts and leave the Soniox context
+    whole. Only the start with the key warns: whoever dictates on Soniox alone loses
+    nothing over such a term and gets no warning about an engine they do not use. The
+    `.env` holds a fake key in the tempdir beside the copied config -- the checkout's
+    own `.env` is never read here."""
+    vocabulary = {"terms": ["Fixture Term", "Fixture <Template>"]}
+    tmp = tempfile.mkdtemp(prefix="tb_config_keyterms_")
+    try:
+        _copy_config_into(tmp)
+        raw = json.dumps({"vocabulary": vocabulary}).encode("utf-8")
+        for label, env_bytes, n_warnings, fragments in (
+                ("without a key", None, 0, []),
+                ("with a key", b"ELEVENLABS_API_KEY=not-a-real-key\n", 1,
+                 ["1 term(s) break ElevenLabs' rules", "'Fixture <Template>'."])):
+            if env_bytes is not None:
+                (Path(tmp) / ".env").write_bytes(env_bytes)
+            report = _probe_settings(f"keyterms {label}", tmp, raw)
+            if report is not None:
+                _check_report(f"keyterms {label}", report, n_warnings, fragments,
+                              {"keyterms": ["Fixture Term"], "context": vocabulary})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ======================================================================
 # Frozen historical settings files (D-026's evolution rule, #327)
 #
@@ -992,8 +1070,9 @@ _ENV_PROBE = (
 
 _ENV_GOOD = b"GROQ_API_KEY=dummy-a\nSONIOX_API_KEY=dummy-b\n"
 
-# The three names that may only ever come out of the install directory's .env.
-_ENV_BORNE = ("GROQ_API_KEY", "SONIOX_API_KEY", "THOUGHTBORNE_ALLOW_SECOND_INSTANCE")
+# The names that may only ever come out of the install directory's .env.
+_ENV_BORNE = ("GROQ_API_KEY", "SONIOX_API_KEY", "ELEVENLABS_API_KEY",
+              "THOUGHTBORNE_ALLOW_SECOND_INSTANCE")
 
 
 def _env_install_tmp(prefix):
@@ -1001,7 +1080,7 @@ def _env_install_tmp(prefix):
     its subprocess import must run with. Returns (tmp, install, env).
 
     The child environment keeps HOME and PATH -- a minimal env would change what the
-    interpreter can reach -- and scrubs the three .env-borne names. **That scrub is
+    interpreter can reach -- and scrubs the .env-borne names. **That scrub is
     load-bearing and must not be rationalized away**: without it, the inherited lane
     below would run against whatever the box really exports, so on a machine with a
     real SONIOX_API_KEY in the environment -- the very state that opened #269 -- this
@@ -1492,7 +1571,7 @@ def test_source_guards():
           f"read_env_file is the one .env parser since #269, and the package is no "
           f"longer a dependency (D-017)")
 
-    # G3 -- no process-environment read of the three .env-borne names, in either half
+    # G3 -- no process-environment read of the .env-borne names, in either half
     # (#269 / D-017). Name-based on purpose, not shape-based: `{**os.environ, ...}` in
     # the settings-app spawn and the THOUGHTBORNE_SPAWN_TS read in the app are process
     # plumbing that must keep working, so a blanket "no os.environ here" guard would be
@@ -2118,6 +2197,123 @@ def test_soniox_context_async_request():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_elevenlabs_request():
+    """The keyterms' last mile on the ElevenLabs engine (#343): what the filter kept
+    arrives in the real request, and the request carries the fields the engine is
+    pinned to -- model, language, the fixed smoothing, no speaker labels or event
+    tags, the recording under the upload field the service reads, and the timeout
+    that lets a long dictation finish. Without a key the constructor refuses.
+
+    Driven through the production `transcribe()` with `httpx.Client` replaced by a
+    fake that encodes each post exactly as it was handed over -- form and file, by
+    httpx's own multipart encoder, offline, no transport -- because what decides is
+    the wire: a list has to become one repeated field per term, a boolean the text
+    "true", and an unpersonalized request has to carry no keyterms field at all.
+    The delete thread transcribe() starts afterwards is caught and never run here;
+    test_retry_marker_lifecycle holds it. httpx's real transport refuses for the
+    duration, and the key copy in `transcriber` is a fake one: the workshop `.env`
+    may hold a real ElevenLabs key, and `import config` reads it. Failure messages
+    never print the headers."""
+    try:
+        import transcriber
+    except ModuleNotFoundError as e:
+        print(f"    (skipped the ElevenLabs request lane: '{e.name}' is not "
+              f"installed off Windows)")
+        return
+    import httpx
+
+    fake_key = "not-a-real-elevenlabs-key"
+    posts, clients, threads = [], [], []
+
+    class _FakeClient:
+        """httpx.Client as transcribe() uses it: built with the headers, post,
+        close(). The post is encoded while the recording is still open."""
+        def __init__(self, **kwargs):
+            clients.append(kwargs.get("headers") == {"xi-api-key": fake_key})
+
+        def post(self, url, **kwargs):
+            wire = httpx.Request("POST", url, data=kwargs.get("data"),
+                                 files=kwargs.get("files")).read().decode("utf-8")
+            posts.append((url, kwargs, wire))
+            return _FakeResponse({"text": "fixture transcript", "transcription_id": "tx"})
+
+        def close(self):
+            return None
+
+    class _CaughtThread:
+        """threading.Thread as the engine starts its delete: filed, never started."""
+        def __init__(self, **kwargs):
+            threads.append(kwargs)
+
+        def start(self):
+            return None
+
+    def no_network(self, request):
+        raise AssertionError(f"the lane reached httpx's real transport: {request.url}")
+
+    saved_tx = (transcriber.ELEVENLABS_KEYTERMS, transcriber.ELEVENLABS_API_KEY,
+                transcriber.TEXT_ARCHIVE_FOLDER, transcriber.threading)
+    saved_httpx = (httpx.Client, httpx.HTTPTransport.handle_request)
+    tmp = tempfile.mkdtemp(prefix="tb_config_elevenlabs_")
+    try:
+        transcriber.ELEVENLABS_API_KEY = None
+        try:
+            transcriber.ElevenLabsTranscriber()
+            check(False, "ElevenLabsTranscriber() constructed without a key")
+        except transcriber.MissingAPIKeyError:
+            pass
+        transcriber.ELEVENLABS_API_KEY = fake_key
+        transcriber.TEXT_ARCHIVE_FOLDER = Path(tmp) / "transcripts"
+        transcriber.threading = types.SimpleNamespace(Thread=_CaughtThread)
+        httpx.Client, httpx.HTTPTransport.handle_request = _FakeClient, no_network
+        audio = Path(tmp) / "fixture.mp3"
+        audio.write_bytes(b"")
+        filtered, _ = config.elevenlabs_keyterms(
+            {"terms": ["Claude-MD", "  Thought   borne ", "C++ <Template>"]})
+        for label, keyterms in (("with keyterms", filtered), ("without", [])):
+            posts.clear()
+            clients.clear()
+            threads.clear()
+            transcriber.ELEVENLABS_KEYTERMS = keyterms
+            text = transcriber.ElevenLabsTranscriber().transcribe(str(audio), 1.0)
+            check(text == "fixture transcript",
+                  f"elevenlabs {label}: transcribe() returned {text!r} -- the lane is "
+                  f"no longer driving the real path it means to assert on")
+            check(clients == [True],
+                  f"elevenlabs {label}: transcribe() built {len(clients)} client(s); "
+                  f"expected one, with the key in an xi-api-key header and nothing else")
+            check(len(posts) == 1, f"elevenlabs {label}: {len(posts)} post(s), expected one")
+            check(len(threads) == 1, f"elevenlabs {label}: {len(threads)} delete thread(s) "
+                  f"started, expected one")
+            if not posts:
+                continue
+            url, kwargs, wire = posts[0]
+            check(url == f"{config.ELEVENLABS_API_BASE}/v1/speech-to-text",
+                  f"elevenlabs {label}: posted to {url}")
+            timeout = kwargs.get("timeout")
+            check(isinstance(timeout, httpx.Timeout)
+                  and timeout.read == config.ELEVENLABS_TIMEOUT_SECONDS
+                  and timeout.connect == config.ELEVENLABS_CONNECT_TIMEOUT_SECONDS,
+                  f"elevenlabs {label}: the post's timeout is {timeout!r}")
+            uploads = re.findall(r'name="(\w+)"; filename="([^"]*)"', wire)
+            check(uploads == [("file", "fixture.mp3")],
+                  f"elevenlabs {label}: the upload on the wire is {uploads!r}, expected "
+                  f"the recording under the field 'file'")
+            fields = re.findall(r'name="(\w+)"\r\n\r\n([^\r]*)\r\n', wire)
+            want = [("model_id", config.ELEVENLABS_MODEL), ("language_code", config.LANGUAGE),
+                    ("no_verbatim", "true"), ("diarize", "false"),
+                    ("tag_audio_events", "false")] + [("keyterms", t) for t in keyterms]
+            check(fields == want,
+                  f"elevenlabs {label}: the form on the wire is {fields!r}, expected {want!r}")
+        check(filtered == ["Claude-MD", "Thought borne"],
+              f"the filter handed the request {filtered!r}")
+    finally:
+        (transcriber.ELEVENLABS_KEYTERMS, transcriber.ELEVENLABS_API_KEY,
+         transcriber.TEXT_ARCHIVE_FOLDER, transcriber.threading) = saved_tx
+        httpx.Client, httpx.HTTPTransport.handle_request = saved_httpx
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_soniox_context_live_config():
     """The same last mile on the live path, where the file's endpointing block
     rides along: both personalizations end up in one WebSocket config JSON, and
@@ -2249,10 +2445,12 @@ PLAIN_CASES = [
     test_known_blocks_drift,
     test_effective_soniox_context,
     test_soniox_context_size_guard,
+    test_elevenlabs_keyterms,
     test_import_subprocess,
     test_settings_values_subprocess,
     test_vocabulary_filter_subprocess,
     test_context_size_guard_subprocess,
+    test_keyterm_filter_subprocess,
     test_frozen_historical_files,
     test_env_loading_subprocess,
     test_env_corpus_subprocess,
@@ -2267,6 +2465,7 @@ PLAIN_CASES = [
     test_soniox_constructors,
     test_soniox_context_async_request,
     test_soniox_context_live_config,
+    test_elevenlabs_request,
 ]
 
 # These take a tempdir positionally and run via main(); they are not pytest items (#242).
@@ -2300,7 +2499,8 @@ def main():
           f"its known-blocks guards, vocabulary shape, the push_to_talk and "
           f"soniox_endpointing value rules, four frozen historical files, the "
           f"comment filter and the size guard on the vocabulary's way out and its "
-          f"arrival in both real Soniox requests, the "
+          f"arrival in both real Soniox requests, the ElevenLabs keyterm filter and "
+          f"its arrival in the real ElevenLabs request, the "
           f"settings_io parity, a real `import config` per fixture; .env: the install "
           f"directory as the only source, every parsing rule read the same way by both "
           f"halves, an inherited variable that never counts, the D-004 opt-out's .env "

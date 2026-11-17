@@ -51,7 +51,17 @@ verdict exactly as before.
     hint, and no other status does (#334). The same fake also watches the
     server-side cleanup in transcribe()'s `finally` (#342): on every path, what
     the call created on Soniox's servers is deleted before it returns --
-    transcription first, then file -- and nothing else is.
+    transcription first, then file -- and nothing else is. The same fake drives
+    the real ElevenLabsTranscriber (#343) through the same questions: what each
+    path reports to the sink, which stored transcript it asks ElevenLabs to
+    delete, and how an error is categorized from ElevenLabs' error body rather
+    than the status alone -- with httpx's real transport made to refuse and the
+    module's key copy faked for the run, since the workshop `.env` may hold a
+    real key. Its delete runs in a thread after the text is returned, so the
+    case captures that thread instead of starting it and runs it by hand, with
+    the wait recorded rather than slept: what is held is the call, its order and
+    its wait, never the effect at ElevenLabs -- a premature DELETE is answered
+    200 there and changes nothing, which no fake can see.
 
 Plus one import-side guard, outside the marker story: #241, importing
 `output_handler` must leave pyautogui's corner fail-safe off.
@@ -1037,20 +1047,26 @@ class _FakeResp:
 
 class _FakeHTTPStatusError(Exception):
     """Stand-in for httpx.HTTPStatusError: carries .response.status_code so the
-    real handler's 401-vs-generic split works."""
-    def __init__(self, status_code):
+    real handler's 401-vs-generic split works. With a `body`, .response.json()
+    returns it -- the ElevenLabs handler reads the error body (#343)."""
+    def __init__(self, status_code, body=None):
         super().__init__(f"HTTP {status_code}")
         self.response = types.SimpleNamespace(status_code=status_code)
+        if body is not None:
+            self.response.json = lambda: body
 
 
-def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=()):
+def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=(),
+                     delete_sent=None):
     """A scriptable stand-in for the per-call `import httpx`, as transcribe() uses
     it: one Client per call. post/get pop the next scripted item -- a _FakeResp is
     returned, an Exception instance is raised on the call (a network failure).
-    delete appends its URL to `deleted` when one is given, then raises if the URL
-    ends with one of `delete_fails`."""
+    delete appends its URL to `deleted` when one is given, and the headers its
+    client was built with plus its timeout to `delete_sent` when that is given,
+    then raises if the URL ends with one of `delete_fails`."""
     mod = types.ModuleType("httpx")
     mod.HTTPStatusError = _FakeHTTPStatusError
+    mod.Timeout = lambda *a, **k: (a, k)   # the ElevenLabs post builds one (#343)
     posts = iter(post_script)
     gets = iter(get_script)
 
@@ -1066,13 +1082,18 @@ def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=()):
         deletes.append(url)
         if url.endswith(tuple(delete_fails)):
             raise ConnectionError("handshake timed out")
+        return types.SimpleNamespace(status_code=200)
 
     class _Client:
-        def __init__(self, *a, **k):
-            pass
+        def __init__(self, *a, headers=None, **k):
+            self.headers = headers
         post = staticmethod(lambda *a, **k: _serve(posts))
         get = staticmethod(lambda *a, **k: _serve(gets))
-        delete = staticmethod(_delete)
+
+        def delete(self, url, **k):
+            if delete_sent is not None:
+                delete_sent.append((self.headers, k.get("timeout")))
+            return _delete(url, **k)
 
         def close(self):
             pass
@@ -1271,6 +1292,218 @@ def test_async_cleanup_runs_on_every_path():
         f"transcription delete fails: cleanup tried {got}, expected {both}"
 
 
+# ---- #343: the REAL ElevenLabsTranscriber against the same scripted fake httpx --
+# The workshop .env can hold a real ElevenLabs key and `import config` reads it, so
+# besides the module fake every run swaps the key copy in `transcriber` for a fake
+# one and makes httpx's real transport refuse: a module-level `import httpx` slipping
+# past the sys.modules fake fails here before anything is sent.
+_FAKE_EL_KEY = "not-a-real-elevenlabs-key"
+
+
+class _CapturedThread:
+    """threading.Thread as the ElevenLabs engine starts its delete: start() only
+    files the thread, so the case decides when -- and whether -- it runs."""
+    started, fail_start = [], False
+
+    def __init__(self, target=None, args=(), name=None, daemon=None):
+        self.target, self.args, self.daemon = target, args, daemon
+
+    def start(self):
+        if _CapturedThread.fail_start:
+            raise RuntimeError("can't create new thread at interpreter shutdown")
+        _CapturedThread.started.append(self)
+
+
+def _run_elevenlabs_case(post_script, deleted=None, delete_fails=(), trace=None,
+                         start_fails=False):
+    """Run the REAL ElevenLabsTranscriber.transcribe against the scripted fake
+    httpx. Returns (result_text, error_tag, error_messages); every patched global
+    and the sys.modules['httpx'] entry are restored afterwards.
+
+    The delete thread transcribe() starts is captured, not started: once the call
+    has returned, the case notes what was deleted by then, runs each captured
+    thread by hand (still behind the fake httpx), and fills `trace` when given --
+    `at_return` (deletes before the return), `daemon` (each thread's flag),
+    `sleeps` (each wait, with how many deletes had happened before it) and `sent`
+    (each DELETE's client headers and timeout). The wait is
+    recorded, never slept, so no case depends on timing. `start_fails` makes the
+    thread refuse to start, as it does at interpreter shutdown."""
+    engine = tr.ElevenLabsTranscriber.__new__(tr.ElevenLabsTranscriber)
+    engine.display_name = "ElevenLabs Scribe v3"
+    engine.headers = {"xi-api-key": _FAKE_EL_KEY}
+    dummy = ah.ARCHIVE_FOLDER / "elevenlabs_input.mp3"
+    dummy.touch()
+    deleted = [] if deleted is None else deleted
+    trace = {} if trace is None else trace
+    sleeps, sent = [], []
+
+    def no_network(self, request):
+        raise AssertionError(f"the case reached httpx's real transport: {request.url}")
+
+    real_httpx = sys.modules.get("httpx")
+    transport = getattr(real_httpx, "HTTPTransport", None)
+    saved_handle = transport.handle_request if transport is not None else None
+    saved = (tr.ELEVENLABS_API_KEY, tr.threading, tr.time)
+    sys.modules["httpx"] = _make_fake_httpx(post_script, [], deleted, delete_fails, sent)
+    tr.ELEVENLABS_API_KEY = _FAKE_EL_KEY
+    _CapturedThread.started, _CapturedThread.fail_start = [], start_fails
+    tr.threading = types.SimpleNamespace(Thread=_CapturedThread)
+    tr.time = types.SimpleNamespace(
+        time=saved[2].time, sleep=lambda seconds: sleeps.append((seconds, len(deleted))))
+    if transport is not None:
+        transport.handle_request = no_network
+
+    lg = logging.getLogger("Thoughtborne")
+    old = lg.level
+    lg.setLevel(logging.ERROR)
+    cap = _ErrorCapture()
+    lg.addHandler(cap)
+    tag = tr._ErrorTag()
+    try:
+        result = engine.transcribe(str(dummy), 60.0, error_sink=tag)
+        trace["at_return"] = list(deleted)
+        trace["daemon"] = [t.daemon for t in _CapturedThread.started]
+        for thread in _CapturedThread.started:
+            thread.target(*thread.args)
+        trace["sleeps"] = sleeps
+        trace["sent"] = sent
+    finally:
+        lg.removeHandler(cap)
+        lg.setLevel(old)
+        if real_httpx is not None:
+            sys.modules["httpx"] = real_httpx
+        else:
+            sys.modules.pop("httpx", None)
+        tr.ELEVENLABS_API_KEY, tr.threading, tr.time = saved
+        if transport is not None:
+            transport.handle_request = saved_handle
+    return result, tag, cap.records
+
+
+# Measured ElevenLabs error bodies (2026-11-17; request ids dropped), as `detail`.
+_EL_WRONG_KEY = {"type": "authentication_error", "code": "invalid_api_key",
+                 "message": "API key is invalid.", "status": "invalid_api_key",
+                 "param": "api_key"}                                          # HTTP 400
+_EL_UNPREFIXED_KEY = {"type": "authentication_error", "code": "unauthorized",
+                      "message": "Invalid API key", "status": "invalid_api_key"}  # 401
+_EL_NO_PERMISSION = {"type": "authentication_error", "code": "unauthorized",
+                     "message": "The API key you used is missing the permission "
+                                "user_read to execute this operation.",
+                     "status": "missing_permissions"}                         # HTTP 401
+_EL_QUOTA = {"type": "invalid_request", "code": "quota_exceeded",
+             "message": "This request exceeds your quota of 10000.",
+             "status": "quota_exceeded"}                                      # HTTP 401
+_EL_BAD_TERM = {"type": "validation_error", "code": "invalid_parameters",
+                "message": "All keywords must be at most 50 characters.",
+                "status": "invalid_keyword_length", "param": "keyterms"}      # HTTP 400
+
+
+def test_elevenlabs_sink_and_cleanup_on_every_path():
+    """#343: each path of the real transcribe() -- what it returns, what it reports
+    to the per-call sink (D-001: a clean-empty run must not arm a retry), and which
+    stored transcript it asks ElevenLabs to delete, and when: nothing before the
+    text is returned, then one non-daemon thread that waits
+    ELEVENLABS_DELETE_DELAY_SECONDS and only then sends the DELETE, with the key
+    header and ELEVENLABS_DELETE_TIMEOUT_SECONDS on it. Every answer
+    with a transcription_id has something to delete, an empty one too; an error
+    answer creates nothing, and a timeout leaves the id unknown. A delete that
+    fails, or a thread that will not start, must not cost the text. This holds the
+    call, not its effect at ElevenLabs -- that takes the real service."""
+    tx = "/v1/speech-to-text/transcripts/"
+    wait = [(tr.ELEVENLABS_DELETE_DELAY_SECONDS, 0)]
+    cases = (
+        # (label, post script, delete_fails, start_fails, text, errored, reason, deleted)
+        ("success", [_FakeResp({"text": "Äh, Hallo Welt", "transcription_id": "tx1"})],
+         (), False, "Hallo Welt", False, None, [tx + "tx1"]),
+        ("clean empty", [_FakeResp({"text": "", "transcription_id": "tx2"})],
+         (), False, "", False, None, [tx + "tx2"]),
+        ("rejected key",
+         [_FakeResp(raise_exc=_FakeHTTPStatusError(400, {"detail": _EL_WRONG_KEY}))],
+         (), False, "", True, "auth", []),
+        ("read timeout", [type("ReadTimeout", (Exception,), {})("timed out")],
+         (), False, "", True, "no-connection", []),
+        ("delete fails", [_FakeResp({"text": "Hallo", "transcription_id": "tx3"})],
+         (tx + "tx3",), False, "Hallo", False, None, [tx + "tx3"]),
+        ("thread will not start", [_FakeResp({"text": "Hallo", "transcription_id": "tx4"})],
+         (), True, "Hallo", False, None, []),
+    )
+    for label, posts, fails, start_fails, want_text, errored, reason, want_deleted in cases:
+        deleted, trace = [], {}
+        text, tag, _ = _run_elevenlabs_case(posts, deleted, fails, trace, start_fails)
+        assert text == want_text, f"{label}: returned {text!r}, expected {want_text!r}"
+        assert (tag.errored, tag.reason) == (errored, reason), \
+            f"{label}: sink is {(tag.errored, tag.reason)}, expected {(errored, reason)}"
+        assert trace["at_return"] == [], \
+            f"{label}: deleted {trace['at_return']} before returning the text"
+        got = [url.replace(tr.ELEVENLABS_API_BASE, "") for url in deleted]
+        assert got == want_deleted, f"{label}: cleanup deleted {got}, expected {want_deleted}"
+        assert trace["daemon"] == [False] * len(want_deleted), \
+            f"{label}: delete thread(s) with daemon={trace['daemon']}, expected one " \
+            f"non-daemon thread per delete"
+        assert trace["sleeps"] == wait * len(want_deleted), \
+            f"{label}: waits {trace['sleeps']} (seconds, deletes before), expected " \
+            f"{wait * len(want_deleted)} -- the wait has to come before the DELETE"
+        sent = [({"xi-api-key": _FAKE_EL_KEY}, tr.ELEVENLABS_DELETE_TIMEOUT_SECONDS)]
+        assert trace["sent"] == sent * len(want_deleted), \
+            f"{label}: DELETE(s) sent as {trace['sent']} (client headers, timeout), " \
+            f"expected {sent * len(want_deleted)}"
+
+
+def test_elevenlabs_http_error_reads_the_body():
+    """#343: a key ElevenLabs rejects comes back as 400 or 401, a used-up free quota
+    as 401 too -- so the handler reads the body. A rejected key prints the [AUTH]
+    line naming ELEVENLABS_API_KEY; the quota answer is no-credit and does not.
+    Either way one ERROR line keeps what ElevenLabs said, and no ERROR line
+    carries the key -- the case sees ERROR records only, so neither the line's
+    file-only routing nor the lower levels are held here."""
+    for status, detail, reason, auth_line in (
+            (400, _EL_WRONG_KEY, "auth", True),
+            (401, _EL_QUOTA, "no-credit", False),
+            (400, _EL_BAD_TERM, "service-error", False)):
+        label = f"{status} {detail['status']}"
+        text, tag, errors = _run_elevenlabs_case(
+            [_FakeResp(raise_exc=_FakeHTTPStatusError(status, {"detail": detail}))])
+        assert text == "" and tag.errored is True, f"{label}: not reported as failed"
+        assert tag.reason == reason, f"{label}: reason {tag.reason!r}, expected {reason!r}"
+        auth = [m for m in errors if m.startswith("[AUTH]")]
+        assert len(auth) == (1 if auth_line else 0), f"{label}: [AUTH] lines {auth}"
+        assert all("ELEVENLABS_API_KEY" in m for m in auth), f"{label}: {auth}"
+        said = [m for m in errors if m.startswith(f"ElevenLabs answered HTTP {status}")]
+        assert len(said) == 1 and detail["status"] in said[0], \
+            f"{label}: expected one line with ElevenLabs' own status: {errors}"
+        assert not any(_FAKE_EL_KEY in m for m in errors), f"{label}: the key was logged"
+
+
+def test_elevenlabs_error_reason_maps_measured_bodies():
+    """#343: the body-first mapping, on the measured bodies and the status fallback
+    (402 and 429 are documented, not measured; a body that is not an object --
+    the 422 list form is documented -- falls back to the status)."""
+    reason = tr._elevenlabs_error_reason
+    assert reason(400, _EL_WRONG_KEY) == "auth"
+    assert reason(401, _EL_UNPREFIXED_KEY) == "auth"
+    assert reason(401, _EL_NO_PERMISSION) == "auth"
+    assert reason(401, _EL_QUOTA) == "no-credit", "a 401 with the quota code is no credit"
+    assert reason(400, _EL_BAD_TERM) == "service-error"
+    assert reason(402, {}) == "no-credit"
+    assert reason(429, {}) == "rate-limited"
+    assert reason(500, {}) == "service-error"
+    assert reason(401, {}) == "auth", "a 401 without a readable body stays auth"
+
+    detail = tr._elevenlabs_error_detail
+    ns = types.SimpleNamespace
+    assert detail(ns(json=lambda: {"detail": _EL_QUOTA})) == _EL_QUOTA
+    assert detail(ns(json=lambda: {"detail": [{"msg": "x"}]})) == {}
+    assert detail(ns(json=lambda: [1, 2])) == {}
+    assert detail(ns()) == {}, "a response without a JSON body reads as no detail"
+
+
+def test_elevenlabs_tags_scribe_token():
+    """#343: engine_code names the Scribe engine in archive filenames; without its
+    branch the transcript would be filed as 'unknown'."""
+    engine = tr.ElevenLabsTranscriber.__new__(tr.ElevenLabsTranscriber)
+    assert tr.engine_code(engine) == tr.ENGINE_TOKENS["elevenlabs_scribe"] == "Scribe-v3"
+
+
 # ---- #138/#159 direct unit tests for the two coarse-category mappers --------
 # _groq_error_reason / _http_status_reason turn a provider failure into the
 # coarse reason string #159 shows the user, so pin every branch of each. The http
@@ -1317,6 +1550,8 @@ def test_error_provider_maps_family():
     assert tb._error_provider(_FakeLive()) == "Soniox", "Soniox Live -> Soniox"
     assert tb._error_provider(_FakeAsyncCleanEmpty()) == "Soniox", \
         "the Soniox upload slot -> Soniox"
+    scribe = tr.ElevenLabsTranscriber.__new__(tr.ElevenLabsTranscriber)
+    assert tb._error_provider(scribe) == "ElevenLabs", "Scribe -> ElevenLabs (#343)"
 
 
 def test_output_manager_forwards_reason_provider_inconclusive():
@@ -1410,6 +1645,11 @@ CASES = [
     test_async_clean_empty_does_not_set_sink,
     test_async_failed_status_sets_sink,
     test_async_cleanup_runs_on_every_path,
+    # #343 the real ElevenLabsTranscriber: sink, cleanup, the body-first error mapping
+    test_elevenlabs_sink_and_cleanup_on_every_path,
+    test_elevenlabs_http_error_reads_the_body,
+    test_elevenlabs_error_reason_maps_measured_bodies,
+    test_elevenlabs_tags_scribe_token,
     # #138/#159 direct unit tests for the two coarse-category mappers
     test_groq_error_reason_maps_every_branch,
     test_http_status_reason_maps_every_branch,

@@ -532,7 +532,10 @@ RECORDING_LOOP_STALE_SECONDS = 15.0
 # ===== GROQ API SETTINGS =====
 GROQ_MODEL = "whisper-large-v3-turbo"  # 'groq' carousel entry (fastest)
 GROQ_LARGE_MODEL = "whisper-large-v3"  # 'groq-large' carousel entry (higher accuracy, #36)
-LANGUAGE = "de"  # "de" for German, "en" for English, None for auto-detect
+# Dictation language sent by the Groq and ElevenLabs engines. "de" for German, "en"
+# for English; None would mean auto-detect, but the ElevenLabs request sends the value
+# as it is and would have to leave the field out instead.
+LANGUAGE = "de"
 MAX_PARALLEL_TRANSCRIPTIONS = 3
 
 # ===== API SELECTION =====
@@ -614,6 +617,7 @@ ENGINE_TOKENS = {
     "soniox_async": "Son-v6",         # soniox slot, async REST
     "groq_large":   "GWhisperLar-v3", # Groq whisper-large-v3
     "groq_turbo":   "GWhisperTur-v3", # Groq whisper-large-v3-turbo
+    "elevenlabs_scribe": "Scribe-v3", # ElevenLabs Scribe v3, file upload (#343)
     "unknown":      "unknown",        # defensive completeness (engine_code fall-through)
 }
 
@@ -621,6 +625,34 @@ ENGINE_TOKENS = {
 # From the install directory's .env only -- never the process environment (D-017).
 GROQ_API_KEY = _ENV_VALUES.get('GROQ_API_KEY')
 SONIOX_API_KEY = _ENV_VALUES.get('SONIOX_API_KEY')
+ELEVENLABS_API_KEY = _ENV_VALUES.get('ELEVENLABS_API_KEY')
+
+# ===== ELEVENLABS SCRIBE SETTINGS (#343) =====
+# File engine: one request uploads the recording and returns the finished transcript.
+ELEVENLABS_API_BASE = "https://api.elevenlabs.io"
+ELEVENLABS_MODEL = "scribe_v3"
+# Smoothed transcript: Scribe drops fillers, false starts and repetitions. Measured on
+# German dictation without loss of content; the price is a slightly more formal tone.
+# Fixed on purpose, not a setting (#343).
+ELEVENLABS_NO_VERBATIM = True
+# After the upload the client waits for the whole job, so httpx's read limit is the
+# one that binds (measured 2026-11-17: 5.4 s for 10 minutes of audio, 12.3 s for 33
+# minutes -- httpx's own 5 s default would cut a 10-minute dictation off). Generous on
+# purpose: running out costs the dictation and leaves a transcript at ElevenLabs whose
+# id the tool never learns, while a hanging service only costs waiting -- the recording
+# stays retryable. Connecting gets far less, so a dead network is reported quickly.
+ELEVENLABS_TIMEOUT_SECONDS = 300.0
+ELEVENLABS_CONNECT_TIMEOUT_SECONDS = 10.0
+# ElevenLabs stores every transcript, and the engine deletes it again -- but not at
+# once. A DELETE sent right after the response was answered with 200 and still left
+# the transcript in place in most runs; from 0.5 s on it took effect in 27 of 27 runs,
+# for 12 s, 3 min and 10 min of audio alike (measured 2026-11-17). So the delete runs
+# after the text is returned, this long after the response, with room to spare.
+ELEVENLABS_DELETE_DELAY_SECONDS = 2.0
+# Limit for that one delete call. Short, because a pending delete is allowed to hold
+# up the end of the process (see ElevenLabsTranscriber._delete_transcript); measured
+# deletes took 0.25-0.53 s.
+ELEVENLABS_DELETE_TIMEOUT_SECONDS = 5.0
 
 # ===== SONIOX ASYNC REST API SETTINGS =====
 # Async REST engine: used by the 'soniox' slot for all recordings and as the
@@ -1136,6 +1168,62 @@ SONIOX_CONTEXT = effective_soniox_context(_settings.get("vocabulary"))
 _ctx_size_warning = soniox_context_size_warning(SONIOX_CONTEXT)
 if _ctx_size_warning:
     IMPORT_WARNINGS.append(_ctx_size_warning)
+
+
+def elevenlabs_keyterms(context):
+    """The vocabulary terms ElevenLabs accepts, and one warning for the rest (#343).
+
+    ElevenLabs reads the same `terms` list as the Soniox engines, but where Soniox
+    only limits the context as a whole, ElevenLabs judges every term -- and one term
+    it refuses fails the whole request with HTTP 400, so a list that works on Soniox
+    would fail every dictation there, restart or not. Each rule below is one the
+    service was measured to enforce that way (2026-11-17): after spaces are collapsed
+    and the ends trimmed (the service does the same), a term must not be empty, may
+    have at most 50 characters (characters, not bytes) and at most 4 spaces, and must
+    not contain any of < > { } [ ] \\; at most 1,000 distinct terms per request. The
+    terms are sent in that normalized form, duplicates once.
+
+    `context` is the effective vocabulary (SONIOX_CONTEXT). Returns (terms, warning):
+    the list to send -- empty when there is nothing -- and one warning string when
+    anything was left out, else None. A `terms` value that is not a list, and an entry
+    that is not a string, are left out as well. Pure, so every rule is unit-testable;
+    the Soniox engines keep receiving the list unchanged.
+    """
+    raw = context.get("terms") if isinstance(context, dict) else None
+    if raw is None:
+        return [], None
+    if not isinstance(raw, list):
+        raw, dropped = [], [raw]
+    else:
+        dropped = []
+    terms = []
+    for entry in raw:
+        term = " ".join(entry.split()) if isinstance(entry, str) else ""
+        if (not term or len(term) > 50 or term.count(" ") > 4
+                or any(c in '<>{}[]\\' for c in term)):
+            dropped.append(entry)
+        elif term not in terms:
+            terms.append(term)
+    dropped.extend(terms[1000:])
+    terms = terms[:1000]
+    if not dropped:
+        return terms, None
+    names = ", ".join(repr(str(term)[:40]) for term in dropped[:3])
+    if len(dropped) > 3:
+        names += f" and {len(dropped) - 3} more"
+    return terms, (
+        f"vocabulary: {len(dropped)} term(s) break ElevenLabs' rules for key terms "
+        f"(not empty, at most 50 characters and five words, none of < > {{ }} [ ] \\, "
+        f"at most 1,000 terms in all) and are not sent to ElevenLabs Scribe: {names}. "
+        f"The Soniox engines still get them; shorten or remove them in "
+        f"personal_settings.json to end this warning")
+
+
+# What the ElevenLabs engine sends as keyterms. The warning only reaches users who have
+# an ElevenLabs key: whoever dictates on Soniox alone loses nothing over such a term.
+ELEVENLABS_KEYTERMS, _keyterms_warning = elevenlabs_keyterms(SONIOX_CONTEXT)
+if _keyterms_warning and ELEVENLABS_API_KEY:
+    IMPORT_WARNINGS.append(_keyterms_warning)
 
 # Push-to-talk override (#66): read from the same _settings dict so the
 # file is parsed once. Absent block or any invalid field -> the default

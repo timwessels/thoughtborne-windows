@@ -3,13 +3,15 @@ Transcriber Module
 
 This module handles speech-to-text transcription using multiple APIs.
 It provides a clean interface for transcribing audio files using
-Groq (Whisper Large V3 / Large V3 Turbo) and Soniox (async upload, Live streaming).
+Groq (Whisper Large V3 / Large V3 Turbo), Soniox (async upload, Live streaming)
+and ElevenLabs (Scribe v3, file upload).
 
 Classes:
     AbstractTranscriber: Base class for all transcriber implementations
     GroqTranscriber: Handles transcription using Groq API
     SonioxAsyncTranscriber: Handles transcription using the Soniox async REST API
     SonioxLiveTranscriber: Handles live transcription using the Soniox WebSocket RT API
+    ElevenLabsTranscriber: Handles transcription using the ElevenLabs Scribe file API
 """
 
 import os
@@ -33,6 +35,9 @@ from config import (
     SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
     SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT,
     SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT, soniox_live_endpointing_params,
+    ELEVENLABS_API_KEY, ELEVENLABS_API_BASE, ELEVENLABS_MODEL, ELEVENLABS_NO_VERBATIM,
+    ELEVENLABS_TIMEOUT_SECONDS, ELEVENLABS_CONNECT_TIMEOUT_SECONDS, ELEVENLABS_KEYTERMS,
+    ELEVENLABS_DELETE_DELAY_SECONDS, ELEVENLABS_DELETE_TIMEOUT_SECONDS,
     RATE, CHANNELS, FILE_ONLY,
 )
 
@@ -143,6 +148,30 @@ def _httpx_exc_reason(e) -> str:
     (#138). A connect/timeout error (httpx's or the builtin) is no-connection;
     everything else is service-error."""
     return "no-connection" if type(e).__name__ in _CONNECTION_ERROR_NAMES else "service-error"
+
+
+def _elevenlabs_error_detail(response) -> dict:
+    """The `detail` object of an ElevenLabs error body, or {} when the body is not
+    JSON or `detail` is not an object (#343). Measured bodies always carry the
+    object form {type, code, message, status, request_id}; nothing else is parsed."""
+    try:
+        detail = response.json().get("detail")
+    except Exception:
+        return {}
+    return detail if isinstance(detail, dict) else {}
+
+
+def _elevenlabs_error_reason(status_code, detail) -> str:
+    """ElevenLabs HTTP error -> coarse reason (#343). The status alone misleads both
+    ways (measured 2026-11-17): a wrong key comes back as 400 or 401, and the free
+    plan's used-up quota as 401. So the body is read before the status, and the
+    status map is only the fallback (it also covers 402 and 429, which the docs name
+    but nobody saw)."""
+    if detail.get("code") == "quota_exceeded":
+        return "no-credit"
+    if detail.get("type") == "authentication_error":
+        return "auth"
+    return _http_status_reason(status_code)
 
 
 class AbstractTranscriber(ABC):
@@ -1475,6 +1504,183 @@ class SonioxLiveTranscriber(AbstractTranscriber):
             return None
 
 
+class ElevenLabsTranscriber(AbstractTranscriber):
+    """Handles transcription using the ElevenLabs Scribe v3 file API (#343).
+
+    One request per recording: the file goes up and the finished transcript comes
+    back in the same response. Uses httpx, one client per transcribe() call like
+    SonioxAsyncTranscriber (#342), so the instance holds no state between calls --
+    the parallel workers share it. ElevenLabs stores every transcript; a short
+    thread of its own asks for its deletion ELEVENLABS_DELETE_DELAY_SECONDS after
+    the text is returned (see _delete_transcript for why later, and why so).
+    """
+
+    def __init__(self, display_name: str = "ElevenLabs Scribe v3"):
+        """Initialize the transcriber with API key"""
+        super().__init__()
+        if not ELEVENLABS_API_KEY:
+            raise MissingAPIKeyError("ELEVENLABS_API_KEY", "ElevenLabs transcriber")
+        self.display_name = display_name
+        self.headers = {"xi-api-key": ELEVENLABS_API_KEY}
+        logger.info(f"ElevenLabs transcriber initialized (model: {ELEVENLABS_MODEL})", extra=FILE_ONLY)
+        if ELEVENLABS_KEYTERMS:
+            logger.info(f"Keyterms enabled: {len(ELEVENLABS_KEYTERMS)} terms", extra=FILE_ONLY)
+
+    def get_name(self) -> str:
+        """Get the name of this transcriber"""
+        return self.display_name
+
+    def transcribe(self, audio_file_path: str, duration_seconds: float, *,
+                   error_sink: Optional['_ErrorTag'] = None) -> str:
+        """Transcribe an audio file using the ElevenLabs Scribe file API.
+
+        Args:
+            audio_file_path: Path to the audio file
+            duration_seconds: Duration of the audio in seconds
+            error_sink: Optional _ErrorTag the caller reads afterwards (#141), set
+                with a coarse reason (#138) on every error path; never set on a
+                completed run, however empty the text.
+
+        Returns:
+            Transcribed text
+        """
+        import httpx
+
+        logger.info(f"Starting ElevenLabs transcription: {audio_file_path} "
+                    f"(Duration: {duration_seconds:.1f}s)", extra=FILE_ONLY)
+
+        tx_id = None
+        client = None
+        start_time = time.time()
+
+        try:
+            client = httpx.Client(headers=self.headers)
+            form = {
+                "model_id": ELEVENLABS_MODEL,
+                "language_code": LANGUAGE,
+                "no_verbatim": ELEVENLABS_NO_VERBATIM,
+                # Sent explicitly so a changed service default cannot add speaker
+                # labels or "(laughter)" to an inserted text.
+                "diarize": False,
+                "tag_audio_events": False,
+            }
+            if ELEVENLABS_KEYTERMS:
+                # A list goes out as one repeated form field per term.
+                form["keyterms"] = ELEVENLABS_KEYTERMS
+            with open(audio_file_path, "rb") as f:
+                resp = client.post(
+                    f"{ELEVENLABS_API_BASE}/v1/speech-to-text",
+                    data=form,
+                    files={"file": (os.path.basename(audio_file_path), f)},
+                    timeout=httpx.Timeout(ELEVENLABS_TIMEOUT_SECONDS,
+                                          connect=ELEVENLABS_CONNECT_TIMEOUT_SECONDS),
+                )
+            resp.raise_for_status()
+            body = resp.json()
+            tx_id = body.get("transcription_id")
+            text = (body.get("text") or "").strip()
+
+            elapsed = time.time() - start_time
+            logger.info(f"ElevenLabs transcription successful in {elapsed:.2f}s", extra=FILE_ONLY)
+            logger.debug(f"Transcribed text ({len(text)} chars): {text[:100]}...")
+
+            return self._remove_spoken_fillers(text)
+
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            detail = _elevenlabs_error_detail(e.response)
+            reason = _elevenlabs_error_reason(status, detail)
+            if reason == "auth":
+                self._report_auth_failure("ELEVENLABS_API_KEY")
+                # DEBUG keeps the trace file-only so the [AUTH] line stands
+                # alone on the console (#32)
+                logger.debug(f"Error during {self.get_name()} transcription: {e}", exc_info=True)
+            else:
+                logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
+            # What ElevenLabs said, file-only: the status line alone cannot tell a
+            # used-up quota from a wrong key (both can be 401). The body names
+            # neither the key nor any header.
+            logger.error(f"ElevenLabs answered HTTP {status}: {detail.get('status', '-')}: "
+                         f"{str(detail.get('message', '-'))[:200]}", extra=FILE_ONLY)
+            if error_sink is not None:
+                error_sink.errored, error_sink.reason = True, reason
+            return ""
+        except Exception as e:
+            logger.error(f"Error during {self.get_name()} transcription: {_one_line_error(e)}", exc_info=True)
+            if error_sink is not None:
+                error_sink.errored, error_sink.reason = True, _httpx_exc_reason(e)
+            return ""
+
+        finally:
+            # Every answer with an id has a stored transcript, an empty one too.
+            # Without an id there is nothing to delete: an error answer creates no
+            # transcript, and after a timeout ElevenLabs may still finish one whose
+            # id the tool never learns.
+            if tx_id:
+                try:
+                    threading.Thread(target=self._delete_transcript, args=(tx_id,),
+                                     name=f"ElevenLabsDelete-{tx_id}", daemon=False).start()
+                except Exception as e:
+                    logger.warning(f"Could not delete transcript {tx_id}: {e}")
+            if client is not None:
+                client.close()
+
+    def _delete_transcript(self, tx_id: str) -> None:
+        """Thread body: delete one stored transcript at ElevenLabs, after a wait.
+
+        Not before the text is returned, as SonioxAsyncTranscriber does it (#342):
+        ElevenLabs answers a DELETE sent right after the response with 200 and keeps
+        the transcript all the same (measured 2026-11-17, see
+        ELEVENLABS_DELETE_DELAY_SECONDS), and a wait there would sit on every
+        dictation. Its own client, since the request's one is closed by then. Not a
+        daemon, though started from a daemon worker: a normal exit shortly after a
+        dictation waits for this delete, up to the delay plus the call's timeout,
+        with "Program ended" already logged and the hotkeys released. The status
+        is logged, not read as success -- a premature DELETE got the same 200."""
+        import httpx
+
+        time.sleep(ELEVENLABS_DELETE_DELAY_SECONDS)
+        client = None
+        try:
+            client = httpx.Client(headers=self.headers)
+            resp = client.delete(
+                f"{ELEVENLABS_API_BASE}/v1/speech-to-text/transcripts/{tx_id}",
+                timeout=ELEVENLABS_DELETE_TIMEOUT_SECONDS,
+            )
+            logger.debug(f"Transcript {tx_id}: delete request sent, HTTP {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Could not delete transcript {tx_id}: {e}")
+        finally:
+            if client is not None:
+                client.close()
+
+    def test_transcription(self, test_file_path: str) -> Optional[str]:
+        """Test transcription with a specific file"""
+        if not os.path.exists(test_file_path):
+            logger.error(f"Test file not found: {test_file_path}")
+            return None
+
+        try:
+            import soundfile as sf
+            data, samplerate = sf.read(test_file_path)
+            duration = len(data) / samplerate
+
+            logger.info(f"Testing {self.get_name()} with file: {test_file_path} ({duration:.1f}s)")
+
+            text = self.transcribe(test_file_path, duration)
+
+            if text:
+                logger.info(f"{self.get_name()} test transcription successful: {len(text)} chars", extra=FILE_ONLY)
+                return text
+            else:
+                logger.warning(f"{self.get_name()} test transcription returned empty text")
+                return None
+
+        except Exception as e:
+            logger.error(f"{self.get_name()} test transcription failed: {e}", exc_info=True)
+            return None
+
+
 def engine_code(transcriber: AbstractTranscriber) -> str:
     """Stable filename token for the engine a transcriber represents (#62).
 
@@ -1489,6 +1695,8 @@ def engine_code(transcriber: AbstractTranscriber) -> str:
                 else ENGINE_TOKENS["groq_turbo"])
     if isinstance(transcriber, SonioxAsyncTranscriber):
         return ENGINE_TOKENS["soniox_async"]
+    if isinstance(transcriber, ElevenLabsTranscriber):
+        return ENGINE_TOKENS["elevenlabs_scribe"]
     return ENGINE_TOKENS["unknown"]
 
 
