@@ -93,15 +93,16 @@ reach for the right one:
   no meaning, and get filtered out everywhere, this mode included. Its
   occasional small misrecognitions are the kind an LLM straightens out from
   context — which is why it still clears the bar.
-- **Most accurate & patient** (today: the Soniox upload model — audio is sent
-  after you stop): the whole recording is transcribed in one pass, and in my
-  own testing it makes the fewest mistakes of the lineup. Since v6 it stays
-  about as close to how you spoke as the fast mode; what sets it apart is
-  accuracy, at the price of the wait. Even several minutes of audio come back
-  in well under a minute. The better fit for emails and texts meant for
-  humans, or whenever wording matters more than waiting. Neither mode is truly
-  "as if typed", though — there's no LLM behind them; the difference is one of
-  degree.
+- **Most accurate & patient** (today: ElevenLabs Scribe and the Soniox upload
+  model — audio is sent after you stop): the whole recording is transcribed in
+  one pass, and in my own testing these two make the fewest mistakes of the
+  lineup, with nothing to separate them. Scribe is the quicker of the two and
+  tidies the text; the Soniox model stays about as close to how you spoke as
+  the fast mode, at the price of a longer wait. Even several minutes of audio
+  come back in well under a minute. The better fit for emails and texts meant
+  for humans, or whenever wording matters more than waiting. Neither mode is
+  truly "as if typed", though — there's no LLM behind them; the difference is
+  one of degree.
 
 Both are legitimate; the tool should keep serving both and keep the choice one
 hotkey away. (Optional LLM post-processing may later offer tidier text as an
@@ -256,7 +257,7 @@ would start bending the tool away from how I actually use it.
 
 [`thoughtborne-macos`](https://github.com/timwessels/thoughtborne-macos) is
 an earlier macOS variant, now archived — three transcription backends
-instead of four, and frozen well before the settings and onboarding window
+instead of five, and frozen well before the settings and onboarding window
 and the months of polish since. It served my own daily dictation well, but
 I no longer use a Mac and won't maintain it. If you want a current
 Thoughtborne on macOS, the sensible route is not to extend that code but to

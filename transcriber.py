@@ -1634,9 +1634,11 @@ class ElevenLabsTranscriber(AbstractTranscriber):
         ELEVENLABS_DELETE_DELAY_SECONDS), and a wait there would sit on every
         dictation. Its own client, since the request's one is closed by then. Not a
         daemon, though started from a daemon worker: a normal exit shortly after a
-        dictation waits for this delete, up to the delay plus the call's timeout,
-        with "Program ended" already logged and the hotkeys released. The status
-        is logged, not read as success -- a premature DELETE got the same 200."""
+        dictation waits for this delete, typically ~2.5 s, with "Program ended"
+        already logged and the hotkeys released -- longer on a dead network, since
+        the call's timeout applies per phase (connect, send, read), not to the call
+        as a whole. The status is logged, not read as success -- a premature DELETE
+        got the same 200."""
         import httpx
 
         time.sleep(ELEVENLABS_DELETE_DELAY_SECONDS)

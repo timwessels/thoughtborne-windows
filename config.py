@@ -651,9 +651,9 @@ ELEVENLABS_CONNECT_TIMEOUT_SECONDS = 10.0
 # for 12 s, 3 min and 10 min of audio alike (measured 2026-11-17). So the delete runs
 # after the text is returned, this long after the response, with room to spare.
 ELEVENLABS_DELETE_DELAY_SECONDS = 2.0
-# Limit for that one delete call. Short, because a pending delete is allowed to hold
-# up the end of the process (see ElevenLabsTranscriber._delete_transcript); measured
-# deletes took 0.25-0.53 s.
+# Limit per phase for that one delete call. Short, because a pending delete is allowed
+# to hold up the end of the process (see ElevenLabsTranscriber._delete_transcript);
+# measured deletes took 0.25-0.53 s.
 ELEVENLABS_DELETE_TIMEOUT_SECONDS = 5.0
 
 # ===== SONIOX ASYNC REST API SETTINGS =====

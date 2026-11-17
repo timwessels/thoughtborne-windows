@@ -24,7 +24,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-005 | Settings-app launcher: venv-first (probed), system Python is the rescue lane | Retired 2026-08-21 by D-014 (#223) with the standalone lane; the stdlib-only constraint on the settings-app import chain still holds |
 | D-006 | Release assets: two fixed-name files, the ZIP is `git archive` of the tag | Active |
 | D-007 | In-place update never overwrites the running `setup.bat` | Active |
-| D-008 | Startup engine: an explicit `defaults.api` outranks the remembered one | Active; extended 2026-08-16 (#198); the built-in-default `(default)` marker and the fallback note retired by #200, a distinct active-pin tag added 2026-08-21 (#219); precedence untouched; the #178 wizard-preselect lane retired 2026-09-19 by D-028 (#332) |
+| D-008 | Startup engine: an explicit `defaults.api` outranks the remembered one | Active; extended 2026-08-16 (#198); the built-in-default `(default)` marker and the fallback note retired by #200, a distinct active-pin tag added 2026-08-21 (#219); precedence untouched; the #178 wizard-preselect lane retired 2026-09-19 by D-028 (#332); 2026-11-17 addendum (#343) — the built-in default is `elevenlabs`, precedence untouched |
 | D-009 | Settings app: one window, focus don't refuse; ignore extends to pending inserts | Active; focus remedy strengthened 2026-08-16 (#203); narrowed 2026-08-21 (#217) — the recording-active ignore is gone |
 | D-010 | Settings app leaves the native ttk theme for `clam` + an explicit style module | Active, partly reversed — the light-over-dark call reversed by the 2026-08-22 addendum (#228); the clam / single-source / WCAG mechanics stand |
 | D-011 | Uninstaller keeps user data by default; the silent lane can never delete it | Active |
@@ -33,21 +33,22 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 | D-014 | Settings is part of the app: no unsaved-changes guard, one exit, one lane | Active; narrowed 2026-09-06 (#239) — the silent language write is corruption-gated; extended 2026-09-07 (#271) — every save restarts, the keyless close branch is gone. Retires D-005 |
 | D-015 | The settings app defaults to English; German is an explicit opt-in | Active |
 | D-016 | The Windows app icon is the pixel mark on a hard-cornered dark-grey tile | Active |
-| D-017 | API keys come from the install directory's `.env` only | Active |
+| D-017 | API keys come from the install directory's `.env` only | Active; 2026-11-17 addendum (#343) — the rule covers `ELEVENLABS_API_KEY` too |
 | D-018 | The console is built for 72 columns and up; there is no second form | Active |
 | D-019 | One canonical hotkey order, and one display grammar for keys | Active; narrowed 2026-09-08 (#290) — the footer's own order moved to `console_ui` |
-| D-020 | Reset to defaults: the app's own settings, never the user's data | Active; extended 2026-09-19 by D-026 — the reset writes through the backup lane, the corrupt-file wording stops claiming loss |
+| D-020 | Reset to defaults: the app's own settings, never the user's data | Active; extended 2026-09-19 by D-026 — the reset writes through the backup lane, the corrupt-file wording stops claiming loss; see D-008's 2026-11-17 addendum (#343) |
 | D-021 | A checkout names its commit; an installed copy shows the release number alone | Active; extended 2026-09-10 (#306) — a `--dev` test build's suffix travels inside the files, so an installed copy can carry one |
 | D-022 | Mouse buttons are not hotkeys here; the supported route is an external remapper | Active; the pointer's form settled 2026-09-13 (#316) — a tip on how the route works, not a notice about what cannot be bound; the no-mouse-lane substance stands |
 | D-023 | One kind of hotkey key: the layout-resolved `ü` lane is removed | Active |
 | D-024 | One action, one combo: multi-binding and the list-shaped values are removed | Active |
 | D-025 | German user-facing text says du | Active |
-| D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active; 2026-09-20 addendum — the warn duty ends at what a reader discards, a never-read key stays silent (#333 declined) |
+| D-026 | Settings doctrine: tolerant reading, WYSIWYG saves, backup before loss | Active; 2026-09-20 addendum — the warn duty ends at what a reader discards, a never-read key stays silent (#333 declined); 2026-11-17 addendum (#343) — a third managed key line |
 | D-027 | Any supported key binds bare; the only rejection is a combo that cannot fire | Active; narrowed 2026-09-20 by D-030 (#337) — the rejection set gains the invisible keystroke collisions; the bare-binding rule and the no-paternalism line stand |
 | D-028 | Settings window: an unsaved edit has no effect until saved; the engine picker is key-agnostic | Active |
 | D-029 | Toggle pair: the start combo may double as exactly one stop action | Active |
 | D-030 | Rejected hotkey combos: what the tool's own paste and AltGr typing send | Active |
 | D-031 | Hotkey suspend: the armed state ends only through visible user actions; crash recovery is the tool restart | Active |
+| D-032 | The built-in default may be a provider that trains by default; the opt-out is the user's own, documented step | Active |
 
 ---
 
@@ -635,6 +636,12 @@ it the next time it starts — but only where nothing is configured:
   stays out of `console_ui`. Not a supersede — the #200 removal of the *built-in-default*
   marker stands; only its "do not reintroduce" bullet below is narrowed to the semantics
   that were actually wrong. Maintainer-requested via the #219 spec.
+- **2026-11-17 addendum (#343).** The built-in default is now `elevenlabs`. Where this
+  entry and D-020 write `soniox-live` as the example of the built-in default — a pin
+  equal to it, a start that lands on it — read the built-in default of the day.
+  Precedence (config > memory > default), the carousel's walk from the resolved engine
+  in lineup order and the memory-write rules are untouched; a keyless built-in default
+  falls through like any keyless start (D-032).
 
 Do not reintroduce: writing `personal_settings.json` from the running tool;
 persisting the carousel's fall-through engine; a "default"-worded fallback note on
@@ -1318,6 +1325,12 @@ Respects D-002 (the write contract is unchanged), D-004 (the opt-out is kept, it
 route clarified), D-005 (the stdlib-only constraint only gets easier — `config.py`
 now has no third-party import at all) and D-014.
 
+**2026-11-17 addendum (#343).** The rule covers a third key: `ELEVENLABS_API_KEY`, for
+the `elevenlabs` engine, comes from the same file through the same reader, with no
+environment fallback and nothing exported. The opening sentence names the two keys
+that existed when this was decided; the rule holds for every provider key the tool
+reads (`config.API_KEY_ENV` lists them).
+
 ---
 
 ## D-018 — The console is built for 72 columns and up; there is no second form
@@ -1914,6 +1927,18 @@ Evaluated in full and declined. The rule stays one sentence: what a reader
 takes in hand and discards is named with its location; what it never reads it
 does not see.
 
+**2026-11-17 addendum (#343).** The managed key lines are three:
+`ELEVENLABS_API_KEY` joined the two the ownership clause counts. Upward this is a
+widening in the sense of the evolution clause — a new key line and a new engine
+name, `elevenlabs` — and safe by construction: no old file contains either, so it
+needs no old-file clause and no frozen fixture. Downward it is accepted and
+harmless by the same rules, as run against v1.2.0 and the last pre-#343 `main` with
+their own settings app: an older version ignores the key line at start and leaves
+it in place on save, drops a remembered `elevenlabs` silently, and warns at start
+about a `defaults.api` pin on it, which its settings app removes on the next save —
+an unchanged one included — after a backup. A `.env` whose only key is the
+ElevenLabs one counts as keyless there.
+
 ## D-027 — Any supported key binds bare; the only rejection is a combo that cannot fire
 
 Decided 2026-09-19, settled with the maintainer while specifying #325 (the key-set
@@ -2133,3 +2158,68 @@ failsafe on its first day); implementation tracked in #339.
 - Do not reintroduce: suspend timers, settings-process liveness probing from the
   tool, or UI liveness monitoring of the armed field (considered and rejected in
   #339).
+
+## D-032 — The built-in default may be a provider that trains by default; the opt-out is the user's own, documented step
+
+Decided 2026-11-17 (#343). The maintainer settled in the issue that ElevenLabs
+Scribe v3 leads the lineup and is the built-in default, and that onboarding
+presents ElevenLabs with its conditions, the training opt-out among them. That
+the opt-out meets the data gate of principle 5 is the issue's own reading, not
+one of those decisions; the rejected alternatives below come from the
+implementation.
+
+ElevenLabs Scribe v3 is first in the lineup and the built-in default, although by
+default ElevenLabs may use what a non-enterprise account sends it to train its
+models. `VISION.md` principle 5 asks of every integrated API "at least an opt-out",
+and ElevenLabs offers one, so the gate is met — here by a step only the user can
+take. It is a switch in the user's own ElevenLabs account, which ElevenLabs
+documents as a setting in its web app; the tool neither sets nor reads it, and no
+documented way for it to do so is known.
+
+What the tool does instead:
+
+- **It says so where the key goes in.** The README's "API keys" section (both
+  twins), the ElevenLabs card in the settings window and the key's comment in
+  `.env.example` each name the switch, where it sits, and that it does not cover
+  anything sent before it; `llms-install.md` tells a setup agent to pass the same on
+  before the first dictation. No audio reaches ElevenLabs without a key the user
+  created and entered, and each documented way to enter one passes at least one of
+  these notices.
+- **The default follows precedence and the key.** The built-in default decides a
+  start only where nothing is remembered or pinned (D-008), and only with its key;
+  without one, the start falls through in lineup order to the first engine that has
+  a key (#40/#200) — where it landed before #343. A remembered or pinned engine with
+  its key keeps winning; one without walks forward from its own place as before and
+  reaches Scribe only where that walk wraps around past the end of the lineup.
+  Onboarding keeps leading with Groq as the free first step and Soniox as the
+  quality lane; ElevenLabs comes third, presented with its conditions.
+- **It states the limits.** Shortly after each dictation, the engine asks
+  ElevenLabs once to delete the stored transcript, without checking the effect and
+  without retrying; the README names the cases in which a copy can stay behind.
+  Whether the deletion takes the uploaded audio with it, and how long anything is
+  kept, ElevenLabs does not document, and the README says so.
+
+Contestable, because principle 5 is headed "Your data is not training data" and the
+default engine belongs to a provider whose default is the opposite. Rejected:
+
+- **Keeping Scribe out of first place for it.** Lineup verdicts follow hands-on
+  testing (principle 3); the data gate asks for an opt-out, and it exists.
+- **A confirmation, checkbox or recurring reminder in the tool.** The tool does
+  not see the switch, so a checkbox would record a claim, not a state, and a
+  reminder could not tell who has already acted.
+
+The accepted cost: someone who enters an ElevenLabs key without reading sends
+dictations ElevenLabs may train on, and nothing in the tool stops them.
+
+Seen alongside: the default now sits with a provider that sells through monthly
+plans and, according to its documentation, as prepaid credit without one
+(untested here), where `VISION.md` says "Pay for usage, not a subscription" and
+principle 3 asks new backends for "usage-based pricing". Groq and Soniox remain
+the ways in without a plan, and the README and the settings card state
+ElevenLabs' pricing among its conditions.
+
+Do not shorten the notices away, and do not add a gate that pretends to know the
+state of the switch. A provider with no opt-out is still not integrated.
+
+Respects D-008 (precedence and the fall-through untouched) and D-028 (the engine
+picker stays key-agnostic and grows no guard of its own).
