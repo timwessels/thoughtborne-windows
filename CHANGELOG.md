@@ -131,6 +131,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A key pressed just before a paste no longer turns it into another shortcut (#345).**
+  Before pasting, the tool waits until Ctrl, Alt, Shift and Win are released, but it
+  sent Ctrl+V about 0.2 s after that check. A modifier pressed in between — the next
+  hotkey, or AltGr — went out with it, so the target received something like
+  Ctrl+Alt+V and the text did not appear (seen once for certain and once very likely
+  in the maintainer's logs). The check now runs again right before Ctrl+V. If the key
+  stays down for two seconds, nothing is sent and the insert is reported as failed,
+  with the transcript left on the clipboard. The same gap before the Enter of
+  `Ctrl+Alt+D` is not part of this change.
 - **The website declares its character set in the HTTP header.** The host sent
   `text/html` with no charset. Browsers read the `<meta>` tag and never noticed, but a
   client that trusts the header alone decoded the pages as ISO-8859-1 and read "fÃ¼r"

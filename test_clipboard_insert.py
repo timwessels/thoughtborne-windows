@@ -21,6 +21,8 @@ What it pins:
   - Nothing after the restore -- no window, no wait, no re-read -- while a retry is
     measured before it, with the first paste's re-measure when it lands slowly (#345).
   - A modifier held past the wait leaves the clipboard and the keyboard untouched.
+  - The same check again right before Ctrl+V: a modifier pressed after the copy and
+    still down sends nothing and leaves the transcript on the clipboard (#345).
 
 The cases assert on the copies and sends, on what the target ends up holding, on the
 outcome and on the verdict line; waits only where the timing is the point. For those,
@@ -282,6 +284,41 @@ def test_a_held_modifier_leaves_clipboard_and_keyboard_alone():
     assert rig.clipboard[-1][1] == PREVIOUS, "the user's clipboard was replaced"
 
 
+def test_the_modifiers_are_checked_again_right_before_ctrl_v():
+    # #345: a modifier pressed after the check before the copy -- the next hotkey,
+    # AltGr -- would otherwise go out with the Ctrl+V.
+    rig = InsertRig(TEXT_CONTROL).run()
+    send = rig.events.index(("send", "ctrl+v"))
+    poll = [("key", k) for k in ("ctrl", "alt", "shift", "win")]
+    assert rig.events[send - 5:send] == [("sleep", 0.05)] + poll, rig.events[:send]
+
+    # Pressed after the copy and held: nothing is sent, nothing put back -- the
+    # transcript stays on the clipboard for a manual paste.
+    rig = InsertRig(TEXT_CONTROL)
+    rig.key_down = lambda key: key == "alt" and ("copy", TRANSCRIPT) in rig.events
+    rig.run()
+    assert rig.actions() == [("copy", TRANSCRIPT)], rig.actions()
+    assert rig.outcome.success is False, rig.outcome
+    assert rig.clipboard[-1][1] == TRANSCRIPT, rig.clipboard
+
+    # Released within the wait: the paste goes out after the release.
+    released = 1.0
+    rig = InsertRig(TEXT_CONTROL)
+    rig.key_down = lambda key: (key == "alt" and ("copy", TRANSCRIPT) in rig.events
+                                and rig.now < released)
+    rig.run()
+    assert_inserted(rig, sends=1)
+    assert rig.landings[0] >= released, f"Ctrl+V sent at {rig.landings[0]} s, Alt still down"
+
+    # Held during a retry: no second Ctrl+V; the first one did go out, so the
+    # insert still counts, and the verdict says the text is not there.
+    rig = InsertRig(TEXT_CONTROL, lands=[None])
+    rig.key_down = lambda key: key == "alt" and ("send", "ctrl+v") in rig.events
+    rig.run()
+    assert_inserted(rig, sends=1)
+    assert rig.verdict().endswith(": PASTE DID NOT LAND"), rig.verdict()
+
+
 CASES = [
     test_the_transcript_is_pasted_before_the_clipboard_is_restored,
     test_a_paste_that_lands_is_sent_once,
@@ -290,6 +327,7 @@ CASES = [
     test_a_retry_that_misses_too_is_reported_and_not_repeated,
     test_nothing_waits_after_the_restore_and_a_retry_is_measured_before_it,
     test_a_held_modifier_leaves_clipboard_and_keyboard_alone,
+    test_the_modifiers_are_checked_again_right_before_ctrl_v,
 ]
 
 

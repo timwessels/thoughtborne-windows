@@ -549,10 +549,22 @@ class OutputManager:
         - We just send Ctrl+V to the active app
 
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise -- including when a modifier key
+            is down right before the keystroke and stays down past the wait: then
+            nothing is sent (#345).
         """
         try:
+            # 50 ms more for the clipboard. It was the settle time after synthetic
+            # key-ups the tool no longer sends; what it still does is keep the
+            # paste clear of a program that reads the clipboard about 100 ms after
+            # the copy (seen in about 0.7 % of inserts, #345).
             time.sleep(0.05)
+
+            # Checked again right before the keystroke (#345): a modifier pressed
+            # since the check before the copy -- the next hotkey, AltGr -- would
+            # turn this paste into another shortcut, such as Ctrl+Alt+V.
+            if not self._ensure_no_modifiers_pressed():
+                return False
 
             # Send Ctrl+V to the currently active application
             logger.debug("About to send Ctrl+V to active application")
