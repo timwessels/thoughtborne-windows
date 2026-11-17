@@ -29,7 +29,7 @@ from config import (
     GROQ_MODEL, GROQ_LARGE_MODEL, LANGUAGE, TEXT_ARCHIVE_FOLDER,
     GROQ_API_KEY, SONIOX_API_KEY, API_DISPLAY, ENGINE_TOKENS,
     SONIOX_ASYNC_API_BASE, SONIOX_ASYNC_MODEL, SONIOX_ASYNC_POLL_INTERVAL,
-    SONIOX_ASYNC_MAX_POLL_ATTEMPTS,
+    SONIOX_ASYNC_MAX_POLL_ATTEMPTS, SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS,
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
     SONIOX_LIVE_FINALIZE_TIMEOUT,
     SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
@@ -646,7 +646,8 @@ class GroqTranscriber(AbstractTranscriber):
 class SonioxAsyncTranscriber(AbstractTranscriber):
     """Handles transcription using Soniox Async REST API.
 
-    Workflow: Upload file → Create transcription → Poll status → Get result → Cleanup.
+    Workflow: Upload file → Create transcription → Poll status → Get result, then
+    the cleanup at Soniox, in a thread of its own once the text is returned (#345).
     Uses httpx, one client per transcribe() call, so all of a call's steps share one
     connection (#342) and the instance holds no state between calls. No Soniox SDK
     needed.
@@ -818,31 +819,50 @@ class SonioxAsyncTranscriber(AbstractTranscriber):
             return ""
 
         finally:
-            # Cleanup: Always delete transcription and file from server, over the
-            # same connection. It stays here, before the text is returned, on
-            # purpose (#342): moved behind the insert it would save a few tenths
-            # but leave the audio on the server whenever the tool quits right
-            # after a dictation (the workers are daemon threads).
-            try:
-                if tx_id:
-                    client.delete(
-                        f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
-                        timeout=10
-                    )
-                    logger.debug(f"Transcription {tx_id} deleted from server")
-            except Exception as e:
-                logger.warning(f"Could not delete transcription: {e}")
-            try:
-                if file_id:
-                    client.delete(
-                        f"{SONIOX_ASYNC_API_BASE}/v1/files/{file_id}",
-                        timeout=10
-                    )
-                    logger.debug(f"File {file_id} deleted from server")
-            except Exception as e:
-                logger.warning(f"Could not delete file: {e}")
-            if client is not None:
+            # Whatever this call created on Soniox's servers is deleted on every
+            # path, but no longer before the text goes back (#345): a thread takes
+            # over this call's client and sends the deletes, so the caller does not
+            # wait for them. A transcription exists only with an uploaded file, so
+            # file_id tells whether there is anything to delete.
+            if file_id:
+                try:
+                    threading.Thread(target=self._delete_from_server,
+                                     args=(client, tx_id, file_id),
+                                     name=f"SonioxCleanup-{file_id}", daemon=False).start()
+                except Exception:
+                    # No thread to be had: clean up here, as before #345.
+                    self._delete_from_server(client, tx_id, file_id)
+            elif client is not None:
                 client.close()
+
+    def _delete_from_server(self, client, tx_id: Optional[str], file_id: str) -> None:
+        """Thread body: delete what one transcribe() call created at Soniox -- the
+        transcription, if there is one, then the uploaded file -- and close the
+        call's client.
+
+        The client is the call's own, handed over, so the deletes ride the
+        connection every other step used (#342) instead of a new handshake. Each
+        delete is tried even when the other failed: an account keeps at most 1,000
+        files, and every upload left behind stays there for 30 days. No wait before
+        them, unlike ElevenLabsTranscriber._delete_transcript; not a daemon, like
+        it, so a normal exit waits for them -- usually done ~0.3 s after the text is
+        returned, longer on a dead network, since SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS
+        applies per phase of each call. A hard end right after a dictation can
+        still leave the upload behind."""
+        try:
+            if tx_id:
+                client.delete(f"{SONIOX_ASYNC_API_BASE}/v1/transcriptions/{tx_id}",
+                              timeout=SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS)
+                logger.debug(f"Transcription {tx_id} deleted from server")
+        except Exception as e:
+            logger.warning(f"Could not delete transcription: {e}")
+        try:
+            client.delete(f"{SONIOX_ASYNC_API_BASE}/v1/files/{file_id}",
+                          timeout=SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS)
+            logger.debug(f"File {file_id} deleted from server")
+        except Exception as e:
+            logger.warning(f"Could not delete file: {e}")
+        client.close()
 
     def test_transcription(self, test_file_path: str) -> Optional[str]:
         """Test transcription with a specific file"""
@@ -1629,17 +1649,17 @@ class ElevenLabsTranscriber(AbstractTranscriber):
     def _delete_transcript(self, tx_id: str) -> None:
         """Thread body: delete one stored transcript at ElevenLabs, after a wait.
 
-        Not before the text is returned, as SonioxAsyncTranscriber does it (#342):
-        ElevenLabs answers a DELETE sent right after the response with 200 and keeps
-        the transcript all the same (measured 2026-11-17, see
-        ELEVENLABS_DELETE_DELAY_SECONDS), and a wait there would sit on every
-        dictation. Its own client, since the request's one is closed by then. Not a
-        daemon, though started from a daemon worker: a normal exit shortly after a
-        dictation waits for this delete, typically ~2.5 s, with "Program ended"
-        already logged and the hotkeys released -- longer on a dead network, since
-        the call's timeout applies per phase (connect, send, read), not to the call
-        as a whole. The status is logged, not read as success -- a premature DELETE
-        got the same 200."""
+        After the text is returned, like SonioxAsyncTranscriber's clean-up, but only
+        after a wait the Soniox one does not need: ElevenLabs answers a DELETE sent right
+        after the response with 200 and keeps the transcript all the same (measured
+        2026-11-17, see ELEVENLABS_DELETE_DELAY_SECONDS), and a wait before the return
+        would sit on every dictation. Its own client, since the request's one is
+        closed by then. Not a daemon, though started from a daemon worker: a normal
+        exit shortly after a dictation waits for this delete, typically ~2.5 s, with
+        "Program ended" already logged and the hotkeys released -- longer on a dead
+        network, since the call's timeout applies per phase (connect, send, read), not
+        to the call as a whole. The status is logged, not read as success -- a
+        premature DELETE got the same 200."""
         import httpx
 
         time.sleep(ELEVENLABS_DELETE_DELAY_SECONDS)

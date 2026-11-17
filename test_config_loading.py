@@ -2100,10 +2100,11 @@ def test_soniox_context_async_request():
     the production `transcribe()` with `httpx.Client` replaced by a fake, which
     also checks that a call builds exactly one client, with the key in its
     headers. httpx's real transport refuses for the duration, so nothing goes
-    online; a request that bypassed the fake fails this lane, except in the
-    cleanup, whose `except` swallows the refusal (#342). The fake key never
-    leaves the process and the archive folder is redirected, so nothing is
-    written into the checkout."""
+    online; a request that bypassed the fake fails this lane. The clean-up
+    thread transcribe() starts afterwards (#345) is caught and never run here;
+    test_retry_marker_lifecycle holds it. The fake key never leaves the process
+    and the archive folder is redirected, so nothing is written into the
+    checkout."""
     try:
         import transcriber
     except ModuleNotFoundError as e:
@@ -2125,33 +2126,38 @@ def test_soniox_context_async_request():
             return _FakeResponse({"text": "fixture transcript"})
         return _FakeResponse({"status": "completed"})
 
-    def fake_delete(url, **kwargs):
-        return _FakeResponse({})
-
-    client_headers = []
+    client_headers, threads = [], []
 
     class _FakeClient:
-        """httpx.Client as transcribe() uses it: built with the headers, three
-        verbs, close()."""
+        """httpx.Client as transcribe() uses it up to the text: built with the
+        headers, post, get, close()."""
         def __init__(self, **kwargs):
             client_headers.append(kwargs.get("headers") or {})
         post = staticmethod(fake_post)
         get = staticmethod(fake_get)
-        delete = staticmethod(fake_delete)
 
         def close(self):
+            return None
+
+    class _CaughtThread:
+        """threading.Thread as the engine starts its clean-up: filed, never started."""
+        def __init__(self, **kwargs):
+            threads.append(kwargs)
+
+        def start(self):
             return None
 
     def no_network(self, request):
         raise AssertionError(f"the lane reached httpx's real transport: {request.url}")
 
     saved_tx = (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
-                transcriber.TEXT_ARCHIVE_FOLDER)
+                transcriber.TEXT_ARCHIVE_FOLDER, transcriber.threading)
     saved_httpx = (httpx.Client, httpx.HTTPTransport.handle_request)
     tmp = tempfile.mkdtemp(prefix="tb_config_async_ctx_")
     try:
         transcriber.SONIOX_API_KEY = "not-a-real-key"
         transcriber.TEXT_ARCHIVE_FOLDER = Path(tmp) / "transcripts"
+        transcriber.threading = types.SimpleNamespace(Thread=_CaughtThread)
         httpx.Client, httpx.HTTPTransport.handle_request = _FakeClient, no_network
         audio = Path(tmp) / "fixture.wav"
         audio.write_bytes(b"")
@@ -2164,6 +2170,7 @@ def test_soniox_context_async_request():
                 ("without one", None)):
             bodies.clear()
             client_headers.clear()
+            threads.clear()
             transcriber.SONIOX_CONTEXT = ctx
             text = transcriber.SonioxAsyncTranscriber().transcribe(str(audio), 1.0)
             check(text == "fixture transcript",
@@ -2172,6 +2179,8 @@ def test_soniox_context_async_request():
             check(client_headers == [{"Authorization": "Bearer not-a-real-key"}],
                   f"async {label}: transcribe() built {len(client_headers)} client(s) "
                   f"with headers {client_headers!r}, expected one carrying the key")
+            check(len(threads) == 1, f"async {label}: {len(threads)} clean-up thread(s) "
+                  f"started, expected one")
             check(len(bodies) == 1,
                   f"async {label}: {len(bodies)} transcription request(s), expected one")
             body = bodies[0] if bodies else {}
@@ -2193,7 +2202,7 @@ def test_soniox_context_async_request():
                       f"context: {body.get('context')!r}")
     finally:
         (transcriber.SONIOX_CONTEXT, transcriber.SONIOX_API_KEY,
-         transcriber.TEXT_ARCHIVE_FOLDER) = saved_tx
+         transcriber.TEXT_ARCHIVE_FOLDER, transcriber.threading) = saved_tx
         httpx.Client, httpx.HTTPTransport.handle_request = saved_httpx
         shutil.rmtree(tmp, ignore_errors=True)
 

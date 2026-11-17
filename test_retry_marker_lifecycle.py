@@ -49,9 +49,11 @@ verdict exactly as before.
     completed-but-empty run does not), plus the one status-specific lane in there:
     an HTTP 400 -- Soniox rejecting the request itself -- also logs a static cause
     hint, and no other status does (#334). The same fake also watches the
-    server-side cleanup in transcribe()'s `finally` (#342): on every path, what
-    the call created on Soniox's servers is deleted before it returns --
-    transcription first, then file -- and nothing else is. The same fake drives
+    server-side cleanup (#342): on every path, what the call created on
+    Soniox's servers is deleted -- transcription first, then file -- and nothing
+    else is. Since #345 that happens after the text is returned, in a thread
+    that takes over the call's client; every Tier-2 case captures that thread
+    instead of starting it and runs it by hand. The same fake drives
     the real ElevenLabsTranscriber (#343) through the same questions: what each
     path reports to the sink, which stored transcript it asks ElevenLabs to
     delete, and how an error is categorized from ElevenLabs' error body rather
@@ -1030,7 +1032,7 @@ def test_retry_long_async_outage_marker_persists():
 # Tier 1 proves the wiring; these prove each real error return actually sets the
 # sink (and a completed-but-empty run does not). The real transcribe() does
 # `import httpx` per call, so a sys.modules["httpx"] swap reaches its
-# httpx.Client; post/get are scripted, delete records what the finally-cleanup
+# httpx.Client; post/get are scripted, delete records what the clean-up
 # asks to remove.
 class _FakeResp:
     """A scripted httpx response: json() returns the stored dict; raise_for_status
@@ -1059,13 +1061,15 @@ class _FakeHTTPStatusError(Exception):
 
 
 def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=(),
-                     delete_sent=None):
+                     delete_sent=None, clients=None):
     """A scriptable stand-in for the per-call `import httpx`, as transcribe() uses
     it: one Client per call. post/get pop the next scripted item -- a _FakeResp is
     returned, an Exception instance is raised on the call (a network failure).
     delete appends its URL to `deleted` when one is given, and the headers its
     client was built with plus its timeout to `delete_sent` when that is given,
-    then raises if the URL ends with one of `delete_fails`."""
+    then raises if the URL ends with one of `delete_fails`. Every client built is
+    appended to `clients` when that is given and counts its close() calls; once
+    closed it refuses every request, as httpx's own client does."""
     mod = types.ModuleType("httpx")
     mod.HTTPStatusError = _FakeHTTPStatusError
     mod.Timeout = lambda *a, **k: (a, k)   # the ElevenLabs post builds one (#343)
@@ -1088,41 +1092,85 @@ def _make_fake_httpx(post_script, get_script, deleted=None, delete_fails=(),
 
     class _Client:
         def __init__(self, *a, headers=None, **k):
-            self.headers = headers
-        post = staticmethod(lambda *a, **k: _serve(posts))
-        get = staticmethod(lambda *a, **k: _serve(gets))
+            self.headers, self.closes = headers, 0
+            if clients is not None:
+                clients.append(self)
+
+        def _refuse_if_closed(self):
+            if self.closes:
+                raise RuntimeError("Cannot send a request, as the client has been closed.")
+
+        def post(self, *a, **k):
+            self._refuse_if_closed()
+            return _serve(posts)
+
+        def get(self, *a, **k):
+            self._refuse_if_closed()
+            return _serve(gets)
 
         def delete(self, url, **k):
+            self._refuse_if_closed()
             if delete_sent is not None:
                 delete_sent.append((self.headers, k.get("timeout")))
             return _delete(url, **k)
 
         def close(self):
-            pass
+            self.closes += 1
 
     mod.Client = _Client
     return mod
 
 
-def _run_async_case(post_script, get_script, deleted=None, delete_fails=()):
+class _CapturedThread:
+    """threading.Thread as both file engines start their clean-up at the provider:
+    start() only files the thread, so the case decides when -- and whether -- it
+    runs."""
+    started, fail_start = [], False
+
+    def __init__(self, target=None, args=(), name=None, daemon=None):
+        self.target, self.args, self.daemon = target, args, daemon
+
+    def start(self):
+        if _CapturedThread.fail_start:
+            raise RuntimeError("can't create new thread at interpreter shutdown")
+        _CapturedThread.started.append(self)
+
+
+def _run_async_case(post_script, get_script, deleted=None, delete_fails=(), trace=None,
+                    start_fails=False):
     """Run the REAL SonioxAsyncTranscriber.transcribe against a scripted fake httpx.
     Returns (result_text, error_tag, error_messages). Constructs the transcriber
     via __new__ (no API-key check, no archive-dir side effect) and restores every
-    patched global plus the sys.modules['httpx'] entry afterwards."""
+    patched global plus the sys.modules['httpx'] entry afterwards.
+
+    The clean-up thread transcribe() starts (#345) is captured, not started, so
+    no case leaves a real thread behind: once the call has returned, the case
+    notes what was deleted by then and which clients were still open, runs each
+    captured thread by hand (still behind the fake httpx), and fills `trace` when
+    given -- `at_return` (deletes before the return), `daemon` (each thread's
+    flag), `open_at_return` (per client built), `closes` (each client's close()
+    count at the end) and `timeouts` (each DELETE's). `start_fails` makes the
+    thread refuse to start, as it can at interpreter shutdown."""
     engine = tr.SonioxAsyncTranscriber.__new__(tr.SonioxAsyncTranscriber)
     engine.api_key = "test-key"
     engine.headers = {"Authorization": "Bearer test-key"}
     engine.display_name = "Soniox async"   # get_name() reads this since #212
     dummy = ah.ARCHIVE_FOLDER / "async_input.mp3"
     dummy.touch()
+    deleted = [] if deleted is None else deleted
+    trace = {} if trace is None else trace
+    clients, sent = [], []
 
-    fake = _make_fake_httpx(post_script, get_script, deleted, delete_fails)
+    fake = _make_fake_httpx(post_script, get_script, deleted, delete_fails, sent, clients)
     saved_httpx = sys.modules.get("httpx")
     saved_max = tr.SONIOX_ASYNC_MAX_POLL_ATTEMPTS
     saved_interval = tr.SONIOX_ASYNC_POLL_INTERVAL
+    saved_threading = tr.threading
     sys.modules["httpx"] = fake
     tr.SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 3
     tr.SONIOX_ASYNC_POLL_INTERVAL = 0
+    _CapturedThread.started, _CapturedThread.fail_start = [], start_fails
+    tr.threading = types.SimpleNamespace(Thread=_CapturedThread)
 
     lg = logging.getLogger("Thoughtborne")
     old = lg.level
@@ -1132,6 +1180,13 @@ def _run_async_case(post_script, get_script, deleted=None, delete_fails=()):
     tag = tr._ErrorTag()
     try:
         result = engine.transcribe(str(dummy), 60.0, error_sink=tag)
+        trace["at_return"] = list(deleted)
+        trace["daemon"] = [t.daemon for t in _CapturedThread.started]
+        trace["open_at_return"] = [c.closes == 0 for c in clients]
+        for thread in _CapturedThread.started:
+            thread.target(*thread.args)
+        trace["closes"] = [c.closes for c in clients]
+        trace["timeouts"] = [timeout for _, timeout in sent]
     finally:
         lg.removeHandler(cap)
         lg.setLevel(old)
@@ -1141,6 +1196,7 @@ def _run_async_case(post_script, get_script, deleted=None, delete_fails=()):
             sys.modules.pop("httpx", None)
         tr.SONIOX_ASYNC_MAX_POLL_ATTEMPTS = saved_max
         tr.SONIOX_ASYNC_POLL_INTERVAL = saved_interval
+        tr.threading = saved_threading
     return result, tag, cap.records
 
 
@@ -1257,41 +1313,58 @@ def test_async_failed_status_sets_sink():
 
 
 def test_async_cleanup_runs_on_every_path():
-    """#342: the `finally` in transcribe() deletes what the call created on Soniox's
-    servers -- the transcription, then the uploaded file -- on every path, before
-    transcribe() returns. No other lane watches that block, and #342 rebuilt it
-    around one shared client; dropping either delete turns this red. The two
-    deletes stand apart: a failed transcription delete must not cost the file
-    delete (the live log has deletes failing on the handshake), so one more run
-    makes the first one raise."""
+    """#342, #345: what a transcribe() call created on Soniox's servers -- the
+    transcription, then the uploaded file -- is deleted on every path, and nothing
+    else is. It matters because an account keeps at most 1,000 files and an upload
+    left behind stays for 30 days. Since #345 the deletes come after the text is
+    returned: nothing is deleted when the call returns, and one non-daemon thread
+    takes over the call's client, sends them with SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS
+    and closes it. The call builds that one client and no other (#342), and closes
+    it at once when it created nothing. The two deletes stand apart: a failed
+    transcription delete must not cost the file delete (the live log has deletes
+    failing on the handshake). A thread that will not start must not cost the
+    clean-up either: it then runs before the return, as it did before #345."""
     created = [_FakeResp({"id": "file1"}), _FakeResp({"id": "tx1"})]
+    done = [_FakeResp({"status": "completed"}), _FakeResp({"text": "x"})]
     both = ["/v1/transcriptions/tx1", "/v1/files/file1"]
     cases = (
-        ("success", created,
-         [_FakeResp({"status": "completed"}), _FakeResp({"text": "x"})], both),
-        ("job error", created, [_FakeResp({"status": "error"})], both),
-        ("poll timeout", created, [_FakeResp({"status": "processing"})] * 3, both),
-        ("poll raises", created, [ConnectionError("blip")], both),
+        # (label, posts, gets, delete_fails, start_fails, deleted at return, deleted)
+        ("success", created, done, (), False, [], both),
+        ("job error", created, [_FakeResp({"status": "error"})], (), False, [], both),
+        ("poll timeout", created, [_FakeResp({"status": "processing"})] * 3, (), False,
+         [], both),
+        ("poll raises", created, [ConnectionError("blip")], (), False, [], both),
         ("transcript fetch rejected", created,
          [_FakeResp({"status": "completed"}),
-          _FakeResp(raise_exc=_FakeHTTPStatusError(500))], both),
-        ("create fails", [_FakeResp({"id": "file1"}), ConnectionError("blip")], [],
-         ["/v1/files/file1"]),
-        ("upload fails", [ConnectionError("blip")], [], []),
+          _FakeResp(raise_exc=_FakeHTTPStatusError(500))], (), False, [], both),
+        ("create fails", [_FakeResp({"id": "file1"}), ConnectionError("blip")], [], (),
+         False, [], ["/v1/files/file1"]),
+        ("upload fails", [ConnectionError("blip")], [], (), False, [], []),
+        ("transcription delete fails", created, done, (both[0],), False, [], both),
+        ("thread will not start", created, done, (), True, both, both),
     )
-    for label, posts, gets, expected in cases:
-        deleted = []
-        _run_async_case(list(posts), list(gets), deleted)
+    for label, posts, gets, fails, start_fails, want_at_return, want in cases:
+        deleted, trace = [], {}
+        _run_async_case(list(posts), list(gets), deleted, fails, trace, start_fails)
+        at_return = [url.replace(tr.SONIOX_ASYNC_API_BASE, "") for url in trace["at_return"]]
         got = [url.replace(tr.SONIOX_ASYNC_API_BASE, "") for url in deleted]
-        assert got == expected, f"{label}: cleanup deleted {got}, expected {expected}"
-
-    deleted = []
-    _run_async_case(list(created),
-                    [_FakeResp({"status": "completed"}), _FakeResp({"text": "x"})],
-                    deleted, delete_fails=(both[0],))
-    got = [url.replace(tr.SONIOX_ASYNC_API_BASE, "") for url in deleted]
-    assert got == both, \
-        f"transcription delete fails: cleanup tried {got}, expected {both}"
+        threaded = 1 if want and not start_fails else 0
+        assert at_return == want_at_return, \
+            f"{label}: deleted {at_return} before returning the text, expected {want_at_return}"
+        assert got == want, f"{label}: cleanup deleted {got}, expected {want}"
+        assert trace["daemon"] == [False] * threaded, \
+            f"{label}: clean-up thread(s) with daemon={trace['daemon']}, expected " \
+            f"{'one non-daemon thread' if threaded else 'none'}"
+        assert trace["open_at_return"] == [bool(threaded)], \
+            f"{label}: client(s) open at the return: {trace['open_at_return']}, " \
+            f"expected the call's one client, {'open for' if threaded else 'closed without'} " \
+            f"a clean-up thread"
+        assert trace["closes"] == [1], \
+            f"{label}: close() count per client {trace['closes']}, expected one client " \
+            f"closed once"
+        assert trace["timeouts"] == [tr.SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS] * len(got), \
+            f"{label}: delete timeouts {trace['timeouts']}, expected " \
+            f"SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS on each"
 
 
 # ---- #343: the REAL ElevenLabsTranscriber against the same scripted fake httpx --
@@ -1300,20 +1373,6 @@ def test_async_cleanup_runs_on_every_path():
 # one and makes httpx's real transport refuse: a module-level `import httpx` slipping
 # past the sys.modules fake fails here before anything is sent.
 _FAKE_EL_KEY = "not-a-real-elevenlabs-key"
-
-
-class _CapturedThread:
-    """threading.Thread as the ElevenLabs engine starts its delete: start() only
-    files the thread, so the case decides when -- and whether -- it runs."""
-    started, fail_start = [], False
-
-    def __init__(self, target=None, args=(), name=None, daemon=None):
-        self.target, self.args, self.daemon = target, args, daemon
-
-    def start(self):
-        if _CapturedThread.fail_start:
-            raise RuntimeError("can't create new thread at interpreter shutdown")
-        _CapturedThread.started.append(self)
 
 
 def _run_elevenlabs_case(post_script, deleted=None, delete_fails=(), trace=None,

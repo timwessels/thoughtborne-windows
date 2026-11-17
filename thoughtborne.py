@@ -3056,10 +3056,12 @@ class ThoughtborneApp:
         self.audio_recorder.cleanup()
 
         # Dim console + the last real file line (AGENTS heartbeat), but not quite the
-        # process end: a pending ElevenLabs transcript delete (#343) is a non-daemon
-        # thread, so the process -- and its single-instance mutex -- can outlive this
-        # line, typically by ~2.5 s, and log that delete's one line after it. On a dead
-        # network it takes longer: the call's 5 s timeout applies per phase (connect,
+        # process end: the file engines clean up at their provider in non-daemon
+        # threads after the text is returned -- the ElevenLabs transcript delete
+        # (#343), typically done ~2.5 s after its dictation, and the two Soniox
+        # deletes (#345), ~0.3 s after it -- so the process, and its single-instance
+        # mutex, can outlive this line and log those deletes' lines after it. On a dead
+        # network that takes longer: each call's 5 s timeout applies per phase (connect,
         # send, read), not to the call as a whole, so each phase that hangs adds up to 5 s.
         logger.info("Program ended")
         logger.info("=" * 60, extra=FILE_ONLY)

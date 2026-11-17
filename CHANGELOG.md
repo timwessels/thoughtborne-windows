@@ -108,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status check, fetching the text and the two deletions — so a good part of the wait
   after a dictation was spent connecting. All steps of one transcription now share one
   connection. What stays the same: the audio and the transcript are still deleted from
-  Soniox's servers before the text is inserted, the pause between two status checks is
+  Soniox's servers, the pause between two status checks is
   still half a second (checking faster measured no gain), and errors surface exactly as
   before. Measured with the real transcription class against the real Soniox service
   (not the running tool), the median wait drops by about two seconds on short
@@ -116,6 +116,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparison includes the switch to v6: on short dictations nearly all of the gain comes
   from the shared connection, on recordings of several minutes much of it from v6.
   Nothing to install, no setting to change.
+- **The `soniox` engine hands over the text first and tidies up at Soniox afterwards
+  (#345).** It still deletes the uploaded audio and the transcript from Soniox's servers
+  after every dictation, failed ones included, but now right after handing over the
+  text instead of before. That takes about a quarter of a second off every dictation
+  with this engine: measured with the real transcription class against the real
+  service, the text came back 0.25–0.28 s after Soniox delivered it, and now within a
+  few milliseconds. A normal exit waits for the clean-up, which is usually done
+  within half a second of the text; on a dead network it can hold up the end
+  of the tool for some seconds after "Program ended". A crash, or closing the console
+  window, in that moment can leave the upload on Soniox's servers, which delete it after
+  30 days. The `elevenlabs` engine already works this way (#343).
 - **Locked `certifi` bumped from 2026.5.20 to 2026.10.23 and `pillow` from 12.3.0 to
   13.0.0.** `certifi` is the list of certificate authorities the tool checks its
   providers' TLS certificates against; the new version clears a security advisory about

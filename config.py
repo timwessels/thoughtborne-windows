@@ -667,6 +667,12 @@ SONIOX_ASYNC_MODEL = "stt-async-v6"
 # rate-limits its async API per minute and its Node SDK polls no faster than 1 s.
 SONIOX_ASYNC_POLL_INTERVAL = 0.5   # Seconds of pause after each poll, not the poll period
 SONIOX_ASYNC_MAX_POLL_ATTEMPTS = 600  # x (interval + one poll round trip): roughly 6-7 minutes
+# Limit per phase for each of the two clean-up deletes. They run after the text is
+# returned (#345), so the limit no longer sits on any dictation, only on how long a
+# pending clean-up can hold up the end of the process (see
+# SonioxAsyncTranscriber._delete_from_server). Measured deletes took ~0.13 s, the
+# slowest of some 120 took 0.43 s.
+SONIOX_ASYNC_DELETE_TIMEOUT_SECONDS = 5.0
 
 # ===== SONIOX LIVE (WEBSOCKET RT) SETTINGS =====
 # Live-streaming API: audio is sent in real-time during recording.
