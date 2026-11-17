@@ -4,16 +4,18 @@ Cheap live API-key validation for the settings app's "Test key" button (#144).
 Stdlib only (urllib.request) so it runs under any interpreter without the uv
 venv -- the settings app must work on a half-set-up first run where the `groq` /
 `httpx` packages are not importable. Each check is a tiny authenticated GET
-(`Authorization: Bearer <key>`) with a short timeout: no transcription, no
-billable work. The KEY is NEVER logged or echoed (details are generic).
+(`Authorization: Bearer <key>`; ElevenLabs takes its own `xi-api-key` header) with a
+short timeout: no transcription, no billable work. The KEY is NEVER logged or echoed
+(details are generic).
 
 Two things here are not obvious and must not be tidied away (#205): every request
 carries an explicit `User-Agent` (see USER_AGENT), and a status that is neither 2xx
 nor 401 is its own verdict (INCONCLUSIVE), never UNREACHABLE -- a server that
 answers has not failed to answer, whatever it says.
 
-`classify_http` is a pure function (unit-tested); the live round-trip is a
-hands-on test. Run the checks off the UI thread -- the timeout bounds them.
+`classify_http` and `classify_elevenlabs` are pure functions (unit-tested); the
+live round-trip is a hands-on test. Run the checks off the UI thread -- the timeout
+bounds them.
 """
 
 import http.client
@@ -70,21 +72,48 @@ GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 # nothing); a 2xx confirms the key. Endpoint web-confirmed 2026-07-21 -- a bad key
 # returns a live 401 here, so it is a documented, verified auth check.
 SONIOX_LIST_URL = "https://api.soniox.com/v1/transcriptions"
+# ElevenLabs (#343): an authenticated GET on one transcript by an id that cannot
+# exist -- the same speech-to-text area the engine's delete call uses, and nothing is
+# created. Measured November 2026 against the real service: a good key gets 404
+# `transcript_not_found` (authenticated, nothing there -- hence 404 means VALID here);
+# a wrong key gets 400 or 401 depending on its shape (`invalid_api_key`,
+# `invalid_api_key_length`, ...), and both read INVALID. Keep the id plain letters:
+# with a hyphen in it a GOOD key got 400 `invalid_uid`. The reading goes by status
+# alone, so it guards against a false green, not a false red: any other answer reads
+# INCONCLUSIVE, but should ElevenLabs change which id form it accepts, a good key
+# would read as rejected (see classify_elevenlabs).
+ELEVENLABS_PROBE_URL = ("https://api.elevenlabs.io/v1/speech-to-text/transcripts/"
+                        "AAAAAAAAAAAAAAAAAAAA")
 
 
-def _check_bearer(url: str, key: str, timeout: float) -> KeyResult:
-    """Do the authenticated GET and classify. Only a connection/timeout/OS error --
-    no answer at all -- is UNREACHABLE; an answered non-auth status is classified as
-    INCONCLUSIVE by classify_http. The key is stripped (mirroring the .env writer) and
+def classify_elevenlabs(status_code: int) -> KeyStatus:
+    """Pure: the ElevenLabs probe's reading of an HTTP status (ELEVENLABS_PROBE_URL).
+    404 -> VALID (the key authenticated, the made-up transcript just is not there);
+    400 and 401 -> INVALID (ElevenLabs answers a wrong key with either); anything else,
+    2xx included, -> INCONCLUSIVE: an answer this probe was not measured to give."""
+    if status_code == 404:
+        return KeyStatus.VALID
+    if status_code in (400, 401):
+        return KeyStatus.INVALID
+    return KeyStatus.INCONCLUSIVE
+
+
+def _check_key(url: str, key: str, timeout: float, *, header: str = "Authorization",
+               classify=classify_http) -> KeyResult:
+    """Do the authenticated GET and classify. The key goes into `header` -- as
+    `Bearer <key>` for the default Authorization header, bare for any other (ElevenLabs'
+    `xi-api-key`) -- and an answered status is read by `classify` (classify_http unless
+    a provider's probe needs its own reading). Only a connection/timeout/OS error --
+    no answer at all -- is UNREACHABLE. The key is stripped (mirroring the .env writer) and
     a key that cannot form a valid latin-1 HTTP header value -- a control character (an
     embedded \\n/\\r) or a glyph not encodable as latin-1 (a smart quote off a web page)
-    -> INVALID, up front: otherwise urllib raises while composing the Authorization
+    -> INVALID, up front: otherwise urllib raises while composing the auth
     header (a non-OSError) and kills the worker thread. The key never appears in a
     detail string."""
     if not key or not key.strip():
         return KeyResult(KeyStatus.INVALID, "no key provided")
     # Mirror the .env writer's .strip(): a padded key is stored stripped-and-working,
-    # so it must TEST stripped too (else a padded Authorization header 401s as a
+    # so it must TEST stripped too (else a padded auth header 401s as a
     # spurious INVALID). Then reject a key that is not a safe latin-1 header value -- a
     # control char (an embedded \n/\r splits the header) or a non-latin-1 glyph (a
     # smart quote) would raise inside urllib and escape as a non-OSError. Never echo
@@ -97,14 +126,14 @@ def _check_bearer(url: str, key: str, timeout: float) -> KeyResult:
         header_safe = False
     if not header_safe:
         return KeyResult(KeyStatus.INVALID, "malformed key")
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}",
-                                               "User-Agent": USER_AGENT})
+    value = f"Bearer {key}" if header == "Authorization" else key
+    req = urllib.request.Request(url, headers={header: value, "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status = getattr(resp, "status", None) or resp.getcode()
-            return KeyResult(classify_http(status), f"HTTP {status}")
+            return KeyResult(classify(status), f"HTTP {status}")
     except urllib.error.HTTPError as e:
-        return KeyResult(classify_http(e.code), f"HTTP {e.code}")
+        return KeyResult(classify(e.code), f"HTTP {e.code}")
     except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError,
             ValueError, UnicodeError):
         # http.client.HTTPException (e.g. BadStatusLine from a captive portal or
@@ -121,7 +150,7 @@ def check_groq_key(key: str, *, timeout: float = 5.0) -> KeyResult:
     (GET /openai/v1/models, web-confirmed as an auth-only endpoint). No
     transcription. 401 -> INVALID; 2xx -> VALID; any other answered status ->
     INCONCLUSIVE; no answer at all -> UNREACHABLE."""
-    return _check_bearer(GROQ_MODELS_URL, key, timeout)
+    return _check_key(GROQ_MODELS_URL, key, timeout)
 
 
 def check_soniox_key(key: str, *, timeout: float = 5.0) -> KeyResult:
@@ -129,4 +158,14 @@ def check_soniox_key(key: str, *, timeout: float = 5.0) -> KeyResult:
     401 -> INVALID; 2xx -> VALID; any other answered status -> INCONCLUSIVE; no answer
     at all -> UNREACHABLE. Hits the web-confirmed transcriptions endpoint (see
     SONIOX_LIST_URL)."""
-    return _check_bearer(SONIOX_LIST_URL, key, timeout)
+    return _check_key(SONIOX_LIST_URL, key, timeout)
+
+
+def check_elevenlabs_key(key: str, *, timeout: float = 5.0) -> KeyResult:
+    """Validate an ElevenLabs API key with an authenticated GET on a transcript that
+    does not exist (no work created), sent with the `xi-api-key` header ElevenLabs
+    uses instead of Bearer. 404 -> VALID; 400/401 -> INVALID; any other answered
+    status -> INCONCLUSIVE; no answer at all -> UNREACHABLE (see
+    ELEVENLABS_PROBE_URL and classify_elevenlabs)."""
+    return _check_key(ELEVENLABS_PROBE_URL, key, timeout, header="xi-api-key",
+                      classify=classify_elevenlabs)

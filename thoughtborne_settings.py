@@ -100,6 +100,18 @@ CREATE_NEW_CONSOLE = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
 _TAB_KEYS = ("welcome.tab", "provider.tab", "hotkeys.tab", "behavior.tab",
              "machine.tab", "done.tab")
 
+# The key fields, in card order (#343): provider -> (the .env var its field manages,
+# its live key check). The one place a provider's key is wired: the fields, the
+# load-time snapshot, the save's live half and the Test buttons all read it. Its .env
+# names must be exactly settings_io.ENV_KEYS, in order -- a managed key without a
+# field here reads as cleared, and every save would delete it from .env
+# (test_settings_io pins the two together).
+_PROVIDERS = {
+    "groq":       ("GROQ_API_KEY", key_check.check_groq_key),
+    "soniox":     ("SONIOX_API_KEY", key_check.check_soniox_key),
+    "elevenlabs": ("ELEVENLABS_API_KEY", key_check.check_elevenlabs_key),
+}
+
 # How many callback-exception blocks one settings process writes before it goes quiet
 # (#240). A callback that throws once usually throws again -- a failing `after` loop
 # would append a block per tick, and these appends bypass the tool's log rotation
@@ -290,14 +302,14 @@ class SettingsApp:
         self._test_btns = {}
         self._indicators = {}
         self._soniox_balance_note = None   # #179: shown only after a green Soniox test
-        self._revealed = {"groq": False, "soniox": False}
+        self._revealed = {p: False for p in _PROVIDERS}
         self._test_state = {}       # provider -> None | "testing" | KeyStatus
         # A generation stamp per provider, bumped on every test launch AND on every
         # field edit; a poll result whose stamp no longer matches the current one is
         # stale (its key was edited mid-test) and is discarded, so a green light can
         # never render against a key it wasn't tested against.
-        self._test_gen = {"groq": 0, "soniox": 0}
-        self._test_queue = {"groq": queue.Queue(), "soniox": queue.Queue()}
+        self._test_gen = {p: 0 for p in _PROVIDERS}
+        self._test_queue = {p: queue.Queue() for p in _PROVIDERS}
         self._combo_labels = {}     # action -> tk.Label
         self._armed = None          # the action currently capturing a keypress
         # #335: a generation stamp for the wait between "Change…" was clicked and the
@@ -420,9 +432,9 @@ class SettingsApp:
         # The shared engine-mode radio var (#198), seeded to the loaded mode.
         self.mode_var = tk.StringVar(value=self._mode_loaded)
         env = settings_io.read_env(config.SCRIPT_DIR / ".env")
-        self.groq_var = tk.StringVar(value=env.get("GROQ_API_KEY", ""))
-        self.soniox_var = tk.StringVar(value=env.get("SONIOX_API_KEY", ""))
-        # The load-time snapshot of what the two fields were filled with, per .env
+        self._key_vars = {p: tk.StringVar(value=env.get(var, ""))
+                          for p, (var, _check) in _PROVIDERS.items()}
+        # The load-time snapshot of what the key fields were filled with, per .env
         # var: since #328 it is the state a save compares the fields against, so a
         # field the user CLEARED can be told from one that was empty all along
         # (settings_io.resolve_env_save_updates, D-026). Never
@@ -431,16 +443,14 @@ class SettingsApp:
         # unreadable/ANSI .env reads as no keys here -- a save that then writes
         # something is stopped before the first write (#291, _save's pre-flight names
         # the file) and a keyless one says so rather than claiming no key was found
-        # anywhere (#294). This dict is keyed off API_KEY_ENV; _live_env and
-        # settings_io.env_has_key still name the two vars directly, so a third
-        # key/engine would extend the snapshot but not the whole pipeline for free.
-        self._stored_env = {v: env.get(v, "") for v in set(config.API_KEY_ENV.values())}
+        # anywhere (#294). Keyed off _PROVIDERS, the same table _live_env reads.
+        self._stored_env = {var: env.get(var, "") for var, _check in _PROVIDERS.values()}
 
         self._build_ui()
 
         # Field-edit traces added AFTER prefill so the initial prefill isn't seen as a user edit.
-        self.groq_var.trace_add("write", lambda *a: self._on_field_edit("groq"))
-        self.soniox_var.trace_add("write", lambda *a: self._on_field_edit("soniox"))
+        for p, var in self._key_vars.items():
+            var.trace_add("write", lambda *a, p=p: self._on_field_edit(p))
 
         self.render_all()
 
@@ -1003,13 +1013,17 @@ class SettingsApp:
         self._section(f, "provider.keys.heading", level="H1")
         self._prose(f, "provider.keys.body").pack(fill="x", pady=(sp(2), sp(6)))
         self._prose(f, "provider.lanes.body").pack(fill="x", pady=(0, sp(8)))
-        # Groq first (the free "try it now" lane), Soniox second (the quality lane).
+        # Groq first (the free "try it now" lane), Soniox second (the quality lane),
+        # ElevenLabs third -- the _PROVIDERS order.
         self._build_provider_card(f, "groq", "provider.groq.heading",
                                   "provider.groq.body", "url.groq_keys",
                                   "provider.field.groq")
         self._build_provider_card(f, "soniox", "provider.soniox.heading",
                                   "provider.soniox.body", "url.soniox_console",
                                   "provider.field.soniox")
+        self._build_provider_card(f, "elevenlabs", "provider.elevenlabs.heading",
+                                  "provider.elevenlabs.body", "url.elevenlabs_keys",
+                                  "provider.field.elevenlabs")
         self._prose(f, "provider.keep_note", surface="Muted.").pack(fill="x", pady=(sp(6), 0))
         return outer
 
@@ -1026,8 +1040,7 @@ class SettingsApp:
         # A flat, card-surfaced row (no second border) holds the key field + buttons.
         row = ttk.Frame(card, style="Plain.Card.TFrame")
         row.pack(fill="x")
-        var = self.groq_var if provider == "groq" else self.soniox_var
-        entry = ttk.Entry(row, textvariable=var, show="•")
+        entry = ttk.Entry(row, textvariable=self._key_vars[provider], show="•")
         entry.pack(side="left", fill="x", expand=True)
         self._entries[provider] = entry
         rbtn = ttk.Button(row, width=10, style="Card.TButton",
@@ -1084,8 +1097,7 @@ class SettingsApp:
         self._render_indicator(provider)
 
     def _test_key(self, provider):
-        var = self.groq_var if provider == "groq" else self.soniox_var
-        key = var.get()
+        key = self._key_vars[provider].get()
         # Stamp this launch; the worker tags its result with the same stamp so the
         # poll can tell it apart from a run a later edit/launch has superseded.
         self._test_gen[provider] += 1
@@ -1093,8 +1105,7 @@ class SettingsApp:
         self._test_btns[provider].config(state="disabled")
         self._test_state[provider] = "testing"
         self._render_indicator(provider)
-        checker = (key_check.check_groq_key if provider == "groq"
-                   else key_check.check_soniox_key)
+        checker = _PROVIDERS[provider][1]
         q = self._test_queue[provider]
 
         def work():
@@ -1777,14 +1788,14 @@ class SettingsApp:
         is why clearing the last key now meets the confirmation that guards saving
         without one. It no longer reaches the rail: since #271 every save restarts,
         keyed or not (D-014), so there is no label left for a key to decide."""
-        return bool(self.groq_var.get().strip() or self.soniox_var.get().strip())
+        return any(var.get().strip() for var in self._key_vars.values())
 
     def _live_env(self):
-        """The two managed key fields as an {ENV_VAR: value} dict (config.API_KEY_ENV
-        names those vars): the live half of the save's difference rule in
-        _env_save_updates below, against the load-time _stored_env snapshot."""
-        return {"GROQ_API_KEY": self.groq_var.get(),
-                "SONIOX_API_KEY": self.soniox_var.get()}
+        """Every managed key field as an {ENV_VAR: value} dict (_PROVIDERS names those
+        vars): the live half of the save's difference rule in _env_save_updates below,
+        against the load-time _stored_env snapshot. All of them, always: a managed key
+        missing here reads as a cleared field and is deleted from .env."""
+        return {_PROVIDERS[p][0]: var.get() for p, var in self._key_vars.items()}
 
     def _env_save_updates(self):
         """What THIS save has to say about `.env`, as the difference between the live
@@ -1842,7 +1853,7 @@ class SettingsApp:
         return bool(bbox) and bbox[3] > c.winfo_height()
 
     def _entry_has_focus(self):
-        # True when the keyboard focus sits in a text entry (the two key fields).
+        # True when the keyboard focus sits in a text entry (the key fields).
         # Home/End must then move the caret, not double as a scroll. The engine picker
         # is a radio list since #201 (not an Entry subclass), so focus on it correctly
         # returns False here. focus_get can raise mid-teardown -- guard it.
@@ -1929,7 +1940,7 @@ class SettingsApp:
             widget.config(text=strings.t(text_key, self.lang))
         for i, key in enumerate(_TAB_KEYS):
             self.notebook.tab(i, text=strings.t(key, self.lang))
-        for provider in ("groq", "soniox"):
+        for provider in _PROVIDERS:
             self._render_reveal_btn(provider)
             self._render_indicator(provider)
         self._render_engine_control()

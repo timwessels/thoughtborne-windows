@@ -127,9 +127,21 @@ What is covered:
     malformed key (embedded newline / non-latin-1 glyph) rejected as INVALID without
     an exception escaping the worker thread, and a padded key stripped before the
     Authorization header (localhost capture).
+  - the ElevenLabs check (#343, check_key_check_elevenlabs): its own status reading
+    (classify_elevenlabs: 404 -> VALID, 400/401 -> INVALID, everything else
+    INCONCLUSIVE), and the real check_elevenlabs_key against a localhost server --
+    the bare key in `xi-api-key`, no Authorization header, the probe's path and its
+    plain-letters id, each served status read the ElevenLabs way. Never the real
+    service.
+  - the third key's way through the IO core and the window's seam to it (#343,
+    check_elevenlabs_env + check_provider_table_seam): an ElevenLabs key seeded onto
+    the example's own line, read, kept untouched and deleted like the other two, and
+    the app's provider table naming exactly settings_io.ENV_KEYS in order -- a managed
+    key the window has no field for reads as cleared, so every save would delete it
+    from `.env` -- with each card's own key_check function.
   - key_check's #205 honesty contract: an ANSWERED status is never UNREACHABLE (swept
     over 200..599, the rule rather than examples -- a 403/404/429/5xx is INCONCLUSIVE,
-    the server said something that is simply not about the key), and _check_bearer
+    the server said something that is simply not about the key), and _check_key
     really puts the explicit User-Agent on the wire (localhost capture) -- urllib's
     default one is WAF-banned at Groq and was the whole cause of the false verdict.
     Plus the coupling nobody else enforces: every KeyStatus member has a row in
@@ -636,7 +648,7 @@ def check_env_save_updates():
     # The docstring's defensive half, pinned: a managed key MISSING from the live
     # fields reads as a cleared field, exactly like one cleared by hand -- so a
     # caller that builds the dict from only the widgets it touched would delete the
-    # other key. That is why the app's _live_env always builds both.
+    # other key. That is why the app's _live_env always builds all of them.
     got = sio.resolve_env_save_updates({G: "dummy-x"},
                                        {G: "dummy-y", S: "dummy-s"})
     check(got == {G: "dummy-x", S: R},
@@ -652,6 +664,18 @@ def check_env_save_updates():
     check(got.get(G) is sio.REMOVE_ENV_KEY,
           f"env save updates: a cleared field resolved to {got.get(G)!r} rather than "
           f"the REMOVE_ENV_KEY sentinel itself")
+
+    # The third key (#343) under the same rule: untouched beside the other two it is
+    # no instruction, and a live set that forgets it -- the shape of an app whose
+    # fields lag behind ENV_KEYS -- deletes it.
+    E = "ELEVENLABS_API_KEY"
+    three = {G: "gsk_a", S: "sx_b", E: "el_c"}
+    got = sio.resolve_env_save_updates(dict(three), three)
+    check(got == {}, f"env save updates: three untouched keys resolved to {got}")
+    got = sio.resolve_env_save_updates({G: "gsk_a", S: "sx_b"}, three)
+    check(got == {E: R},
+          f"env save updates: a live set without the ElevenLabs field resolved to "
+          f"{got}, not to the deletion that makes the app's field table load-bearing")
 
 
 # ---- personal_settings.json --------------------------------------------------
@@ -1801,7 +1825,7 @@ def check_key_check():
               f"classify_http {code} -> INCONCLUSIVE")
     # The rule that makes the two grey-ish verdicts distinguishable at all (#205): an
     # ANSWERED status is never UNREACHABLE. UNREACHABLE now means no answer arrived,
-    # which only _check_bearer's transport-exception path can produce. Swept rather than
+    # which only _check_key's transport-exception path can produce. Swept rather than
     # sampled, so a future "let's special-case 5xx again" fails here.
     for code in range(200, 600):
         check(kc.classify_http(code) != KeyStatus.UNREACHABLE,
@@ -1814,7 +1838,7 @@ def check_key_check():
 
 def check_key_check_socket():
     # B2 -- a non-HTTP response (garbage bytes from a captive portal / proxy) makes
-    # http.client raise BadStatusLine (an HTTPException, NOT an OSError). _check_bearer
+    # http.client raise BadStatusLine (an HTTPException, NOT an OSError). _check_key
     # must catch it and return UNREACHABLE, not let it escape and kill the worker
     # thread. Pure stdlib, localhost only.
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1839,10 +1863,10 @@ def check_key_check_socket():
     crashed = False
     res = None
     try:
-        res = kc._check_bearer(f"http://127.0.0.1:{port}/", "dummy-key", timeout=5.0)
+        res = kc._check_key(f"http://127.0.0.1:{port}/", "dummy-key", timeout=5.0)
     except BaseException:   # the whole point of the test is that nothing escapes
         crashed = True
-    check(not crashed, "B2: _check_bearer let a non-HTTP response exception escape")
+    check(not crashed, "B2: _check_key let a non-HTTP response exception escape")
     check(res is not None and res.status == KeyStatus.UNREACHABLE,
           f"B2: a non-HTTP response should decode to UNREACHABLE, got {res}")
     t.join(timeout=2.0)
@@ -1859,10 +1883,10 @@ def check_key_check_malformed():
         crashed = False
         res = None
         try:
-            res = kc._check_bearer("http://127.0.0.1:1/", bad, timeout=0.1)
+            res = kc._check_key("http://127.0.0.1:1/", bad, timeout=0.1)
         except BaseException:   # the whole point: nothing escapes to kill the thread
             crashed = True
-        check(not crashed, f"malformed key {bad!r} let an exception escape _check_bearer")
+        check(not crashed, f"malformed key {bad!r} let an exception escape _check_key")
         check(res is not None and res.status == KeyStatus.INVALID,
               f"malformed key {bad!r} should be INVALID, got {res}")
         check(res is None or bad not in res.detail, "malformed-key detail echoed the key")
@@ -1896,7 +1920,7 @@ def check_key_check_strip():
 
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
-    res = kc._check_bearer(f"http://127.0.0.1:{port}/", "  gsk_padded  ", timeout=5.0)
+    res = kc._check_key(f"http://127.0.0.1:{port}/", "  gsk_padded  ", timeout=5.0)
     t.join(timeout=2.0)
     srv.close()
     check(captured.get("auth") == "Authorization: Bearer gsk_padded",
@@ -1908,7 +1932,7 @@ def check_key_check_strip():
 def check_key_check_user_agent():
     # #205, the root cause: urllib's default UA ("Python-urllib/3.x") is banned outright
     # by Groq's WAF, which then answers a fast, key-INDEPENDENT 403 -- the false
-    # UNREACHABLE a perfectly working key produced. _check_bearer must therefore send an
+    # UNREACHABLE a perfectly working key produced. _check_key must therefore send an
     # explicit User-Agent; without this check the fix has no automated cover at all and a
     # later tidy-up of the header dict would re-open the bug silently. Capture what a
     # localhost server really receives; no outside network, pure stdlib.
@@ -1940,11 +1964,11 @@ def check_key_check_user_agent():
 
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
-    kc._check_bearer(f"http://127.0.0.1:{port}/", "gsk_dummy", timeout=5.0)
+    kc._check_key(f"http://127.0.0.1:{port}/", "gsk_dummy", timeout=5.0)
     t.join(timeout=2.0)
     srv.close()
     check(captured.get("ua") == kc.USER_AGENT,
-          f"_check_bearer must send the explicit User-Agent, got {captured.get('ua')!r}")
+          f"_check_key must send the explicit User-Agent, got {captured.get('ua')!r}")
     check("urllib" not in captured.get("ua", "").lower(),
           "the request went out with urllib's default User-Agent -- exactly the "
           "signature Groq's WAF bans (#205)")
@@ -1952,6 +1976,176 @@ def check_key_check_user_agent():
           and "\n" not in kc.USER_AGENT and "\r" not in kc.USER_AGENT,
           f"USER_AGENT must be a single, non-empty, unpadded header line: "
           f"{kc.USER_AGENT!r}")
+
+
+def _status_server(statuses, captured):
+    """A localhost HTTP server answering one request per entry of `statuses` with that
+    status and an empty body, recording each request's line and headers in
+    `captured` (a list of (request_line, {lower-case header name: value})). Returns
+    (port, thread, socket). Pure stdlib; nothing leaves the machine."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(len(statuses))
+    port = srv.getsockname()[1]
+
+    def _serve():
+        for status in statuses:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                return
+            try:
+                lines = conn.recv(4096).decode("latin-1").split("\r\n")
+                headers = {}
+                for raw in lines[1:]:
+                    if ":" in raw:
+                        name, value = raw.split(":", 1)
+                        headers[name.strip().lower()] = value.strip()
+                captured.append((lines[0], headers))
+                conn.sendall(f"HTTP/1.1 {status} X\r\nContent-Length: 0\r\n"
+                             "Connection: close\r\n\r\n".encode("latin-1"))
+            except OSError:
+                pass
+            finally:
+                conn.close()
+
+    t = threading.Thread(target=_serve, daemon=True)
+    t.start()
+    return port, t, srv
+
+
+def check_key_check_elevenlabs():
+    # #343: ElevenLabs authenticates with its own `xi-api-key` header, and the probe
+    # (a transcript id that cannot exist) answers a GOOD key with 404. Sent the
+    # Bearer way, a valid key would read red; read by classify_http, a wrong key's 400
+    # would read amber -- wrong in both directions, which is why the check has its own
+    # header and its own reading. classify_http itself stays as it is (pinned above).
+    expected = {404: KeyStatus.VALID, 400: KeyStatus.INVALID, 401: KeyStatus.INVALID,
+                200: KeyStatus.INCONCLUSIVE, 403: KeyStatus.INCONCLUSIVE,
+                429: KeyStatus.INCONCLUSIVE, 500: KeyStatus.INCONCLUSIVE}
+    for code, want in expected.items():
+        check(kc.classify_elevenlabs(code) == want,
+              f"classify_elevenlabs {code} -> {kc.classify_elevenlabs(code)}, "
+              f"expected {want}")
+    for code in range(200, 600):
+        check(kc.classify_elevenlabs(code) != KeyStatus.UNREACHABLE,
+              f"classify_elevenlabs({code}) returned UNREACHABLE -- an answered "
+              "status is never a network failure (#205)")
+    check(kc.check_elevenlabs_key("").status == KeyStatus.INVALID,
+          "check_elevenlabs_key('') should be INVALID without touching the network")
+
+    # The real check function, its URL pointed at localhost for the run: what goes on
+    # the wire and how each served status comes back.
+    from urllib.parse import urlsplit
+    real_url = kc.ELEVENLABS_PROBE_URL
+    probe_path = urlsplit(real_url).path
+    check(urlsplit(real_url).hostname == "api.elevenlabs.io"
+          and probe_path.startswith("/v1/speech-to-text/transcripts/"),
+          f"the ElevenLabs probe no longer asks for one transcript: {real_url}")
+    # The id in the form measured to be accepted: with any other form (a hyphen) a
+    # GOOD key gets 400 `invalid_uid` and would be reported as rejected.
+    probe_id = probe_path.rsplit("/", 1)[1]
+    check(probe_id.isascii() and probe_id.isalnum(),
+          f"the ElevenLabs probe id {probe_id!r} is not plain letters/digits")
+    codes = list(expected)
+    captured = []
+    port, t, srv = _status_server(codes, captured)
+    results = []
+    try:
+        kc.ELEVENLABS_PROBE_URL = f"http://127.0.0.1:{port}{probe_path}"
+        for _code in codes:
+            results.append(kc.check_elevenlabs_key("  el_dummy_padded  ", timeout=5.0))
+    finally:
+        kc.ELEVENLABS_PROBE_URL = real_url
+        t.join(timeout=2.0)
+        srv.close()
+    check(len(captured) == len(codes),
+          f"the ElevenLabs check reached the server {len(captured)} times, "
+          f"expected {len(codes)}")
+    for (line, headers), code, res in zip(captured, codes, results):
+        check(line == f"GET {probe_path} HTTP/1.1",
+              f"ElevenLabs check sent {line!r}, expected a GET on {probe_path}")
+        check(headers.get("xi-api-key") == "el_dummy_padded",
+              f"ElevenLabs check did not send the stripped key in xi-api-key: "
+              f"{sorted(headers)}")
+        check("authorization" not in headers,
+              "ElevenLabs check also sent an Authorization header")
+        check(headers.get("user-agent") == kc.USER_AGENT,
+              f"ElevenLabs check sent User-Agent {headers.get('user-agent')!r}")
+        check(res.status == expected[code],
+              f"ElevenLabs check read a served {code} as {res.status}, "
+              f"expected {expected[code]}")
+        check("el_dummy" not in res.detail, "the ElevenLabs verdict echoed the key")
+
+
+def check_elevenlabs_env(tmp):
+    # #343: the third managed key through the real IO core -- seeded from the shipped
+    # example (which carries an empty ELEVENLABS_API_KEY= line, so the key lands there
+    # rather than being appended), read back, and deleted by the WYSIWYG sentinel with
+    # every other line left alone.
+    E = "ELEVENLABS_API_KEY"
+    p = tmp / "env_elevenlabs"
+    sio.write_env(p, {E: "el_seeded"}, example_path=EXAMPLE_ENV)
+    text = p.read_text(encoding="utf-8")
+    example = EXAMPLE_ENV.read_text(encoding="utf-8")
+    check(f"\n{E}=\n" in example
+          and text == example.replace(f"\n{E}=\n", f"\n{E}=el_seeded\n"),
+          "the ElevenLabs key did not land on the example's own line")
+    check(sio.read_env(p) == {E: "el_seeded"},
+          f"read_env does not return the ElevenLabs key: {sorted(sio.read_env(p))}")
+    sio.write_env(p, {"GROQ_API_KEY": "gsk_x"})
+    check(sio.read_env(p) == {"GROQ_API_KEY": "gsk_x", E: "el_seeded"},
+          "writing another key disturbed the ElevenLabs key")
+    sio.write_env(p, {E: sio.REMOVE_ENV_KEY})
+    after = p.read_text(encoding="utf-8")
+    check(sio.read_env(p) == {"GROQ_API_KEY": "gsk_x"} and f"{E}=" not in after,
+          "the ElevenLabs key line survived its removal")
+    check(after == text.replace(f"{E}=el_seeded\n", "").replace(
+              "GROQ_API_KEY=\n", "GROQ_API_KEY=gsk_x\n"),
+          "removing the ElevenLabs key touched more than its own line")
+
+
+def check_provider_table_seam():
+    # The #343 deletion trap, held at its seam: the window builds its key fields, its
+    # load-time snapshot and the save's live half from thoughtborne_settings._PROVIDERS,
+    # while the resolver walks settings_io.ENV_KEYS. A managed key the table lacks has
+    # no field, reads as cleared, and every save deletes it from .env -- silently. So
+    # the table's .env names must be exactly ENV_KEYS, in card order. Static, on the
+    # syntax tree (the app imports tkinter); the window itself is driven in
+    # test_settings_visibility.test_env_delete_with_display. config.API_KEY_ENV, the
+    # tool's own side, joins once the engine is in the lineup.
+    tree = _settings_app_tree("provider-table seam")
+    if tree is None:
+        return
+    table = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_PROVIDERS" for t in node.targets):
+            table = node.value
+    if not isinstance(table, ast.Dict):
+        failures.append("provider-table seam: no module-level _PROVIDERS dict in "
+                        "thoughtborne_settings.py -- the key fields lost their one "
+                        "table and this guard no longer guards anything")
+        return
+    env_names = tuple(v.elts[0].value for v in table.values
+                      if isinstance(v, ast.Tuple) and v.elts
+                      and isinstance(v.elts[0], ast.Constant))
+    check(len(env_names) == len(table.values),
+          "provider-table seam: a _PROVIDERS entry is not a (\"ENV_VAR\", check) tuple")
+    check(env_names == sio.ENV_KEYS,
+          f"provider-table seam: the window's key fields manage {env_names}, "
+          f"settings_io.ENV_KEYS is {sio.ENV_KEYS} -- a managed key without a field is "
+          "deleted from .env by every save")
+    check("ELEVENLABS_API_KEY" in sio.ENV_KEYS,
+          "settings_io.ENV_KEYS no longer manages the ElevenLabs key")
+    # Each card's "Test key" button calls the check its row names -- a copied row
+    # would send one provider's key to another's service and read it red.
+    for k, v in zip(table.keys, table.values):
+        fn = v.elts[1] if isinstance(v, ast.Tuple) and len(v.elts) > 1 else None
+        check(isinstance(k, ast.Constant) and isinstance(fn, ast.Attribute)
+              and fn.attr == f"check_{k.value}_key",
+              f"provider-table seam: the {getattr(k, 'value', k)!r} card does not "
+              "test its key with its own key_check function")
 
 
 def check_verdict_coverage():
@@ -3523,7 +3717,7 @@ def check_engine_control_wiring():
         # test_settings_visibility.py, which measures the greying itself rather than the
         # way to it; this half is the one that also runs where no display does.
         KEY_STATE = {"engine_has_key", "env_has_key", "_live_env", "_has_any_key",
-                     "_stored_env", "groq_var", "soniox_var",
+                     "_stored_env", "_key_vars",
                      "read_env", "environ", "getenv"}
         reads = sorted({n.attr for n in ast.walk(render) if isinstance(n, ast.Attribute)
                         and n.attr in KEY_STATE})
@@ -3687,6 +3881,8 @@ def check_first_run_decision(tmp):
     check(not sio.env_has_key({}), "env_has_key: empty env is no key")
     check(sio.env_has_key({"GROQ_API_KEY": "g"}), "env_has_key: Groq key not seen")
     check(sio.env_has_key({"SONIOX_API_KEY": "s"}), "env_has_key: Soniox key not seen")
+    check(sio.env_has_key({"ELEVENLABS_API_KEY": "e"}),
+          "env_has_key: ElevenLabs key not seen")
     check(not sio.env_has_key({"GROQ_API_KEY": "   "}), "env_has_key: whitespace is no key")
     check(not sio.env_has_key({"GROQ_API_KEY": ""}), "env_has_key: empty string is no key")
 
@@ -3697,6 +3893,8 @@ def check_first_run_decision(tmp):
           "re-run over a keyed install must open the plain dialog")          # criterion 2
     check(sio.resolve_first_run(False, {"SONIOX_API_KEY": "s"}) is False,
           "a stored Soniox key with no flag must open the plain dialog")
+    check(sio.resolve_first_run(False, {"ELEVENLABS_API_KEY": "e"}) is False,
+          "a stored ElevenLabs key alone with no flag must open the plain dialog")
     check(sio.resolve_first_run(True, {"GROQ_API_KEY": "g"}) is True,
           "explicit --first-run must win even when a key is stored")
     check(sio.resolve_first_run(True, {}) is True,
@@ -3748,6 +3946,7 @@ def main():
         check_save_preflight(tmp)
         check_nokey_unreadable(tmp)
         check_first_run_decision(tmp)
+        check_elevenlabs_env(tmp)
         check_regressions(tmp)
         leftovers = [x.name for x in tmp.iterdir() if x.name.endswith(".tmp")]
         check(not leftovers, f"atomic write left temp files behind: {leftovers}")
@@ -3757,6 +3956,8 @@ def main():
     check_key_check_malformed()
     check_key_check_strip()
     check_key_check_user_agent()
+    check_key_check_elevenlabs()
+    check_provider_table_seam()
     check_verdict_coverage()
     check_string_keys()
     check_i18n()

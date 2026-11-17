@@ -10,7 +10,7 @@ on plain Python (the `console_ui.py` + `test_console_ui.py` house style).
 
 Write policy (DECISIONS.md D-002): surgical merge, never a full
 rewrite.
-  - `.env` is edited line-wise -- only the two managed keys, every other line /
+  - `.env` is edited line-wise -- only the managed keys, every other line /
     comment / blank / order preserved; a value is spelled so the shared reader reads
     it back unchanged (`config.format_env_value`), an empty one is omitted because a
     blank value is no instruction, and the distinct `REMOVE_ENV_KEY` sentinel deletes
@@ -80,7 +80,11 @@ TK_STATE_ALT     = 0x20000
 # =============================================================================
 # .env
 # =============================================================================
-ENV_KEYS = ("GROQ_API_KEY", "SONIOX_API_KEY")   # the only keys this app manages
+# The only keys this app manages, in the order of its key cards. The app's own
+# provider table (thoughtborne_settings._PROVIDERS) must name exactly these, in this
+# order: a managed key the window has no field for reads as cleared and is deleted by
+# every save (resolve_env_save_updates). test_settings_io pins the two together.
+ENV_KEYS = ("GROQ_API_KEY", "SONIOX_API_KEY", "ELEVENLABS_API_KEY")
 
 # The "delete this key's line" signal for write_env (#328, D-026's WYSIWYG deletion),
 # built like the `defaults.api` one (REMOVE_API_PIN, D-002 addendum): a sentinel object
@@ -157,7 +161,7 @@ def resolve_env_save_updates(live_fields: dict, loaded_env: dict) -> dict:
     {ENV_VAR: value}; the live side is cleaned by the one shared rule above first, so
     "cleared" and "cleared with spaces" are the same gesture. A managed key MISSING
     from `live_fields` reads as a cleared field, so a caller must pass every key it
-    does not mean to delete -- the app's `_live_env` always builds both.
+    does not mean to delete -- the app's `_live_env` always builds all of them.
 
       - live == loaded           -> the key is absent from the result: this save
         leaves its line exactly as found (an untouched field is no instruction, the
@@ -171,8 +175,8 @@ def resolve_env_save_updates(live_fields: dict, loaded_env: dict) -> dict:
     The premise of the last rule is that the field really displays what is stored --
     which is why the comparison is against the loaded snapshot rather than against
     emptiness: an unreadable `.env` degrades to {} in `read_env`, and a literal
-    "empty means delete" would read a briefly locked file as an order to wipe both
-    keys. Pure, so the whole table is off-Windows testable."""
+    "empty means delete" would read a briefly locked file as an order to wipe every
+    key. Pure, so the whole table is off-Windows testable."""
     cleaned = _clean_env_updates(live_fields)
     updates = {}
     for key in ENV_KEYS:
@@ -317,14 +321,13 @@ def write_env(path, updates: dict, *, example_path=None) -> None:
 # first-run mode decision (#163)
 # =============================================================================
 def env_has_key(env: dict) -> bool:
-    """True iff a read_env() result holds a non-empty managed API key (Groq or
-    Soniox). The single key-presence predicate behind resolve_first_run below, so the
+    """True iff a read_env() result holds a non-empty managed API key (any of
+    ENV_KEYS). The single key-presence predicate behind resolve_first_run below, so the
     window-mode decision can never drift from what the app treats as "a key is
     stored". A blank/whitespace value is no key (the reader leaves a blank value out
     of the dict entirely, so "no key" has one shape); an unreadable/ANSI .env, which
     read_env already degrades to {}, reads as no key here too."""
-    return bool(env.get("GROQ_API_KEY", "").strip()
-                or env.get("SONIOX_API_KEY", "").strip())
+    return any(env.get(k, "").strip() for k in ENV_KEYS)
 
 
 def resolve_first_run(flag: bool, env: dict) -> bool:

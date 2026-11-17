@@ -49,8 +49,8 @@ stays mapped, origin-anchored (scrollregion x1=0) and inside the viewport, rathe
 parked off-view and unmapped. It fails on the unfixed code with the exact frozen-state
 signature -- a stale, maximized-era scrollregion and a view clamped off the content.
 
-A third, `test_verdict_wrap_with_display`, delivers every key-test verdict to both provider
-cards and asserts the #231 fix: the verdict line is not clipped at the column edge (the
+A third, `test_verdict_wrap_with_display`, delivers every key-test verdict to every provider
+card and asserts the #231 fix: the verdict line is not clipped at the column edge (the
 bug), has not collapsed to the wraplength floor (the trap the obvious fix falls into -- a
 label packed without `fill="x"` gets its own requested width from pack, so wrapping feeds
 back on itself), keeps a width that does not depend on its text at all (the mechanism
@@ -109,9 +109,11 @@ window. Like the #239 lane it WRITES and runs against a tempdir-patched
 Its sibling `test_env_delete_with_display` drives the other half of the save's `.env`
 lane, D-026's WYSIWYG deletion (#328): over a file whose Groq line is deliberately
 exotic -- `export`, quoted, with a comment tail -- a save that touches no field leaves
-that line byte-identical, clearing ONE field removes exactly its line without a
-question, and a fresh window over the result that clears the LAST key meets the
-keyless confirmation once, in its ordinary wording, before the second line goes too.
+the file byte-identical, all three key lines included (#343: a managed key the window
+had no field for would be deleted right there), clearing ONE field removes exactly its
+line without a question, and a fresh window over the result that clears the LAST keys
+-- still counting as keyed while only the ElevenLabs field is filled -- meets the
+keyless confirmation once, in its ordinary wording, before those lines go too.
 `test_settings_io.py` proves every piece apart; only the built window shows the chain
 closing from the load-time snapshot through the resolver into the file.
 
@@ -834,6 +836,7 @@ def test_tab_layout_with_display():
 ALLOW_EMPTY = {
     "_indicators['groq']":   "key verdict: blank until 'Test key' has run",
     "_indicators['soniox']": "key verdict: blank until 'Test key' has run",
+    "_indicators['elevenlabs']": "key verdict: blank until 'Test key' has run",
     "_soniox_balance_note":  "#179 balance hint: only under a green Soniox verdict",
     "capture_lbl":           "hotkey-capture feedback: only while/after a capture",
 }
@@ -1144,7 +1147,7 @@ def test_maximize_restore_with_display():
 def test_verdict_wrap_with_display():
     # Only runs where a display exists (Xvfb on a CI/dev box); the normal WSL case skips
     # cleanly. Builds the REAL settings app on the Provider tab and delivers every verdict
-    # to both cards in both languages, guarding the #231 fix AND the trap the obvious fix
+    # to every card in both languages, guarding the #231 fix AND the trap the obvious fix
     # falls into.
     #
     # #231: the verdict label was a plain, unregistered ttk.Label, so a full-sentence
@@ -1258,7 +1261,7 @@ def test_verdict_wrap_with_display():
             app.render_all()
             settle()
 
-            for provider in ("groq", "soniox"):
+            for provider in ts._PROVIDERS:
                 ind = app._indicators[provider]
                 deliver(provider, KeyStatus.VALID)   # the one short verdict = baseline
                 short_w, short_h = ind.winfo_width(), ind.winfo_height()
@@ -1802,8 +1805,8 @@ def test_save_readfail_with_display():
                     log_file.unlink()
                 except OSError:
                     pass
-                app.groq_var.set("gsk_typed_now")
-                app.soniox_var.set("sonx_typed_now")
+                app._key_vars["groq"].set("gsk_typed_now")
+                app._key_vars["soniox"].set("sonx_typed_now")
                 e0, q0, r0 = len(errors), len(asked), len(restarts)
                 app._save()
                 probs = []
@@ -1865,7 +1868,7 @@ def test_save_readfail_with_display():
             real_live = app._live_env
 
             def groq_only():
-                return {"GROQ_API_KEY": app.groq_var.get()}
+                return {"GROQ_API_KEY": app._key_vars["groq"].get()}
 
             app._live_env = groq_only
             try:
@@ -1908,8 +1911,8 @@ def test_save_readfail_with_display():
             # write_env is a no-op there, so this save never touches the file and must
             # go through -- a pre-flight that blocks it would break a save that works
             # today. Healthy target: no backup either.
-            app.groq_var.set("")
-            app.soniox_var.set("")
+            app._key_vars["groq"].set("")
+            app._key_vars["soniox"].set("")
             dialogs, questions, r0 = len(errors), len(asked), len(restarts)
             app._save()
             check(len(errors) == dialogs,
@@ -1960,8 +1963,8 @@ def test_save_readfail_with_display():
             env.write_text("# no key yet\n", encoding="utf-8")
             broke_live = b'{\n  "vocabulary": { "terms": ["Gr\xc3\xbc\xc3\x9fe"],\n'
             ps.write_bytes(broke_live)
-            app.groq_var.set("gsk_after_break")
-            app.soniox_var.set("")
+            app._key_vars["groq"].set("gsk_after_break")
+            app._key_vars["soniox"].set("")
             dialogs, questions, r0 = len(errors), len(asked), len(restarts)
             app._save()
             check(not errors[dialogs:] and not asked[questions:],
@@ -2040,6 +2043,7 @@ def test_env_delete_with_display():
             original = ('# my own note\n'
                         'export GROQ_API_KEY="gsk_stored"   # rotated by hand\n'
                         'SONIOX_API_KEY=sx_stored\n'
+                        'ELEVENLABS_API_KEY=el_stored\n'
                         'MY_OWN=keepme\n')
             env.write_text(original, encoding="utf-8")
 
@@ -2050,13 +2054,16 @@ def test_env_delete_with_display():
             app._restart_and_relaunch = lambda: restarts.append(True)
 
             # The premise of the whole rule: the fields really show the stored keys.
-            check(app.groq_var.get() == "gsk_stored"
-                  and app.soniox_var.get() == "sx_stored",
+            shown = {p: v.get() for p, v in app._key_vars.items()}
+            check(shown == {"groq": "gsk_stored", "soniox": "sx_stored",
+                            "elevenlabs": "el_stored"},
                   f"the window does not show the stored keys, so nothing it saves "
-                  f"can be WYSIWYG: {app.groq_var.get()!r} / {app.soniox_var.get()!r}")
+                  f"can be WYSIWYG: {shown!r}")
 
-            # A -- a save that touches neither field says nothing about `.env`, so the
-            # file stays byte-identical: quotes, comment tail, `export` and all.
+            # A -- a save that touches no field says nothing about `.env`, so the
+            # file stays byte-identical: quotes, comment tail, `export` and all, and
+            # the ElevenLabs line too -- the #343 trap: a managed key the window has
+            # no field for reads as cleared and would be deleted by this very save.
             e0, q0, r0 = len(errors), len(asked), len(restarts)
             app._save()
             check(not errors[e0:] and not asked[q0:],
@@ -2070,7 +2077,7 @@ def test_env_delete_with_display():
             # byte-exact, the save restarts, and nothing is asked -- the accepted
             # trade-off of D-026 (a key still remains, so there is no keyless
             # threshold to cross).
-            app.groq_var.set("")
+            app._key_vars["groq"].set("")
             e0, q0, r0 = len(errors), len(asked), len(restarts)
             app._save()
             check(not errors[e0:] and not asked[q0:],
@@ -2078,26 +2085,35 @@ def test_env_delete_with_display():
                   f"{asked[q0:]!r}")
             check(len(restarts) == r0 + 1, "the deleting save did not restart")
             check(env.read_text(encoding="utf-8")
-                  == '# my own note\nSONIOX_API_KEY=sx_stored\nMY_OWN=keepme\n',
+                  == ('# my own note\nSONIOX_API_KEY=sx_stored\n'
+                      'ELEVENLABS_API_KEY=el_stored\nMY_OWN=keepme\n'),
                   f"the cleared field did not remove exactly its own line: "
                   f"{env.read_text(encoding='utf-8')!r}")
-            check(sio_mod.read_env(env) == {"SONIOX_API_KEY": "sx_stored"},
+            check(sio_mod.read_env(env) == {"SONIOX_API_KEY": "sx_stored",
+                                            "ELEVENLABS_API_KEY": "el_stored"},
                   f"the removed key is still readable: {sio_mod.read_env(env)}")
 
-            # C -- a fresh window over the now one-keyed file, the last key cleared:
+            # C -- a fresh window over the now two-keyed file, the last keys cleared:
             # exactly one keyless confirmation, and the ordinary body rather than the
             # unreadable twin (#294 -- the file reads fine, it is being emptied on
-            # purpose). Yes -> the second line goes too, the user's own lines stay.
+            # purpose). Yes -> both lines go too, the user's own lines stay.
             root.destroy()
             root2 = tk.Tk()
             root2.geometry("900x860")
             app2 = ts.SettingsApp(root2, first_run=False)
             root2.update()
             app2._restart_and_relaunch = lambda: restarts.append(True)
-            check(app2.soniox_var.get() == "sx_stored" and app2.groq_var.get() == "",
+            shown = {p: v.get() for p, v in app2._key_vars.items()}
+            check(shown == {"groq": "", "soniox": "sx_stored",
+                            "elevenlabs": "el_stored"},
                   f"the second window does not show the file it opened over: "
-                  f"{app2.groq_var.get()!r} / {app2.soniox_var.get()!r}")
-            app2.soniox_var.set("")
+                  f"{shown!r}")
+            app2._key_vars["soniox"].set("")
+            # On the way: an ElevenLabs key alone is a key (#343) -- a window that
+            # read it as keyless would ask on every save to go on without one.
+            check(app2._has_any_key(),
+                  "a window with only the ElevenLabs field filled counts as keyless")
+            app2._key_vars["elevenlabs"].set("")
             e0, q0, r0 = len(errors), len(asked), len(restarts)
             app2._save()
             check(len(asked) == q0 + 1,
@@ -2512,11 +2528,11 @@ def test_engine_picker_key_agnostic_with_display():
             window came back unchanged: type a key, clear both, put the Groq-only
             fixture's stored key back. Ends where it started, so a save right after
             still has nothing to say about `.env`."""
-            steps = (("typing a Soniox key", lambda: app.soniox_var.set("sx_typed")),
+            steps = (("typing a Soniox key", lambda: app._key_vars["soniox"].set("sx_typed")),
                      ("clearing both key fields",
-                      lambda: (app.soniox_var.set(""), app.groq_var.set(""))),
+                      lambda: (app._key_vars["soniox"].set(""), app._key_vars["groq"].set(""))),
                      ("putting the stored Groq key back",
-                      lambda: app.groq_var.set("gsk_stored")))
+                      lambda: app._key_vars["groq"].set("gsk_stored")))
             for what, gesture in steps:
                 gesture()
                 root.update()
@@ -2639,7 +2655,7 @@ def test_engine_picker_key_agnostic_with_display():
             root_b.update()
             base = _window_state(root_b)
             groq_gen, soniox_gen = app._test_gen["groq"], app._test_gen["soniox"]
-            app.groq_var.set("gsk_edited")
+            app._key_vars["groq"].set("gsk_edited")
             root_b.update()
             moved = _window_moves(base, _window_state(root_b), names,
                                   exempt={str(app._indicators["groq"]),
@@ -2662,7 +2678,7 @@ def test_engine_picker_key_agnostic_with_display():
                   f"({app._test_state['soniox']!r}, "
                   f"gen+{app._test_gen['soniox'] - soniox_gen}) -- an edit touches its "
                   "own field's verdict and nothing else")
-            app.groq_var.set("gsk_stored")      # back to the stored value for the save
+            app._key_vars["groq"].set("gsk_stored")      # back to the stored value for the save
 
             app.mode_var.set("remember")
             app._on_mode()
@@ -2708,7 +2724,7 @@ def test_engine_picker_key_agnostic_with_display():
             names = _widget_names(app)
 
             base = _window_state(root_c)
-            app.groq_var.set("gsk_typed")
+            app._key_vars["groq"].set("gsk_typed")
             root_c.update()
             moved = _window_moves(base, _window_state(root_c), names)
             check(not moved,

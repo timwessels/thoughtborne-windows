@@ -69,8 +69,9 @@ _EN = {
         "This is the one thing dictation can't work without. Thoughtborne has no "
         "subscription and no middleman: you use your own account at a "
         "transcription provider — and that can be entirely free, for good. One key "
-        "is enough to start, and two providers are built in: with Groq you dictate "
-        "for free; Soniox is the quality lane, paid by actual use. The Provider "
+        "is enough to start, and three providers are built in: with Groq you "
+        "dictate for free; Soniox is the quality lane, paid by actual use; "
+        "ElevenLabs matches that quality, with conditions of its own. The Provider "
         "tab walks you through getting a key and pasting it in."),
     "welcome.step2.heading": "2 — Choose your hotkeys",
     "welcome.step2.body": (
@@ -99,9 +100,10 @@ _EN = {
     "provider.lanes.body": (
         "One key is enough to start. Groq is the free lane: transcription on "
         "Groq's free tier costs nothing, and it runs the well-known Whisper model "
-        "with solid quality. Soniox is the top-quality lane; there you pay the "
-        "provider by actual use. Sign up with both providers and all four engines "
-        "are available, switchable while dictating."),
+        "with solid quality. Soniox is the quality lane; there you pay the "
+        "provider by actual use. ElevenLabs matches that quality and is fast even "
+        "on long dictations, with conditions of its own (see its card). With all "
+        "three keys, all five engines are available, switchable while dictating."),
     "provider.groq.heading": "Groq — the free lane",
     "provider.groq.body": (
         "Free for transcription, no credit card needed (as of July 2026). Sign up "
@@ -119,8 +121,20 @@ _EN = {
         "credit: after signing up at console.soniox.com, first top up a small "
         "balance in the console — the key alone won't transcribe yet. Powers the "
         "two Soniox engines."),
+    "provider.elevenlabs.heading": "ElevenLabs — excellent quality, fast",
+    "provider.elevenlabs.body": (
+        "Paid through a monthly plan or prepaid credit. ElevenLabs' list price is "
+        "$0.20 per hour of audio, $0.25 with a recognition vocabulary (as of "
+        "November 2026); what you pay depends on the plan. Sign up at "
+        "elevenlabs.io, create a key on the API-keys page and paste it here. By "
+        "default, ElevenLabs may use what you send it to train its models — turn "
+        "that off before your first dictation: profile icon → Terms and privacy → "
+        "Data use → \"Improve the models for everyone\" off, then \"Update your "
+        "choice\". The opt-out does not cover anything sent before it. Powers the "
+        "ElevenLabs Scribe engine."),
     "provider.field.groq": "Groq API key",
     "provider.field.soniox": "Soniox API key",
+    "provider.field.elevenlabs": "ElevenLabs API key",
     "provider.reveal.show": "Show",
     "provider.reveal.hide": "Hide",
     "provider.keep_note": (
@@ -132,7 +146,7 @@ _EN = {
     "test.valid.soniox_balance": (
         "This checks the key, not your balance — a new Soniox account must add "
         "credit first, or the first dictation fails with a payment error."),
-    "test.invalid": "Key rejected — check for typos, or copy it fresh from the console.",
+    "test.invalid": "Key rejected — check for typos, or copy it fresh from the provider.",
     "test.inconclusive": (
         "The server refused the check — that's not a network problem, and not a "
         "verdict on the key: it may well work for dictation. Saving works anyway; "
@@ -142,6 +156,7 @@ _EN = {
         "anyway; the key just wasn't verified."),
     "url.groq_keys": "https://console.groq.com/keys",
     "url.soniox_console": "https://console.soniox.com",
+    "url.elevenlabs_keys": "https://elevenlabs.io/app/developers/api-keys",
 
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
@@ -317,8 +332,9 @@ _EN = {
     "machine.vocab.heading": "Recognition vocabulary",
     "machine.vocab.body": (
         "Recurring proper names, technical terms or acronyms are recognized more "
-        "reliably on the Soniox engines once you list them: edit the \"vocabulary\" "
-        "section of personal_settings.json. The Groq engines ignore it."),
+        "reliably on the Soniox engines and ElevenLabs Scribe once you list them: "
+        "edit the \"vocabulary\" section of personal_settings.json. Scribe reads "
+        "only its \"terms\" list; the Groq engines ignore the section."),
     "machine.reset.heading": "Reset to defaults",
     "machine.reset.body": (
         "Puts the settings this window writes back to how Thoughtborne shipped: the "
@@ -488,10 +504,11 @@ _DE = {
         "Ohne ihn funktioniert Diktieren nicht. Er ist die einzige Voraussetzung. "
         "Thoughtborne hat kein Abo und keinen Zwischenhändler: Du nutzt dein "
         "eigenes Konto bei einem Transkriptionsanbieter, und das geht auch "
-        "dauerhaft kostenlos. Ein Key genügt zum Start, zwei Anbieter sind "
+        "dauerhaft kostenlos. Ein Key genügt zum Start, drei Anbieter sind "
         "integriert: Mit Groq kannst du kostenlos diktieren; Soniox ist der "
-        "Qualitäts-Weg und wird nach Verbrauch bezahlt. Der Anbieter-Tab führt "
-        "dich durch: Key holen und eintragen."),
+        "Qualitäts-Weg und wird nach Verbrauch bezahlt; ElevenLabs erreicht "
+        "dieselbe Qualität, zu eigenen Bedingungen. Der Anbieter-Tab führt dich "
+        "durch: Key holen und eintragen."),
     "welcome.step2.heading": "2 – Hotkeys wählen",
     "welcome.step2.body": (
         "Das mitgelieferte Ctrl+Alt-Schema ist das eigene Setup des Autors – "
@@ -521,10 +538,11 @@ _DE = {
     "provider.lanes.body": (
         "Ein Key genügt für den Start. Groq ist der kostenlose Weg: Transkription "
         "im Free Tier von Groq kostet nichts, und genutzt wird das bekannte Modell "
-        "Whisper mit ordentlicher Qualität. Soniox ist der Top-Qualitäts-Weg, "
-        "dafür zahlst du beim Anbieter nach Verbrauch. Registrierst du dich bei "
-        "beiden Anbietern, stehen dir alle vier Engines bereit, umschaltbar beim "
-        "Diktieren."),
+        "Whisper mit ordentlicher Qualität. Soniox ist der Qualitäts-Weg, dafür "
+        "zahlst du beim Anbieter nach Verbrauch. ElevenLabs erreicht dieselbe "
+        "Qualität und ist auch bei langen Diktaten schnell. Für ElevenLabs gelten "
+        "eigene Bedingungen (siehe seine Karte). Mit allen drei Keys stehen dir alle "
+        "fünf Engines bereit, umschaltbar beim Diktieren."),
     "provider.groq.heading": "Groq – der kostenlose Weg",
     "provider.groq.body": (
         "Für Transkription kostenlos, keine Kreditkarte nötig (Stand Juli 2026). "
@@ -542,8 +560,21 @@ _DE = {
         "bekommen kein Startguthaben: Nach der Registrierung auf console.soniox.com "
         "zuerst in der Console ein kleines Guthaben aufladen – der Key allein "
         "transkribiert noch nicht. Versorgt die beiden Soniox-Engines."),
+    "provider.elevenlabs.heading": "ElevenLabs – hervorragende Qualität, schnell",
+    "provider.elevenlabs.body": (
+        "Bezahlt wird über einen Monatstarif oder Prepaid-Guthaben. Der "
+        "Listenpreis von ElevenLabs liegt bei 0,20 $ pro Stunde Audio, mit "
+        "Erkennungs-Vokabular bei 0,25 $ (Stand November 2026); was du zahlst, "
+        "hängt vom Tarif ab. Auf elevenlabs.io registrieren, auf der "
+        "API-Keys-Seite einen Key erstellen und hier einfügen. ElevenLabs darf "
+        "das, was du sendest, standardmäßig zum Training seiner Modelle "
+        "verwenden. Schalte das vor deinem ersten Diktat ab: Profilsymbol → Terms "
+        "and privacy → Data use → „Improve the models for everyone“ aus, dann "
+        "„Update your choice“. Was du vorher gesendet hast, erfasst die "
+        "Abschaltung nicht. Versorgt die ElevenLabs-Scribe-Engine."),
     "provider.field.groq": "Groq-API-Key",
     "provider.field.soniox": "Soniox-API-Key",
+    "provider.field.elevenlabs": "ElevenLabs-API-Key",
     "provider.reveal.show": "Anzeigen",
     "provider.reveal.hide": "Verbergen",
     "provider.keep_note": (
@@ -556,7 +587,7 @@ _DE = {
     "test.valid.soniox_balance": (
         "Das prüft den Key, nicht dein Guthaben – ein neues Soniox-Konto muss erst "
         "Guthaben aufladen, sonst scheitert das erste Diktat mit einem Zahlungsfehler."),
-    "test.invalid": "Key abgelehnt – auf Tippfehler prüfen oder frisch aus der Console kopieren.",
+    "test.invalid": "Key abgelehnt – auf Tippfehler prüfen oder frisch beim Anbieter kopieren.",
     "test.inconclusive": (
         "Der Server hat die Prüfung abgelehnt – das ist kein Netzwerkproblem und kein "
         "Urteil über den Key: Zum Diktieren kann er trotzdem funktionieren. Speichern "
@@ -566,6 +597,7 @@ _DE = {
         "trotzdem; der Key wurde nur nicht geprüft."),
     "url.groq_keys": "https://console.groq.com/keys",
     "url.soniox_console": "https://console.soniox.com",
+    "url.elevenlabs_keys": "https://elevenlabs.io/app/developers/api-keys",
 
     # ---- hotkeys tab ----
     "hotkeys.tab": "Hotkeys",
@@ -747,9 +779,10 @@ _DE = {
     "machine.vocab.heading": "Erkennungs-Vokabular",
     "machine.vocab.body": (
         "Wiederkehrende Eigennamen, Fachbegriffe oder Abkürzungen erkennen die "
-        "Soniox-Engines zuverlässiger, wenn sie hinterlegt sind: dazu den Abschnitt "
-        "„vocabulary“ in personal_settings.json bearbeiten. Die Groq-Engines "
-        "ignorieren ihn."),
+        "Soniox-Engines und ElevenLabs Scribe zuverlässiger, wenn sie hinterlegt "
+        "sind: dazu den Abschnitt „vocabulary“ in personal_settings.json "
+        "bearbeiten. Scribe liest davon nur die Liste „terms“; die Groq-Engines "
+        "ignorieren den Abschnitt."),
     "machine.reset.heading": "Auf Standard zurücksetzen",
     "machine.reset.body": (
         "Setzt die Einstellungen, die dieses Fenster schreibt, auf den "
