@@ -64,8 +64,9 @@ verdict exactly as before.
     200 there and changes nothing, which no fake can see. One more case holds
     the factory to building that class for the `elevenlabs` id.
 
-Plus one import-side guard, outside the marker story: #241, importing
-`output_handler` must leave pyautogui's corner fail-safe off.
+Plus two import-side guards, outside the marker story: importing
+`output_handler` must leave pyautogui's corner fail-safe off (#241) and its
+trailing pause at zero (#345).
 """
 import sys
 import types
@@ -1609,6 +1610,16 @@ def test_pyautogui_failsafe_off_after_import():
         f"output_handler must set pyautogui.FAILSAFE = False at import (#241); got {failsafe!r}"
 
 
+def test_pyautogui_pause_zero_after_import():
+    """#345: importing output_handler must set pyautogui's PAUSE to 0. Left at its
+    default, every pyautogui call sleeps 0.1 s after it returns -- after the Enter of
+    the send variant, a wait that only holds back the console's report and the next
+    insert. Same stub-module reading as the fail-safe guard above."""
+    pause = getattr(sys.modules["pyautogui"], "PAUSE", "<unset>")
+    assert pause == 0, \
+        f"output_handler must set pyautogui.PAUSE = 0 at import (#345); got {pause!r}"
+
+
 CASES = [
     test_write_arms_unannounced,
     test_mark_announced_still_arms_silently,
@@ -1675,6 +1686,8 @@ CASES = [
     test_output_manager_forwards_reason_provider_inconclusive,
     # #241 the corner fail-safe stays off (a landed insert must not report red)
     test_pyautogui_failsafe_off_after_import,
+    # #345 and its trailing pause is zero (no wait after the Enter)
+    test_pyautogui_pause_zero_after_import,
 ]
 
 

@@ -18,13 +18,14 @@ What it pins:
   - A second Ctrl+V when a text control's length provably did not change, sent while
     the clipboard still holds the transcript (#29, #225) -- and no third when that one
     misses too, which the verdict reports as DID NOT LAND.
+  - Nothing after the restore -- no window, no wait, no re-read -- while a retry is
+    measured before it, with the first paste's re-measure when it lands slowly (#345).
   - A modifier held past the wait leaves the clipboard and the keyboard untouched.
 
 The cases assert on the copies and sends, on what the target ends up holding, on the
-outcome and on the verdict line -- not on the waits in between, which are tuning
-rather than contract. Every collaborator call still lands in one ordered event list
-(`InsertRig.events`: sleeps, sampling windows, modifier polls and length reads
-included), so a case about the timing can read it.
+outcome and on the verdict line; waits only where the timing is the point. For those,
+every collaborator call lands in one ordered event list (`InsertRig.events`: sleeps,
+sampling windows, modifier polls and length reads included).
 
 How the fakes work: `output_handler`'s `time` is a virtual clock whose `sleep` only
 advances it, so no case sleeps, and the #29 sampling windows are recorded by label
@@ -241,6 +242,33 @@ def test_a_retry_that_misses_too_is_reported_and_not_repeated():
     assert rig.verdict().endswith(": PASTE DID NOT LAND"), rig.verdict()
 
 
+def test_nothing_waits_after_the_restore_and_a_retry_is_measured_before_it():
+    # #345: the restore ends the insert -- no window, no wait, no re-read after it.
+    for rig in (InsertRig(BROWSER).run(), InsertRig(TEXT_CONTROL).run(),
+                InsertRig(TEXT_CONTROL, lands=[None]).run()):
+        tail = rig.events[rig.events.index(("copy", PREVIOUS)) + 1:]
+        assert tail == [], f"after the restore: {tail}"
+
+    def after_last_send(rig):
+        last = max(i for i, e in enumerate(rig.events) if e == ("send", "ctrl+v"))
+        return rig.events[last + 1:]
+
+    landed = EXISTING + len(TRANSCRIPT)
+    # A retry that lands at once is measured once ...
+    rig = InsertRig(TEXT_CONTROL, lands=[None]).run()
+    expected = [("sleep", oh.CLIPBOARD_RESTORE_DELAY), ("measure", landed),
+                ("copy", PREVIOUS)]
+    assert after_last_send(rig) == expected, after_last_send(rig)
+    # ... a slow one gets the first paste's patience, still before the restore.
+    rig = InsertRig(TEXT_CONTROL, lands=[None, 0.2]).run()
+    expected = [("sleep", oh.CLIPBOARD_RESTORE_DELAY), ("measure", EXISTING),
+                ("sleep", oh._PASTE_REMEASURE_DELAY), ("measure", landed),
+                ("copy", PREVIOUS)]
+    assert after_last_send(rig) == expected, after_last_send(rig)
+    assert rig.received() == TRANSCRIPT, f"the target received {rig.received()!r}"
+    assert rig.verdict().endswith(": PASTE LANDED"), rig.verdict()
+
+
 # ======================================================================
 # Held modifiers
 # ======================================================================
@@ -260,6 +288,7 @@ CASES = [
     test_a_slow_text_control_gets_time_not_a_second_paste,
     test_a_paste_that_did_not_land_is_sent_again_before_the_restore,
     test_a_retry_that_misses_too_is_reported_and_not_repeated,
+    test_nothing_waits_after_the_restore_and_a_retry_is_measured_before_it,
     test_a_held_modifier_leaves_clipboard_and_keyboard_alone,
 ]
 

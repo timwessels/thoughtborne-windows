@@ -35,8 +35,11 @@ import pyautogui
 # corner fail-safe aborts runaway mouse automation, which this tool never runs --
 # what it actually did was raise on that Enter press whenever the pointer happened
 # to rest in a screen corner, so the insertion handler reported an insert that had
-# already landed as a red failure (#241).
+# already landed as a red failure (#241). And it sleeps PAUSE (0.1 s by default)
+# after every call, which after the Enter only held back the console's report and
+# the next insert (#345).
 pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0
 from dataclasses import dataclass
 from typing import Optional, Dict, Deque, List
 from collections import deque
@@ -303,6 +306,11 @@ _TEXT_CONTROL_CLASSES = frozenset({
     "Scintilla", "Edit", "RichEdit20W", "RichEdit20A", "RICHEDIT50W",
     "RichEditD2DPT",
 })
+
+# Extra time a trusted control gets when its length still looks unchanged at the
+# first read, CLIPBOARD_RESTORE_DELAY after Ctrl+V; only an unchanged second read
+# counts as "did not land" -- before the retry, and again after it.
+_PASTE_REMEASURE_DELAY = 0.25
 
 
 def _nudge_scintilla_updateui(hwnd) -> None:
@@ -666,7 +674,7 @@ class OutputManager:
             ):
                 # Re-measure once before retrying: a busy target may process
                 # the paste a moment after our first measurement.
-                time.sleep(0.25)
+                time.sleep(_PASTE_REMEASURE_DELAY)
                 len_after = _diag_text_length(focus_hwnd)
                 if len_after == len_before and _diag_focus_window() == focus_hwnd:
                     logger.warning(
@@ -685,6 +693,11 @@ class OutputManager:
                     if paste_success:
                         time.sleep(CLIPBOARD_RESTORE_DELAY)
                         len_after = _diag_text_length(focus_hwnd)
+                        if len_after == len_before:
+                            # The retry gets the patience the first paste got,
+                            # still before the restore: the verdict reads this.
+                            time.sleep(_PASTE_REMEASURE_DELAY)
+                            len_after = _diag_text_length(focus_hwnd)
 
             # Restore prior clipboard only when real text was saved; an empty
             # string means non-text/empty content, and copy("") would wipe the
@@ -696,9 +709,8 @@ class OutputManager:
                 except Exception as e:
                     logger.warning(f"Could not restore clipboard: {e}")
 
-            # #29 diagnosis window: keep watching while the target app may
-            # still be processing the paste, then record the verdict.
-            _diag_sample_window("post-restore", 0.4)
+            # The verdict reads the length taken before the restore: the one
+            # the retry decision rested on, or after a retry its own (#345).
             if len_before is None or len_after is None:
                 logger.debug(
                     f"[CLIPDIAG verdict] text length unavailable "
@@ -711,9 +723,6 @@ class OutputManager:
                 # here, regardless of its sign. Record the raw numbers for
                 # forensics but don't pretend we know whether it landed
                 # (#33).
-                final_len = _diag_text_length(focus_hwnd)
-                if final_len is not None:
-                    len_after = final_len
                 delta = len_after - len_before
                 logger.debug(
                     f"[CLIPDIAG verdict] text_length {len_before} -> {len_after} "
@@ -721,9 +730,6 @@ class OutputManager:
                     f"INCONCLUSIVE (untrusted length source)"
                 )
             else:
-                final_len = _diag_text_length(focus_hwnd)
-                if final_len is not None:
-                    len_after = final_len
                 delta = len_after - len_before
                 # A negative delta means the paste replaced a longer
                 # selection — that is a landed paste, not a failure.

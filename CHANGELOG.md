@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Enter follows the paste sooner, and every clipboard insert finishes sooner (#345).**
+  After each clipboard insert the tool went on watching the clipboard for another
+  0.4 s — a diagnostic window from June 2026 (#29) whose question has long been
+  answered — and the library that presses Enter added a pause of 0.1 s after it. Both
+  are gone. With `Ctrl+Alt+D` the Enter now follows the paste after about 0.3 s instead
+  of 0.7 s, and the OK line and the next insert come 0.4 s sooner (0.5 s with
+  `Ctrl+Alt+D`). The one check that needs a wait — whether a retried paste landed —
+  keeps a short wait of its own. Accepted on purpose: 0.3 s between paste and Enter is
+  the gap the tool had before June 2026, and it is not tested against today's chat
+  inputs; should an Enter ever arrive ahead of its text, that gap is one number to raise.
 - **ElevenLabs Scribe v3 leads the lineup and is the built-in default (#343).** It is
   the first row of the lineup and the first stop of `Ctrl+Alt+L`, and a start with
   nothing else to go by lands on it. Without an ElevenLabs key, every start lands where
