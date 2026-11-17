@@ -33,7 +33,7 @@ from config import (
     SONIOX_WS_URL, SONIOX_RT_MODEL, SONIOX_LIVE_FINALIZE_DELAY,
     SONIOX_LIVE_FINALIZE_TIMEOUT,
     SONIOX_LIVE_QUEUE_MAX_CHUNKS, SONIOX_LIVE_SENDER_JOIN_TIMEOUT,
-    SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT,
+    SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT, SONIOX_LIVE_CLOSE_TIMEOUT,
     SONIOX_LANGUAGE_HINTS, SONIOX_CONTEXT, soniox_live_endpointing_params,
     ELEVENLABS_API_KEY, ELEVENLABS_API_BASE, ELEVENLABS_MODEL, ELEVENLABS_NO_VERBATIM,
     ELEVENLABS_TIMEOUT_SECONDS, ELEVENLABS_CONNECT_TIMEOUT_SECONDS, ELEVENLABS_KEYTERMS,
@@ -991,6 +991,7 @@ class SonioxLiveTranscriber(AbstractTranscriber):
                 self._ws = connect(
                     SONIOX_WS_URL,
                     additional_headers={"Authorization": f"Bearer {self.api_key}"},
+                    close_timeout=SONIOX_LIVE_CLOSE_TIMEOUT,
                 )
 
                 # Send configuration

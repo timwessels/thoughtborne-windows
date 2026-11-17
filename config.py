@@ -693,6 +693,13 @@ SONIOX_LIVE_SENDER_JOIN_TIMEOUT = 3.0
 # Max seconds transcribe() waits for the sender to drain queued finalize items
 # (silence + finalize command + EOS) before falling through to receiver wait.
 SONIOX_LIVE_FINALIZE_DRAIN_TIMEOUT = 5.0
+# Max seconds ws.close() waits for Soniox to drop the connection once the
+# closing handshake is under way (#345). After `finished` Soniox answered the
+# close within 11-76 ms but kept the connection open ~1.1 s, and that wait sat
+# between the final transcript and its insert. On a mid-stream cancel its
+# close frame took 110-195 ms, once longer; a cancel needs no answer, so a
+# cut-off handshake there costs nothing.
+SONIOX_LIVE_CLOSE_TIMEOUT = 0.2
 
 # ===== SONIOX SHARED SETTINGS =====
 # Language and context settings used by both the Async and Live APIs

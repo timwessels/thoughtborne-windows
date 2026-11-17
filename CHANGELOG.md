@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has always sent it. Nothing changes in use: transcripts are the same, and a wrong key
   still surfaces as the same `[AUTH]` message, because Soniox reports it the same way on
   both paths (verified against the live service). Nothing new to install.
+- **Soniox Live hands over the text about a second sooner (#345).** When a live
+  dictation ended, the tool waited for Soniox to drop the connection before inserting
+  the text — about 1.1 s every time, although the session was over and the transcript
+  complete. It now waits at most 0.2 s, and the connection still closes normally
+  (checked against the live service). Cancelling a live recording, and quitting during
+  one, are about a second quicker too.
 - **Both Soniox engines now request the v6 generation (#342).** Soniox released v6 on
   3 November 2026 and will route requests for the v5 models to v6 after 15 December
   2026; the tool switches deliberately instead — `stt-rt-v6` for `soniox-live`,

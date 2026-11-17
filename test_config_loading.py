@@ -37,7 +37,8 @@ one program.
 And the vocabulary's last mile is measured rather than assumed: what the reader kept
 has to arrive in the real Soniox request -- the async body and the live WebSocket
 config, the endpointing block riding along on the second and, since #341, the key
-no longer in it but in the handshake's Bearer header. Since #329 that last mile
+no longer in it but in the handshake's Bearer header. The lane that sees that
+handshake also pins its close cap (#345). Since #329 that last mile
 starts one step earlier, at the filter that builds the effective context: the block's
 `_`-prefixed comment keys reach neither request, and a block holding nothing else
 sends no context at all. What that filter leaves is measured too (#286): a context
@@ -2319,7 +2320,9 @@ def test_soniox_context_live_config():
     rides along: both personalizations end up in one WebSocket config JSON, and
     the tool sends it before a single audio chunk moves. Since #341 the lane also
     pins where the key travels: as a Bearer header handed to `connect()` for the
-    handshake, and not in that config JSON.
+    handshake, and not in that config JSON. Since #345 it pins the other argument
+    `connect()` gets: the `close_timeout` cap, so a finished dictation no longer
+    waits out the ~1.1 s Soniox keeps the connection open.
 
     `websockets` is injected into sys.modules rather than installed -- the import
     in start_session is lazy, so the fake is what it finds, and the lane runs
@@ -2388,6 +2391,14 @@ def test_soniox_context_live_config():
                 check(headers == {"Authorization": f"Bearer {fake_key}"},
                       f"live {label}: the handshake does not carry the key as a "
                       f"Bearer header: {headers!r}")
+                # #345: the close is capped below the ~1.1 s Soniox keeps the
+                # connection after `finished`, or the insert waits that out.
+                cap = opened[0].get("close_timeout") if opened else None
+                check(cap == transcriber.SONIOX_LIVE_CLOSE_TIMEOUT
+                      and 0 < config.SONIOX_LIVE_CLOSE_TIMEOUT < 1,
+                      f"live {label}: connect() gets close_timeout={cap!r}, "
+                      f"expected SONIOX_LIVE_CLOSE_TIMEOUT "
+                      f"({config.SONIOX_LIVE_CLOSE_TIMEOUT!r}), under a second")
                 check("api_key" not in body,
                       f"live {label}: the config JSON still carries api_key")
                 check(body.get("model") == config.SONIOX_RT_MODEL,
