@@ -2112,8 +2112,9 @@ def check_provider_table_seam():
     # no field, reads as cleared, and every save deletes it from .env -- silently. So
     # the table's .env names must be exactly ENV_KEYS, in card order. Static, on the
     # syntax tree (the app imports tkinter); the window itself is driven in
-    # test_settings_visibility.test_env_delete_with_display. config.API_KEY_ENV, the
-    # tool's own side, joins once the engine is in the lineup.
+    # test_settings_visibility.test_env_delete_with_display. The third side is the
+    # tool's own: config.API_KEY_ENV, the keys its engines are built from -- a key the
+    # tool reads but the window does not manage could never be entered there.
     tree = _settings_app_tree("provider-table seam")
     if tree is None:
         return
@@ -2138,6 +2139,10 @@ def check_provider_table_seam():
           "deleted from .env by every save")
     check("ELEVENLABS_API_KEY" in sio.ENV_KEYS,
           "settings_io.ENV_KEYS no longer manages the ElevenLabs key")
+    check(set(config.API_KEY_ENV.values()) == set(sio.ENV_KEYS),
+          f"provider-table seam: the tool's engines read {sorted(set(config.API_KEY_ENV.values()))}, "
+          f"settings_io.ENV_KEYS manages {sorted(sio.ENV_KEYS)} -- each key an engine "
+          "needs must be one the settings window can enter, and no more")
     # Each card's "Test key" button calls the check its row names -- a copied row
     # would send one provider's key to another's service and read it red.
     for k, v in zip(table.keys, table.values):

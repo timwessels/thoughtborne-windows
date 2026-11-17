@@ -140,7 +140,7 @@ Beside them, `test_engine_picker_key_agnostic_with_display` holds D-028 at the w
 (#332): an unsaved edit has no effect until it is saved, and the engine picker is
 key-agnostic. Four scenes -- the fresh wizard over an empty folder, a Groq-only `.env`
 with no pin, the wizard with a key typed into it, and a keyless pin loaded beside a real
-memory -- assert that all four engines take a click with no key stored anywhere, that no
+memory -- assert that every engine takes a click with no key stored anywhere, that no
 mode switch and no field gesture moves the selection, the remember label or anything else
 in the window (measured as a full-tree snapshot of what each widget shows: class, text,
 disabled, placed -- driven in FIXED mode too, where an enabled radio has something to
@@ -2482,7 +2482,7 @@ def test_engine_picker_key_agnostic_with_display():
     # user can really click, the selection surviving a mode switch, the keyless pin
     # reaching the file verbatim, and the memory file that stays absent.
     #
-    # Two things shape the cases. In remember-mode all four radios are disabled anyway
+    # Two things shape the cases. In remember-mode all the engine radios are disabled anyway
     # (mode pair and list are one composite control), so a snapshot comparison there has
     # no force against re-introduced greying -- every field gesture is therefore driven a
     # second time in FIXED mode, where an enabled radio has something to lose. And Tk
@@ -2543,7 +2543,7 @@ def test_engine_picker_key_agnostic_with_display():
                       f"engine picker in particular is key-agnostic: {moved}")
 
         # -- A: the fresh wizard over an empty folder, nothing keyed at all. The sharpest
-        # form of "always selectable": not one engine could start, and all four still
+        # form of "always selectable": not one engine could start, and every one still
         # take a click and end up in the file.
         with _app_sandbox() as tmp:
             root_a.geometry("900x860")
@@ -2584,7 +2584,7 @@ def test_engine_picker_key_agnostic_with_display():
                       and config.AVAILABLE_APIS[app.engine_index] == a,
                       f"clicking the {a} radio did not select it "
                       f"(var={app.engine_var.get()!r}, "
-                      f"index={config.AVAILABLE_APIS[app.engine_index]!r}) -- all four "
+                      f"index={config.AVAILABLE_APIS[app.engine_index]!r}) -- all the "
                       "engines are selectable regardless of the key fields")
             check(not hasattr(app, "engine_guidance"),
                   "the #201 all-keyless guidance line is back under the engine control "
@@ -2633,7 +2633,7 @@ def test_engine_picker_key_agnostic_with_display():
             app.mode_var.set("fixed")
             app._on_mode()
             root_b.update()
-            check(config.AVAILABLE_APIS[app.engine_index] == "soniox-live",
+            check(config.AVAILABLE_APIS[app.engine_index] == config.BUILTIN_DEFAULT_API,
                   f"entering fixed-mode moved the selection to "
                   f"{config.AVAILABLE_APIS[app.engine_index]} -- the shown engine has no "
                   "key here, and D-028 retired exactly that auto-move (#207): the "
@@ -2685,7 +2685,7 @@ def test_engine_picker_key_agnostic_with_display():
             app.mode_var.set("fixed")
             app._on_mode()
             root_b.update()
-            check(config.AVAILABLE_APIS[app.engine_index] == "soniox-live",
+            check(config.AVAILABLE_APIS[app.engine_index] == config.BUILTIN_DEFAULT_API,
                   f"a flip away from fixed-mode and back moved the selection to "
                   f"{config.AVAILABLE_APIS[app.engine_index]} -- switching modes never "
                   "moves it by itself (D-028)")
@@ -2697,7 +2697,7 @@ def test_engine_picker_key_agnostic_with_display():
                   f"{errors[e0:]!r} {asked[q0:]!r}")
             check(len(restarts) == r0 + 1, "the save did not restart")
             saved = json.loads(ps.read_text(encoding="utf-8"))
-            check(saved.get("defaults", {}).get("api") == "soniox-live",
+            check(saved.get("defaults", {}).get("api") == config.BUILTIN_DEFAULT_API,
                   f"the fixed pin was not written verbatim: {saved.get('defaults')!r} -- "
                   "the shown engine is what 'always start with' pins, and a save may "
                   "never substitute the one engine that happens to have a key")
@@ -3117,7 +3117,7 @@ def main():
           "(no prompt before the tool's ACK, the silent give-up, no late arming), the "
           "#336 toggle-pair capture (taken, confirmed on the label, still a collision "
           "for a third sharer), the D-028 key-agnostic "
-          "engine picker over four scenes (all four selectable with no key at all, no "
+          "engine picker over four scenes (every engine selectable with no key at all, no "
           "unsaved edit moving anything but its own verdict, the keyless pin written "
           "verbatim, no engine memory written), and the #240 callback / "
           "pre-mainloop crash logging all pass")

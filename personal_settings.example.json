@@ -1,8 +1,8 @@
 {
-  "_comment": "Optional user personalization for the Soniox engines. Copy this file to 'personal_settings.json' and keep only what you use. Without a 'personal_settings.json' — or without a vocabulary block in it — no context is sent at all and the tool simply runs unpersonalized. The Groq APIs ignore this file entirely. About the file as a whole: any key starting with '_' is a comment and is ignored (inside a block too), the blocks below are the ones Thoughtborne knows, and anything else — a block name with a typo in it, or a block written as something other than an object — is ignored with a warning in thoughtborne.log and on the console at startup.",
+  "_comment": "Optional user personalization. Copy this file to 'personal_settings.json' and keep only what you use. Without a 'personal_settings.json' — or without a vocabulary block in it — no vocabulary is sent at all and the tool simply runs unpersonalized. The Groq APIs ignore the vocabulary. About the file as a whole: any key starting with '_' is a comment and is ignored (inside a block too), the blocks below are the ones Thoughtborne knows, and anything else — a block name with a typo in it, or a block written as something other than an object — is ignored with a warning in thoughtborne.log and on the console at startup.",
 
   "vocabulary": {
-    "_comment": "Your names, project terms and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Replace every placeholder term below with one of your own and delete what you do not need — an unedited copy sends 'Project Name' and 'Acronym' to the speech model as real vocabulary. The whole vocabulary block — the 'terms' list, the 'general' domain/topic block, and the 'text' section — is used by every Soniox engine (Soniox Live and the async upload slot) uniformly. 'text' is a free-form background passage that lets the model disambiguate a term from sentence context — useful when a name sounds like a common word and a bare term does not reliably win (see https://soniox.com/docs/stt/concepts/context). The whole context (general + terms + text together) shares an 8,000-token limit (~10,000 characters) and an oversized context is rejected by the service, so stay comfortably below it — the tool estimates the size of this block at startup and warns in thoughtborne.log and on the console when it comes close (Issue #286), but always sends what you wrote, unchanged.",
+    "_comment": "Your names, project terms and frequent foreign words — they are passed to the speech model as context and noticeably improve recognition. Replace every placeholder term below with one of your own and delete what you do not need — an unedited copy sends 'Project Name' and 'Acronym' to the speech model as real vocabulary. The whole vocabulary block — the 'terms' list, the 'general' domain/topic block, and the 'text' section — is used by every Soniox engine (Soniox Live and the async upload slot) uniformly. ElevenLabs Scribe receives the 'terms' list only: at most 1,000 terms, each up to 50 characters and 5 words, none containing < > { } [ ] or a backslash — a term outside those limits is left out with a warning at startup, and ElevenLabs adds a surcharge when terms are sent. 'text' is a free-form background passage that lets the model disambiguate a term from sentence context — useful when a name sounds like a common word and a bare term does not reliably win (see https://soniox.com/docs/stt/concepts/context). For Soniox, the whole context (general + terms + text together) shares an 8,000-token limit (~10,000 characters) and an oversized context is rejected by the service, so stay comfortably below it — the tool estimates the size of this block at startup and warns in thoughtborne.log and on the console when it comes close (Issue #286), but always sends what you wrote, unchanged.",
 
     "general": [
       {"key": "domain", "value": "Voice Typing / Dictation"},
@@ -12,10 +12,10 @@
     "terms": [
       "Project Name",
       "Company Name",
-      "Technical term the model often misrecognizes",
+      "Technical term often misrecognized",
       "Proper noun",
       "Acronym",
-      "Foreign word commonly used in your dictation"
+      "Frequent foreign word"
     ],
 
     "text": "Free-form background about your world, in any language (a short glossary, a project description, a few sentences). Its main value is disambiguation: a term listed above does not reliably beat a same-sounding everyday word, so a sentence of context tips the model the right way. Example: when a product or project name sounds like a common word, write 'X is the name of my software; when I dictate it I mean the product, not the ordinary word it sounds like.' Replace this with your own background, or drop the key if you don't need it."
@@ -40,7 +40,7 @@
   },
 
   "defaults": {
-    "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (soniox-live). Must be one of: soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Setting 'api' also outranks the engine the tool remembers from your last engine switch (kept in its own runtime_state.json) — an explicit choice here wins, and without it the remembered engine is used. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
+    "_comment": "OPTIONAL (Issue #55). 'api' picks the transcription engine active at startup instead of the built-in default (elevenlabs). Must be one of: elevenlabs, soniox-live, soniox, groq-large, groq; anything else is ignored with a warning and the built-in default stays. Setting 'api' also outranks the engine the tool remembers from your last engine switch (kept in its own runtime_state.json) — an explicit choice here wins, and without it the remembered engine is used. Example:  \"api\": \"groq-large\". (A dictation-language override is deliberately not offered yet -- it fans out into several engine-specific settings and needs its own design.)"
   },
 
   "ui": {

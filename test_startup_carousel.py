@@ -25,8 +25,11 @@ and the line it logs on a fall-through, captured per run.
 What it pins:
 
   - A pin or a memory on a keyless engine starts the first keyed engine in carousel
-    order, from each of the four starting points, and tries exactly the engines up
+    order, from each of the five starting points, and tries exactly the engines up
     to it -- the "resolves at the next start through the carousel" half of D-028.
+    That includes the built-in default itself without its key (a start with
+    nothing pinned or remembered, #343) and a single key held by the first engine
+    in the lineup, which only a start that wraps all the way round reaches.
     The path is the same whichever of the two the start came from; what differs is
     the line left behind, which names what the user expected to open on -- `last
     used` for the Ctrl+Alt+L memory, `default` for a pin. Saying "default" for a
@@ -272,9 +275,9 @@ def _landing_lines(run):
 def test_a_keyless_start_falls_through_to_the_first_keyed_engine():
     # The behaviour D-028 rests on: the settings window writes a pin on a keyless
     # engine verbatim, and the next start resolves it here. Each row starts on an
-    # engine whose key is absent and holds the other provider's key, so the landing
-    # spot is unambiguous -- and the attempt list is spelled out rather than derived
-    # from carousel_from, which is the very order under test.
+    # engine whose key is absent and holds exactly one other provider's key, so the
+    # landing spot is unambiguous -- and the attempt list is spelled out rather than
+    # derived from carousel_from, which is the very order under test.
     #
     # The source alternates per row, and it is the log line that makes it observable:
     # the loop walks the identical path for a pin and a memory (`_start_api_source`
@@ -286,8 +289,16 @@ def test_a_keyless_start_falls_through_to_the_first_keyed_engine():
             ("soniox", {"GROQ_API_KEY"}, "groq-large", ["soniox", "groq-large"],
              "memory", "last used"),
             ("groq-large", {"SONIOX_API_KEY"}, "soniox-live",
-             ["groq-large", "groq", "soniox-live"], "memory", "last used"),
-            ("groq", {"SONIOX_API_KEY"}, "soniox-live", ["groq", "soniox-live"],
+             ["groq-large", "groq", "elevenlabs", "soniox-live"], "memory", "last used"),
+            ("groq", {"SONIOX_API_KEY"}, "soniox-live",
+             ["groq", "elevenlabs", "soniox-live"], "config", "default"),
+            # The built-in default without its key, nothing pinned or remembered,
+            # only a Groq key: the start a keyless-default user makes (#343).
+            ("elevenlabs", {"GROQ_API_KEY"}, "groq-large",
+             ["elevenlabs", "soniox-live", "soniox", "groq-large"], "default", "default"),
+            # Only an ElevenLabs key: the full wrap back to the head of the lineup.
+            ("soniox-live", {"ELEVENLABS_API_KEY"}, "elevenlabs",
+             ["soniox-live", "soniox", "groq-large", "groq", "elevenlabs"],
              "config", "default"),
     ):
         run = _start(start_api, keyed, source=source)
@@ -325,6 +336,7 @@ def test_a_keyed_start_stays_where_it_was_asked_to():
     # fall-through, whichever source resolved it.
     for start_api, keyed, source in (
             ("soniox-live", {"SONIOX_API_KEY"}, "config"),
+            ("elevenlabs", {"ELEVENLABS_API_KEY"}, "default"),
             ("groq", {"GROQ_API_KEY", "SONIOX_API_KEY"}, "config"),
             ("groq-large", {"GROQ_API_KEY"}, "memory"),
             ("soniox", {"SONIOX_API_KEY"}, "memory"),
@@ -350,12 +362,13 @@ def test_a_start_without_any_key_stays_open_as_the_shop_window():
     # anywhere the tool neither errors out nor exits, it comes up keyless behind the
     # wizard. Every engine is tried first -- that is what makes "all missing key"
     # true rather than assumed.
-    run = _start("soniox-live", set())
+    run = _start(config.BUILTIN_DEFAULT_API, set(), source="default")
     assert (run.api, run.transcriber) == (None, None), (
         f"a start with no key at all returned {(run.api, run.transcriber)!r} -- the "
         "keyless start stays open as the first-run shop window (#200)")
-    assert run.attempts == ["soniox-live", "soniox", "groq-large", "groq"], (
-        f"the keyless start tried {run.attempts} -- all four engines are tried once, "
+    assert run.attempts == ["elevenlabs", "soniox-live", "soniox", "groq-large",
+                            "groq"], (
+        f"the keyless start tried {run.attempts} -- all five engines are tried once, "
         "in carousel order, before the shop window is the answer")
     assert run.launched == 1, (
         f"the first-run wizard was launched {run.launched} time(s) -- exactly once, "
@@ -377,6 +390,7 @@ def test_the_fall_through_is_never_remembered():
             ("groq", {"SONIOX_API_KEY"}, "memory"),           # falls through
             ("soniox-live", {"SONIOX_API_KEY"}, "config"),    # starts where asked
             ("soniox-live", set(), "config"),                 # nothing to start
+            ("elevenlabs", {"GROQ_API_KEY"}, "default"),      # default falls through
     ):
         run = _start(start_api, keyed, source=source)
         assert run.writes == [], (
@@ -411,7 +425,7 @@ def main():
             print(f"\nFAIL: {len(failures)}/{len(CASES)} case(s) failed")
             return 1
         print(f"\nOK: all {len(CASES)} startup-carousel cases pass -- the keyless "
-              "fall-through from each of the four starting points, logged as the "
+              "fall-through from each of the five starting points, logged as the "
               "'default' or 'last used' start it was, the keyed start that constructs "
               "once, the all-keyless shop window, and the memory the fall-through "
               "never writes")

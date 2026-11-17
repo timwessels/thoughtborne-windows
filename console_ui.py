@@ -759,7 +759,7 @@ _REASON_LINES = {
     "auth": ("{P} turned down the API key",
              "Typo in Settings? Key no longer active at {P}?"),
     "no-credit": ("The {P} account is out of credit",
-                  "Add a little credit in the {P} console"),
+                  "Add credit to your {P} account"),
     "inconclusive": ("The recording came back empty",
                      "Retry, wait, ...investigate -- or just switch the model"),
 }
@@ -812,7 +812,7 @@ def render_transcription_failed(seq, model_label, footer,
         p = provider or "Soniox"
         lines.append(dline([("  " + truncate_end(
             f"top up, then press {retry_key} -- it will wait for you", INNER - 4), (BOLD,))], ansi))
-        lines.append(dline([(f"  add a little credit in the {p} console", (DIM,))], ansi))
+        lines.append(dline([(f"  add credit to your {p} account", (DIM,))], ansi))
     else:
         lines.append(dline([("  " + truncate_end(
             f"press {retry_key} to retry this recording", INNER - 4), (BOLD,))], ansi))
@@ -1067,8 +1067,9 @@ def render_noapi_panel(missing, other_failures, env_dir, *, ansi):
         dline("  Thoughtborne turns speech into text using an online service.", ansi),
         dline("  It needs one service key -- a one-time setup:", ansi),
         dline("  1. Get a key -- .env.example lists where to sign up:", ansi),
-        dline("       GROQ_API_KEY    - free, no payment details needed", ansi),
-        dline("       SONIOX_API_KEY  - prepaid, best German accuracy", ansi),
+        dline("       GROQ_API_KEY        - free, no payment details needed", ansi),
+        dline("       SONIOX_API_KEY      - prepaid, high accuracy for German", ansi),
+        dline("       ELEVENLABS_API_KEY  - high accuracy, fast", ansi),
         dline("  2. Enter it in Thoughtborne Settings (Start menu), or", ansi),
         dline("     copy .env.example to .env and paste the key there", ansi),
         dline("  3. Start Thoughtborne again (double-click Thoughtborne.bat)", ansi),

@@ -73,7 +73,10 @@ POLL_INTERVAL_MS = 250                        # root.after cadence for that wait
 # which salvages an in-flight recording before any teardown. 45s covers the recomputed
 # worst case with reserve: ~4s salvage (stream close, #128) + ~6s cancel_session join +
 # a per-thread stop_program join(timeout=5) for each stuck processing thread (two hung
-# transcriptions = 10s) + the MP3 encode -- so a slow-but-healthy shutdown never trips
+# transcriptions = 10s) + the MP3 encode + a pending ElevenLabs transcript delete, which
+# keeps the process alive after "Program ended" (#343: a 2s delay, then the delete
+# call; typically ~2.5s, longer on a dead network, since its 5s timeout applies per
+# phase, not to the whole call) -- so a slow-but-healthy shutdown never trips
 # the false "did not close" dialog. Only counted after the ACK, so it never delays the
 # honest timeout for a tool that never responds; and tool_is_running ending the wait on
 # the real exit means the full budget is only ever felt in a genuinely wedged shutdown.

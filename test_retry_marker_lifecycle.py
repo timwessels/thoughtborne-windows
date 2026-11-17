@@ -61,7 +61,8 @@ verdict exactly as before.
     case captures that thread instead of starting it and runs it by hand, with
     the wait recorded rather than slept: what is held is the call, its order and
     its wait, never the effect at ElevenLabs -- a premature DELETE is answered
-    200 there and changes nothing, which no fake can see.
+    200 there and changes nothing, which no fake can see. One more case holds
+    the factory to building that class for the `elevenlabs` id.
 
 Plus one import-side guard, outside the marker story: #241, importing
 `output_handler` must leave pyautogui's corner fail-safe off.
@@ -1504,6 +1505,21 @@ def test_elevenlabs_tags_scribe_token():
     assert tr.engine_code(engine) == tr.ENGINE_TOKENS["elevenlabs_scribe"] == "Scribe-v3"
 
 
+def test_factory_builds_elevenlabs():
+    """#343: create_transcriber("elevenlabs") builds the ElevenLabs class under its
+    API_DISPLAY label -- the built-in default's own factory branch, which
+    test_startup_carousel.py replaces with a fake. Building one sends nothing; the
+    module's key copy is faked for the run all the same."""
+    saved = tr.ELEVENLABS_API_KEY
+    tr.ELEVENLABS_API_KEY = _FAKE_EL_KEY
+    try:
+        engine = tr.create_transcriber("elevenlabs")
+    finally:
+        tr.ELEVENLABS_API_KEY = saved
+    assert type(engine) is tr.ElevenLabsTranscriber, type(engine).__name__
+    assert engine.get_name() == config.API_DISPLAY["elevenlabs"]["label"], engine.get_name()
+
+
 # ---- #138/#159 direct unit tests for the two coarse-category mappers --------
 # _groq_error_reason / _http_status_reason turn a provider failure into the
 # coarse reason string #159 shows the user, so pin every branch of each. The http
@@ -1650,6 +1666,7 @@ CASES = [
     test_elevenlabs_http_error_reads_the_body,
     test_elevenlabs_error_reason_maps_measured_bodies,
     test_elevenlabs_tags_scribe_token,
+    test_factory_builds_elevenlabs,
     # #138/#159 direct unit tests for the two coarse-category mappers
     test_groq_error_reason_maps_every_branch,
     test_http_status_reason_maps_every_branch,

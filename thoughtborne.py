@@ -7,8 +7,9 @@ Entry point of the tool. It wires together:
   sleep/wake) and the optional push-to-talk gesture (ptt_detector), polled
   from the recording loop;
 - audio capture with its stall guards and crash-safety sidecar (audio_handler);
-- the four transcription engines (transcriber): Soniox Live, streamed while
-  you speak; the Soniox upload model; Groq Whisper Large V3 Turbo and V3;
+- the five transcription engines (transcriber): ElevenLabs Scribe v3 and the
+  Soniox upload model, each sent after you stop; Soniox Live, streamed while
+  you speak; Groq Whisper Large V3 Turbo and V3;
 - parallel transcription workers feeding a sequential output queue, so
   inserts land in dictation order (output_handler): typed, clipboard, or
   clipboard plus Enter;
@@ -17,7 +18,8 @@ Entry point of the tool. It wires together:
   (thoughtborne_settings, from Ctrl+Alt+G or on first run).
 
 The engine at startup is the remembered last choice unless a `defaults.api`
-pin outranks it (engine_memory, D-008); the shipped default is Soniox Live.
+pin outranks it (engine_memory, D-008); the shipped default is ElevenLabs
+Scribe v3.
 Windows-only by design: hotkeys, capture and insertion are Win32-bound
 (VISION.md, "Non-goals").
 """
@@ -3053,7 +3055,13 @@ class ThoughtborneApp:
         # Clean up audio resources
         self.audio_recorder.cleanup()
 
-        logger.info("Program ended")   # dim console + last real file line (AGENTS heartbeat)
+        # Dim console + the last real file line (AGENTS heartbeat), but not quite the
+        # process end: a pending ElevenLabs transcript delete (#343) is a non-daemon
+        # thread, so the process -- and its single-instance mutex -- can outlive this
+        # line, typically by ~2.5 s, and log that delete's one line after it. On a dead
+        # network it takes longer: the call's 5 s timeout applies per phase (connect,
+        # send, read), not to the call as a whole, so each phase that hangs adds up to 5 s.
+        logger.info("Program ended")
         logger.info("=" * 60, extra=FILE_ONLY)
 
         # Drain and stop the console QueueListener last, so the two lines above

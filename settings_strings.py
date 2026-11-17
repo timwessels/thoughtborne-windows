@@ -264,16 +264,18 @@ _EN = {
         "Keep starting on the engine you last switched to with Ctrl+Alt+L "
         "(Thoughtborne remembers it for you), or always start on one fixed engine "
         "no matter what you switch to while dictating. Either way, Ctrl+Alt+L still "
-        "cycles through all four engines at any time while the tool runs. The "
+        "cycles through all the engines at any time while the tool runs. The "
         "engines differ in quality and speed; the model lineup in the README has "
         "the details."),
     "behavior.engine.mode.remember": "Start with the engine I last switched to (Ctrl+Alt+L)",
     "behavior.engine.mode.fixed": "Always start with:",
     "behavior.engine.remember.current": "Currently remembered: {engine}",
     "behavior.engine.remember.none": (
-        "No switch recorded yet — starts on the built-in default ({engine})"),
+        "No switch recorded yet — starts on the built-in default ({engine}), or on "
+        "the next engine that has a key"),
+    "engine.desc.elevenlabs": "excellent quality, fast",
     "engine.desc.soniox-live": "very good quality, instant",
-    "engine.desc.soniox": "best quality, takes longer",
+    "engine.desc.soniox": "excellent quality, slower",
     "engine.desc.groq-large": "good quality, fast, free",
     "engine.desc.groq": "decent quality, fastest, free",
     "behavior.tray.heading": "Console out of the taskbar (tray)",
@@ -708,16 +710,18 @@ _DE = {
         "Entweder mit der Engine starten, auf die du zuletzt per Ctrl+Alt+L "
         "gewechselt hast (Thoughtborne merkt sie sich), oder immer mit einer festen "
         "Engine starten, egal was du beim Diktieren umschaltest. In beiden Fällen "
-        "wechselt Ctrl+Alt+L im laufenden Betrieb jederzeit durch alle vier Engines. "
+        "wechselt Ctrl+Alt+L im laufenden Betrieb jederzeit durch alle Engines. "
         "Die Engines unterscheiden sich in Qualität und Tempo; Details in der "
         "Modell-Aufstellung im README."),
     "behavior.engine.mode.remember": "Mit der zuletzt per Ctrl+Alt+L gewählten Engine starten",
     "behavior.engine.mode.fixed": "Immer starten mit:",
     "behavior.engine.remember.current": "Zurzeit gemerkt: {engine}",
     "behavior.engine.remember.none": (
-        "Noch kein Wechsel gemerkt – startet auf dem Standard ({engine})"),
+        "Noch kein Wechsel gemerkt – startet auf dem Standard ({engine}) oder auf "
+        "der nächsten Engine mit Key"),
+    "engine.desc.elevenlabs": "hervorragende Qualität, schnell",
     "engine.desc.soniox-live": "sehr gute Qualität, sofort fertig",
-    "engine.desc.soniox": "beste Qualität, braucht länger",
+    "engine.desc.soniox": "hervorragende Qualität, braucht länger",
     "engine.desc.groq-large": "gute Qualität, schnell, kostenlos",
     "engine.desc.groq": "ordentliche Qualität, am schnellsten, kostenlos",
     "behavior.tray.heading": "Konsole aus der Taskleiste (Tray)",

@@ -543,14 +543,14 @@ MAX_PARALLEL_TRANSCRIPTIONS = 3
 # app (#144) can tell "user is on the default" from an explicit pick and write a
 # defaults.api override only when it differs -- exactly like DEFAULT_HOTKEYS below.
 # A personal_settings 'defaults.api' override reassigns DEFAULT_API (not this).
-BUILTIN_DEFAULT_API = "soniox-live"  # Standard API at startup (soniox-live = fastest)
+BUILTIN_DEFAULT_API = "elevenlabs"  # Standard API at startup (#343)
 DEFAULT_API = BUILTIN_DEFAULT_API
 # True once a valid personal_settings 'defaults.api' has been accepted below (#193,
-# D-008): PRESENCE decides, not difference -- a hand-written "api": "soniox-live"
-# pins the built-in default deliberately and must outrank the remembered engine
+# D-008): PRESENCE decides, not difference -- a hand-written "api" equal to the
+# built-in default pins it deliberately and must outrank the remembered engine
 # (engine_memory.py) exactly like any other explicit value.
 DEFAULT_API_IS_EXPLICIT = False
-AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
+AVAILABLE_APIS = ["elevenlabs", "soniox-live", "soniox", "groq-large", "groq"]  # Carousel order (Ctrl+Alt+L)
 
 # ===== API DISPLAY (single source of truth, #30/#37) =====
 # One label set for everything user-facing: the status block, the API lineup,
@@ -562,8 +562,9 @@ AVAILABLE_APIS = ["soniox-live", "soniox", "groq-large", "groq"]  # Carousel ord
 # longer one pushes out the 70-cell frame (D-018; test_console_ui pins each engine).
 # AVAILABLE_APIS above stays the only ordering source.
 API_DISPLAY = {
+    "elevenlabs":  {"label": "ElevenLabs Scribe v3", "descriptor": "excellent quality, fast"},
     "soniox-live": {"label": "Soniox Live v6", "descriptor": "very good quality, instant"},
-    "soniox":      {"label": "Soniox v6",      "descriptor": "best quality, takes longer"},
+    "soniox":      {"label": "Soniox v6",      "descriptor": "excellent quality, slower"},
     "groq-large":  {"label": "Groq Whisper Large v3", "descriptor": "good quality, fast, free"},
     "groq":        {"label": "Groq Whisper Turbo v3", "descriptor": "decent quality, fastest, free"},
 }
@@ -571,10 +572,11 @@ API_DISPLAY = {
 # ===== API KEY ENV VARS (single source, #200) =====
 # Which .env key backs each engine, so the key-aware console lineup can grey an
 # engine whose key is absent without constructing it (construction is what fails
-# on a keyless start). The four engines collapse onto two keys, matching the
+# on a keyless start). The five engines collapse onto three keys, matching the
 # _get_*_key sites in transcriber.py. Keyed by AVAILABLE_APIS entries; the
 # engine_has_key test guards that this map covers exactly that set.
 API_KEY_ENV = {
+    "elevenlabs":  "ELEVENLABS_API_KEY",
     "soniox-live": "SONIOX_API_KEY",
     "soniox":      "SONIOX_API_KEY",
     "groq-large":  "GROQ_API_KEY",
@@ -588,8 +590,8 @@ def engine_has_key(api, env=None):
     Pure and off-Windows-testable: `env` defaults to the values parsed from the
     install directory's `.env` at import (D-017 -- the process environment is not a
     key source); tests inject a {var: value} dict. An engine not in API_KEY_ENV ->
-    False (defensive). Reads the same values config derives GROQ_API_KEY /
-    SONIOX_API_KEY from, so the lineup can never disagree with what
+    False (defensive). Reads the same values config derives the *_API_KEY
+    constants from, so the lineup can never disagree with what
     _create_startup_transcriber actually constructed. Presence only, matching
     MissingAPIKeyError's "not set" test -- a present-but-wrong key reads as
     having a key (the engine starts; the error surfaces at transcription time).

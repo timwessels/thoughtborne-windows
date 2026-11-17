@@ -1495,8 +1495,8 @@ class SettingsApp:
         # Two-mode engine control (#198): remember-mode (start on the Ctrl+Alt+L
         # memory, shown read-only) vs fixed-mode (a defaults.api pin). A shared
         # StringVar drives the mode radio pair. The fixed picker is a radio per engine
-        # (#201's widget, replacing the #198 combobox): all four engines stay visible
-        # so the user learns they exist, and all four are always selectable -- the
+        # (#201's widget, replacing the #198 combobox): every engine stays visible
+        # so the user learns they exist, and each is always selectable -- the
         # picker is key-agnostic (D-028). #155 keeps the whole control in a card.
         card = self._card(f)
         card.pack(fill="x")

@@ -1515,7 +1515,7 @@ class ElevenLabsTranscriber(AbstractTranscriber):
     the text is returned (see _delete_transcript for why later, and why so).
     """
 
-    def __init__(self, display_name: str = "ElevenLabs Scribe v3"):
+    def __init__(self, display_name: str = API_DISPLAY["elevenlabs"]["label"]):
         """Initialize the transcriber with API key"""
         super().__init__()
         if not ELEVENLABS_API_KEY:
@@ -1705,7 +1705,8 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
     Factory function to create transcriber instances
 
     Args:
-        api_name: Name of the API to use ('soniox-live', 'soniox', 'groq-large', or 'groq')
+        api_name: Name of the API to use ('elevenlabs', 'soniox-live', 'soniox',
+                  'groq-large', or 'groq')
 
     Returns:
         Transcriber instance
@@ -1724,5 +1725,8 @@ def create_transcriber(api_name: str) -> AbstractTranscriber:
         return SonioxAsyncTranscriber(display_name=API_DISPLAY["soniox"]["label"])
     elif api_name == "soniox-live":
         return SonioxLiveTranscriber()
+    elif api_name == "elevenlabs":
+        return ElevenLabsTranscriber()
     else:
-        raise ValueError(f"Unknown API: {api_name}. Supported: soniox-live, soniox, groq-large, groq")
+        raise ValueError(f"Unknown API: {api_name}. Supported: elevenlabs, soniox-live, "
+                         f"soniox, groq-large, groq")

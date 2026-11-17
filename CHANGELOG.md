@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ElevenLabs Scribe v3 joins the lineup as a fifth engine (#343).** The new engine,
+  `elevenlabs`, sends the finished recording to ElevenLabs in one request and gets the
+  text straight back. In the maintainer's own measurement on 25 real German dictations
+  it was on par with the `soniox` engine for accuracy and clearly quicker, most of all
+  on long dictations. It is the one engine that tidies the text: fillers, false starts
+  and repetitions are dropped and the tone turns a little more formal (German "mal"
+  becomes "einmal", short forms are written out). That is a fixed part of the engine,
+  not a setting. The `terms` list of your vocabulary is sent along, and ElevenLabs adds
+  a surcharge for it. The engine needs a key of its own, `ELEVENLABS_API_KEY` in `.env`,
+  with its own card and live check in the settings app. **Before you use it, switch off
+  model training in your ElevenLabs account:** by default, ElevenLabs may use what you
+  send it to train its models. The README's "API keys" section says where the switch is,
+  what the tool asks to delete and what ElevenLabs leaves open. New archive files carry
+  the token `Scribe-v3`.
 - **A "Common questions" section on the website, and search wording in its head.**
   Both start pages now answer four questions in plain sentences: what Thoughtborne
   is, whether it works offline (it does not, by design), whether it dictates into
@@ -31,10 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ElevenLabs Scribe v3 leads the lineup and is the built-in default (#343).** It is
+  the first row of the lineup and the first stop of `Ctrl+Alt+L`, and a start with
+  nothing else to go by lands on it. Without an ElevenLabs key, every start lands where
+  it did before. With one, the new default takes effect wherever nothing is remembered
+  or pinned, as on a fresh install. The engine you last switched to is still
+  remembered, and a `defaults.api` you set still outranks everything (D-008); both
+  still hold as long as their engine has a key. Where it has none, the start falls
+  through in lineup order as before, and where that walk wraps around from the end of
+  the lineup, it now reaches ElevenLabs Scribe first. With nothing remembered and
+  nothing pinned, the settings window's **Engine at startup** field now names
+  ElevenLabs Scribe even while no ElevenLabs key is entered. The field shows the
+  built-in default and does not look at keys (D-028).
 - **The live engine now sends its Soniox key with the connection (#341).** From
   15 January 2027 Soniox refuses the way a real-time session used to authenticate — the
   key inside the first message after the connection opens — which would have stopped
-  `soniox-live`, the default engine, outright. The key now travels as an
+  `soniox-live`, the previous default engine, outright. The key now travels as an
   `Authorization: Bearer` header when the connection is made, the way the async engine
   has always sent it. Nothing changes in use: transcripts are the same, and a wrong key
   still surfaces as the same `[AUTH]` message, because Soniox reports it the same way on
@@ -52,15 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over unchanged (checked against Soniox's documentation and the live service). Engine
   ids, the remembered engine and `defaults.api` are unaffected; nothing to install, no
   setting to change.
-- **The engine descriptions now say how good and how fast each engine is (#342).** With
-  v6 the two Soniox engines no longer differ in how tidy the text reads, but in accuracy
-  and waiting time, so "verbatim" and "polished" stopped being true. The console lineup,
-  the settings app and the README now read `soniox-live` "very good quality, instant",
-  `soniox` "best quality, takes longer", `groq-large` "good quality, fast, free" and
-  `groq` "decent quality, fastest, free" — `soniox` on top as the most accurate of the
-  four in the maintainer's own measurement on real German dictation. The README, the
-  website, `llms-install.md` and `VISION.md` no longer describe `soniox` as the engine
-  that smooths the text.
+- **The engine descriptions now say how good and how fast each engine is (#342, #343).**
+  With v6 the two Soniox engines no longer differ in how tidy the text reads, but in
+  accuracy and waiting time, so "verbatim" and "polished" stopped being true. The
+  console lineup, the settings app and the README now read `elevenlabs` "excellent
+  quality, fast", `soniox-live` "very good quality, instant", `soniox` "excellent
+  quality, slower", `groq-large` "good quality, fast, free" and `groq` "decent quality,
+  fastest, free". The README, the website,
+  `llms-install.md` and `VISION.md` no longer describe `soniox` as the engine that
+  smooths the text.
 - **The `soniox` engine answers sooner (#342).** It used to open a fresh encrypted
   connection to Soniox for every step of a transcription — the upload, the start, each
   status check, fetching the text and the two deletions — so a good part of the wait
@@ -77,8 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Locked `certifi` bumped from 2026.5.20 to 2026.10.23 and `pillow` from 12.3.0 to
   13.0.0.** `certifi` is the list of certificate authorities the tool checks its
   providers' TLS certificates against; the new version clears a security advisory about
-  root certificates (emSign) whose intermediate keys were compromised. Soniox and Groq
-  still verify against the new list (checked on all three hosts the tool talks to).
+  root certificates (emSign) whose intermediate keys were compromised. Soniox, Groq and
+  ElevenLabs still verify against the new list (checked on all four hosts the tool
+  talks to).
   `pillow` 13.0.0 clears a batch of advisories about reading and writing crafted image
   files. Thoughtborne never opens an image while it runs — `pillow` only comes along as
   a transitive dependency of `pyautogui`, and only on Python 3.11 — so that half is

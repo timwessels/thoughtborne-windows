@@ -814,17 +814,17 @@ def check_failed_reason_block():
         _record("failed/no-credit: did not state the account is out of credit")
     if f"top up, then press {RETRY}" not in credit:
         _record("failed/no-credit: WHAT-NOW does not offer the top-up step")
-    if "Soniox console" not in credit:
-        _record("failed/no-credit: does not name the Soniox console for the top-up")
+    if "credit to your Soniox account" not in credit:
+        _record("failed/no-credit: does not name the Soniox account for the top-up")
     if "came back empty" in credit:
         _record("failed/no-credit: showed the inconclusive message instead of the credits reason")
     if ".env" in credit or "config.py" in credit:
         _record(f"failed/no-credit: references a stale signpost: {credit!r}")
     # provider interpolated into the credits lines (a Groq 402 must not say "Soniox
-    # console"). The footer's model: line still shows the selected engine, so check
-    # the console-token forms specifically rather than any "Soniox" substring.
+    # account"). The footer's model: line still shows the selected engine, so check
+    # the account-token forms specifically rather than any "Soniox" substring.
     groq_credit = strip("".join(render(reason="no-credit", provider="Groq")))
-    if "Groq console" not in groq_credit or "Soniox console" in groq_credit:
+    if "credit to your Groq account" not in groq_credit or "Soniox account" in groq_credit:
         _record(f"failed/no-credit: provider token not interpolated in the top-up line: {groq_credit!r}")
 
     # None reason -> no reason block, generic retry hint retained.
@@ -1733,8 +1733,8 @@ _STRESS_OVERRIDE = {   # where one parameter name means two different things
 # value has to be DISTINCT from everything else on its surface, or the wrong one
 # satisfies the check: `chars` is not `seq`, and the two engine labels are not
 # names the lineup beside them already prints. Some entries need their fixture
-# for that, not just their name: the noapi panel prints GROQ_API_KEY and
-# SONIOX_API_KEY in its own standing copy, so the env var under test is a
+# for that, not just their name: the noapi panel prints GROQ_API_KEY,
+# SONIOX_API_KEY and ELEVENLABS_API_KEY in its own standing copy, so the env var under test is a
 # synthetic one no static line can satisfy, and all three path edges shorten what
 # they are given, so their fixtures have to stay inside the edge budget --
 # `env_dir` sits exactly on its 55. Truncation is stressed where it is the point,
@@ -2033,6 +2033,7 @@ def check_keyless_lineup():
         ("keyless", lineup_keyed(None, set())),
         ("groq-only", lineup_keyed("groq-large", {"GROQ_API_KEY"})),
         ("soniox-only", lineup_keyed("soniox-live", {"SONIOX_API_KEY"})),
+        ("elevenlabs-only", lineup_keyed("elevenlabs", {"ELEVENLABS_API_KEY"})),
     ]
     for fname, lu in fixtures:
         renders = [
@@ -2174,6 +2175,10 @@ def check_engine_has_key():
         (engine_has_key("groq", {}), False, "missing key"),
         (engine_has_key("soniox-live", {"GROQ_API_KEY": "x"}), False, "wrong var (groq for soniox-live)"),
         (engine_has_key("soniox", {"SONIOX_API_KEY": "x"}), True, "soniox off SONIOX_API_KEY"),
+        (engine_has_key("elevenlabs", {"ELEVENLABS_API_KEY": "x"}), True,
+         "elevenlabs off ELEVENLABS_API_KEY"),
+        (engine_has_key("elevenlabs", {"SONIOX_API_KEY": "x"}), False,
+         "wrong var (soniox for elevenlabs)"),
         (engine_has_key("nope", {}), False, "unknown engine"),
     ]
     for got, want, label in cases:
@@ -2281,9 +2286,9 @@ def main():
 
         for seq in (None, 12, 99999):
             # #159: one FAILED render per reason (incl. the None catch-all that omits
-            # the block) x both provider tokens, in both ansi states.
+            # the block) x every provider token, in both ansi states.
             for reason in (None, "no-connection", "service-error", "rate-limited", "auth", "no-credit"):
-                for provider in ("Soniox", "Groq"):
+                for provider in ("Soniox", "Groq", "ElevenLabs"):
                     run("transcription_failed", u.render_transcription_failed, dict(
                         seq=seq, model_label=model, footer=FFOOTER,
                         reason=reason, provider=provider))
@@ -2333,7 +2338,8 @@ def main():
 
     # No-API: MISSING (keys only) and PROBLEMS (with a non-key failure)
     run("noapi", u.render_noapi_panel, dict(
-        missing=[("SONIOX_API_KEY", ["soniox-live", "soniox"]),
+        missing=[("ELEVENLABS_API_KEY", ["elevenlabs"]),
+                 ("SONIOX_API_KEY", ["soniox-live", "soniox"]),
                  ("GROQ_API_KEY", ["groq-large", "groq"])],
         other_failures=[], env_dir=PATHS[1]))
     run("noapi", u.render_noapi_panel, dict(
