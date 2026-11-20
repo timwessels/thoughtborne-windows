@@ -1537,8 +1537,9 @@ def test_elevenlabs_http_error_reads_the_body():
 
 def test_elevenlabs_error_reason_maps_measured_bodies():
     """#343: the body-first mapping, on the measured bodies and the status fallback
-    (402 and 429 are documented, not measured; a body that is not an object --
-    the 422 list form is documented -- falls back to the status)."""
+    (402 is documented, not measured, and 429 was seen once, its body logged only
+    in part; a body that is not an object -- the 422 list form is documented --
+    falls back to the status)."""
     reason = tr._elevenlabs_error_reason
     assert reason(400, _EL_WRONG_KEY) == "auth"
     assert reason(401, _EL_UNPREFIXED_KEY) == "auth"
