@@ -165,8 +165,10 @@ def _elevenlabs_error_reason(status_code, detail) -> str:
     """ElevenLabs HTTP error -> coarse reason (#343). The status alone misleads both
     ways (measured 2026-11-17): a wrong key comes back as 400 or 401, and the free
     plan's used-up quota as 401. So the body is read before the status, and the
-    status map is only the fallback (it also covers 402 and 429, which the docs name
-    but nobody saw)."""
+    status map is only the fallback. It also covers 402, which the docs name but
+    nobody saw, and 429, seen once (2026-11-18) with `system_busy` in the body: the
+    service's own overload, not a limit of the caller. Both readings share the
+    rate-limited reason, whose panel row names both."""
     if detail.get("code") == "quota_exceeded":
         return "no-credit"
     if detail.get("type") == "authentication_error":

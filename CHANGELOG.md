@@ -154,6 +154,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The FAILED panel no longer names a rate limit it cannot know about.** When a
+  service answered with HTTP 429, the panel said "catching its breath (rate limit)"
+  and "Too many requests". A service sends that status for its own overload as well:
+  ElevenLabs did so on 2026-11-18 during an incident on its side, while the tool had
+  a single request open. The panel now says "Overloaded or rate limited -- give it a
+  minute, then retry", for every engine. What the service answered is in
+  `thoughtborne.log`, as before.
 - **A key pressed just before a paste no longer turns it into another shortcut (#345).**
   Before pasting, the tool waits until Ctrl, Alt, Shift and Win are released, but it
   sent Ctrl+V about 0.2 s after that check. A modifier pressed in between — the next

@@ -750,12 +750,15 @@ def _failed_top(tag, rest, ansi, tag_codes=(BOLD, RED)):
 # CYAN, never ACCENT (masthead-exclusive). The "inconclusive" row is the Soniox
 # Live → async file lane ending empty with >=1 errored stage -- shown regardless of
 # the reason category. reason=None (uncategorized failure) omits the block.
+# The rate-limited row names both readings of an HTTP 429 and claims neither: the
+# status says the caller sent too much, but a provider answers it just the same
+# when it is overloaded itself (ElevenLabs `system_busy`).
 _REASON_LINES = {
     "no-connection": ("Couldn't reach the {P} server", "Is the Wi-Fi down again?"),
     "service-error": ('The {P} server just says "error"',
                       "Retry, wait, ...investigate -- or just switch the model"),
-    "rate-limited": ("{P} is catching its breath (rate limit)",
-                     "Too many requests -- give it a minute, then retry"),
+    "rate-limited": ("{P} is catching its breath",
+                     "Overloaded or rate limited -- give it a minute, then retry"),
     "auth": ("{P} turned down the API key",
              "Typo in Settings? Key no longer active at {P}?"),
     "no-credit": ("The {P} account is out of credit",
