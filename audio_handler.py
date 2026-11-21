@@ -291,17 +291,21 @@ def recover_partial_files() -> List[Tuple[str, float, str]]:
 # next to the archive mp3 at every untranscribed-audio source -- an in-session
 # transcription failure (#24), the hard-kill .partial recovery above, and a
 # clean-exit salvage (#106) -- it re-arms the Ctrl+Alt+R retry slot on the next
-# start. Persistent (#114): the reader KEEPS a valid marker, so the recording
-# stays retryable across any number of restarts until it is retried successfully
-# or a newer failure supersedes it; only then is the marker removed. The duration
-# rides in the name (integer milliseconds) so startup needs no file read or MP3
-# decode -- and on the 2nd+ restart the marker is the only surviving source of the
-# duration (the .partial is long gone). The mp3 STEM keys the marker so both the
-# bare voice_<ts>.mp3 and the kill-recovered voice_<ts>_recovered(_<n>)?.mp3
-# round-trip; _d<ms> is an unambiguous suffix anchor ('d' is not a digit, so it
-# never collides with the ts's trailing _<3 digits> nor the _recovered _<n>
-# disambiguator). No engine token: the recording was never transcribed, so the
-# retry picks the engine itself -- exactly like an in-session failed slot.
+# start. Since #259 the worker writes it before transcribing, as soon as the
+# archive mp3 exists, and retires it once a transcript comes back or the run
+# earns the no-speech verdict, so a process that ends mid-transcription leaves
+# the recording retryable too. Persistent (#114): the reader KEEPS a valid
+# marker, so once a start has read it the recording stays retryable across any
+# number of restarts until it is retried successfully or a newer failure
+# supersedes it. The duration rides in the name (integer milliseconds) so
+# startup needs no file read or MP3 decode -- and on the 2nd+ restart the marker
+# is the only surviving source of the duration (the .partial is long gone). The
+# mp3 STEM keys the marker so both the bare voice_<ts>.mp3 and the
+# kill-recovered voice_<ts>_recovered(_<n>)?.mp3 round-trip; _d<ms> is an
+# unambiguous suffix anchor ('d' is not a digit, so it never collides with the
+# ts's trailing _<3 digits> nor the _recovered _<n> disambiguator). No engine
+# token: the recording was never transcribed, so the retry picks the engine
+# itself -- exactly like an in-session failed slot.
 #
 # Announce-once bit (#134): a single "already announced" flag rides in the marker
 # name as a trailing _seen token (voice_<ts>..._d<ms>_seen.needsretry). It is the

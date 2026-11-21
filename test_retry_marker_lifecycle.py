@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141/#138/#212/#342).
+"""Lifecycle tests for the persistent retry marker (#106/#114/#134/#133/#141/#138/#212/#259/#342).
 
 Runs on plain Python -- no Windows, no PyAudio -- so the pure file logic of
 `audio_handler`'s marker functions is exercised programmatically (a durable
@@ -35,6 +35,23 @@ live-only #133 verdict: every engine now reports through the per-call error sink
 so a swallowed outage no longer masquerades as silence on the soniox/groq slots.
 Soniox Live keeps its internal async file lane, whose aggregate signal feeds the
 verdict exactly as before.
+
+#259 moves the marker's birth forward: the worker writes it as soon as the
+archive MP3 exists -- before the crash-safety sidecar is discarded and before
+transcribe() is entered -- and retires it once the transcript is saved (whatever
+save_transcript returns, before the archive is engine-tagged) or the run earns
+the no-speech verdict; the error branches keep it, and their own write lands on
+the same name. A process that ends mid-transcription is modelled by an engine
+raising a BaseException the worker's `except Exception` cannot catch, so nothing
+after transcribe() runs. Those cases use an archiving audio fake (it leaves
+voice_<ts>.mp3 in the throwaway archive and returns the temp output_<ts> paths,
+as the real save does, so a marker keyed on the temp path would miss the
+reader's glob), the real engine tagger, the real _record_failed_slot on the
+failure branches, and an engine with its own no-op save_transcript -- the real
+one writes to config's history/transcripts/, outside the tempdir. The startup
+side is checked through its building blocks (reader, supersede, announce) plus a
+static text guard that run() reads the markers before converting sidecars;
+run()'s inline merge itself is not callable without a refactor.
 
   - #141 closes a hole in that file lane: the async stage used to swallow its own
     transport/API errors and report clean-but-empty -- so a real outage
@@ -592,6 +609,99 @@ class _RealChainApp(_FakeApp):
         self._fallback_async = fake_async   # pre-seeded: the lazy init must not run
 
 
+# ---- #259: fakes for the marker armed before transcribing ------------------
+class _ProcessEnded(BaseException):
+    """Stands in for the process ending mid-transcription (#259). A BaseException,
+    so the worker's `except Exception` cannot catch it: nothing after transcribe()
+    runs -- no verdict, no output task, no marker delete -- exactly as when the
+    process dies there. Only the worker's `finally` (a counter decrement) runs."""
+
+
+class _FakeSidecar:
+    """Records the marker state at the moment the worker discards it."""
+    def __init__(self):
+        self.markers_at_discard = None
+
+    def discard(self):
+        self.markers_at_discard = _markers()
+
+
+class _ArchivingAudio(_FakeAudio):
+    """_FakeAudio that, like the real save_recording, leaves voice_<ts>.mp3 in the
+    (throwaway) archive and returns the temp output_<ts> paths -- so a marker keyed
+    on the temp mp3_path instead of the archive would miss the voice_* glob. The
+    REAL tagger runs, wrapped to record the marker state when it is called."""
+    _real_tag = ah.AudioRecorder.tag_archive_with_engine
+
+    def __init__(self):
+        super().__init__()
+        self.markers_at_tag = None
+
+    def save_recording(self, frames, ts):
+        (ah.ARCHIVE_FOLDER / f"voice_{ts}.mp3").touch()
+        return (str(ah.ARCHIVE_FOLDER / f"output_{ts}.wav"),
+                str(ah.ARCHIVE_FOLDER / f"output_{ts}.mp3"))   # never created
+
+    def tag_archive_with_engine(self, ts, engine):
+        self.markers_at_tag = _markers()
+        return self._real_tag(ts, engine)
+
+
+class _ProbeEngine:
+    """A non-live file engine that records the marker state on entering
+    transcribe(), then returns `text` or raises `raise_on_entry`. Its own
+    save_transcript writes nothing (the real one targets config's real
+    history/transcripts/, outside the tempdir) and returns None -- the real
+    failure return -- so a case also pins that the marker delete does not hinge
+    on it."""
+    is_live = False
+
+    def __init__(self, text="hello world", raise_on_entry=None):
+        self.text, self.raise_on_entry = text, raise_on_entry
+        self.markers_at_transcribe = None
+        self.markers_at_save = None
+
+    def get_name(self):
+        return "Probe (fake)"
+
+    def transcribe(self, path, duration, *, error_sink=None):
+        self.markers_at_transcribe = _markers()
+        if self.raise_on_entry is not None:
+            raise self.raise_on_entry
+        return self.text
+
+    def save_transcript(self, text, ts, engine=None):
+        self.markers_at_save = _markers()
+        return None
+
+
+class _SlotApp(_FakeApp):
+    """_FakeApp with the REAL _record_failed_slot, so the failure path's own marker
+    write runs and its idempotence with the early write is observable. _show is
+    stubbed (the real one needs the hotkey-shortfall state; the combo only feeds a
+    log line)."""
+    _record_failed_slot = tb.ThoughtborneApp._record_failed_slot
+
+    def __init__(self):
+        super().__init__()
+        self._last_failed_lock = threading.Lock()
+        self._last_failed = None
+
+    def _show(self, name):
+        return "Ctrl+Alt+R"
+
+
+def _run_worker(app, engine, ts, duration=1.0, sidecar=None, seq=90):
+    """Drive the real process_recording_thread once; a _ProcessEnded escaping it
+    is the modelled process end and is swallowed here."""
+    try:
+        tb.ThoughtborneApp.process_recording_thread(
+            app, frames=[b"x"], duration=duration, sequence_number=seq,
+            timestamp=ts, transcriber=engine, sidecar=sidecar)
+    except _ProcessEnded:
+        pass
+
+
 def _armed_rec(ts="20260718_085900_001", dur=1.0):
     """Create the archived mp3 + retry marker, return the _FailedRecording the
     retry worker expects."""
@@ -653,6 +763,7 @@ def test_insession_nonlive_clean_empty_is_no_speech():
     assert task.is_error is False, "no-speech is not a failure"
     assert task.error_reason is None, "a clean run carries no reason"
     assert app.record_failed_called is False, "no retry slot for a genuinely silent recording"
+    assert _markers() == [], f"the marker armed before transcribing is retired (#259): {_markers()}"
 
 
 def test_insession_live_clean_empty_is_no_speech():
@@ -668,6 +779,7 @@ def test_insession_live_clean_empty_is_no_speech():
     assert task.no_speech is True, "a clean live chain earns the no-speech verdict"
     assert task.is_error is False, "no-speech is not a failure"
     assert app.record_failed_called is False, "no retry slot for a genuinely silent recording"
+    assert _markers() == [], f"the marker armed before transcribing is retired (#259): {_markers()}"
 
 
 def test_insession_live_transport_error_is_error():
@@ -984,6 +1096,7 @@ def test_insession_soniox_slot_async_clean_empty_is_no_speech():
     assert task.is_error is False
     assert task.error_reason is None
     assert app.record_failed_called is False
+    assert _markers() == [], f"the marker armed before transcribing is retired (#259): {_markers()}"
 
 
 def test_try_fallback_async_tuple_semantics():
@@ -1026,6 +1139,176 @@ def test_retry_long_async_outage_marker_persists():
     assert app.resolve_failed_called is False
     assert _markers() == ["voice_20260718_085900_041_d60000.needsretry"], \
         f"exactly one un-announced marker must remain: {_markers()}"
+
+
+# ---- #259: the marker is armed before transcribing ---------------------------
+def test_insession_end_mid_transcription_leaves_one_unannounced_marker():
+    """The 2026-10-29 case: the process ends while the engine is still working.
+    Exactly one un-announced marker stays behind, the startup reader returns the
+    recording, and announcing it once leaves it armed (D-001's announce-once)."""
+    _reset()
+    app = _FakeApp()
+    app.audio_recorder = _ArchivingAudio()
+    ts = "20261029_003251_156"
+    _run_worker(app, _ProbeEngine(raise_on_entry=_ProcessEnded()), ts,
+                sidecar=_FakeSidecar())
+    archive = str(ah.ARCHIVE_FOLDER / f"voice_{ts}.mp3")
+    assert _markers() == [f"voice_{ts}_d1000.needsretry"], \
+        f"exactly one un-announced marker, keyed on the archive stem: {_markers()}"
+    assert app.output_manager.tasks == [], "no verdict was reached -- the process ended"
+    assert ah.is_retry_marker_announced(archive) is False
+    assert ah.recover_salvaged_recordings() == [(archive, 1.0, ts)], \
+        "the next start must offer the interrupted recording"
+    ah.mark_retry_marker_announced(archive)
+    assert ah.is_retry_marker_announced(archive) is True
+    assert ah.recover_salvaged_recordings() == [(archive, 1.0, ts)], \
+        "announced once, still armed on every later start"
+    # Never outside the tempdir archive: config's real archive gained no marker.
+    assert not any(Path(config.ARCHIVE_FOLDER).glob(f"voice_{ts}_d*.needsretry"))
+
+
+def test_insession_marker_precedes_sidecar_discard_and_transcribe():
+    """Ordering: the marker already exists when the crash-safety sidecar is
+    discarded (no moment with neither) and when transcribe() is entered."""
+    _reset()
+    app = _FakeApp()
+    app.audio_recorder = _ArchivingAudio()
+    sidecar, eng = _FakeSidecar(), _ProbeEngine()
+    ts = "20261029_003322_157"
+    _run_worker(app, eng, ts, sidecar=sidecar)
+    own = [f"voice_{ts}_d1000.needsretry"]
+    assert sidecar.markers_at_discard == own, \
+        f"marker first, sidecar second: {sidecar.markers_at_discard}"
+    assert eng.markers_at_transcribe == own, \
+        f"the marker must be armed before transcribing: {eng.markers_at_transcribe}"
+
+
+def test_insession_success_retires_own_marker_only():
+    """Success removes this recording's marker -- after save_transcript (even when
+    it returns None), before the engine tag renames the archive -- and leaves an
+    older recording's marker in place (no supersede prune in the worker)."""
+    _reset()
+    old = _mp3("voice_20261029_003000_100")
+    ah.write_retry_marker(old, 2.0)
+    older = "voice_20261029_003000_100_d2000.needsretry"
+    app = _FakeApp()
+    app.audio_recorder = _ArchivingAudio()
+    eng = _ProbeEngine()
+    ts = "20261029_003322_157"
+    _run_worker(app, eng, ts, sidecar=_FakeSidecar())
+    own = f"voice_{ts}_d1000.needsretry"
+    assert _markers() == [older], f"own marker gone, the older one kept: {_markers()}"
+    assert eng.markers_at_save == [older, own], \
+        f"the delete must come after save_transcript: {eng.markers_at_save}"
+    assert app.audio_recorder.markers_at_tag == [older], \
+        f"the delete must come before the engine tag: {app.audio_recorder.markers_at_tag}"
+    assert (ah.ARCHIVE_FOLDER / f"voice_{ts}_{tb.engine_code(eng)}.mp3").exists(), \
+        "the real tagger ran"
+    task = app.output_manager.tasks[-1]
+    assert task.transcript == "hello world" and task.is_error is False
+
+
+def test_insession_no_speech_leaves_no_marker():
+    """The no-speech verdict retires the early marker; the audio stays (D-001)."""
+    _reset()
+    app = _FakeApp()
+    app.audio_recorder = _ArchivingAudio()
+    ts = "20261029_003411_001"
+    _run_worker(app, _ProbeEngine(text=""), ts, sidecar=_FakeSidecar())
+    task = app.output_manager.tasks[-1]
+    assert task.no_speech is True and task.is_error is False
+    assert _markers() == [], f"a silent dictation leaves no marker behind: {_markers()}"
+    assert app.record_failed_called is False
+    assert (ah.ARCHIVE_FOLDER / f"voice_{ts}.mp3").exists(), "audio is never deleted"
+
+
+def test_insession_errored_run_leaves_one_unannounced_marker():
+    """Both failure branches keep exactly one un-announced marker: the early write
+    and _record_failed_slot's own (real) write share one name. Errored-empty via
+    the sink, then the catch-all via an engine that raises."""
+    _reset()
+    app = _SlotApp()
+    app.audio_recorder = _ArchivingAudio()
+    ts = "20261029_003525_001"
+    _run_worker(app, _FakeFileOutage(), ts, sidecar=_FakeSidecar())
+    task = app.output_manager.tasks[-1]
+    assert task.is_error is True
+    assert app.audio_recorder.cleanup_called, "the errored-empty branch, not the catch-all"
+    assert _markers() == [f"voice_{ts}_d1000.needsretry"], f"exactly one: {_markers()}"
+    assert ah.is_retry_marker_announced(str(ah.ARCHIVE_FOLDER / f"voice_{ts}.mp3")) is False
+    assert app._last_failed.origin_timestamp == ts, "the in-session slot is armed as before"
+
+    _reset()
+    app = _SlotApp()
+    app.audio_recorder = _ArchivingAudio()
+    ts = "20261029_003600_002"
+    _run_worker(app, _ProbeEngine(raise_on_entry=RuntimeError("boom")), ts,
+                sidecar=_FakeSidecar())
+    task = app.output_manager.tasks[-1]
+    assert task.is_error is True
+    assert not app.audio_recorder.cleanup_called, "the catch-all ran"
+    assert _markers() == [f"voice_{ts}_d1000.needsretry"], f"exactly one: {_markers()}"
+    assert ah.is_retry_marker_announced(str(ah.ARCHIVE_FOLDER / f"voice_{ts}.mp3")) is False
+    assert app._last_failed.origin_timestamp == ts
+
+
+def test_insession_marker_write_failure_costs_nothing():
+    """A failing early write is not evaluated: the sidecar is still discarded and
+    the text still reaches the output on the normal path."""
+    _reset()
+    app = _FakeApp()
+    app.audio_recorder = _ArchivingAudio()
+    sidecar = _FakeSidecar()
+    orig = tb.write_retry_marker
+    tb.write_retry_marker = lambda *a, **k: False
+    try:
+        _run_worker(app, _ProbeEngine(), "20261029_003700_003", sidecar=sidecar)
+    finally:
+        tb.write_retry_marker = orig
+    task = app.output_manager.tasks[-1]
+    assert task.transcript == "hello world" and task.is_error is False
+    assert app.audio_recorder.cleanup_called, "the normal path ran, not the catch-all"
+    assert sidecar.markers_at_discard == [], "the sidecar was discarded all the same"
+    assert _markers() == []
+
+
+def test_two_interrupted_runs_then_startup_keeps_only_newer():
+    """Two dictations end mid-transcription; the startup steps then offer the
+    newer, prune the older marker and announce it once. These are run()'s
+    building blocks in its order (markers read, then sidecars converted), not
+    run() itself -- its merge is inline and not callable without a refactor."""
+    _reset()
+    ts_a, ts_b = "20261029_003251_156", "20261029_003322_157"
+    for ts in (ts_a, ts_b):
+        app = _FakeApp()
+        app.audio_recorder = _ArchivingAudio()
+        _run_worker(app, _ProbeEngine(raise_on_entry=_ProcessEnded()), ts,
+                    sidecar=_FakeSidecar())
+    salvaged = ah.recover_salvaged_recordings()
+    recovered = ah.recover_partial_files()
+    merged = sorted(recovered + salvaged, key=lambda t: t[2])
+    newest = merged[-1]
+    assert newest[2] == ts_b, f"the newer recording takes the slot: {merged}"
+    assert ah.is_retry_marker_announced(newest[0]) is False
+    ah.delete_superseded_retry_markers(newest[2])
+    ah.mark_retry_marker_announced(newest[0])
+    assert _markers() == [f"voice_{ts_b}_d1000_seen.needsretry"], f"only the newer: {_markers()}"
+    assert (ah.ARCHIVE_FOLDER / f"voice_{ts_a}.mp3").exists(), "audio is never deleted"
+    again = ah.recover_salvaged_recordings()
+    assert [e[2] for e in again] == [ts_b] and ah.is_retry_marker_announced(again[0][0])
+
+
+def test_startup_reads_markers_before_converting_sidecars():
+    """Static guard on run() (#259): the persistent markers are read before the
+    sidecars are converted, so a push-to-talk dictation finishing during a large
+    conversion cannot pass for a pending one; and the merge still lists
+    `recovered` first, so a timestamp tie orders as before. A text guard -- it
+    holds the order, it does not prove the order is consequence-free."""
+    src = inspect.getsource(tb.ThoughtborneApp.run)
+    read = src.find("salvaged = recover_salvaged_recordings()")
+    convert = src.find("recovered = recover_partial_files()")
+    assert 0 <= read < convert, f"markers must be read first (read={read}, convert={convert})"
+    assert "sorted(recovered + salvaged" in src
 
 
 # ---- #141 Tier 2: the four error channels of the REAL SonioxAsyncTranscriber --
@@ -1570,13 +1853,20 @@ def test_factory_builds_elevenlabs():
     """#343: create_transcriber("elevenlabs") builds the ElevenLabs class under its
     API_DISPLAY label -- the built-in default's own factory branch, which
     test_startup_carousel.py replaces with a fake. Building one sends nothing; the
-    module's key copy is faked for the run all the same."""
-    saved = tr.ELEVENLABS_API_KEY
+    module's key copy is faked for the run all the same, and the transcript folder
+    the base constructor creates goes into a throwaway dir of this case's own,
+    removed again afterwards -- in a fresh clone it would otherwise leave an empty
+    history/transcripts/ behind, and inside the shared archive dir it would break
+    every later _reset() (which unlinks files only)."""
+    transcripts_dir = Path(tempfile.mkdtemp(prefix="tb_marker_transcripts_"))
+    saved_key, saved_folder = tr.ELEVENLABS_API_KEY, tr.TEXT_ARCHIVE_FOLDER
     tr.ELEVENLABS_API_KEY = _FAKE_EL_KEY
+    tr.TEXT_ARCHIVE_FOLDER = transcripts_dir / "transcripts"
     try:
         engine = tr.create_transcriber("elevenlabs")
     finally:
-        tr.ELEVENLABS_API_KEY = saved
+        tr.ELEVENLABS_API_KEY, tr.TEXT_ARCHIVE_FOLDER = saved_key, saved_folder
+        shutil.rmtree(transcripts_dir, ignore_errors=True)
     assert type(engine) is tr.ElevenLabsTranscriber, type(engine).__name__
     assert engine.get_name() == config.API_DISPLAY["elevenlabs"]["label"], engine.get_name()
 
@@ -1722,6 +2012,16 @@ CASES = [
     test_insession_soniox_slot_async_clean_empty_is_no_speech,
     test_try_fallback_async_tuple_semantics,
     test_retry_long_async_outage_marker_persists,
+    # #259 the marker is armed before transcribing and retired on a verdict that
+    # needs no retry
+    test_insession_end_mid_transcription_leaves_one_unannounced_marker,
+    test_insession_marker_precedes_sidecar_discard_and_transcribe,
+    test_insession_success_retires_own_marker_only,
+    test_insession_no_speech_leaves_no_marker,
+    test_insession_errored_run_leaves_one_unannounced_marker,
+    test_insession_marker_write_failure_costs_nothing,
+    test_two_interrupted_runs_then_startup_keeps_only_newer,
+    test_startup_reads_markers_before_converting_sidecars,
     # #141 Tier 2 (real SonioxAsyncTranscriber, scripted fake httpx)
     test_async_job_error_sets_sink_and_reads_error_message,
     test_async_poll_timeout_sets_sink,

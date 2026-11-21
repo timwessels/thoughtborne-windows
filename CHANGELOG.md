@@ -154,6 +154,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A dictation stays retryable when the tool ends while it is still being transcribed
+  (#259).** Every recording is archived before it is transcribed, but the tool only
+  remembered it for `Ctrl+Alt+R` once its transcription had failed. If the tool ended
+  while the engine was still working — the exit hotkey, Ctrl+C, a restart from the
+  settings app, a crash — the recording stayed in `history/audio/` but was never
+  offered again. On 2026-10-29 four dictations went untranscribed that way while a
+  provider hung and the maintainer ended the tool three times within three minutes.
+  The retry offer is now written as soon as a recording is archived and removed once
+  its transcript comes back, so the next start shows the RECOVERED panel and
+  `Ctrl+Alt+R` transcribes it. As before, only the newest such recording is offered. A
+  transcript that was saved but never inserted is not offered again; its text is in
+  `history/transcripts/`.
 - **The FAILED panel no longer names a rate limit it cannot know about.** When a
   service answered with HTTP 429, the panel said "catching its breath (rate limit)"
   and "Too many requests". A service sends that status for its own overload as well:

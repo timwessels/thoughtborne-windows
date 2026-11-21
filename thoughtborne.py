@@ -814,7 +814,11 @@ class ThoughtborneApp:
         newest failure wins. Skips when the archive is missing: an exception
         before save_recording leaves nothing to retry, so do not park an
         unretryable pointer. Also drops a persistent .needsretry marker (#114)
-        so the slot survives restarts, best-effort after the in-memory arm."""
+        so the slot survives restarts, best-effort after the in-memory arm. On
+        process_recording_thread's failure paths that marker usually exists
+        already -- written before transcribing (#259) -- and this re-writes the
+        same name harmlessly; the device-loss salvage has no earlier write and
+        relies on this one."""
         archived_mp3 = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
         if not archived_mp3.exists():
             logger.warning(f"Not arming retry slot -- archive missing for {timestamp}: {archived_mp3}")
@@ -878,9 +882,27 @@ class ThoughtborneApp:
         try:
             # Save recording
             wav_path, mp3_path = self.audio_recorder.save_recording(frames, timestamp)
-            # Archive copy exists -- the crash-safety sidecar has done its job
-            # (#49). On the exception path below it is deliberately NOT
-            # discarded, so the next start recovers what this save lost.
+            # The archive copy exists now (save_recording writes it as
+            # voice_<ts>.mp3; mp3_path is only the temp file the engines read).
+            # Arm the next start's retry offer BEFORE the crash-safety sidecar
+            # goes (#259): until a transcript comes back, this recording has a
+            # marker, so a process that ends while the engine is still working --
+            # exit hotkey, settings restart, Ctrl+C, crash, kill -- leaves it
+            # retryable instead of lost. Marker first, sidecar second, so there is
+            # no moment with neither (the order _salvage_active_recording uses).
+            # Nothing reads markers within a session -- only a start does -- so
+            # this arms no in-session retry and an in-flight dictation can never
+            # be retried on top of itself. Best-effort and never raises; a failed
+            # write costs this one dictation the net and nothing else, so its
+            # result is deliberately not checked.
+            archived_mp3 = ARCHIVE_FOLDER / f"voice_{timestamp}.mp3"
+            write_retry_marker(archived_mp3, duration)
+            # The sidecar has done its job (#49). It goes even if the marker
+            # write failed -- unlike in _salvage_active_recording: kept here, it
+            # would revive a recording that is usually transcribed by then as a
+            # _recovered duplicate on the next start. On the exception path below
+            # it is deliberately NOT discarded, so the next start recovers what
+            # this save lost.
             if sidecar is not None:
                 sidecar.discard()
             self._ticker(f"[Seq: {sequence_number}] Audio saved and archived")
@@ -931,6 +953,15 @@ class ThoughtborneApp:
             # engine token so the audio<->transcript pair shows the engine (#62).
             if transcript:
                 transcriber.save_transcript(transcript, timestamp, engine=engine)
+                # The text is in hand and goes to the output either way, so the
+                # retry offer armed above is retired here (#259) -- whatever
+                # save_transcript returned. delete_retry_marker matches on the
+                # pre-tag stem archived_mp3 holds, so it would hit after the tag
+                # below too; it simply goes first. Only this recording's
+                # own marker: no delete_superseded_retry_markers here, or a
+                # successful dictation would drop the offer of an older, genuinely
+                # failed one.
+                delete_retry_marker(archived_mp3)
                 self.audio_recorder.tag_archive_with_engine(timestamp, engine)
                 self.output_manager.update_last_transcript(transcript)
 
@@ -944,9 +975,11 @@ class ThoughtborneApp:
             elif no_speech_verdict:
                 # A clean-but-empty run on the selected engine (#138, generalizing
                 # #133): no transport/API error, zero chars -- the recording held no
-                # speech. A retry cannot help, so a genuinely silent dictation writes
-                # NO marker (killing #134's nag at the root): say so honestly (the
+                # speech. A retry cannot help, so a genuinely silent dictation leaves
+                # NO marker behind (killing #134's nag at the root): the one armed
+                # before transcribing (#259) is retired here. Say so honestly (the
                 # calm 'no speech' panel) and arm no retry.
+                delete_retry_marker(archived_mp3)
                 logger.info(f"[{thread_name}] No speech in sequence {sequence_number} "
                             f"-- honest verdict, no retry marker", extra=FILE_ONLY)
                 task.no_speech = True
@@ -2039,6 +2072,12 @@ class ThoughtborneApp:
                 # on a later start ("newest wins", #24). Both best-effort, run on the
                 # worker thread and outside _last_failed_lock -- rec was transcribed,
                 # so its marker must go regardless of the in-memory slot's identity.
+                # Known narrow edge, accepted (#259): since a dictation carries its
+                # marker while it is being transcribed, this prune also drops the
+                # marker of an OLDER dictation still in flight. Should the process
+                # then end before that one returns, the next start does not offer it
+                # (its audio stays in history/audio/). Guarding it would need
+                # bookkeeping of in-flight dictations, which D-001 rules out.
                 delete_retry_marker(rec.archived_mp3_path)
                 delete_superseded_retry_markers(rec.origin_timestamp)
                 logger.info(f"[{thread_name}] Retry for sequence {sequence_number} ready", extra=FILE_ONLY)
@@ -2725,13 +2764,14 @@ class ThoughtborneApp:
         kill mid-recording leaves a .partial sidecar that startup recovery (#49)
         converts to an archived MP3, and the persistent .needsretry marker (#114)
         re-arms anything else saved but never transcribed -- a clean-exit salvage
-        (#106), an in-session transcription failure (#24), or a device-loss
-        salvage. All arm the retry hotkey; newest_clean_exit is True when the
-        newest (R-targeted) entry is NOT a kill-recovered file (derived from its
-        mp3 stem at the merge site, not list identity), so the panel tells a
-        hard-kill rescue apart from a plain "saved but not transcribed". Rendered
-        as the yellow-lamp RECOVERED panel, emitted last so it sits at the bottom
-        of the scrollback. Never raises."""
+        (#106), an in-session transcription failure (#24), a transcription still
+        running when the process ended (#259), or a device-loss salvage. All arm
+        the retry hotkey; newest_clean_exit is True when the newest (R-targeted)
+        entry is NOT a kill-recovered file (derived from its mp3 stem at the merge
+        site, not list identity), so the panel tells a hard-kill rescue apart from
+        a plain "saved but not transcribed". Rendered as the yellow-lamp RECOVERED
+        panel, emitted last so it sits at the bottom of the scrollback. Never
+        raises."""
         try:
             retry_key = self._show('retry_last_failed')
             _, newest_dur, newest_ts = pending[-1]
@@ -2918,6 +2958,29 @@ class ThoughtborneApp:
         )
         self.recording_thread.start()
 
+        # Read the persistent retry markers FIRST, before any sidecar is
+        # converted below (#259). Clean-exit salvages (#106), in-session
+        # failures, device-loss salvages (#114) and transcriptions the process
+        # ended in the middle of (#259) join the same retry pipeline as the
+        # hard-kill recoveries below -- all are audio saved but not transcribed.
+        # Why first: a dictation's worker writes its marker before transcribing,
+        # and push-to-talk -- driven by the recording thread started above --
+        # can already record and finish a dictation while a large .partial
+        # converts. Read after that conversion, such a fresh marker would pass
+        # for a pending one: a false RECOVERED panel, the supersede prune below
+        # dropping the marker of the very recording this start rescues, and the
+        # retry slot pointing at a dictation still in flight. Read first, the
+        # window shrinks to the few lines since the thread start. What is left:
+        # a push-to-talk dictation that FAILS during the conversion keeps its
+        # (newer) marker -- the prune below spares it and the next start offers
+        # it -- but this start arms the older pending recording. Own try/except
+        # so a fault in one source can never suppress the other.
+        try:
+            salvaged = recover_salvaged_recordings()
+        except Exception as e:
+            logger.error(f"Clean-exit salvage recovery failed: {e}", exc_info=True)
+            salvaged = []
+
         # Convert sidecars left over from a crash (#49 layer 3). Placed
         # before hotkey registration on purpose: no hotkey recording can start
         # while this converts, and the retry slot is armed below before the
@@ -2942,21 +3005,14 @@ class ThoughtborneApp:
         except Exception as e:
             logger.error(f"Startup recovery failed: {e}", exc_info=True)
             recovered = []
-        # Clean-exit salvages (#106) join the same retry pipeline as hard-kill
-        # recoveries -- both are audio saved but not transcribed. Own try/except
-        # so a fault in one source can never suppress the other.
-        try:
-            salvaged = recover_salvaged_recordings()
-        except Exception as e:
-            logger.error(f"Clean-exit salvage recovery failed: {e}", exc_info=True)
-            salvaged = []
         # Merge both untranscribed-audio sources into one retry pipeline, sorted
-        # by timestamp (fixed-width, so lexicographic == chronological). De-dup by
-        # archive path (#114): a freshly kill-recovered file appears BOTH in the
-        # recover_partial_files() return AND -- via the marker that recovery just
-        # wrote -- in the recover_salvaged_recordings() read of this same start.
-        # The recovered entry precedes its marker echo (stable sort), so the exact
-        # duration is the one kept.
+        # by timestamp (fixed-width, so lexicographic == chronological). The
+        # markers were read before the conversion, so a freshly kill-recovered
+        # file arrives only through recover_partial_files()'s return, with its
+        # exact duration; the marker that recovery just wrote is first read on
+        # the next start. The de-dup by archive path is therefore a no-op guard
+        # now -- it was load-bearing while the read came second (#114) -- and
+        # `recovered` stays listed first, so a timestamp tie orders as before.
         merged = sorted(recovered + salvaged, key=lambda t: t[2])
         pending, seen = [], set()
         for entry in merged:
@@ -2968,8 +3024,9 @@ class ThoughtborneApp:
         # hard kill", everything else "saved but not transcribed". Derived from the
         # stem (not list identity) so it stays correct on the 2nd+ restart, when a
         # kill file is re-armed from its persistent marker rather than a .partial.
-        # "Everything else" now spans clean-exit, in-session transcription failure
-        # and device-loss salvage (#114); the marker carries no origin, so the
+        # "Everything else" now spans clean-exit, in-session transcription
+        # failure, device-loss salvage (#114) and a transcription the process
+        # ended in the middle of (#259); the marker carries no origin, so the
         # panel's detail line is deliberately origin-neutral (just when/duration).
         newest_clean_exit = bool(pending) and not _RECOVERED_ARCHIVE_RE.match(
             Path(pending[-1][0]).name)

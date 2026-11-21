@@ -17,7 +17,7 @@ extended, narrowed, reversed or retired. The entries themselves stay the detail.
 
 | ID | Decision | Status |
 | --- | --- | --- |
-| D-001 | Untranscribed-recording recovery: remind once, keep it retryable | Active; extended 2026-07-22 (#138/#159) and 2026-08-15 (#179) |
+| D-001 | Untranscribed-recording recovery: remind once, keep it retryable | Active; extended 2026-07-22 (#138/#159), 2026-08-15 (#179) and 2026-11-21 (#259) |
 | D-002 | Settings app: how it writes config, and when the tool sees changes | Active; the 2026-08-16 addenda drop the `defaults.api` diff for this surface (#198) and narrow the no-coordination clause (#202); extended 2026-08-25 (#233); narrowed 2026-09-19 by D-026 — backup-then-overwrite, abort only on a failed backup, invalid owned values normalize on save, the blank-key guard retired |
 | D-003 | Typed inserts are capped at 4,000 characters, not repaired | Active |
 | D-004 | A second instance refuses rather than running deaf | Active; narrowed 2026-09-07 (#269) — the developer opt-out is read from the install directory's `.env` only, per D-017 |
@@ -120,6 +120,26 @@ follows:
   call, so the recording stays on the cautious, retryable FAILED side and is never
   turned into a NO SPEECH verdict. Not a supersede; extends the addendum's own
   reason enumeration.
+- **2026-11-21 addendum (#259).** A fifth source joins the four the opening
+  paragraph lists: a recording whose transcription was still running when the
+  process ended — by the exit hotkey, a settings-app restart, Ctrl+C, a closed
+  console, a crash or a kill. The marker is now written *before* transcribing, as
+  soon as the archive MP3 exists and before the crash-safety sidecar is dropped,
+  and removed once a transcript comes back or the run earns the NO SPEECH
+  verdict. So the "empty is a final verdict" clause's "writes no marker in the
+  first place" now reads "leaves no marker behind"; the outcome is unchanged.
+  Within a session the early marker arms nothing — only a start reads markers —
+  so a dictation still in flight is never retried on top of itself. The single
+  slot holds: with several dictations in flight at the end, the newest is offered
+  and the older ones stay in `history/audio/`; by the same rule a dictation in
+  flight at the end supersedes an older failed one. A transcript that was saved
+  but never inserted — queued behind a hung earlier dictation, or arriving after
+  the exit hotkey stopped the output — is not a retry case: its text is in
+  `history/transcripts/`, and re-transcribing would be the wrong remedy. One
+  narrow edge is accepted without bookkeeping: a successful retry of a newer
+  recording also prunes the marker of an older dictation still in flight.
+  Maintainer-instructed 2026-11-21. Not a supersede — this extends D-001's own
+  enumeration of sources.
 
 Do not reintroduce: a per-start nag, a pending count in the panel, a
 consume-on-read marker (breaks cross-restart retry), or any automatic deletion of
