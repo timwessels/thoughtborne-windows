@@ -238,12 +238,13 @@ code {
   padding: 0.42rem 0.7rem 0.42rem 0.9rem; border: 1px solid var(--term-line); border-radius: 8px;
   background: rgba(222,231,237,.03); line-height: 1.45;
 }
-.ip-opt-head { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+.ip-opt-head { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; font-weight: 700; }
 .ip-panel .ip-opt-head a { color: var(--term-text); text-decoration-color: var(--term-line); }
 .ip-panel .ip-opt-head a:hover { text-decoration-color: currentColor; }
 .ip-tag {
   font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.2;
   padding: 0.22em 0.55em; border-radius: 999px; border: 1px solid var(--term-dim); color: var(--term-dim);
+  white-space: nowrap;
 }
 .ip-tag-free { color: var(--term); background: var(--accent); border-color: var(--accent); }
 .ip-panel .ip-opt-btn {
@@ -268,6 +269,23 @@ code {
 .btn-ghost:hover { border-color: var(--ink); background: var(--panel); }
 @media (prefers-color-scheme: dark) { .btn-primary:hover { background: #C4D6E2; } }
 .get-started .actions { justify-content: flex-start; }
+
+.release-note {
+  margin: clamp(2rem, 4.5vw, 2.75rem) auto 0; text-align: left;
+  padding: 1rem 1.2rem 1.05rem;
+  background: var(--panel);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent-deep);
+  border-radius: 8px;
+}
+.rn-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; }
+.rn-tag {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2;
+  padding: 0.28em 0.65em; border-radius: 999px; background: var(--accent-deep); color: var(--paper);
+}
+.rn-title { font-size: 1.02rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; color: var(--ink); }
+.release-note p { font-size: 0.93rem; line-height: 1.6; color: var(--ink-soft); margin-top: 0.6rem; }
+.release-note .rn-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.3rem 1.25rem; font-size: 0.88rem; margin-top: 0.75rem; }
+.rn-by { color: var(--ink); font-weight: 600; }
 
 .section { padding-block: clamp(3rem, 7vw, 4.75rem); }
 .prose { max-width: var(--measure); }

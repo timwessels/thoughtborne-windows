@@ -180,6 +180,12 @@ it: both Soniox engines stay, and dictating free of charge on Groq works as befo
   tool worked with, and the second encode drops out of the wait for every engine. In the
   maintainer's logs it took about 0.2 s on a dictation of one to three minutes and about
   1.3 s beyond six minutes.
+- **The website describes 1.3.** Both start pages now name ElevenLabs Scribe as the
+  fifth engine: in the feature list, among the sign-up tiles, in the cost section (list
+  price $0.20 per hour of audio) and in the questions section. They say that ElevenLabs
+  may use what it receives for training until you switch that off in your account, and a
+  short note under the install box announces the release. The terminal screenshot still
+  shows the four-engine lineup of 1.2.0.
 
 ### Fixed
 

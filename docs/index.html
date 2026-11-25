@@ -60,7 +60,7 @@
 </script>
 <!-- ?v= is a cache-buster: bump it whenever style.css changes shape, so a
      stale cached sheet can never style the new markup (site-v4 idea). -->
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 <noscript><style>.ip-tabs { display: none; } .ip-panel[hidden] { display: block; }</style></noscript>
 </head>
 <body>
@@ -145,6 +145,11 @@
             <span class="ip-opt-text">Bessere Qualität der Spracherkennung</span>
             <a class="ip-opt-btn" href="https://console.soniox.com/signup/" target="_blank" rel="noopener">Anmelden</a>
           </li>
+          <li>
+            <span class="ip-opt-head"><a href="https://elevenlabs.io/" target="_blank" rel="noopener">ElevenLabs</a> <span class="ip-tag">Tarif oder Guthaben</span></span>
+            <span class="ip-opt-text">Im Test die besten Ergebnisse; <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.de.md#api-keys" target="_blank" rel="noopener">Training vorher im Konto abschalten</a></span>
+            <a class="ip-opt-btn" href="https://elevenlabs.io/app/sign-up" target="_blank" rel="noopener">Anmelden</a>
+          </li>
         </ul>
         <p class="ip-more"><a href="#kosten">Mehr Infos</a></p>
       </div>
@@ -169,6 +174,16 @@
       <a class="btn btn-primary" href="https://github.com/timwessels/thoughtborne-windows" target="_blank" rel="noopener">Auf GitHub ansehen</a>
       <a class="btn btn-ghost" href="#los-gehts">Mehr zum Setup</a>
     </p>
+
+    <!-- Rewritten with each release; the twin lives in en/index.html. -->
+    <aside class="release-note" aria-labelledby="rn-title">
+      <div class="rn-head">
+        <span class="rn-tag">Neu</span>
+        <h2 class="rn-title" id="rn-title">Version 1.3 veröffentlicht</h2>
+      </div>
+      <p>Mein Anspruch an Thoughtborne: immer das beste Modell fürs Diktieren auf Deutsch. In meinen Tests lieferte das neue <a href="https://elevenlabs.io/blog/scribe-v3" target="_blank" rel="noopener">Scribe v3 von ElevenLabs</a> noch bessere Ergebnisse als Soniox. Deshalb ist es jetzt zusätzlich integriert, zusammen mit weiteren Verbesserungen. Völlig kostenlos diktieren kannst du weiterhin über den Anbieter Groq.</p>
+      <p class="rn-foot"><span>– <a class="rn-by" href="https://github.com/timwessels" target="_blank" rel="noopener">@timwessels</a></span> <a href="https://github.com/timwessels/thoughtborne-windows/releases/tag/v1.3.0" target="_blank" rel="noopener">Was ist neu in 1.3?</a></p>
+    </aside>
   </div>
 
 </header>
@@ -178,7 +193,7 @@
   <section class="shot">
     <div class="wrap">
       <div class="shot-frame">
-        <img src="assets/screenshot-terminal.png?v=3" width="683" height="837" alt="Thoughtborne im Terminal: oben die Bereitschaftsanzeige mit dem Modell-Karussell der vier Engines und der Tastenübersicht, darunter eine Aufnahme vom REC-Hinweis bis zur Bestätigung des eingefügten Texts.">
+        <img src="assets/screenshot-terminal.png?v=3" width="683" height="837" alt="Thoughtborne im Terminal: oben die Bereitschaftsanzeige mit dem Modell-Karussell der Engines und der Tastenübersicht, darunter eine Aufnahme vom REC-Hinweis bis zur Bestätigung des eingefügten Texts.">
       </div>
       <p class="shot-cap"><strong>Bedient wird per Tastenkürzel.</strong> Das Terminal ist kein Bedienfenster, sondern die Anzeige: Es zeigt, welche Engine gerade aktiv ist, welche Tasten belegt sind und was zuletzt passiert ist. Hier wird nichts geklickt – die einzige Ausnahme ist ein kleines Fenster für die Einstellungen.</p>
     </div>
@@ -195,7 +210,7 @@
       <div class="feat-group">
         <p class="feat-group-title">Transkription &amp; Engines</p>
         <ul class="feat-grid">
-          <li><b>Vier Engines, zur Laufzeit umschaltbar</b> – <span>Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> durchgeschaltet, kein Neustart.</span></li>
+          <li><b>Fünf Engines, zur Laufzeit umschaltbar</b> – <span>ElevenLabs Scribe, Soniox Live, Soniox, Groq Whisper Large &amp; Turbo, per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> durchgeschaltet, kein Neustart.</span></li>
           <li><b>Echtzeit-Live-Transkription</b> – <span>Soniox Live streamt schon beim Sprechen; Text liegt ~0,5 s nach dem Loslassen bereit.</span></li>
           <li><b>Deutsche Halluzinationsfilter</b> – <span>modellspezifisch gegen bekannte Speech-Artefakte, gezielt auf Deutsch getrimmt.</span></li>
           <li><b>Füllwortfilter</b> – <span>„ähm“/„äh“ wortgrenzen-sicher raus (schont „ähnlich“), bedeutungstragendes „naja“/„mhm“ bleibt.</span></li>
@@ -257,12 +272,13 @@
 
         <article class="arg">
           <span class="arg-num">02</span>
-          <h3>Kein Abo. Gratis-Pfad oder ~3 $/Monat bei Vielnutzung.</h3>
+          <h3>Kein Abo nötig. Gratis-Pfad oder ~3 $/Monat bei Vielnutzung.</h3>
           <p class="arg-lead">Du bringst eigene API-Keys mit und zahlst nur, was du verbrauchst – ein Bruchteil der 12–15 $/Monat der Abo-Tools.</p>
           <ul class="arg-evidence">
             <li><strong>Groq-Free-Tier als echter Dauerbetriebsweg</strong>, kein Trial: bis zu ~8 Stunden Audio am Tag.</li>
             <li>Soniox: 0,12 $ pro Stunde Audio, Prepaid.</li>
-            <li><strong>~3 $/Monat gemessen, nicht geschätzt</strong> – der Maintainer bei ~25 h Audio im Monat.</li>
+            <li>ElevenLabs Scribe: Listenpreis 0,20 $ pro Stunde Audio – über einen Monatstarif oder, laut ElevenLabs, als Guthaben ohne Tarif.</li>
+            <li><strong>~3 $/Monat gemessen, nicht geschätzt</strong> – der Maintainer mit Soniox bei ~25 h Audio im Monat.</li>
           </ul>
         </article>
 
@@ -272,14 +288,14 @@
           <p class="arg-lead">Kein Vertrauen-müssen in eine Datenschutzerklärung – du kannst selbst nachlesen, wohin dein Audio geht.</p>
           <ul class="arg-evidence">
             <li>Audio geht <strong>nur an die von dir gewählte API</strong>, sonst nirgendwohin. Archiv liegt lokal auf deiner Platte.</li>
-            <li><strong>Kein Training auf deinen Daten</strong> ist hartes Aufnahmekriterium – APIs ohne Opt-out fliegen raus.</li>
+            <li><strong>Kein Training auf deinen Daten</strong> ist hartes Aufnahmekriterium – APIs ohne Opt-out fliegen raus. Bei ElevenLabs ist das Training zunächst eingeschaltet: Du schaltest es einmal in deinem Konto ab, <a href="https://github.com/timwessels/thoughtborne-windows/blob/main/README.de.md#api-keys" target="_blank" rel="noopener">die README zeigt, wo</a>.</li>
             <li>Open Source, gut lesbarer Code: <strong>selbst nachlesen statt glauben.</strong></li>
           </ul>
         </article>
 
         <article class="arg">
           <span class="arg-num">04</span>
-          <h3>Unabhängig: vier Engines, kein Lock-in.</h3>
+          <h3>Unabhängig: fünf Engines, kein Lock-in.</h3>
           <p class="arg-lead">Wird ein Anbieter schlechter oder teurer, fliegt er aus dem Lineup – du bleibst nie an einem hängen.</p>
           <ul class="arg-evidence">
             <li><strong>Zur Laufzeit umschaltbar</strong> per <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, anbieterneutral kuratiert.</li>
@@ -352,7 +368,7 @@
     <div class="wrap prose">
       <p class="eyebrow" aria-hidden="true">Kosten</p>
       <h2>Was es kostet</h2>
-      <p>Nirgends in diesem Stack ein <strong>Abo</strong>. Du bringst eigene API-Keys mit und zahlst die Nutzungspreise der Anbieter – ein Bruchteil der 12–15 $/Monat, die Abo-Diktiertools verlangen.</p>
+      <p>Thoughtborne selbst kostet nichts, und ein <strong>Abo</strong> brauchst du nirgends. Du bringst eigene API-Keys mit und zahlst die Nutzungspreise der Anbieter – ein Bruchteil der 12–15 $/Monat, die Abo-Diktiertools verlangen.</p>
       <dl class="figures">
         <div>
           <dt><span class="fig-num">0 $</span> <span class="fig-unit">der Groq-Pfad</span></dt>
@@ -360,14 +376,18 @@
         </div>
         <div>
           <dt><span class="fig-num">0,12 $</span> <span class="fig-unit">pro Stunde Audio</span></dt>
-          <dd><strong>Soniox ist der bezahlte Pfad.</strong> Kein Free-Tier: ein kleines Prepaid-Guthaben aufladen und nur zahlen, was du wirklich transkribierst.</dd>
+          <dd><strong>Soniox rechnet nach Verbrauch ab.</strong> Kein Free-Tier: ein kleines Prepaid-Guthaben aufladen und nur zahlen, was du wirklich transkribierst.</dd>
+        </div>
+        <div>
+          <dt><span class="fig-num">0,20 $</span> <span class="fig-unit">pro Stunde Audio, Listenpreis</span></dt>
+          <dd><strong>ElevenLabs Scribe.</strong> ElevenLabs verkauft Scribe über Monatstarife und laut eigener Dokumentation auch als Guthaben ohne Tarif. Schickst du ein eigenes Vokabular mit, kommen 0,05 $ pro Stunde dazu.</dd>
         </div>
         <div>
           <dt><span class="fig-num">~3 $</span> <span class="fig-unit">pro Monat, Vielnutzung</span></dt>
-          <dd><strong>Gemessen, nicht geschätzt.</strong> Der Maintainer diktiert ~25 Stunden Audio im Monat, gemittelt über ein halbes Jahr. Leichtere Nutzung landet bei rund einem Dollar.</dd>
+          <dd><strong>Gemessen, nicht geschätzt.</strong> Mit Soniox, bei ~25 Stunden Audio im Monat, gemittelt über ein halbes Jahr beim Maintainer. Leichtere Nutzung landet bei rund einem Dollar.</dd>
         </div>
       </dl>
-      <p class="cost-note">Eine ehrliche Anmerkung: Der Qualitätsmaßstab oben – Deutsch gut genug zum ungelesen Abschicken – ist an der bezahlten Soniox-Engine gemessen. Die Groq-Engines sind stark; die Messlatte hängt an Soniox.</p>
+      <p class="cost-note">Eine ehrliche Anmerkung: Der Qualitätsmaßstab oben – Deutsch gut genug zum ungelesen Abschicken – ist an den bezahlten Engines gemessen, ElevenLabs Scribe und Soniox. Die Groq-Engines sind stark; die Messlatte hängt an diesen beiden.</p>
     </div>
   </section>
 
@@ -396,7 +416,7 @@
       <div class="faq-list">
         <div>
           <h3>Was ist Thoughtborne?</h3>
-          <p>Thoughtborne ist eine kostenlose Open-Source-Diktiersoftware für Windows (MIT-Lizenz). Du drückst eine Tastenkombination, sprichst, und der Text steht an der Cursorposition – in jeder App. Die Spracherkennung (Speech-to-Text) übernimmt wahlweise Soniox oder Whisper über Groq, jeweils mit deinem eigenen API-Key.</p>
+          <p>Thoughtborne ist eine kostenlose Open-Source-Diktiersoftware für Windows (MIT-Lizenz). Du drückst eine Tastenkombination, sprichst, und der Text steht an der Cursorposition – in jeder App. Die Spracherkennung (Speech-to-Text) übernimmt wahlweise ElevenLabs Scribe, Soniox oder Whisper über Groq, jeweils mit deinem eigenen API-Key.</p>
         </div>
         <div>
           <h3>Funktioniert Thoughtborne offline?</h3>
