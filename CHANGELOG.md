@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-25
+
+The recommended release — it supersedes 1.2.0.
+
+**Why this release.** Thoughtborne's aim is to offer, at any time, the best available
+model for dictating in German. In the maintainer's testing, ElevenLabs' new Scribe v3
+gave even better results than Soniox: as accurate in his measurement on real German
+dictations, clearly quicker, and with text that comes back tidied. So it joins the
+lineup as a fifth engine and is the new built-in default. Nothing was taken away for
+it: both Soniox engines stay, and dictating free of charge on Groq works as before.
+
+**The highlights**, each with its full entry below:
+
+- **ElevenLabs Scribe v3 is the fifth engine and the new default (#343).** It needs a
+  key of its own, and you should switch off model training in your ElevenLabs account
+  before you use it. Without an ElevenLabs key, the tool starts where it did before.
+- **If you dictate with Soniox Live, update before 15 January 2027 (#341).** From that
+  day Soniox refuses the way 1.2.0 and earlier sign in to a live session, so
+  `soniox-live` stops working in those versions. 1.3.0 signs in the new way.
+- **Both Soniox engines run on Soniox v6 (#342),** and the `soniox` file engine answers
+  about two seconds sooner on short dictations.
+- **The text arrives sooner on every engine (#345):** a clipboard insert finishes 0.4 s
+  sooner, Soniox Live hands over the text about a second sooner, and a recording is no
+  longer encoded to MP3 twice.
+- **A dictation stays retryable when the tool ends while it is still being transcribed
+  (#259).**
+- **Python 3.11 is the minimum (#344).** On the standard uv install there is nothing to
+  do.
+
 ### Added
 
 - **ElevenLabs Scribe v3 joins the lineup as a fifth engine (#343).** The new engine,
