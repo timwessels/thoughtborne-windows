@@ -284,6 +284,7 @@ code {
 }
 .rn-title { font-size: 1.02rem; font-weight: 600; line-height: 1.35; letter-spacing: 0; color: var(--ink); }
 .release-note p { font-size: 0.93rem; line-height: 1.6; color: var(--ink-soft); margin-top: 0.6rem; }
+.release-note p strong { color: var(--ink); font-weight: 600; }
 .release-note .rn-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.3rem 1.25rem; font-size: 0.88rem; margin-top: 0.75rem; }
 .rn-by { color: var(--ink); font-weight: 600; }
 

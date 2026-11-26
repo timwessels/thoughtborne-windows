@@ -2231,13 +2231,6 @@ default engine belongs to a provider whose default is the opposite. Rejected:
 The accepted cost: someone who enters an ElevenLabs key without reading sends
 dictations ElevenLabs may train on, and nothing in the tool stops them.
 
-Seen alongside: the default now sits with a provider that sells through monthly
-plans and, according to its documentation, as prepaid credit without one
-(untested here), where `VISION.md` says "Pay for usage, not a subscription" and
-principle 3 asks new backends for "usage-based pricing". Groq and Soniox remain
-the ways in without a plan, and the README and the settings card state
-ElevenLabs' pricing among its conditions.
-
 Do not shorten the notices away, and do not add a gate that pretends to know the
 state of the switch. A provider with no opt-out is still not integrated.
 

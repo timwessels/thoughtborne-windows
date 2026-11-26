@@ -7,16 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **"No subscription" stands unqualified again, and the Scribe verdict reads as the
+  maintainer gave it.** On both start pages and in both READMEs the cost lines say "no
+  subscription" without the added remarks on ElevenLabs' monthly plans; the list prices
+  stay. Where the READMEs and the 1.3.0 notes called Scribe and Soniox equally accurate,
+  they now say what the maintainer found in his testing: Scribe gave even better results
+  than Soniox. The release note on the start pages also names the speed improvements,
+  adds that English comes out in very good quality too, says the free route is Whisper
+  through Groq, and sets its two key phrases in bold.
+
 ## [1.3.0] - 2026-11-25
 
 The recommended release — it supersedes 1.2.0.
 
 **Why this release.** Thoughtborne's aim is to offer, at any time, the best available
 model for dictating in German. In the maintainer's testing, ElevenLabs' new Scribe v3
-gave even better results than Soniox: as accurate in his measurement on real German
-dictations, clearly quicker, and with text that comes back tidied. So it joins the
-lineup as a fifth engine and is the new built-in default. Nothing was taken away for
-it: both Soniox engines stay, and dictating free of charge on Groq works as before.
+gave even better results than Soniox; it is also clearly quicker, and its text comes
+back tidied. So it joins the lineup as a fifth engine and is the new built-in default.
+Nothing was taken away for it: both Soniox engines stay, and dictating free of charge
+on Groq works as before.
 
 **The highlights**, each with its full entry below:
 
@@ -40,9 +51,9 @@ it: both Soniox engines stay, and dictating free of charge on Groq works as befo
 
 - **ElevenLabs Scribe v3 joins the lineup as a fifth engine (#343).** The new engine,
   `elevenlabs`, sends the finished recording to ElevenLabs in one request and gets the
-  text straight back. In the maintainer's own measurement on 25 real German dictations
-  it was on par with the `soniox` engine for accuracy and clearly quicker, most of all
-  on long dictations. It is the one engine that tidies the text: fillers, false starts
+  text straight back. In the maintainer's testing it gave even better results than the
+  `soniox` engine, and in his measurement on 25 real German dictations it was clearly
+  quicker, most of all on long dictations. It is the one engine that tidies the text: fillers, false starts
   and repetitions are dropped and the tone turns a little more formal (German "mal"
   becomes "einmal", short forms are written out). That is a fixed part of the engine,
   not a setting. The `terms` list of your vocabulary is sent along, and ElevenLabs adds
