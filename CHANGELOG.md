@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"No subscription" stands unqualified again, and the Scribe verdict reads as the
   maintainer gave it.** On both start pages and in both READMEs the cost lines say "no
   subscription" without the added remarks on ElevenLabs' monthly plans; the list prices
-  stay. Where the READMEs and the 1.3.0 notes called Scribe and Soniox equally accurate,
+  stay. Where the READMEs, `VISION.md` and the 1.3.0 notes called Scribe and Soniox equally accurate,
   they now say what the maintainer found in his testing: Scribe gave even better results
   than Soniox. The release note on the start pages also names the speed improvements,
   adds that English comes out in very good quality too, says the free route is Whisper

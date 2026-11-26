@@ -96,9 +96,9 @@ reach for the right one:
 - **Most accurate & patient** (today: ElevenLabs Scribe and the Soniox upload
   model — audio is sent after you stop): the whole recording is transcribed in
   one pass, and in my own testing these two make the fewest mistakes of the
-  lineup, with nothing to separate them. Scribe is the quicker of the two and
-  tidies the text; the Soniox model stays about as close to how you spoke as
-  the fast mode, at the price of a longer wait. Even several minutes of audio
+  lineup, with Scribe giving even better results than Soniox. Scribe is also
+  the quicker of the two and tidies the text; the Soniox model stays about as
+  close to how you spoke as the fast mode, at the price of a longer wait. Even several minutes of audio
   come back in well under a minute. The better fit for emails and texts meant
   for humans, or whenever wording matters more than waiting. Neither mode is
   truly "as if typed", though — there's no LLM behind them; the difference is
